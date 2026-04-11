@@ -151,6 +151,10 @@
   },
   "radar": {
     "proBadge": "PRO",
+    "channelsNudgeTitle": "アリーを接続（Telegram）",
+    "channelsNudgeBody": "まだメッセージチャネルを設定していません。設定から Telegram を入れるか、Pro オプションを確認できます。",
+    "channelsNudgeCta": "チャネルと拡張",
+    "channelsNudgeDismiss": "あとで",
     "empty": "意図はまだありません。+ で追加してください。",
     "emptyTitle": "レールは空いています",
     "emptyBody": "リチャージにも、新しい方向を決めるにも、ちょうどいい時間です。準備ができたら + を。",

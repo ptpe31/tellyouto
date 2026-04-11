@@ -151,6 +151,10 @@
   },
   "radar": {
     "proBadge": "PRO",
+    "channelsNudgeTitle": "Relier ton Allié (Telegram)",
+    "channelsNudgeBody": "Tu n’as pas encore configuré de canal messager. Ouvre les réglages pour installer Telegram ou explorer les options Pro.",
+    "channelsNudgeCta": "Canaux & Extensions",
+    "channelsNudgeDismiss": "Plus tard",
     "empty": "Aucune intention pour l’instant. Touche + pour en ajouter une.",
     "emptyTitle": "Ton rail est libre",
     "emptyBody": "C’est le moment idéal pour une recharge douce ou pour tracer une nouvelle direction — touche + quand tu es prêt·e.",

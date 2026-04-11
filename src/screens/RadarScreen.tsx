@@ -1,6 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import { useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -71,6 +73,11 @@ import {
   recordQuickCompleteWithoutCapsule,
 } from '../services/focusHabits';
 import { useWhatsAppInitCelebration } from '../hooks/useWhatsAppInitCelebration';
+import {
+  ONBOARDING_CHANNELS_SKIPPED_KEY,
+  RADAR_CHANNELS_NUDGE_DISMISSED_KEY,
+} from '../data/onboardingFlags';
+import type { AppTabParamList } from '../navigation/types';
 
 type RadarRowProps = {
   item: IntentionRow;
@@ -170,7 +177,8 @@ export function RadarScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation =
+    useNavigation<BottomTabNavigationProp<AppTabParamList, 'Radar'>>();
   const { spectrum } = useUserSpectrum();
   const { connectEnabled, busyIntervals, refreshBusy } = useCalendarIntegration();
   const { shouldWarnForLaunch } = useFocusCalendarConflict();
@@ -197,6 +205,16 @@ export function RadarScreen() {
   const { visible: celebrateWa, dismiss: dismissCelebrateWa } =
     useWhatsAppInitCelebration('radar');
 
+  const [showChannelsNudge, setShowChannelsNudge] = useState(false);
+
+  const refreshChannelsNudge = useCallback(async () => {
+    const [skipped, dismissed] = await Promise.all([
+      AsyncStorage.getItem(ONBOARDING_CHANNELS_SKIPPED_KEY),
+      AsyncStorage.getItem(RADAR_CHANNELS_NUDGE_DISMISSED_KEY),
+    ]);
+    setShowChannelsNudge(skipped === 'true' && dismissed !== 'true');
+  }, []);
+
   const load = useCallback(async () => {
     const list = await listIntentionsDescending();
     setRows(list.filter((r) => r.status !== 'done'));
@@ -205,12 +223,13 @@ export function RadarScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
+      void refreshChannelsNudge();
       if (connectEnabled) void refreshBusy();
       void getQuickCompleteStreak().then(setQuickStreak);
       setAllyTick((n) => n + 1);
       const id = setInterval(() => setAllyTick((n) => n + 1), 60_000);
       return () => clearInterval(id);
-    }, [load, connectEnabled, refreshBusy]),
+    }, [load, connectEnabled, refreshBusy, refreshChannelsNudge]),
   );
 
   useEffect(() => {
@@ -522,6 +541,49 @@ export function RadarScreen() {
             </Button>
           </NeumorphicCard>
         ) : null}
+        {showChannelsNudge ? (
+          <NeumorphicCard
+            style={[
+              styles.channelsNudgeCard,
+              { borderColor: theme.colors.tertiary },
+            ]}
+          >
+            <Text
+              style={[styles.channelsNudgeTitle, { color: theme.colors.onSurface }]}
+            >
+              {t('radar.channelsNudgeTitle')}
+            </Text>
+            <Text
+              style={[
+                styles.channelsNudgeBody,
+                { color: theme.colors.onSurfaceVariant },
+              ]}
+            >
+              {t('radar.channelsNudgeBody')}
+            </Text>
+            <View style={styles.channelsNudgeActions}>
+              <Button
+                mode="contained-tonal"
+                compact
+                onPress={() => {
+                  void AsyncStorage.setItem(RADAR_CHANNELS_NUDGE_DISMISSED_KEY, 'true');
+                  setShowChannelsNudge(false);
+                }}
+              >
+                {t('radar.channelsNudgeDismiss')}
+              </Button>
+              <Button
+                mode="contained"
+                compact
+                onPress={() =>
+                  navigation.navigate('AgentIA', { screen: 'AgentSettings' })
+                }
+              >
+                {t('radar.channelsNudgeCta')}
+              </Button>
+            </View>
+          </NeumorphicCard>
+        ) : null}
         {activeIntention ? (
           <NeumorphicCard style={styles.activeCard}>
             <View style={styles.activeRow}>
@@ -632,6 +694,8 @@ export function RadarScreen() {
       spectrum.isProUser,
       celebrateWa,
       dismissCelebrateWa,
+      showChannelsNudge,
+      navigation,
       openActiveCapsule,
       onVerifyMicro,
       t,
@@ -870,6 +934,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   celebrationText: { fontSize: 15, fontWeight: '600', lineHeight: 22 },
+  channelsNudgeCard: {
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+  },
+  channelsNudgeTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+  channelsNudgeBody: { fontSize: 14, lineHeight: 21, marginBottom: 12 },
+  channelsNudgeActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'flex-end',
+  },
   activeCard: { marginBottom: 12, paddingVertical: 12 },
   microNowCard: {
     marginBottom: 12,

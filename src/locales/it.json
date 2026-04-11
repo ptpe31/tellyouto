@@ -151,6 +151,10 @@
   },
   "radar": {
     "proBadge": "PRO",
+    "channelsNudgeTitle": "Collega l’Alleato (Telegram)",
+    "channelsNudgeBody": "Non hai ancora configurato un canale di messaggistica. Apri le impostazioni per installare Telegram o esplorare le opzioni Pro.",
+    "channelsNudgeCta": "Canali ed estensioni",
+    "channelsNudgeDismiss": "Più tardi",
     "empty": "Nessuna intenzione. Tocca + per aggiungerne una.",
     "emptyTitle": "Il tuo binario è libero",
     "emptyBody": "Un buon momento per ricaricare con dolcezza o impostare una nuova direzione — tocca + quando vuoi.",

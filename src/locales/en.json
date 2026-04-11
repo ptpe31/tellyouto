@@ -151,6 +151,10 @@
   },
   "radar": {
     "proBadge": "PRO",
+    "channelsNudgeTitle": "Connect your Ally (Telegram)",
+    "channelsNudgeBody": "You haven’t set up a messaging channel yet. Open settings to install Telegram or explore Pro options.",
+    "channelsNudgeCta": "Channels & extensions",
+    "channelsNudgeDismiss": "Not now",
     "empty": "No intentions yet. Tap + to add one.",
     "emptyTitle": "Your rail is clear",
     "emptyBody": "A gentle moment to recharge or set a new direction — tap + when you feel ready.",

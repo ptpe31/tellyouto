@@ -151,6 +151,10 @@
   },
   "radar": {
     "proBadge": "PRO",
+    "channelsNudgeTitle": "Conecta a tu Aliado (Telegram)",
+    "channelsNudgeBody": "Aún no has configurado un canal de mensajería. Abre los ajustes para instalar Telegram o explorar opciones Pro.",
+    "channelsNudgeCta": "Canales y extensiones",
+    "channelsNudgeDismiss": "Ahora no",
     "empty": "Sin intenciones aún. Pulsa + para añadir una.",
     "emptyTitle": "Tu riel está libre",
     "emptyBody": "Un buen momento para recargar con calma o trazar una nueva dirección — pulsa + cuando quieras.",

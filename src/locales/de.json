@@ -151,6 +151,10 @@
   },
   "radar": {
     "proBadge": "PRO",
+    "channelsNudgeTitle": "Allied verbinden (Telegram)",
+    "channelsNudgeBody": "Du hast noch keinen Messenger-Kanal eingerichtet. Öffne die Einstellungen, um Telegram zu installieren oder Pro zu entdecken.",
+    "channelsNudgeCta": "Kanäle & Erweiterungen",
+    "channelsNudgeDismiss": "Später",
     "empty": "Noch keine Intentionen. Tippe + zum Hinzufügen.",
     "emptyTitle": "Deine Schiene ist frei",
     "emptyBody": "Ein guter Moment für eine sanfte Pause oder eine neue Richtung — tippe auf +, wenn es passt.",

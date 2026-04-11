@@ -16,6 +16,10 @@ import { OnboardingScreen, ProSubscriptionScreen } from '../screens';
 import { MainStack } from './MainStack';
 import { rootNavigationRef } from './rootNavigationRef';
 import type { RootStackParamList } from './types';
+import {
+  ONBOARDING_CHANNELS_SKIPPED_KEY,
+  RADAR_CHANNELS_NUDGE_DISMISSED_KEY,
+} from '../data/onboardingFlags';
 import { markAppInteractive } from '../services/performance';
 
 const ONBOARDING_KEY = '@tellyouto/onboarding_complete';
@@ -47,7 +51,12 @@ function RootNavigatorInner() {
   }, [ready, initialRoute]);
 
   const resetProfileToOnboarding = useCallback(async () => {
-    await AsyncStorage.multiRemove([ONBOARDING_KEY, USER_SPECTRUM_STORAGE_KEY]);
+    await AsyncStorage.multiRemove([
+      ONBOARDING_KEY,
+      USER_SPECTRUM_STORAGE_KEY,
+      ONBOARDING_CHANNELS_SKIPPED_KEY,
+      RADAR_CHANNELS_NUDGE_DISMISSED_KEY,
+    ]);
     resetSpectrum();
     if (rootNavigationRef.isReady()) {
       rootNavigationRef.reset({

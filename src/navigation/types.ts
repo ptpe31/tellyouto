@@ -1,3 +1,7 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
+
+import type { AgentStackParamList } from './AgentStack';
+
 export type FocusCapsuleMode = 'chrono' | 'pomodoro';
 
 export type RootStackParamList = {
@@ -14,7 +18,7 @@ export type MainStackParamList = {
 export type AppTabParamList = {
   Radar: { from?: string } | undefined;
   Timeline: { from?: string } | undefined;
-  AgentIA: undefined;
+  AgentIA: NavigatorScreenParams<AgentStackParamList> | undefined;
   Recharge: undefined;
   Messaging: undefined;
   Stats: undefined;

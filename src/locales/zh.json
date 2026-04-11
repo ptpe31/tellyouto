@@ -151,6 +151,10 @@
   },
   "radar": {
     "proBadge": "PRO",
+    "channelsNudgeTitle": "连接盟友（Telegram）",
+    "channelsNudgeBody": "你尚未配置消息通道。打开设置以安装 Telegram 或了解 Pro 选项。",
+    "channelsNudgeCta": "频道与扩展",
+    "channelsNudgeDismiss": "稍后",
     "empty": "暂无意图。点按 + 添加。",
     "emptyTitle": "轨道是空的",
     "emptyBody": "很适合轻轻充电或定下新方向 — 准备好时点 +。",
