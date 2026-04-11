@@ -23,11 +23,14 @@ import {
 } from '../data/onboardingSituations';
 import {
   listPrivateChannelIds,
+  isPremiumPrivateChannel,
   type PrivateChannelId,
   resolvePrivateChannelBotUrl,
   savePrivateChannelChoice,
 } from '../data/privateChannels';
 import { NeumorphicCard, NeumorphicSurface } from '../components';
+import { PassProModal } from '../components/PassProModal';
+import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TELEGRAM_BRAND_BLUE } from '../config/telegramBrand';
@@ -84,8 +87,20 @@ export function OnboardingScreen({ onComplete }: Props) {
     null,
   );
   const [showTelegramReward, setShowTelegramReward] = useState(false);
+  const [passProVisible, setPassProVisible] = useState(false);
   const pendingTelegramInstallReward = useRef(false);
   const waHintOpacity = useRef(new Animated.Value(1)).current;
+
+  const trySelectChannel = useCallback(
+    (id: PrivateChannelId) => {
+      if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
+        setPassProVisible(true);
+        return;
+      }
+      setSelectedChannel(id);
+    },
+    [spectrum.isProUser],
+  );
 
   const checkTelegramInstalled = useCallback(async () => {
     try {
@@ -184,6 +199,7 @@ export function OnboardingScreen({ onComplete }: Props) {
       messenger_reminders_enabled: true,
       messenger_reminder_lead_minutes: 5,
       ad_free_until_ms: spectrum.ad_free_until_ms ?? undefined,
+      is_pro_user: spectrum.isProUser || undefined,
     });
     onComplete();
   };
@@ -332,7 +348,7 @@ export function OnboardingScreen({ onComplete }: Props) {
             return (
               <Pressable
                 key={id}
-                onPress={() => setSelectedChannel(id)}
+                onPress={() => trySelectChannel(id)}
                 style={({ pressed }) => [
                   styles.channelRow,
                   {
@@ -367,6 +383,11 @@ export function OnboardingScreen({ onComplete }: Props) {
                         {t('onboarding.privateChannel.recommended')}
                       </Text>
                     </View>
+                  ) : null}
+                  {isPremiumPrivateChannel(id) && !spectrum.isProUser ? (
+                    <NeumorphicSurface style={styles.lockChip}>
+                      <Text style={styles.lockEmoji}>🔒</Text>
+                    </NeumorphicSurface>
                   ) : null}
                 </View>
                 {isWa ? (
@@ -508,6 +529,16 @@ export function OnboardingScreen({ onComplete }: Props) {
           </Button>
         </NeumorphicCard>
       </ScrollView>
+      <PassProModal
+        visible={passProVisible}
+        onDismiss={() => setPassProVisible(false)}
+        onOpenSubscription={() => {
+          setPassProVisible(false);
+          if (rootNavigationRef.isReady()) {
+            rootNavigationRef.navigate('ProSubscription');
+          }
+        }}
+      />
       <Portal>
         {showTelegramReward ? (
           <View style={styles.rewardOverlay}>
@@ -647,6 +678,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   recommendedPillText: { color: '#ffffff', fontSize: 11, fontWeight: '700' },
+  lockChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  lockEmoji: { fontSize: 14 },
   channelSecondary: { fontSize: 12, marginTop: 6, lineHeight: 17 },
   channelHint: { fontSize: 12, marginTop: 6 },
   giftBadge: {

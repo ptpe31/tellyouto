@@ -1,7 +1,12 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 
-import { formatBotRailAck, formatBotRechargeAck, formatBotWelcomeConnect } from './botLocales';
+import {
+  formatBotPremiumChannelDenied,
+  formatBotRailAck,
+  formatBotRechargeAck,
+  formatBotWelcomeConnect,
+} from './botLocales';
 import { buildDeepLink, sendBotReply } from './botReply';
 import {
   extractHandshakeFirstName,
@@ -120,6 +125,37 @@ export async function handleBotWebhook(
   }
 
   const deviceRef = firestore.collection('devices').doc(deviceId.trim());
+
+  const deviceSnapPre = await deviceRef.get();
+  const dPre = deviceSnapPre.data() ?? {};
+  const isPro = dPre.is_pro_user === true;
+  const locPre =
+    typeof dPre.locale === 'string' && dPre.locale.trim()
+      ? dPre.locale.trim()
+      : 'fr';
+  const fnPre =
+    typeof dPre.first_name === 'string' && dPre.first_name.trim()
+      ? dPre.first_name.trim()
+      : '';
+
+  /** WhatsApp / Slack / LINE réservés aux comptes Pro (Telegram reste gratuit). */
+  if (
+    !isPro &&
+    (parsed.channel === 'whatsapp' ||
+      parsed.channel === 'slack' ||
+      parsed.channel === 'line')
+  ) {
+    const msg = formatBotPremiumChannelDenied(locPre, fnPre);
+    await sendBotReply(parsed.channel, parsed.messengerUserId, msg);
+    const messengerMetaDenied = {
+      last_messenger_channel: parsed.channel,
+      last_messenger_user_id: parsed.messengerUserId,
+      last_messenger_updated_at: Date.now(),
+    };
+    await deviceRef.set(messengerMetaDenied, { merge: true });
+    res.status(200).json({ ok: true, premium_channel_requires_pro: true });
+    return;
+  }
 
   const messengerMeta = {
     last_messenger_channel: parsed.channel,

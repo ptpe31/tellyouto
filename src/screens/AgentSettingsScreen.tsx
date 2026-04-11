@@ -21,14 +21,32 @@ import {
 } from 'react-native-paper';
 
 import { SafeExternalLink } from '../components/SafeExternalLink';
-import { CalendarGranularSection, NeumorphicCard } from '../components';
+import {
+  CalendarGranularSection,
+  NeumorphicCard,
+  NeumorphicSurface,
+} from '../components';
+import { PassProModal } from '../components/PassProModal';
 import { IS_PRODUCTION } from '../config/appConfig';
 import { useDebugUnlock } from '../context/DebugUnlockContext';
 import { useAlly, type AllyTone, type AllyVoice } from '../context/AllyContext';
 import type { AppLanguage } from '../context/LanguageContext';
 import { useLanguage } from '../context/LanguageContext';
+import {
+  isPremiumPrivateChannel,
+  listPrivateChannelIds,
+  type PrivateChannelId,
+  savePrivateChannelChoice,
+  getStoredPrivateChannelId,
+} from '../data/privateChannels';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import type { AgentStackParamList } from '../navigation/AgentStack';
+import {
+  buildTelegramStartLink,
+  buildWhatsAppRailDeepLink,
+} from '../services/connectorLinks';
+import { getOrCreateDeviceId } from '../api/syncService';
 
 const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
 
@@ -61,6 +79,10 @@ export function AgentSettingsScreen() {
     useLanguage();
   const { voice, tone, setVoice, setTone } = useAlly();
   const { spectrum, applyMessengerReminderPrefs } = useUserSpectrum();
+  const [passProVisible, setPassProVisible] = useState(false);
+  const [channelChoice, setChannelChoice] = useState<PrivateChannelId | null>(
+    null,
+  );
   const [leadDraft, setLeadDraft] = useState(
     String(spectrum.messenger_reminder_lead_minutes),
   );
@@ -68,6 +90,35 @@ export function AgentSettingsScreen() {
   useEffect(() => {
     setLeadDraft(String(spectrum.messenger_reminder_lead_minutes));
   }, [spectrum.messenger_reminder_lead_minutes]);
+
+  useEffect(() => {
+    void (async () => {
+      const id = await getStoredPrivateChannelId();
+      setChannelChoice(id);
+    })();
+  }, []);
+
+  const trySelectChannel = (id: PrivateChannelId) => {
+    if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
+      setPassProVisible(true);
+      return;
+    }
+    void (async () => {
+      const uid = await getOrCreateDeviceId();
+      if (id === 'telegram') {
+        await savePrivateChannelChoice(id, buildTelegramStartLink(uid));
+      } else if (id === 'whatsapp') {
+        const name = spectrum.first_name?.trim() || 'toi';
+        await savePrivateChannelChoice(
+          id,
+          buildWhatsAppRailDeepLink(name, uid),
+        );
+      } else {
+        await savePrivateChannelChoice(id);
+      }
+      setChannelChoice(id);
+    })();
+  };
   const voiceOptions: { value: AllyVoice; label: string }[] = [
     { value: 'balanced', label: t('ally.voice.balanced') },
     { value: 'warm', label: t('ally.voice.warm') },
@@ -137,6 +188,69 @@ export function AgentSettingsScreen() {
           {t('ally.messengerRemindersHint')}
         </Text>
       </NeumorphicCard>
+
+      <NeumorphicCard style={styles.block}>
+        <Text style={[styles.section, { color: theme.colors.primary }]}>
+          {t('settings.privateChannelTitle')}
+        </Text>
+        <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>
+          {t('settings.privateChannelSubtitle')}
+        </Text>
+        {listPrivateChannelIds().map((id) => {
+          const selected = channelChoice === id;
+          const locked = isPremiumPrivateChannel(id) && !spectrum.isProUser;
+          return (
+            <Pressable
+              key={id}
+              onPress={() => trySelectChannel(id)}
+              style={({ pressed }) => [
+                styles.channelRow,
+                {
+                  borderColor: selected ? theme.colors.primary : theme.colors.outline,
+                  opacity: pressed ? 0.92 : 1,
+                },
+              ]}
+            >
+              <View style={styles.channelRowInner}>
+                <Text style={{ color: theme.colors.onSurface, fontWeight: '600' }}>
+                  {t(`onboarding.privateChannel.platforms.${id}`)}
+                </Text>
+                {locked ? (
+                  <NeumorphicSurface style={styles.lockChip}>
+                    <Text style={styles.lockEmoji}>🔒</Text>
+                  </NeumorphicSurface>
+                ) : null}
+              </View>
+              {id === 'whatsapp' ? (
+                <Text style={[styles.channelHint, { color: theme.colors.error }]}>
+                  {t('onboarding.privateChannel.whatsappCostHint')}
+                </Text>
+              ) : null}
+              {(id === 'line' || id === 'slack') && (
+                <Text
+                  style={[
+                    styles.channelHint,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {t('onboarding.privateChannel.proChannelsHint')}
+                </Text>
+              )}
+            </Pressable>
+          );
+        })}
+      </NeumorphicCard>
+
+      <PassProModal
+        visible={passProVisible}
+        onDismiss={() => setPassProVisible(false)}
+        onOpenSubscription={() => {
+          setPassProVisible(false);
+          if (rootNavigationRef.isReady()) {
+            rootNavigationRef.navigate('ProSubscription');
+          }
+        }}
+      />
 
       <NeumorphicCard style={styles.block}>
         <Text style={[styles.section, { color: theme.colors.primary }]}>
@@ -277,6 +391,24 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   versionText: { fontSize: 12, letterSpacing: 0.2 },
+  channelRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+  },
+  channelRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  channelHint: { fontSize: 12, marginTop: 6, lineHeight: 17 },
+  lockChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  lockEmoji: { fontSize: 14 },
   legalRow: { paddingVertical: 4 },
   legalLink: { fontSize: 15, fontWeight: '600' },
   reminderRow: {

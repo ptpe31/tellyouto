@@ -14,6 +14,27 @@
     "copyLink": "复制链接",
     "copyAll": "复制全部链接"
   },
+  "settings": {
+    "privateChannelTitle": "私人频道",
+    "privateChannelSubtitle": "包含 Telegram；WhatsApp、Slack、LINE 需 Pro。"
+  },
+  "pro": {
+    "modalTitle": "解锁全部能力",
+    "modalPrice": "9.99€ / 月",
+    "modalLead": "升级 Pro 解锁高级频道并永久免广告。",
+    "benefit1": "WhatsApp 不限量",
+    "benefit2": "零广告",
+    "benefit3": "优先支持",
+    "benefit4": "访问全部例行程序",
+    "modalLater": "稍后",
+    "modalCta": "升级 Pro",
+    "screenKicker": "订阅",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "多渠道、无广告、优先支持。",
+    "devNote": "开发版：按钮模拟订阅，无需付款。",
+    "subscribeGold": "订阅 — 9.99€ / 月",
+    "back": "关闭"
+  },
   "onboarding": {
     "firstName": {
       "title": "怎么称呼你？",
@@ -69,7 +90,7 @@
       "explainBot": "你不是在拨打 +33 这类号码：机器人绑定你的设备与所选应用 — 一切留在 TellYouTo 空间内。",
       "telegramPitch": "Telegram 语音体验好、隐私强。这是盟友的 100% 免费通道。",
       "recommended": "推荐",
-      "telegramGiftBadge": "🎁 好礼：安装 Telegram，享 15 天无广告模式！",
+      "telegramGiftBadge": "安装 Telegram 试用盟友，享 15 天免广告",
       "telegramReady": "通道已就绪。",
       "whatsappCostHint": "可能产生服务费或意图配额限制。",
       "proChannelsHint": "专业 / 团队选项",
@@ -97,6 +118,7 @@
     }
   },
   "radar": {
+    "proBadge": "PRO",
     "empty": "暂无意图。点按 + 添加。",
     "emptyTitle": "轨道是空的",
     "emptyBody": "很适合轻轻充电或定下新方向 — 准备好时点 +。",
@@ -225,6 +247,7 @@
     "factoryResetHealthWarn": "数据库已重建，但 SQLite 健康检查报告异常。",
     "busyProfile": "正在重置档案…",
     "busySqlite": "SQLite…",
+    "proUserToggle": "模拟 Pro（本地 + 同步）",
     "sectionSpectrum": "UserSpectrumContext（原始）",
     "sectionPower": "PowerContext（原始）",
     "simSectionTitle": "外部入口模拟",

@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Button, useTheme } from 'react-native-paper';
+import { Button, Switch, useTheme } from 'react-native-paper';
 
 import { CalendarGranularSection } from '../components';
 import { LineConnector, WhatsAppConnector } from '../api/connectors';
@@ -28,7 +28,7 @@ import { palette } from '../theme/colors';
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { spectrum } = useUserSpectrum();
+  const { spectrum, setProUser } = useUserSpectrum();
   const power = usePower();
   const { resetProfileToOnboarding } = useOnboardingReset();
   const [busy, setBusy] = useState<
@@ -410,6 +410,17 @@ export function DebugScreen() {
       <Text style={[styles.blockTitle, { color: theme.colors.primary }]}>
         {t('debug.sectionSpectrum')}
       </Text>
+      <View style={[styles.switchRow, styles.switchRowSecond]}>
+        <View style={styles.switchLabelCol}>
+          <Text style={[styles.switchTitle, { color: theme.colors.onSurface }]}>
+            {t('debug.proUserToggle')}
+          </Text>
+        </View>
+        <Switch
+          value={spectrum.isProUser === true}
+          onValueChange={(v) => void setProUser(v)}
+        />
+      </View>
       <Text
         style={[styles.mono, { color: theme.colors.onSurface }]}
         selectable

@@ -14,6 +14,27 @@
     "copyLink": "Link kopieren",
     "copyAll": "Alle Links kopieren"
   },
+  "settings": {
+    "privateChannelTitle": "Privater Kanal",
+    "privateChannelSubtitle": "Telegram ist enthalten; WhatsApp, Slack und LINE erfordern Pro."
+  },
+  "pro": {
+    "modalTitle": "Volle Leistung freischalten",
+    "modalPrice": "9,99 € / Monat",
+    "modalLead": "Mit Pro schaltest du Premium-Kanäle frei und bleibst dauerhaft werbefrei.",
+    "benefit1": "Unbegrenztes WhatsApp",
+    "benefit2": "Keine Werbung",
+    "benefit3": "Priorisierter Support",
+    "benefit4": "Zugang zu allen Routinen",
+    "modalLater": "Später",
+    "modalCta": "Pro werden",
+    "screenKicker": "ABO",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "Multi-Kanal, werbefrei, Support mit Priorität.",
+    "devNote": "Dev-Build: Der Button simuliert das Abo ohne Zahlung.",
+    "subscribeGold": "Abonnieren — 9,99 € / Monat",
+    "back": "Schließen"
+  },
   "onboarding": {
     "firstName": {
       "title": "Wie heißt du?",
@@ -69,7 +90,7 @@
       "explainBot": "Du chattest nicht mit einer +33-Nummer: Der Bot ist mit deinem Gerät und der gewählten App verbunden — alles bleibt in deinem TellYouTo-Raum.",
       "telegramPitch": "Telegram bietet die beste Spracherfahrung und schützt deine Privatsphäre. Es ist der 100 % kostenlose Kanal für deinen Ally.",
       "recommended": "Empfohlen",
-      "telegramGiftBadge": "🎁 GESCHENK: Installiere Telegram und erhalte 15 Tage ohne Werbung!",
+      "telegramGiftBadge": "Installiere Telegram, teste den Ally und genieße 15 werbefreie Tage",
       "telegramReady": "Kanal einsatzbereit.",
       "whatsappCostHint": "Kann Servicegebühren oder Intention-Kontingente verursachen.",
       "proChannelsHint": "Pro / Team-Option",
@@ -97,6 +118,7 @@
     }
   },
   "radar": {
+    "proBadge": "PRO",
     "empty": "Noch keine Intentionen. Tippe + zum Hinzufügen.",
     "emptyTitle": "Deine Schiene ist frei",
     "emptyBody": "Ein guter Moment für eine sanfte Pause oder eine neue Richtung — tippe auf +, wenn es passt.",
@@ -225,6 +247,7 @@
     "factoryResetHealthWarn": "Die Datenbank wurde neu erstellt, aber der SQLite-Health-Check meldet ein Problem.",
     "busyProfile": "Profil wird zurückgesetzt…",
     "busySqlite": "SQLite…",
+    "proUserToggle": "Pro simulieren (lokal + Sync)",
     "sectionSpectrum": "UserSpectrumContext (Rohdaten)",
     "sectionPower": "PowerContext (Rohdaten)",
     "simSectionTitle": "Externe Eingabe (Simulation)",

@@ -14,6 +14,27 @@
     "copyLink": "リンクをコピー",
     "copyAll": "すべてコピー"
   },
+  "settings": {
+    "privateChannelTitle": "プライベートチャネル",
+    "privateChannelSubtitle": "Telegram は含まれます。WhatsApp・Slack・LINE は Pro が必要です。"
+  },
+  "pro": {
+    "modalTitle": "最大の力を解放",
+    "modalPrice": "月額 9,99€",
+    "modalLead": "Pro でプレミアムチャネルを解放し、常時広告なしに。",
+    "benefit1": "WhatsApp 無制限",
+    "benefit2": "広告ゼロ",
+    "benefit3": "優先サポート",
+    "benefit4": "全ルーティンにアクセス",
+    "modalLater": "あとで",
+    "modalCta": "Pro へ",
+    "screenKicker": "サブスク",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "マルチチャネル、広告なし、優先サポート。",
+    "devNote": "開発版：ボタンは支払いなしで購読をシミュレートします。",
+    "subscribeGold": "購読 — 月額 9,99€",
+    "back": "閉じる"
+  },
   "onboarding": {
     "firstName": {
       "title": "お名前は？",
@@ -69,7 +90,7 @@
       "explainBot": "+33のような番号ではありません。ボットは端末と選んだアプリに紐づき、TellYouToの空間に留まります。",
       "telegramPitch": "Telegramは音声に強く、プライバシーを守ります。アリー向けに100%無料のチャネルです。",
       "recommended": "おすすめ",
-      "telegramGiftBadge": "🎁 特典：Telegramを入れると広告なし15日！",
+      "telegramGiftBadge": "Telegram を入れてアリーを試し、15日間広告なしをお楽しみください",
       "telegramReady": "チャネルは利用可能です。",
       "whatsappCostHint": "サービス料や意図の枠がかかる場合があります。",
       "proChannelsHint": "プロ／チーム向け",
@@ -97,6 +118,7 @@
     }
   },
   "radar": {
+    "proBadge": "PRO",
     "empty": "意図はまだありません。+ で追加してください。",
     "emptyTitle": "レールは空いています",
     "emptyBody": "リチャージにも、新しい方向を決めるにも、ちょうどいい時間です。準備ができたら + を。",
@@ -225,6 +247,7 @@
     "factoryResetHealthWarn": "データベースは再作成されましたが、SQLite のヘルスチェックで問題が出ました。",
     "busyProfile": "プロフィールをリセット中…",
     "busySqlite": "SQLite…",
+    "proUserToggle": "Pro をシミュレート（端末＋同期）",
     "sectionSpectrum": "UserSpectrumContext（生）",
     "sectionPower": "PowerContext（生）",
     "simSectionTitle": "外部入力シミュレーション",

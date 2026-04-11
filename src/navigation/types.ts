@@ -3,6 +3,7 @@ export type FocusCapsuleMode = 'chrono' | 'pomodoro';
 export type RootStackParamList = {
   Onboarding: undefined;
   App: undefined;
+  ProSubscription: undefined;
 };
 
 export type MainStackParamList = {

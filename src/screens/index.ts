@@ -7,4 +7,5 @@ export { MessagingScreen } from './MessagingScreen';
 export { RechargeScreen } from './RechargeScreen';
 export { StatsScreen } from './StatsScreen';
 export { OnboardingScreen } from './OnboardingScreen';
+export { ProSubscriptionScreen } from './ProSubscriptionScreen';
 export { DebugScreen } from './DebugScreen';

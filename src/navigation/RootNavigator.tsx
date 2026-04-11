@@ -12,7 +12,7 @@ import {
   USER_SPECTRUM_STORAGE_KEY,
   useUserSpectrum,
 } from '../context/UserSpectrumContext';
-import { OnboardingScreen } from '../screens';
+import { OnboardingScreen, ProSubscriptionScreen } from '../screens';
 import { MainStack } from './MainStack';
 import { rootNavigationRef } from './rootNavigationRef';
 import type { RootStackParamList } from './types';
@@ -93,6 +93,15 @@ function RootNavigatorInner() {
           )}
         </Stack.Screen>
         <Stack.Screen name="App" component={MainStack} />
+        <Stack.Screen
+          name="ProSubscription"
+          component={ProSubscriptionScreen}
+          options={{
+            presentation: 'modal',
+            headerShown: false,
+            animation: 'slide_from_bottom',
+          }}
+        />
       </Stack.Navigator>
     </OnboardingResetProvider>
   );

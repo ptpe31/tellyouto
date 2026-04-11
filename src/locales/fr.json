@@ -14,6 +14,27 @@
     "copyLink": "Copier le lien",
     "copyAll": "Copier tous les liens"
   },
+  "settings": {
+    "privateChannelTitle": "Canal privé",
+    "privateChannelSubtitle": "Telegram est inclus ; WhatsApp, Slack et LINE sont réservés au forfait Pro."
+  },
+  "pro": {
+    "modalTitle": "Débloque la puissance maximale",
+    "modalPrice": "9,99€ / mois",
+    "modalLead": "Passe en Pro pour débloquer les canaux premium et profiter du mode sans pub en permanence.",
+    "benefit1": "WhatsApp illimité",
+    "benefit2": "Zéro pub",
+    "benefit3": "Support prioritaire",
+    "benefit4": "Accès à toutes les routines",
+    "modalLater": "Plus tard",
+    "modalCta": "Passer Pro",
+    "screenKicker": "ABONNEMENT",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "Multi-canaux, sans pub, priorité au support.",
+    "devNote": "Version dev : le bouton simule l’abonnement sans paiement.",
+    "subscribeGold": "S’abonner — 9,99€ / mois",
+    "back": "Fermer"
+  },
   "onboarding": {
     "firstName": {
       "title": "Comment t’appelles-tu ?",
@@ -69,7 +90,7 @@
       "explainBot": "Tu ne parles pas à un numéro type +33 : le bot est lié à ton appareil et à la messagerie choisie — tout reste dans ton espace TellYouTo.",
       "telegramPitch": "Telegram offre la meilleure expérience vocale et protège ta vie privée. C’est le canal 100 % gratuit pour ton Allié.",
       "recommended": "Recommandé",
-      "telegramGiftBadge": "🎁 CADEAU : Installe Telegram et gagne 15 jours de Mode Sans Pub !",
+      "telegramGiftBadge": "Installe Telegram pour tester l’Allié et profite de 15 jours sans pub offerts",
       "telegramReady": "Canal prêt à l’emploi.",
       "whatsappCostHint": "Peut engendrer des frais de service ou des quotas d’intentions.",
       "proChannelsHint": "Option pro / équipes",
@@ -97,6 +118,7 @@
     }
   },
   "radar": {
+    "proBadge": "PRO",
     "empty": "Aucune intention pour l’instant. Touche + pour en ajouter une.",
     "emptyTitle": "Ton rail est libre",
     "emptyBody": "C’est le moment idéal pour une recharge douce ou pour tracer une nouvelle direction — touche + quand tu es prêt·e.",
@@ -225,6 +247,7 @@
     "factoryResetHealthWarn": "La base a été recréée mais la vérification santé SQLite signale une anomalie.",
     "busyProfile": "Réinitialisation du profil…",
     "busySqlite": "SQLite…",
+    "proUserToggle": "Simuler compte Pro (local + sync)",
     "sectionSpectrum": "UserSpectrumContext (brut)",
     "sectionPower": "PowerContext (brut)",
     "simSectionTitle": "Simulation entrée externe",

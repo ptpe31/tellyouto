@@ -2,6 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type PrivateChannelId = 'whatsapp' | 'telegram' | 'slack' | 'line';
 
+/** Canaux réservés à l’abonnement Pro (Telegram reste gratuit). */
+export function isPremiumPrivateChannel(id: PrivateChannelId): boolean {
+  return id === 'whatsapp' || id === 'slack' || id === 'line';
+}
+
 export const PRIVATE_CHANNEL_CHOICE_KEY = '@tellyouto/private_channel_id';
 export const PRIVATE_CHANNEL_BOT_URL_KEY = '@tellyouto/private_channel_bot_url';
 

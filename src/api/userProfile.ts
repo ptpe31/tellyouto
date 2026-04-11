@@ -16,6 +16,8 @@ export type DeviceProfileFields = {
   messenger_reminder_lead_minutes?: number;
   /** Fin du mode sans pub (offre Telegram, ms epoch UTC) */
   ad_free_until_ms?: number;
+  /** Abonnement TellYouTo Pro (canaux premium + sans pub) */
+  is_pro_user?: boolean;
   profile_updated_at?: number;
 };
 
@@ -76,6 +78,8 @@ export async function fetchDeviceProfileFromFirestore(): Promise<DeviceProfileFi
       Number.isFinite(d.ad_free_until_ms)
         ? d.ad_free_until_ms
         : undefined,
+    is_pro_user:
+      typeof d.is_pro_user === 'boolean' ? d.is_pro_user : undefined,
   };
 }
 

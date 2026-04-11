@@ -14,6 +14,27 @@
     "copyLink": "Copy link",
     "copyAll": "Copy all links"
   },
+  "settings": {
+    "privateChannelTitle": "Private channel",
+    "privateChannelSubtitle": "Telegram is included; WhatsApp, Slack, and LINE require Pro."
+  },
+  "pro": {
+    "modalTitle": "Unlock maximum power",
+    "modalPrice": "€9.99 / month",
+    "modalLead": "Go Pro to unlock premium channels and keep ad-free mode permanently.",
+    "benefit1": "Unlimited WhatsApp",
+    "benefit2": "Zero ads",
+    "benefit3": "Priority support",
+    "benefit4": "Access to all routines",
+    "modalLater": "Not now",
+    "modalCta": "Go Pro",
+    "screenKicker": "SUBSCRIPTION",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "Multi-channel, ad-free, priority support.",
+    "devNote": "Dev build: the button simulates subscription without payment.",
+    "subscribeGold": "Subscribe — €9.99 / month",
+    "back": "Close"
+  },
   "onboarding": {
     "firstName": {
       "title": "What should we call you?",
@@ -69,7 +90,7 @@
       "explainBot": "You are not chatting with a +33-style number: the bot is tied to your device and the app you pick — everything stays in your TellYouTo space.",
       "telegramPitch": "Telegram offers the best voice experience and protects your privacy. It’s the 100% free channel for your Ally.",
       "recommended": "Recommended",
-      "telegramGiftBadge": "🎁 GIFT: Install Telegram and get 15 days of Ad-Free mode!",
+      "telegramGiftBadge": "Install Telegram to try the Ally and enjoy 15 ad-free days",
       "telegramReady": "Channel ready to use.",
       "whatsappCostHint": "May involve service fees or intention quotas.",
       "proChannelsHint": "Pro / team option",
@@ -97,6 +118,7 @@
     }
   },
   "radar": {
+    "proBadge": "PRO",
     "empty": "No intentions yet. Tap + to add one.",
     "emptyTitle": "Your rail is clear",
     "emptyBody": "A gentle moment to recharge or set a new direction — tap + when you feel ready.",
@@ -225,6 +247,7 @@
     "factoryResetHealthWarn": "Database was recreated but the SQLite health check reported an issue.",
     "busyProfile": "Resetting profile…",
     "busySqlite": "SQLite…",
+    "proUserToggle": "Simulate Pro (local + sync)",
     "sectionSpectrum": "UserSpectrumContext (raw)",
     "sectionPower": "PowerContext (raw)",
     "simSectionTitle": "External entry simulation",

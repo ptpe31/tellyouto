@@ -14,6 +14,27 @@
     "copyLink": "Copia link",
     "copyAll": "Copia tutti i link"
   },
+  "settings": {
+    "privateChannelTitle": "Canale privato",
+    "privateChannelSubtitle": "Telegram è incluso; WhatsApp, Slack e LINE richiedono Pro."
+  },
+  "pro": {
+    "modalTitle": "Sblocca la massima potenza",
+    "modalPrice": "9,99 € / mese",
+    "modalLead": "Passa a Pro per sbloccare i canali premium e restare senza pubblicità.",
+    "benefit1": "WhatsApp illimitato",
+    "benefit2": "Zero pubblicità",
+    "benefit3": "Supporto prioritario",
+    "benefit4": "Accesso a tutte le routine",
+    "modalLater": "Più tardi",
+    "modalCta": "Passa a Pro",
+    "screenKicker": "ABBONAMENTO",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "Multicanale, senza pubblicità, supporto prioritario.",
+    "devNote": "Build dev: il pulsante simula l’abbonamento senza pagamento.",
+    "subscribeGold": "Abbonati — 9,99 € / mese",
+    "back": "Chiudi"
+  },
   "onboarding": {
     "firstName": {
       "title": "Come ti chiami?",
@@ -69,7 +90,7 @@
       "explainBot": "Non parli con un numero tipo +33: il bot è legato al dispositivo e all’app scelta — tutto resta nel tuo spazio TellYouTo.",
       "telegramPitch": "Telegram offre la migliore esperienza vocale e tutela la privacy. È il canale 100% gratuito per il tuo Alleato.",
       "recommended": "Consigliato",
-      "telegramGiftBadge": "🎁 REGALO: installa Telegram e ottieni 15 giorni senza pubblicità!",
+      "telegramGiftBadge": "Installa Telegram per provare l’Alleato e goditi 15 giorni senza pubblicità",
       "telegramReady": "Canale pronto all’uso.",
       "whatsappCostHint": "Possibili costi di servizio o limiti sulle intenzioni.",
       "proChannelsHint": "Opzione pro / team",
@@ -97,6 +118,7 @@
     }
   },
   "radar": {
+    "proBadge": "PRO",
     "empty": "Nessuna intenzione. Tocca + per aggiungerne una.",
     "emptyTitle": "Il tuo binario è libero",
     "emptyBody": "Un buon momento per ricaricare con dolcezza o impostare una nuova direzione — tocca + quando vuoi.",
@@ -225,6 +247,7 @@
     "factoryResetHealthWarn": "Il database è stato ricreato ma il controllo salute SQLite segnala un problema.",
     "busyProfile": "Reimpostazione profilo…",
     "busySqlite": "SQLite…",
+    "proUserToggle": "Simula Pro (locale + sync)",
     "sectionSpectrum": "UserSpectrumContext (grezzo)",
     "sectionPower": "PowerContext (grezzo)",
     "simSectionTitle": "Simulazione ingresso esterno",

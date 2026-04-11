@@ -49,6 +49,8 @@ export type UserSpectrumState = SpectrumWeights & {
   messenger_reminder_lead_minutes: number;
   /** Fin du mode sans pub (ms) — ex. offre installation Telegram */
   ad_free_until_ms: number | null;
+  /** Abonnement Pro — canaux premium + sans pub permanent */
+  isProUser: boolean;
 };
 
 function detectPlatformType(): PlatformType {
@@ -81,6 +83,7 @@ const defaultSpectrum = (): UserSpectrumState => ({
   messenger_reminders_enabled: true,
   messenger_reminder_lead_minutes: 5,
   ad_free_until_ms: null,
+  isProUser: false,
 });
 
 type UserSpectrumContextValue = {
@@ -101,6 +104,7 @@ type UserSpectrumContextValue = {
   mergeRemoteProfile: (remote: DeviceProfileFields) => void;
   /** Prolonge ou définit le mode sans pub (persist + Firestore si dispo). */
   grantAdFreeDays: (days: number) => Promise<void>;
+  setProUser: (value: boolean) => Promise<void>;
   resetSpectrum: () => void;
   persist: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
@@ -221,6 +225,10 @@ export function UserSpectrumProvider({
           if (pN == null) return rN;
           return Math.max(rN, pN);
         })(),
+        isProUser:
+          typeof remote.is_pro_user === 'boolean'
+            ? remote.is_pro_user
+            : prev.isProUser,
       };
       spectrumRef.current = merged;
       return merged;
@@ -236,6 +244,14 @@ export function UserSpectrumProvider({
       STORAGE_KEY,
       JSON.stringify(spectrumRef.current),
     );
+  }, []);
+
+  const setProUser = useCallback(async (value: boolean) => {
+    const merged = { ...spectrumRef.current, isProUser: value };
+    spectrumRef.current = merged;
+    setSpectrum(merged);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    await pushDeviceProfileToFirestore({ is_pro_user: value });
   }, []);
 
   const grantAdFreeDays = useCallback(
@@ -328,6 +344,10 @@ export function UserSpectrumProvider({
           Number.isFinite(parsed.ad_free_until_ms)
             ? parsed.ad_free_until_ms
             : prev.ad_free_until_ms,
+        isProUser:
+          typeof parsed.isProUser === 'boolean'
+            ? parsed.isProUser
+            : prev.isProUser,
       }));
     } catch {
       /* ignore */
@@ -382,6 +402,7 @@ export function UserSpectrumProvider({
       applyMessengerReminderPrefs,
       mergeRemoteProfile,
       grantAdFreeDays,
+      setProUser,
       resetSpectrum,
       persist,
       loadFromStorage,
@@ -398,6 +419,7 @@ export function UserSpectrumProvider({
       applyMessengerReminderPrefs,
       mergeRemoteProfile,
       grantAdFreeDays,
+      setProUser,
       resetSpectrum,
       persist,
       loadFromStorage,
@@ -423,6 +445,7 @@ export function isAdFreeModeActive(
   state: UserSpectrumState,
   nowMs: number = Date.now(),
 ): boolean {
+  if (state.isProUser) return true;
   const u = state.ad_free_until_ms;
   return typeof u === 'number' && Number.isFinite(u) && u > nowMs;
 }

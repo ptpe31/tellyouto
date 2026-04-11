@@ -596,6 +596,28 @@ export function RadarScreen() {
           </Text>
         </NeumorphicCard>
 
+        {spectrum.first_name?.trim() ? (
+          <View style={styles.userNameRow}>
+            <Text
+              style={[styles.userFirstName, { color: theme.colors.onSurface }]}
+            >
+              {spectrum.first_name.trim()}
+            </Text>
+            {spectrum.isProUser ? (
+              <View
+                style={[
+                  styles.proBadge,
+                  { borderColor: theme.colors.primary },
+                ]}
+              >
+                <Text style={[styles.proBadgeText, { color: theme.colors.primary }]}>
+                  {t('radar.proBadge')}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
       <AllyThoughtBubble
         eyebrow={t('radar.allyEyebrow')}
         message={allyBubbleText}
@@ -606,6 +628,8 @@ export function RadarScreen() {
       activeIntention,
       dueMicroSlot,
       allyBubbleText,
+      spectrum.first_name,
+      spectrum.isProUser,
       celebrateWa,
       dismissCelebrateWa,
       openActiveCapsule,
@@ -871,6 +895,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   headerCard: { marginBottom: 14, paddingVertical: 14 },
+  userNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  userFirstName: { fontSize: 17, fontWeight: '700' },
+  proBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  proBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
   title: { fontSize: 22, fontWeight: '600' },
   card: { marginBottom: 14 },
   cardTitle: { fontSize: 17, fontWeight: '600' },

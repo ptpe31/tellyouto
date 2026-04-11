@@ -59,6 +59,24 @@ const WELCOME_CONNECT: Record<BotLocale, string> = {
     '时间：{{timelineUrl}}',
 };
 
+/** Canal premium (WhatsApp / Slack / LINE) sans abonnement Pro. */
+const PREMIUM_ONLY: Record<BotLocale, string> = {
+  fr:
+    'Désolé {{firstName}}, ce canal est réservé aux membres Pro. Continue notre conversation sur Telegram ou rejoins le club sur l’application !',
+  en:
+    'Sorry {{firstName}}, this channel is for Pro members only. Let’s continue on Telegram — or upgrade in the app!',
+  es:
+    'Lo siento {{firstName}}, este canal es solo para miembros Pro. Sigamos en Telegram o hazte Pro en la app.',
+  de:
+    'Sorry {{firstName}}, dieser Kanal ist nur für Pro-Mitglieder. Schreib mir auf Telegram — oder upgrade in der App!',
+  it:
+    'Mi dispiace {{firstName}}, questo canale è riservato ai membri Pro. Continua su Telegram o passa Pro nell’app!',
+  ja:
+    'ごめんね{{firstName}}、このチャネルはPro向けだよ。Telegramで続けよう — アプリでProに!',
+  zh:
+    '抱歉{{firstName}}，此通道仅面向 Pro 会员。请在 Telegram 继续，或在应用内订阅 Pro！',
+};
+
 const RECHARGE: Record<BotLocale, string> = {
   fr: "Ton quota messagerie est à zéro — recharge ici : {{url}}",
   en: 'Your messenger quota is empty — recharge here: {{url}}',
@@ -83,6 +101,15 @@ function normLocale(raw: string | undefined): BotLocale {
     return b;
   }
   return 'fr';
+}
+
+export function formatBotPremiumChannelDenied(
+  locale: string | undefined,
+  firstName: string,
+): string {
+  const k = normLocale(locale);
+  const name = firstName.trim() || (k === 'en' ? 'there' : 'toi');
+  return PREMIUM_ONLY[k].replace(/\{\{firstName\}\}/g, name);
 }
 
 export function formatBotRailAck(locale: string | undefined, url: string): string {
