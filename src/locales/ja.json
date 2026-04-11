@@ -84,9 +84,47 @@
     "feedbackTitle": "明瞭さ",
     "ok": "OK"
   },
+  "stats": {
+    "screenTitle": "明瞭さの概要",
+    "screenSubtitle": "コパイロットからの観察 — 評価ではなく気づき。",
+    "loading": "読み込み中…",
+    "clarityTitle": "今日の明瞭さ",
+    "clarityHint": "穏やかな読み：実際の時間が見積もりにどれだけ近かったか（完了したフォーカスのみ）。",
+    "noSessionsToday": "今日はまだ完了したフォーカスがありません。カプセルを終えるとここに表示されます。",
+    "sessionsToday": "今日完了したフォーカス {{count}} 件",
+    "spectrumTitle": "時間の傾き",
+    "spectrumHint": "完了セッションの分数を、各意図のスペクトルで重み付け。",
+    "spectrumEmpty": "今日はまだ表示できるデータがありません。",
+    "minutesTotal": "スペクトル計 ~{{minutes}} 分",
+    "historyTitle": "最近の日",
+    "historyHint": "ローカル日ごとの完了セッション — 端末に保存。",
+    "historyEmpty": "フォーカスを完了すると履歴が埋まります。",
+    "historyDay": "{{date}} · {{count}} セッション",
+    "axis": {
+      "structure": "構造",
+      "momentum": "モメンタム",
+      "zen": "ゼン",
+      "stats": "スタッツ"
+    },
+    "insightKicker": "コパイロットより",
+    "insightEmpty": "フォーカスを完了すると、ここに短い振り返りを置きます。急がなくて大丈夫です。",
+    "insightLead": "今日は完了した時間がやや {{axis}} に寄ったようです — 傾向のメモであって、ラベルではありません。",
+    "insightClarity": "明瞭さはおよそ {{score}}% — 実時間と見積もりの近さの目安です。",
+    "insightShort": "短いブロックが一つ二つあっても、やさしい物語になります。",
+    "insightEnergyLow": "エネルギーは控えめに見えます。明日は小さな一歩で十分です。",
+    "insightEnergyOk": "この先に選ぶことへのエネルギーは十分そうです。"
+  },
   "debug": {
     "pilotTitle": "操作用ツール",
-    "note": "内部向け — 最低限のUI。"
+    "note": "内部向け — 最低限のUI。",
+    "resetProfile": "プロフィールをリセット",
+    "resetProfileHelp": "AsyncStorage の onboarding_complete と user_spectrum を削除し、5 シチュエーションのオンボーディングに戻します。",
+    "rebuildDb": "データベースを再構築",
+    "rebuildDbHelp": "SQLite のテーブルを DROP してから CREATE（localDb）。DB を読む画面はイベントで更新（例：Radar）。",
+    "busyProfile": "プロフィールをリセット中…",
+    "busySqlite": "SQLite…",
+    "sectionSpectrum": "UserSpectrumContext（生）",
+    "sectionPower": "PowerContext（生）"
   },
   "recharge": {
     "eyebrow": "感覚ステーション",

@@ -84,9 +84,47 @@
     "feedbackTitle": "Clarity",
     "ok": "OK"
   },
+  "stats": {
+    "screenTitle": "Clarity overview",
+    "screenSubtitle": "Observations from your co-pilot — gentle, not grades.",
+    "loading": "Loading…",
+    "clarityTitle": "Today’s clarity",
+    "clarityHint": "A soft read on how your actual minutes compared to what you planned (completed focus only).",
+    "noSessionsToday": "No completed focus yet today. Close a capsule and this will fill in.",
+    "sessionsToday": "{{count}} focus block(s) closed today",
+    "spectrumTitle": "Where your time leaned",
+    "spectrumHint": "Minutes from completed sessions, weighted by each block’s spectrum tags.",
+    "spectrumEmpty": "Nothing to chart yet for today.",
+    "minutesTotal": "~ {{minutes}} min attributed across the spectrum",
+    "historyTitle": "Recent days",
+    "historyHint": "Completed sessions grouped by local day — your archive on device.",
+    "historyEmpty": "Your history will appear as you finish focus blocks.",
+    "historyDay": "{{date}} · {{count}} session(s)",
+    "axis": {
+      "structure": "Structure",
+      "momentum": "Momentum",
+      "zen": "Zen",
+      "stats": "Stats"
+    },
+    "insightKicker": "Co-pilot note",
+    "insightEmpty": "When you complete a focus block, I’ll share a short reflection here — no hurry.",
+    "insightLead": "Today, more of your closed time leaned toward {{axis}} — a pattern worth noticing, not a verdict.",
+    "insightClarity": "Clarity sits around {{score}}% — how close today’s real minutes felt next to your estimates.",
+    "insightShort": "Even one or two short blocks still tell a gentle story.",
+    "insightEnergyLow": "Your energy gauge looks soft; small steps tomorrow are enough.",
+    "insightEnergyOk": "Energy looks steady enough for whatever you choose next."
+  },
   "debug": {
     "pilotTitle": "Piloting tools",
-    "note": "Internal tool — minimal UI polish."
+    "note": "Internal tool — minimal UI polish.",
+    "resetProfile": "Reset profile",
+    "resetProfileHelp": "Clears onboarding_complete and user_spectrum in AsyncStorage, then returns to the 5-situation onboarding.",
+    "rebuildDb": "Rebuild database",
+    "rebuildDbHelp": "Drops SQLite tables then runs CREATE (localDb). Screens that read the DB refresh via event (e.g. Radar).",
+    "busyProfile": "Resetting profile…",
+    "busySqlite": "SQLite…",
+    "sectionSpectrum": "UserSpectrumContext (raw)",
+    "sectionPower": "PowerContext (raw)"
   },
   "recharge": {
     "eyebrow": "SENSORY STATION",

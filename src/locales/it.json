@@ -84,9 +84,47 @@
     "feedbackTitle": "Chiarezza",
     "ok": "OK"
   },
+  "stats": {
+    "screenTitle": "Quadro di chiarezza",
+    "screenSubtitle": "Sguardi del co-pilota — osservazione, non giudizio.",
+    "loading": "Caricamento…",
+    "clarityTitle": "Chiarezza di oggi",
+    "clarityHint": "Lettura morbida: quanto il tempo reale è stato vicino a quanto avevi stimato (solo focus completati).",
+    "noSessionsToday": "Nessun focus completato oggi. Chiudi una capsula e comparirà qui.",
+    "sessionsToday": "{{count}} blocco/i di focus completato/i oggi",
+    "spectrumTitle": "Dove si è inclinato il tuo tempo",
+    "spectrumHint": "Minuti dalle sessioni completate, ponderati dallo spettro di ogni intenzione.",
+    "spectrumEmpty": "Ancora nulla da mostrare per oggi.",
+    "minutesTotal": "~ {{minutes}} min ripartiti sullo spettro",
+    "historyTitle": "Giorni recenti",
+    "historyHint": "Sessioni completate per giorno (ora locale) — archivio sul dispositivo.",
+    "historyEmpty": "La cronologia si riempie chiudendo i blocchi di focus.",
+    "historyDay": "{{date}} · {{count}} sessione/i",
+    "axis": {
+      "structure": "Struttura",
+      "momentum": "Momentum",
+      "zen": "Zen",
+      "stats": "Stats"
+    },
+    "insightKicker": "Nota del co-pilota",
+    "insightEmpty": "Quando completerai un focus, lascio qui una breve riflessione — senza fretta.",
+    "insightLead": "Oggi una parte un po’ più marcata del tempo chiuso verso {{axis}} — un accenno, non un’etichetta.",
+    "insightClarity": "La chiarezza è intorno al {{score}}% — vicinanza tra minuti reali e stime.",
+    "insightShort": "Ancora uno o due blocchi brevi raccontano una storia gentile.",
+    "insightEnergyLow": "L’energia sembra leggera; domani bastano piccoli passi.",
+    "insightEnergyOk": "L’energia sembra sufficiente per ciò che sceglierai dopo."
+  },
   "debug": {
     "pilotTitle": "Strumenti di pilotaggio",
-    "note": "Strumento interno — interfaccia essenziale."
+    "note": "Strumento interno — interfaccia essenziale.",
+    "resetProfile": "Reimposta profilo",
+    "resetProfileHelp": "Cancella onboarding_complete e user_spectrum (AsyncStorage), poi torna all’onboarding delle 5 situazioni.",
+    "rebuildDb": "Ricostruisci database",
+    "rebuildDbHelp": "DROP delle tabelle SQLite poi CREATE (localDb). Le schermate che leggono il DB si aggiornano via evento (es. Radar).",
+    "busyProfile": "Reimpostazione profilo…",
+    "busySqlite": "SQLite…",
+    "sectionSpectrum": "UserSpectrumContext (grezzo)",
+    "sectionPower": "PowerContext (grezzo)"
   },
   "recharge": {
     "eyebrow": "STAZIONE SENSORIALE",

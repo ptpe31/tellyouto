@@ -84,9 +84,47 @@
     "feedbackTitle": "Clarté",
     "ok": "OK"
   },
+  "stats": {
+    "screenTitle": "Bilan de clarté",
+    "screenSubtitle": "Regards du co-pilote — observation, pas jugement.",
+    "loading": "Chargement…",
+    "clarityTitle": "Clarté du jour",
+    "clarityHint": "Lecture douce : à quel point le temps réel s’est rapproché de ce que tu avais estimé (capsules terminées).",
+    "noSessionsToday": "Pas encore de focus terminé aujourd’hui. Ferme une capsule et cela apparaîtra ici.",
+    "sessionsToday": "{{count}} bloc(s) de focus terminé(s) aujourd’hui",
+    "spectrumTitle": "Où ton temps s’est penché",
+    "spectrumHint": "Minutes des sessions terminées, pondérées par le spectre de chaque intention.",
+    "spectrumEmpty": "Rien à tracer pour aujourd’hui pour l’instant.",
+    "minutesTotal": "~ {{minutes}} min réparties sur le spectre",
+    "historyTitle": "Jours récents",
+    "historyHint": "Sessions terminées par jour (heure locale) — archive sur l’appareil.",
+    "historyEmpty": "L’historique se remplira au fil des capsules terminées.",
+    "historyDay": "{{date}} · {{count}} session(s)",
+    "axis": {
+      "structure": "Structure",
+      "momentum": "Momentum",
+      "zen": "Zen",
+      "stats": "Stats"
+    },
+    "insightKicker": "Note du co-pilote",
+    "insightEmpty": "Quand tu auras terminé un focus, je te proposerai un petit éclairage ici — sans pression.",
+    "insightLead": "Aujourd’hui, une part un peu plus marquée de ton temps fermé vers {{axis}} — une tendance à noter, pas une étiquette.",
+    "insightClarity": "La clarté tourne autour de {{score}}% — une idée de la proximité entre le temps réel et tes estimations.",
+    "insightShort": "Même un ou deux courts blocs racontent déjà quelque chose de doux.",
+    "insightEnergyLow": "Ton énergie semble légère ; demain peut rester en petits pas.",
+    "insightEnergyOk": "Ton énergie paraît suffisante pour la suite, au choix."
+  },
   "debug": {
     "pilotTitle": "Outils de Pilotage",
-    "note": "Outil interne — interface volontairement brute."
+    "note": "Outil interne — interface volontairement brute.",
+    "resetProfile": "Réinitialiser le profil",
+    "resetProfileHelp": "Efface onboarding_complete et user_spectrum (AsyncStorage), puis renvoie à l’onboarding des 5 situations.",
+    "rebuildDb": "Reconstruire la base de données",
+    "rebuildDbHelp": "DROP des tables SQLite puis CREATE (localDb). Les écrans qui lisent la DB se rafraîchissent via événement (ex. Radar).",
+    "busyProfile": "Réinitialisation du profil…",
+    "busySqlite": "SQLite…",
+    "sectionSpectrum": "UserSpectrumContext (brut)",
+    "sectionPower": "PowerContext (brut)"
   },
   "recharge": {
     "eyebrow": "STATION SENSORIELLE",

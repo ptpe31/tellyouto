@@ -84,9 +84,47 @@
     "feedbackTitle": "Klarheit",
     "ok": "OK"
   },
+  "stats": {
+    "screenTitle": "Klarheitsüberblick",
+    "screenSubtitle": "Blicke vom Co-Piloten — Beobachtung, kein Urteil.",
+    "loading": "Laden…",
+    "clarityTitle": "Heutige Klarheit",
+    "clarityHint": "Sanfte Lesart: wie nah die reale Zeit an deinen Schätzungen war (nur abgeschlossene Fokus-Sessions).",
+    "noSessionsToday": "Heute noch kein abgeschlossener Fokus. Schließe eine Kapsel — dann erscheint es hier.",
+    "sessionsToday": "Heute {{count}} abgeschlossene Fokusblöcke",
+    "spectrumTitle": "Wohin sich deine Zeit neigte",
+    "spectrumHint": "Minuten abgeschlossener Sessions, gewichtet mit dem Spektrum jeder Intention.",
+    "spectrumEmpty": "Heute noch nichts darstellbar.",
+    "minutesTotal": "~ {{minutes}} Min. aufs Spektrum verteilt",
+    "historyTitle": "Letzte Tage",
+    "historyHint": "Abgeschlossene Sessions nach Kalendertag (lokal) — Archiv auf dem Gerät.",
+    "historyEmpty": "Die Historie füllt sich mit jedem abgeschlossenen Fokus.",
+    "historyDay": "{{date}} · {{count}} Session(s)",
+    "axis": {
+      "structure": "Struktur",
+      "momentum": "Momentum",
+      "zen": "Zen",
+      "stats": "Stats"
+    },
+    "insightKicker": "Co-Pilot-Notiz",
+    "insightEmpty": "Wenn du einen Fokus abschließt, steht hier eine kurze Reflexion — ganz ohne Druck.",
+    "insightLead": "Heute neigte sich etwas mehr deiner abgeschlossenen Zeit Richtung {{axis}} — ein Hinweis, kein Etikett.",
+    "insightClarity": "Klarheit liegt bei etwa {{score}}% — wie nah die reale Zeit an deinen Schätzungen war.",
+    "insightShort": "Schon ein oder zwei kurze Blöcke erzählen eine freundliche Geschichte.",
+    "insightEnergyLow": "Deine Energie wirkt leise; morgen reichen kleine Schritte.",
+    "insightEnergyOk": "Die Energie wirkt ausreichend für das, was du als Nächstes wählst."
+  },
   "debug": {
     "pilotTitle": "Steuerungswerkzeuge",
-    "note": "Internes Tool — absichtlich schlicht."
+    "note": "Internes Tool — absichtlich schlicht.",
+    "resetProfile": "Profil zurücksetzen",
+    "resetProfileHelp": "Löscht onboarding_complete und user_spectrum (AsyncStorage), danach Onboarding der 5 Situationen.",
+    "rebuildDb": "Datenbank neu aufbauen",
+    "rebuildDbHelp": "DROP der SQLite-Tabellen, dann CREATE (localDb). Bildschirme mit DB lesen aktualisieren per Event (z. B. Radar).",
+    "busyProfile": "Profil wird zurückgesetzt…",
+    "busySqlite": "SQLite…",
+    "sectionSpectrum": "UserSpectrumContext (Rohdaten)",
+    "sectionPower": "PowerContext (Rohdaten)"
   },
   "recharge": {
     "eyebrow": "SENSORISCHE STATION",

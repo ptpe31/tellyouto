@@ -84,9 +84,47 @@
     "feedbackTitle": "Claridad",
     "ok": "OK"
   },
+  "stats": {
+    "screenTitle": "Balance de claridad",
+    "screenSubtitle": "Miradas del copiloto — observación, no juicio.",
+    "loading": "Cargando…",
+    "clarityTitle": "Claridad de hoy",
+    "clarityHint": "Lectura suave: qué tan cerca estuvo el tiempo real de lo que planeaste (solo focus terminados).",
+    "noSessionsToday": "Aún no hay focus terminado hoy. Cierra una cápsula y aparecerá aquí.",
+    "sessionsToday": "{{count}} bloque(s) de focus cerrado(s) hoy",
+    "spectrumTitle": "Hacia donde se inclinó tu tiempo",
+    "spectrumHint": "Minutos de sesiones terminadas, ponderados por el espectro de cada intención.",
+    "spectrumEmpty": "Nada que graficar por ahora hoy.",
+    "minutesTotal": "~ {{minutes}} min repartidos en el espectro",
+    "historyTitle": "Días recientes",
+    "historyHint": "Sesiones completadas por día (hora local) — archivo en el dispositivo.",
+    "historyEmpty": "El historial aparecerá al cerrar bloques de focus.",
+    "historyDay": "{{date}} · {{count}} sesión(es)",
+    "axis": {
+      "structure": "Estructura",
+      "momentum": "Momentum",
+      "zen": "Zen",
+      "stats": "Stats"
+    },
+    "insightKicker": "Nota del copiloto",
+    "insightEmpty": "Cuando termines un focus, dejaré una breve reflexión aquí — sin prisa.",
+    "insightLead": "Hoy, una parte algo mayor de tu tiempo cerrado se inclinó hacia {{axis}} — un matiz, no una etiqueta.",
+    "insightClarity": "La claridad ronda el {{score}}% — una idea de cuán cerca estuvo el tiempo real de tus estimaciones.",
+    "insightShort": "Incluso uno o dos bloques cortos cuentan una historia amable.",
+    "insightEnergyLow": "Tu energía se ve suave; mañana puede ser en pasos pequeños.",
+    "insightEnergyOk": "La energía parece suficiente para lo que elijas después."
+  },
   "debug": {
     "pilotTitle": "Herramientas de pilotaje",
-    "note": "Herramienta interna — interfaz mínima."
+    "note": "Herramienta interna — interfaz mínima.",
+    "resetProfile": "Restablecer perfil",
+    "resetProfileHelp": "Borra onboarding_complete y user_spectrum (AsyncStorage) y vuelve al onboarding de las 5 situaciones.",
+    "rebuildDb": "Reconstruir base de datos",
+    "rebuildDbHelp": "DROP de tablas SQLite y CREATE (localDb). Las pantallas que leen la BD se actualizan por evento (p. ej. Radar).",
+    "busyProfile": "Restableciendo perfil…",
+    "busySqlite": "SQLite…",
+    "sectionSpectrum": "UserSpectrumContext (raw)",
+    "sectionPower": "PowerContext (raw)"
   },
   "recharge": {
     "eyebrow": "ESTACIÓN SENSORIAL",

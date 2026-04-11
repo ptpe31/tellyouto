@@ -27,7 +27,8 @@ const SCHEMA = `
     created_at INTEGER NOT NULL,
     synced INTEGER NOT NULL DEFAULT 0,
     estimated_duration INTEGER NOT NULL DEFAULT 25,
-    actual_duration INTEGER
+    actual_duration INTEGER,
+    completed_at INTEGER
   );
 
   CREATE INDEX IF NOT EXISTS idx_intentions_synced ON intentions (synced);
@@ -47,6 +48,14 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
   if (!names.has('actual_duration')) {
     await database.execAsync(
       `ALTER TABLE intentions ADD COLUMN actual_duration INTEGER`,
+    );
+  }
+  if (!names.has('completed_at')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN completed_at INTEGER`,
+    );
+    await database.runAsync(
+      `UPDATE intentions SET completed_at = created_at WHERE status = 'done' AND actual_duration IS NOT NULL AND completed_at IS NULL`,
     );
   }
 }
@@ -96,6 +105,8 @@ export type IntentionRow = {
   estimated_duration: number;
   /** Durée réelle en minutes (après Capsule), null si non terminée */
   actual_duration: number | null;
+  /** Horodatage fin de session focus (ms), pour stats / historique */
+  completed_at: number | null;
 };
 
 function rowToIntention(row: Record<string, unknown>): IntentionRow {
@@ -127,6 +138,8 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
     estimated_duration:
       typeof est === 'number' ? est : 25,
     actual_duration: typeof act === 'number' ? act : null,
+    completed_at:
+      typeof row.completed_at === 'number' ? row.completed_at : null,
   };
 }
 
@@ -147,8 +160,8 @@ export async function insertIntention(input: {
     `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
-      estimated_duration, actual_duration
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL)`,
+      estimated_duration, actual_duration, completed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL)`,
     [
       input.id,
       input.title,
@@ -189,9 +202,10 @@ export async function updateIntentionAfterFocus(input: {
   status: IntentionStatus;
 }): Promise<void> {
   const database = await getLocalDatabase();
+  const completedAt = input.status === 'done' ? Date.now() : null;
   await database.runAsync(
-    `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0 WHERE id = ?`,
-    [input.actual_duration, input.status, input.id],
+    `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ? WHERE id = ?`,
+    [input.actual_duration, input.status, completedAt, input.id],
   );
 }
 
@@ -216,4 +230,36 @@ export async function markIntentionSynced(id: string): Promise<void> {
   await database.runAsync(`UPDATE intentions SET synced = 1 WHERE id = ?`, [
     id,
   ]);
+}
+
+/** Sessions focus terminées dont l’horodatage (completed_at ou repli created_at) est dans [startMs, endMs]. */
+export async function listCompletedSessionsBetween(
+  startMs: number,
+  endMs: number,
+): Promise<IntentionRow[]> {
+  const database = await getLocalDatabase();
+  const rows = await database.getAllAsync<Record<string, unknown>>(
+    `SELECT * FROM intentions
+     WHERE status = 'done' AND actual_duration IS NOT NULL
+       AND COALESCE(completed_at, created_at) >= ?
+       AND COALESCE(completed_at, created_at) <= ?
+     ORDER BY COALESCE(completed_at, created_at) DESC`,
+    [startMs, endMs],
+  );
+  return rows.map(rowToIntention);
+}
+
+/** Dernières sessions terminées — pour historique par jour (grouper côté UI). */
+export async function listRecentCompletedFocusSessions(
+  limit: number,
+): Promise<IntentionRow[]> {
+  const database = await getLocalDatabase();
+  const rows = await database.getAllAsync<Record<string, unknown>>(
+    `SELECT * FROM intentions
+     WHERE status = 'done' AND actual_duration IS NOT NULL
+     ORDER BY COALESCE(completed_at, created_at) DESC
+     LIMIT ?`,
+    [limit],
+  );
+  return rows.map(rowToIntention);
 }

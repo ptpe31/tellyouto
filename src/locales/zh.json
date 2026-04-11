@@ -84,9 +84,47 @@
     "feedbackTitle": "清晰",
     "ok": "好"
   },
+  "stats": {
+    "screenTitle": "清晰度一览",
+    "screenSubtitle": "来自副驾驶的观察 — 陈述，而非评判。",
+    "loading": "加载中…",
+    "clarityTitle": "今日清晰度",
+    "clarityHint": "温和解读：实际用时与预估有多接近（仅统计已完成的专注）。",
+    "noSessionsToday": "今天还没有完成的专注。结束一次胶囊后会显示在这里。",
+    "sessionsToday": "今日已完成 {{count}} 个专注块",
+    "spectrumTitle": "时间倾向",
+    "spectrumHint": "来自已完成会话的分钟数，按每条意图的光谱加权。",
+    "spectrumEmpty": "今天暂无可展示的数据。",
+    "minutesTotal": "光谱合计约 {{minutes}} 分钟",
+    "historyTitle": "最近几天",
+    "historyHint": "按本地日分组的已完成会话 — 存档在设备上。",
+    "historyEmpty": "完成专注块后，历史会逐渐出现。",
+    "historyDay": "{{date}} · {{count}} 次会话",
+    "axis": {
+      "structure": "结构",
+      "momentum": "动量",
+      "zen": "禅",
+      "stats": "数据"
+    },
+    "insightKicker": "副驾驶寄语",
+    "insightEmpty": "完成一次专注后，我会在这里放一小段反思 — 不必着急。",
+    "insightLead": "今天，你完成的时间略偏向 {{axis}} — 这是一个温和的倾向，不是标签。",
+    "insightClarity": "清晰度约在 {{score}}% — 表示实际分钟与预估的接近程度。",
+    "insightShort": "哪怕只有一两个短块，也在讲述温和的故事。",
+    "insightEnergyLow": "能量看起来偏柔；明天可以迈小步就好。",
+    "insightEnergyOk": "能量看起来足以支撑你接下来的选择。"
+  },
   "debug": {
     "pilotTitle": "驾驶舱工具",
-    "note": "内部工具 — 界面从简。"
+    "note": "内部工具 — 界面从简。",
+    "resetProfile": "重置档案",
+    "resetProfileHelp": "清除 AsyncStorage 中的 onboarding_complete 与 user_spectrum，并返回 5 情境引导流程。",
+    "rebuildDb": "重建数据库",
+    "rebuildDbHelp": "DROP SQLite 表后执行 CREATE（localDb）。读取数据库的界面通过事件刷新（如 Radar）。",
+    "busyProfile": "正在重置档案…",
+    "busySqlite": "SQLite…",
+    "sectionSpectrum": "UserSpectrumContext（原始）",
+    "sectionPower": "PowerContext（原始）"
   },
   "recharge": {
     "eyebrow": "感官站",

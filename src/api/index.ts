@@ -2,7 +2,9 @@ export { getFirebaseApp, getFirestoreDb } from './firebase';
 export {
   getLocalDatabase,
   insertIntention,
+  listCompletedSessionsBetween,
   listIntentionsDescending,
+  listRecentCompletedFocusSessions,
   listUnsyncedIntentions,
   markIntentionActive,
   markIntentionSynced,
