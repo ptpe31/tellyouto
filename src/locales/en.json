@@ -39,10 +39,15 @@
       "connected": "Connected"
     },
     "modal": {
-      "title": "Open {{channelName}}",
-      "step1": "1. The app will open.",
-      "step2": "2. Tap START or send a message.",
-      "step3": "3. Come back here to see your Rail sync."
+      "title": "Telegram setup",
+      "body": "We’ll open a secure chat in Telegram. Just tap Start at the bottom of your screen to activate your Rail.",
+      "button": "Let’s go",
+      "otherTitle": "{{channelName}}",
+      "otherBody": "We’ll open the app to finish your private link. Follow the prompts, then come back here."
+    },
+    "linkLaunched": {
+      "message": "Link started! Your Ally will send you a message in a few seconds.",
+      "button": "OK"
     },
     "feedback": {
       "success": "✅ Channel linked successfully!"

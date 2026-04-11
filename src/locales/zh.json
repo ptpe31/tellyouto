@@ -39,10 +39,15 @@
       "connected": "已连接"
     },
     "modal": {
-      "title": "打开 {{channelName}}",
-      "step1": "1. 将打开对应应用。",
-      "step2": "2. 点击「开始」或发送一条消息。",
-      "step3": "3. 返回此处即可看到轨道同步。"
+      "title": "设置 Telegram",
+      "body": "我们将打开安全的 Telegram 对话。只需在屏幕底部点击「开始」即可激活你的轨道。",
+      "button": "开始",
+      "otherTitle": "{{channelName}}",
+      "otherBody": "我们将打开应用以完成私人关联。按提示操作后返回此处。"
+    },
+    "linkLaunched": {
+      "message": "关联已启动！你的盟友将在几秒内给你发消息。",
+      "button": "好的"
     },
     "feedback": {
       "success": "✅ 频道已成功关联！"

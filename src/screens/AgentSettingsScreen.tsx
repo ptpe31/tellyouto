@@ -32,6 +32,7 @@ import { ChannelCatalogCard } from '../components/ChannelCatalogCard';
 import { TelegramMissingDialog } from '../components/TelegramMissingDialog';
 import { PassProModal } from '../components/PassProModal';
 import { ChannelLinkingModal } from '../components/ChannelLinkingModal';
+import { LinkLaunchedModal } from '../components/LinkLaunchedModal';
 import { SingleChannelSwitchModal } from '../components/SingleChannelSwitchModal';
 import { IS_PRODUCTION } from '../config/appConfig';
 import { useDebugUnlock } from '../context/DebugUnlockContext';
@@ -114,6 +115,9 @@ export function AgentSettingsScreen() {
   const [linkingModalChannelId, setLinkingModalChannelId] =
     useState<PrivateChannelId | null>(null);
   const [channelLinkedSnackbar, setChannelLinkedSnackbar] = useState(false);
+  const [linkLaunched, setLinkLaunched] = useState<{
+    showTelegramMark: boolean;
+  } | null>(null);
   const prevMessengerUidRef = useRef<string | null>(null);
   const handshakeMountRef = useRef(false);
 
@@ -183,8 +187,28 @@ export function AgentSettingsScreen() {
     const id = linkingModalChannelId;
     setLinkingModalVisible(false);
     setLinkingModalChannelId(null);
-    if (id) void connectChannel(id);
-  }, [linkingModalChannelId, connectChannel]);
+    if (!id) return;
+
+    void (async () => {
+      if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
+        setPassProVisible(true);
+        return;
+      }
+      if (id === 'telegram') {
+        const can = await canOpenTelegramNative();
+        if (!can) {
+          setTelegramMissingVisible(true);
+          return;
+        }
+      }
+      setLinkLaunched({ showTelegramMark: id === 'telegram' });
+      setTimeout(() => {
+        void connectChannel(id, {
+          skipTelegramNativeCheck: id === 'telegram',
+        });
+      }, 280);
+    })();
+  }, [linkingModalChannelId, connectChannel, spectrum.isProUser]);
 
   useEffect(() => {
     const uid = spectrum.lastMessengerUserId ?? null;
@@ -431,6 +455,7 @@ export function AgentSettingsScreen() {
 
       <ChannelLinkingModal
         visible={linkingModalVisible}
+        variant={linkingModalChannelId === 'telegram' ? 'telegram' : 'other'}
         channelName={
           linkingModalChannelId
             ? t(`channelCatalog.names.${linkingModalChannelId}`)
@@ -438,6 +463,12 @@ export function AgentSettingsScreen() {
         }
         onDismiss={dismissLinkingModal}
         onContinue={onLinkingModalContinue}
+      />
+
+      <LinkLaunchedModal
+        visible={linkLaunched != null}
+        showTelegramMark={linkLaunched?.showTelegramMark ?? false}
+        onDismiss={() => setLinkLaunched(null)}
       />
 
       <PassProModal

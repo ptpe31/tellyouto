@@ -68,7 +68,6 @@ export function OnboardingScreen({ onComplete }: Props) {
   const [firstNameInput, setFirstNameInput] = useState('');
   const [weights, setWeights] = useState(initialOnboardingWeights);
   const [initCopied, setInitCopied] = useState(false);
-  const [telegramStartUrl, setTelegramStartUrl] = useState<string | null>(null);
   const [telegramInstalled, setTelegramInstalled] = useState<boolean | null>(
     null,
   );
@@ -93,19 +92,6 @@ export function OnboardingScreen({ onComplete }: Props) {
   useEffect(() => {
     void checkTelegramInstalled();
   }, [checkTelegramInstalled]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const uid = await getOrCreateDeviceId();
-      if (!cancelled) {
-        setTelegramStartUrl(buildTelegramStartLink(uid));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const finishOnboarding = useCallback(
     async (finalWeights?: typeof weights) => {
@@ -334,15 +320,6 @@ export function OnboardingScreen({ onComplete }: Props) {
                 ? t('onboarding.privateChannel.copied')
                 : t('onboarding.privateChannel.copyInit')}
             </Button>
-
-            {telegramStartUrl ? (
-              <Text
-                style={[styles.channelHint, { color: TELEGRAM_BRAND_BLUE }]}
-                numberOfLines={8}
-              >
-                {telegramStartUrl}
-              </Text>
-            ) : null}
 
             <ChannelsPrivacyFootnote style={styles.channelFoot} />
 

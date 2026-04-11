@@ -39,10 +39,15 @@
       "connected": "Connesso"
     },
     "modal": {
-      "title": "Apri {{channelName}}",
-      "step1": "1. L’app si aprirà.",
-      "step2": "2. Tocca AVVIA o invia un messaggio.",
-      "step3": "3. Torna qui per vedere sincronizzarsi il tuo Rail."
+      "title": "Configurazione di Telegram",
+      "body": "Apriremo una chat sicura su Telegram. Tocca Avvia in basso per attivare il tuo Rail.",
+      "button": "Andiamo",
+      "otherTitle": "{{channelName}}",
+      "otherBody": "Apriremo l’app per completare il collegamento privato. Segui le istruzioni, poi torna qui."
+    },
+    "linkLaunched": {
+      "message": "Collegamento avviato! Il tuo Alleato ti invierà un messaggio tra pochi secondi.",
+      "button": "OK"
     },
     "feedback": {
       "success": "✅ Canale collegato con successo!"

@@ -39,10 +39,15 @@
       "connected": "Connecté"
     },
     "modal": {
-      "title": "Direction {{channelName}}",
-      "step1": "1. L'application va s'ouvrir.",
-      "step2": "2. Appuie sur DÉMARRER ou envoie un message.",
-      "step3": "3. Reviens ici pour voir ton Rail se synchroniser."
+      "title": "Configuration de Telegram",
+      "body": "Nous allons t'ouvrir une discussion sécurisée sur Telegram. Appuie simplement sur « Démarrer » en bas de ton écran pour activer ton Rail.",
+      "button": "C'est parti",
+      "otherTitle": "{{channelName}}",
+      "otherBody": "Nous allons ouvrir l’application pour finaliser la liaison privée. Suis les instructions, puis reviens ici."
+    },
+    "linkLaunched": {
+      "message": "Liaison lancée ! Ton Allié va t'envoyer un message dans quelques secondes.",
+      "button": "OK"
     },
     "feedback": {
       "success": "✅ Canal lié avec succès !"

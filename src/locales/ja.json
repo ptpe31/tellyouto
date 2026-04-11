@@ -39,10 +39,15 @@
       "connected": "接続済み"
     },
     "modal": {
-      "title": "{{channelName}} を開く",
-      "step1": "1. アプリが開きます。",
-      "step2": "2. 「開始」をタップするかメッセージを送信してください。",
-      "step3": "3. ここに戻るとレールが同期されます。"
+      "title": "Telegram の設定",
+      "body": "安全な Telegram のチャットを開きます。画面下の「開始」をタップしてレールを有効にしてください。",
+      "button": "始める",
+      "otherTitle": "{{channelName}}",
+      "otherBody": "プライベート連携を完了するためアプリを開きます。案内に従い、またここに戻ってください。"
+    },
+    "linkLaunched": {
+      "message": "連携を開始しました！数秒以内にアリーからメッセージが届きます。",
+      "button": "OK"
     },
     "feedback": {
       "success": "✅ チャネルを接続しました！"

@@ -4,20 +4,27 @@ import type { AppLanguage } from '../context/LanguageContext';
 import { DEBUG_BOT_NUMBER } from '../config/debugConfig';
 import i18n from '../locales/i18n';
 
-/** Nom du bot sans @ (EXPO_PUBLIC_TELEGRAM_BOT_USERNAME). */
+const DEFAULT_TELEGRAM_BOT = 'TellYouToBot';
+
+/**
+ * Nom du bot sans @ (`EXPO_PUBLIC_TELEGRAM_BOT_USERNAME`).
+ * Repli explicite si la variable est absente ou vide — le lien `t.me` exige un identifiant valide.
+ */
 export function getTelegramBotUsername(): string {
-  const u = process.env.EXPO_PUBLIC_TELEGRAM_BOT_USERNAME?.trim();
-  return u && u.length > 0 ? u.replace(/^@/, '') : 'TellYouToBot';
+  const raw = process.env.EXPO_PUBLIC_TELEGRAM_BOT_USERNAME?.trim();
+  if (!raw) return DEFAULT_TELEGRAM_BOT;
+  const u = raw.replace(/^@/, '');
+  return u.length > 0 ? u : DEFAULT_TELEGRAM_BOT;
 }
 
 /**
- * Lien Telegram natif (`tg://`) avec `start` = identifiant appareil.
+ * Lien https://t.me/{bot}?start=… — affiche le bouton « Démarrer » dans Telegram.
  * @see https://core.telegram.org/bots#deep-linking
  */
 export function buildTelegramStartLink(userId: string): string {
   const bot = getTelegramBotUsername();
   const start = encodeURIComponent(userId.trim());
-  return `tg://resolve?domain=${bot}&start=${start}`;
+  return `https://t.me/${bot}?start=${start}`;
 }
 
 /** Numéro WhatsApp du bot (sans +) — EXPO_PUBLIC_WHATSAPP_BOT_NUMBER ou repli debug. */
