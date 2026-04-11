@@ -47,6 +47,21 @@ function formatMmSs(totalSeconds: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
+const CONFETTI_SEEDS: { left: number; top: number; teal: boolean }[] = [
+  { left: 18, top: 12, teal: true },
+  { left: 52, top: 4, teal: false },
+  { left: 96, top: 18, teal: true },
+  { left: 132, top: 8, teal: false },
+  { left: 172, top: 22, teal: true },
+  { left: 208, top: 6, teal: false },
+  { left: 36, top: 36, teal: false },
+  { left: 110, top: 32, teal: true },
+  { left: 180, top: 38, teal: false },
+  { left: 220, top: 28, teal: true },
+  { left: 76, top: 48, teal: true },
+  { left: 148, top: 44, teal: false },
+];
+
 const RING_SIZE = 220;
 const STROKE = 10;
 const R = (RING_SIZE - STROKE) / 2;
@@ -83,9 +98,13 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
   const [sessionEnded, setSessionEnded] = useState(false);
 
   const finalizedRef = useRef(false);
+  const earlyTerminationRef = useRef(false);
   const prevRemainingRef = useRef<number | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(18)).current;
+  const ringPulse = useRef(new Animated.Value(1)).current;
+
+  const [celebrating, setCelebrating] = useState(false);
 
   const weights = useMemo(
     () => ({
@@ -169,6 +188,34 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
     prevRemainingRef.current = remaining;
   }, [remaining, hasStarted, sessionEnded]);
 
+  useEffect(() => {
+    if (!celebrating) {
+      ringPulse.setValue(1);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ringPulse, {
+          toValue: 1.06,
+          duration: 320,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ringPulse, {
+          toValue: 1,
+          duration: 320,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+      { iterations: 4 },
+    );
+    anim.start();
+    return () => {
+      anim.stop();
+    };
+  }, [celebrating, ringPulse]);
+
   const progress = totalSeconds > 0 ? remaining / totalSeconds : 0;
   const strokeDashoffset = CIRC * (1 - progress);
 
@@ -176,6 +223,15 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
     if (finalizedRef.current) return;
     finalizedRef.current = true;
     setSessionEnded(true);
+
+    const early = earlyTerminationRef.current;
+    earlyTerminationRef.current = false;
+
+    if (!early) {
+      setCelebrating(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 1550));
+      setCelebrating(false);
+    }
 
     const row = await getIntentionById(intentionId);
     if (!row) {
@@ -229,11 +285,15 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
     setPaused((p) => !p);
   };
 
-  const onTerminate = () => {
+  const onTerminatePress = () => {
     if (!hasStarted) {
       navigation.goBack();
-      return;
     }
+  };
+
+  const onTerminateLongPress = () => {
+    if (!hasStarted) return;
+    earlyTerminationRef.current = true;
     void finalizeSession();
   };
 
@@ -278,7 +338,31 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
           {title}
         </Text>
 
-        <View style={[styles.ringShell, neumorphicRaised(theme)]}>
+        {celebrating ? (
+          <View style={styles.confettiWrap} pointerEvents="none">
+            {CONFETTI_SEEDS.map((s, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.confettiDot,
+                  {
+                    left: s.left,
+                    top: s.top,
+                    backgroundColor: s.teal ? palette.tealLight : palette.orangeLight,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        <Animated.View
+          style={[
+            styles.ringShell,
+            neumorphicRaised(theme),
+            { transform: [{ scale: ringPulse }] },
+          ]}
+        >
           <Svg width={RING_SIZE} height={RING_SIZE}>
             <G transform={`rotate(-90 ${CX} ${CY})`}>
               <Circle
@@ -307,7 +391,7 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
               {formatMmSs(remaining)}
             </Text>
           </View>
-        </View>
+        </Animated.View>
 
         <View style={styles.actions}>
           <Pressable
@@ -326,7 +410,9 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
             </Text>
           </Pressable>
           <Pressable
-            onPress={onTerminate}
+            onPress={onTerminatePress}
+            onLongPress={hasStarted ? onTerminateLongPress : undefined}
+            delayLongPress={520}
             style={({ pressed }) => [
               styles.btn,
               {
@@ -341,6 +427,11 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
             </Text>
           </Pressable>
         </View>
+        {hasStarted ? (
+          <Text style={[styles.holdHint, { color: palette.textOnLight }]}>
+            {t('focus.terminateHold')}
+          </Text>
+        ) : null}
       </Animated.View>
 
       <Portal>
@@ -403,5 +494,28 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     borderWidth: 1,
+  },
+  holdHint: {
+    marginTop: 14,
+    fontSize: 12,
+    textAlign: 'center',
+    opacity: 0.72,
+    maxWidth: 280,
+    lineHeight: 17,
+  },
+  confettiWrap: {
+    position: 'absolute',
+    top: 120,
+    left: 0,
+    right: 0,
+    height: 200,
+    zIndex: 4,
+  },
+  confettiDot: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    opacity: 0.65,
   },
 });

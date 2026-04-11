@@ -55,6 +55,10 @@
   },
   "radar": {
     "empty": "Nessuna intenzione. Tocca + per aggiungerne una.",
+    "emptyTitle": "Il tuo binario è libero",
+    "emptyBody": "Un buon momento per ricaricare con dolcezza o impostare una nuova direzione — tocca + quando vuoi.",
+    "emptyTitle": "Il tuo binario è libero",
+    "emptyBody": "Un buon momento per ricaricare con dolcezza o impostare una nuova direzione — tocca + quando vuoi.",
     "priority": "Priorità {{value}}",
     "quickAddTitle": "Intenzione rapida",
     "fieldTitle": "Titolo",
@@ -72,6 +76,8 @@
     "now": "Adesso",
     "dayRail": "Posizione nella giornata (6–22)",
     "empty": "Niente da mettere sul binario. Aggiungi intenzioni dal Radar.",
+    "emptyTitle": "Binario tranquillo",
+    "emptyBody": "Aggiungi intenzioni dal Radar: appariranno qui con finestre suggerite.",
     "estimated": "~ {{minutes}} min stimate",
     "suggestedWindow": "Finestra suggerita: {{start}} – {{end}}",
     "launch": "Avvia"
@@ -81,6 +87,7 @@
     "pause": "Pausa",
     "resume": "Riprendi",
     "terminate": "Termina",
+    "terminateHold": "Tieni premuto il pulsante arancione per chiudere prima — evita tocchi accidentali.",
     "feedbackTitle": "Chiarezza",
     "ok": "OK"
   },
@@ -187,6 +194,9 @@
     "aiLangHint": "Lingua che il copilota preferirà per ragionare e rispondere (può differire dall’interfaccia).",
     "openSettings": "Impostazioni",
     "externalHelp": "Scopri di più sul focus (web)",
+    "versionLabel": "Versione {{version}}",
+    "debugUnlockTitle": "Strumenti pilota",
+    "debugUnlockBody": "La scheda Debug è ora disponibile in fondo alla barra.",
     "voice": {
       "balanced": "Equilibrata",
       "warm": "Calda",
@@ -206,6 +216,13 @@
       "ja": "日本語",
       "zh": "中文"
     }
+  },
+  "health": {
+    "bannerLead": "Nota gentile:",
+    "warnFirebase": "la sincronizzazione cloud non è ancora configurata",
+    "warnSqlite": "il controllo del database locale non è riuscito",
+    "warnNotifications": "le notifiche sono disattivate — l’alleato non può avvisarti sulle nuove intenzioni",
+    "dismiss": "OK"
   },
   "safeExternal": {
     "title": "Uscire da TellYouTo?",

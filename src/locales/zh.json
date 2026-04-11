@@ -55,6 +55,8 @@
   },
   "radar": {
     "empty": "暂无意图。点按 + 添加。",
+    "emptyTitle": "轨道是空的",
+    "emptyBody": "很适合轻轻充电或定下新方向 — 准备好时点 +。",
     "priority": "优先级 {{value}}",
     "quickAddTitle": "快速意图",
     "fieldTitle": "标题",
@@ -72,6 +74,8 @@
     "now": "现在",
     "dayRail": "在一天中的位置（6–22 点）",
     "empty": "轨道上还没有意图。请从雷达添加。",
+    "emptyTitle": "轨道此刻很安静",
+    "emptyBody": "从雷达添加意图；它们会带着建议时段出现在这里。",
     "estimated": "约 {{minutes}} 分钟（估计）",
     "suggestedWindow": "建议时段：{{start}} – {{end}}",
     "launch": "开始"
@@ -81,6 +85,7 @@
     "pause": "暂停",
     "resume": "继续",
     "terminate": "结束",
+    "terminateHold": "长按橙色按钮可提前结束 — 避免误触。",
     "feedbackTitle": "清晰",
     "ok": "好"
   },
@@ -187,6 +192,9 @@
     "aiLangHint": "副驾驶推理与回复优先使用的语言（可与界面不同）。",
     "openSettings": "设置",
     "externalHelp": "了解专注（网页）",
+    "versionLabel": "版本 {{version}}",
+    "debugUnlockTitle": "驾驶舱工具",
+    "debugUnlockBody": "调试标签已显示在标签栏末尾。",
     "voice": {
       "balanced": "均衡",
       "warm": "温暖",
@@ -206,6 +214,13 @@
       "ja": "日本語",
       "zh": "中文"
     }
+  },
+  "health": {
+    "bannerLead": "温馨提示：",
+    "warnFirebase": "尚未配置云端同步",
+    "warnSqlite": "本地数据库检查未通过",
+    "warnNotifications": "通知已关闭 — 盟友无法提醒新意图",
+    "dismiss": "好"
   },
   "safeExternal": {
     "title": "离开 TellYouTo？",

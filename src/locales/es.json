@@ -55,6 +55,8 @@
   },
   "radar": {
     "empty": "Sin intenciones aún. Pulsa + para añadir una.",
+    "emptyTitle": "Tu riel está libre",
+    "emptyBody": "Un buen momento para recargar con calma o trazar una nueva dirección — pulsa + cuando quieras.",
     "priority": "Prioridad {{value}}",
     "quickAddTitle": "Intención rápida",
     "fieldTitle": "Título",
@@ -72,6 +74,8 @@
     "now": "Ahora",
     "dayRail": "Posición en el día (6h–22h)",
     "empty": "Nada que colocar en el riel. Añade intenciones desde Radar.",
+    "emptyTitle": "Un riel tranquilo",
+    "emptyBody": "Añade intenciones desde el Radar; aparecerán aquí con ventanas sugeridas.",
     "estimated": "~ {{minutes}} min estimadas",
     "suggestedWindow": "Ventana sugerida: {{start}} – {{end}}",
     "launch": "Lanzar"
@@ -81,6 +85,7 @@
     "pause": "Pausa",
     "resume": "Reanudar",
     "terminate": "Terminar",
+    "terminateHold": "Mantén el botón naranja para terminar antes — evita toques accidentales.",
     "feedbackTitle": "Claridad",
     "ok": "OK"
   },
@@ -187,6 +192,9 @@
     "aiLangHint": "Idioma que el copiloto preferirá para razonar y responder (puede diferir de la interfaz).",
     "openSettings": "Ajustes",
     "externalHelp": "Más sobre el foco (web)",
+    "versionLabel": "Versión {{version}}",
+    "debugUnlockTitle": "Herramientas de piloto",
+    "debugUnlockBody": "La pestaña Debug ya está disponible al final de la barra.",
     "voice": {
       "balanced": "Equilibrada",
       "warm": "Cálida",
@@ -206,6 +214,13 @@
       "ja": "日本語",
       "zh": "中文"
     }
+  },
+  "health": {
+    "bannerLead": "Aviso suave:",
+    "warnFirebase": "la sincronización en la nube aún no está configurada",
+    "warnSqlite": "la base local no pasó la comprobación",
+    "warnNotifications": "las notificaciones están desactivadas — tu aliado no puede avisarte de nuevas intenciones",
+    "dismiss": "OK"
   },
   "safeExternal": {
     "title": "¿Salir de TellYouTo?",

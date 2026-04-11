@@ -55,6 +55,8 @@
   },
   "radar": {
     "empty": "No intentions yet. Tap + to add one.",
+    "emptyTitle": "Your rail is clear",
+    "emptyBody": "A gentle moment to recharge or set a new direction — tap + when you feel ready.",
     "priority": "Priority {{value}}",
     "quickAddTitle": "Quick intention",
     "fieldTitle": "Title",
@@ -72,6 +74,8 @@
     "now": "Now",
     "dayRail": "Where you are in the day (6am–10pm)",
     "empty": "Nothing to place on the rail yet. Add intentions from Radar.",
+    "emptyTitle": "A quiet rail for now",
+    "emptyBody": "Add intentions from Radar; they’ll appear here with calm suggested windows.",
     "estimated": "~ {{minutes}} min estimated",
     "suggestedWindow": "Suggested window: {{start}} – {{end}}",
     "launch": "Launch"
@@ -81,6 +85,7 @@
     "pause": "Pause",
     "resume": "Resume",
     "terminate": "Finish",
+    "terminateHold": "Hold the orange button to end this capsule early — avoids accidental taps.",
     "feedbackTitle": "Clarity",
     "ok": "OK"
   },
@@ -187,6 +192,9 @@
     "aiLangHint": "Language the co-pilot will prefer for reasoning and replies (can differ from the UI).",
     "openSettings": "Settings",
     "externalHelp": "Learn about focus & calm (web)",
+    "versionLabel": "Version {{version}}",
+    "debugUnlockTitle": "Pilot tools",
+    "debugUnlockBody": "The Debug tab is now available at the end of the tab bar.",
     "voice": {
       "balanced": "Balanced",
       "warm": "Warm",
@@ -206,6 +214,13 @@
       "ja": "日本語",
       "zh": "中文"
     }
+  },
+  "health": {
+    "bannerLead": "Gentle heads-up:",
+    "warnFirebase": "cloud sync isn’t configured yet",
+    "warnSqlite": "local database check didn’t pass",
+    "warnNotifications": "notifications are off — your ally can’t nudge you for new intentions",
+    "dismiss": "OK"
   },
   "safeExternal": {
     "title": "Leave TellYouTo?",

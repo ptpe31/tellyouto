@@ -1,5 +1,6 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import Constants from 'expo-constants';
+import React, { useCallback, useRef } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import {
   List,
@@ -10,6 +11,8 @@ import {
 
 import { SafeExternalLink } from '../components/SafeExternalLink';
 import { NeumorphicCard } from '../components';
+import { IS_PRODUCTION } from '../config/appConfig';
+import { useDebugUnlock } from '../context/DebugUnlockContext';
 import { useAlly, type AllyTone, type AllyVoice } from '../context/AllyContext';
 import type { AppLanguage } from '../context/LanguageContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -19,6 +22,26 @@ const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
 export function AgentSettingsScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { unlock } = useDebugUnlock();
+  const version = Constants.expoConfig?.version ?? '—';
+  const tapCountRef = useRef(0);
+  const tapWindowRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onVersionPress = useCallback(() => {
+    if (!IS_PRODUCTION) return;
+    if (tapWindowRef.current) clearTimeout(tapWindowRef.current);
+    tapCountRef.current += 1;
+    tapWindowRef.current = setTimeout(() => {
+      tapCountRef.current = 0;
+    }, 2200);
+    if (tapCountRef.current >= 5) {
+      tapCountRef.current = 0;
+      if (tapWindowRef.current) clearTimeout(tapWindowRef.current);
+      void unlock().then(() => {
+        Alert.alert(t('ally.debugUnlockTitle'), t('ally.debugUnlockBody'));
+      });
+    }
+  }, [t, unlock]);
   const { language, setLanguage, interactionLanguage, setInteractionLanguage } =
     useLanguage();
   const { voice, tone, setVoice, setTone } = useAlly();
@@ -126,6 +149,17 @@ export function AgentSettingsScreen() {
           </Text>
         </SafeExternalLink>
       </View>
+
+      <Pressable
+        onPress={onVersionPress}
+        style={styles.versionTap}
+        accessibilityRole="button"
+        accessibilityLabel={t('ally.versionLabel', { version })}
+      >
+        <Text style={[styles.versionText, { color: theme.colors.outline }]}>
+          {t('ally.versionLabel', { version })}
+        </Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -140,4 +174,10 @@ const styles = StyleSheet.create({
   segment: { marginTop: 4 },
   linkBox: { paddingVertical: 12, alignItems: 'center' },
   linkText: { fontSize: 15, textDecorationLine: 'underline' },
+  versionTap: {
+    marginTop: 28,
+    paddingVertical: 10,
+    alignSelf: 'center',
+  },
+  versionText: { fontSize: 12, letterSpacing: 0.2 },
 });

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import { Sparkles } from 'lucide-react-native';
 import {
   Button,
   Dialog,
@@ -150,9 +151,19 @@ export function RadarScreen() {
           </NeumorphicCard>
         }
         ListEmptyComponent={
-          <NeumorphicCard>
-            <Text style={{ color: theme.colors.onSurface }}>
-              {t('radar.empty')}
+          <NeumorphicCard style={styles.emptyCard}>
+            <Sparkles
+              color={theme.colors.primary}
+              size={32}
+              style={styles.emptyIcon}
+            />
+            <Text style={[styles.emptyTitle, { color: theme.colors.onSurface }]}>
+              {t('radar.emptyTitle')}
+            </Text>
+            <Text
+              style={[styles.emptyBody, { color: theme.colors.onSurfaceVariant }]}
+            >
+              {t('radar.emptyBody')}
             </Text>
           </NeumorphicCard>
         }
@@ -226,4 +237,13 @@ const styles = StyleSheet.create({
   meta: { marginTop: 10, fontSize: 12, fontWeight: '600' },
   fab: { position: 'absolute', right: 20 },
   input: { marginBottom: 8 },
+  emptyCard: { alignItems: 'center', paddingVertical: 22 },
+  emptyIcon: { marginBottom: 12 },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  emptyBody: { fontSize: 15, lineHeight: 22, textAlign: 'center' },
 });

@@ -1,5 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react-native';
 import {
   DeviceEventEmitter,
   FlatList,
@@ -150,9 +151,19 @@ export function TimelineScreen() {
           </View>
         }
         ListEmptyComponent={
-          <NeumorphicCard>
-            <Text style={{ color: theme.colors.onSurface }}>
-              {t('timeline.empty')}
+          <NeumorphicCard style={styles.emptyCard}>
+            <Sparkles
+              color={theme.colors.primary}
+              size={30}
+              style={styles.emptyIcon}
+            />
+            <Text style={[styles.emptyTitle, { color: theme.colors.onSurface }]}>
+              {t('timeline.emptyTitle')}
+            </Text>
+            <Text
+              style={[styles.emptyBody, { color: theme.colors.onSurfaceVariant }]}
+            >
+              {t('timeline.emptyBody')}
             </Text>
           </NeumorphicCard>
         }
@@ -179,4 +190,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 14,
   },
+  emptyCard: { alignItems: 'center', paddingVertical: 22 },
+  emptyIcon: { marginBottom: 12 },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  emptyBody: { fontSize: 15, lineHeight: 22, textAlign: 'center' },
 });

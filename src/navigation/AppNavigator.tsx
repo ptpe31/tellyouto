@@ -20,6 +20,7 @@ import {
   TimelineScreen,
 } from '../screens';
 import { IS_PRODUCTION } from '../config/appConfig';
+import { useDebugUnlock } from '../context/DebugUnlockContext';
 import { AgentStack } from './AgentStack';
 
 const Tab = createBottomTabNavigator();
@@ -27,6 +28,8 @@ const Tab = createBottomTabNavigator();
 export function AppNavigator() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { unlocked: debugUnlocked } = useDebugUnlock();
+  const showDebugTab = !IS_PRODUCTION || debugUnlocked;
 
   return (
     <Tab.Navigator
@@ -99,7 +102,7 @@ export function AppNavigator() {
           ),
         }}
       />
-      {!IS_PRODUCTION && (
+      {showDebugTab && (
         <Tab.Screen
           name="Debug"
           component={DebugScreen}

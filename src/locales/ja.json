@@ -55,6 +55,8 @@
   },
   "radar": {
     "empty": "意図はまだありません。+ で追加してください。",
+    "emptyTitle": "レールは空いています",
+    "emptyBody": "リチャージにも、新しい方向を決めるにも、ちょうどいい時間です。準備ができたら + を。",
     "priority": "優先度 {{value}}",
     "quickAddTitle": "クイック意図",
     "fieldTitle": "タイトル",
@@ -72,6 +74,8 @@
     "now": "いま",
     "dayRail": "一日の中の位置（6–22時）",
     "empty": "レールに載せる意図がありません。レーダーから追加してください。",
+    "emptyTitle": "いまは静かなレール",
+    "emptyBody": "レーダーから意図を追加すると、提案枠つきでここに並びます。",
     "estimated": "約 {{minutes}} 分（見積）",
     "suggestedWindow": "提案枠：{{start}} – {{end}}",
     "launch": "開始"
@@ -81,6 +85,7 @@
     "pause": "一時停止",
     "resume": "再開",
     "terminate": "終了",
+    "terminateHold": "オレンジのボタンを長押しで早めに終了 — 誤タップを防ぎます。",
     "feedbackTitle": "明瞭さ",
     "ok": "OK"
   },
@@ -187,6 +192,9 @@
     "aiLangHint": "コパイロットが思考・返答に使う言語（UIと別でも可）。",
     "openSettings": "設定",
     "externalHelp": "フォーカスについて（Web）",
+    "versionLabel": "バージョン {{version}}",
+    "debugUnlockTitle": "パイロットツール",
+    "debugUnlockBody": "デバッグタブがタブバーの末尾に表示されます。",
     "voice": {
       "balanced": "バランス",
       "warm": "あたたかい",
@@ -206,6 +214,13 @@
       "ja": "日本語",
       "zh": "中文"
     }
+  },
+  "health": {
+    "bannerLead": "お知らせ：",
+    "warnFirebase": "クラウド同期がまだ設定されていません",
+    "warnSqlite": "ローカルDBの確認に失敗しました",
+    "warnNotifications": "通知がオフです — 新しい意図のお知らせが届きません",
+    "dismiss": "OK"
   },
   "safeExternal": {
     "title": "TellYouToを離れますか？",

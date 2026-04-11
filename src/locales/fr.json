@@ -55,6 +55,8 @@
   },
   "radar": {
     "empty": "Aucune intention pour l’instant. Touche + pour en ajouter une.",
+    "emptyTitle": "Ton rail est libre",
+    "emptyBody": "C’est le moment idéal pour une recharge douce ou pour tracer une nouvelle direction — touche + quand tu es prêt·e.",
     "priority": "Priorité {{value}}",
     "quickAddTitle": "Intention rapide",
     "fieldTitle": "Titre",
@@ -72,6 +74,8 @@
     "now": "Maintenant",
     "dayRail": "Position dans la journée (6h–22h)",
     "empty": "Aucune intention à placer sur le rail. Ajoute-en depuis le Radar.",
+    "emptyTitle": "Un rail tout en calme",
+    "emptyBody": "Ajoute des intentions depuis le Radar : elles apparaîtront ici avec des fenêtres suggérées.",
     "estimated": "~ {{minutes}} min estimées",
     "suggestedWindow": "Créneau suggéré : {{start}} – {{end}}",
     "launch": "Lancer"
@@ -81,6 +85,7 @@
     "pause": "Pause",
     "resume": "Reprendre",
     "terminate": "Terminer",
+    "terminateHold": "Maintiens le bouton orange pour terminer la capsule tôt — évite les appuis accidentels.",
     "feedbackTitle": "Clarté",
     "ok": "OK"
   },
@@ -187,6 +192,9 @@
     "aiLangHint": "Langue que le co-pilote privilégiera pour raisonner et répondre (peut différer de l’interface).",
     "openSettings": "Réglages",
     "externalHelp": "En savoir plus sur le focus (web)",
+    "versionLabel": "Version {{version}}",
+    "debugUnlockTitle": "Outils pilote",
+    "debugUnlockBody": "L’onglet Debug est disponible en fin de barre d’onglets.",
     "voice": {
       "balanced": "Équilibrée",
       "warm": "Chaleureuse",
@@ -206,6 +214,13 @@
       "ja": "日本語",
       "zh": "中文"
     }
+  },
+  "health": {
+    "bannerLead": "Petit rappel :",
+    "warnFirebase": "la synchro cloud n’est pas encore configurée",
+    "warnSqlite": "le test de la base locale a échoué",
+    "warnNotifications": "les notifications sont désactivées — ton allié ne peut pas te prévenir des nouvelles intentions",
+    "dismiss": "OK"
   },
   "safeExternal": {
     "title": "Quitter TellYouTo ?",

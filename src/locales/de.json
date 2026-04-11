@@ -55,6 +55,8 @@
   },
   "radar": {
     "empty": "Noch keine Intentionen. Tippe + zum Hinzufügen.",
+    "emptyTitle": "Deine Schiene ist frei",
+    "emptyBody": "Ein guter Moment für eine sanfte Pause oder eine neue Richtung — tippe auf +, wenn es passt.",
     "priority": "Priorität {{value}}",
     "quickAddTitle": "Schnelle Intention",
     "fieldTitle": "Titel",
@@ -72,6 +74,8 @@
     "now": "Jetzt",
     "dayRail": "Position im Tag (6–22 Uhr)",
     "empty": "Noch nichts für die Schiene. Intentionen im Radar hinzufügen.",
+    "emptyTitle": "Ruhige Schiene",
+    "emptyBody": "Füge Intentionen im Radar hinzu — sie erscheinen hier mit vorgeschlagenen Fenstern.",
     "estimated": "~ {{minutes}} Min. geschätzt",
     "suggestedWindow": "Vorschlag: {{start}} – {{end}}",
     "launch": "Starten"
@@ -81,6 +85,7 @@
     "pause": "Pause",
     "resume": "Weiter",
     "terminate": "Beenden",
+    "terminateHold": "Orange Taste gedrückt halten zum frühen Beenden — verhindert versehentliche Tipps.",
     "feedbackTitle": "Klarheit",
     "ok": "OK"
   },
@@ -187,6 +192,9 @@
     "aiLangHint": "Sprache, die der Co-Pilot für Antworten bevorzugt (kann von der Oberfläche abweichen).",
     "openSettings": "Einstellungen",
     "externalHelp": "Mehr zum Fokus (Web)",
+    "versionLabel": "Version {{version}}",
+    "debugUnlockTitle": "Pilot-Werkzeuge",
+    "debugUnlockBody": "Der Debug-Reiter ist jetzt am Ende der Leiste verfügbar.",
     "voice": {
       "balanced": "Ausgewogen",
       "warm": "Warm",
@@ -206,6 +214,13 @@
       "ja": "日本語",
       "zh": "中文"
     }
+  },
+  "health": {
+    "bannerLead": "Hinweis:",
+    "warnFirebase": "Cloud-Sync ist noch nicht eingerichtet",
+    "warnSqlite": "Lokale Datenbankprüfung fehlgeschlagen",
+    "warnNotifications": "Benachrichtigungen sind aus — dein Ally kann nicht auf neue Intentionen hinweisen",
+    "dismiss": "OK"
   },
   "safeExternal": {
     "title": "TellYouTo verlassen?",

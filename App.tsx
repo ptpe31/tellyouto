@@ -10,6 +10,8 @@ import { PowerProvider } from './src/context/PowerContext';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { FocusProtectionProvider } from './src/context/FocusProtectionContext';
 import { IntentionSyncBootstrap } from './src/components/IntentionSyncBootstrap';
+import { SystemHealthBanner } from './src/components/SystemHealthBanner';
+import { DebugUnlockProvider } from './src/context/DebugUnlockContext';
 import { UserSpectrumProvider } from './src/context/UserSpectrumContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { navigationThemeFromPaper } from './src/theme/paperTheme';
@@ -29,17 +31,20 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider>
           <LanguageProvider>
-            <AllyProvider>
-              <PowerProvider>
-                <UserSpectrumProvider>
-                  <FocusProtectionProvider>
-                    <IntentionSyncBootstrap />
-                    <AppNavigation />
-                    <StatusBarRoot />
-                  </FocusProtectionProvider>
-                </UserSpectrumProvider>
-              </PowerProvider>
-            </AllyProvider>
+            <DebugUnlockProvider>
+              <AllyProvider>
+                <PowerProvider>
+                  <UserSpectrumProvider>
+                    <FocusProtectionProvider>
+                      <IntentionSyncBootstrap />
+                      <SystemHealthBanner />
+                      <AppNavigation />
+                      <StatusBarRoot />
+                    </FocusProtectionProvider>
+                  </UserSpectrumProvider>
+                </PowerProvider>
+              </AllyProvider>
+            </DebugUnlockProvider>
           </LanguageProvider>
         </ThemeProvider>
       </SafeAreaProvider>
