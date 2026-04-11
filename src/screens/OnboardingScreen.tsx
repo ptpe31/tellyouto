@@ -6,7 +6,6 @@ import {
   Alert,
   AppState,
   Linking,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,7 +22,7 @@ import {
 } from '../data/onboardingSituations';
 import { ONBOARDING_CHANNELS_SKIPPED_KEY } from '../data/onboardingFlags';
 import { savePrivateChannelChoice } from '../data/privateChannels';
-import { NeumorphicCard, NeumorphicSurface } from '../components';
+import { NeumorphicCard, NeumorphicSurface, TelegramMissingDialog } from '../components';
 import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TELEGRAM_BRAND_BLUE } from '../config/telegramBrand';
@@ -34,18 +33,15 @@ import {
 } from '../services/connectorLinks';
 import { pushDeviceProfileToFirestore } from '../api/userProfile';
 import { getOrCreateDeviceId } from '../api/syncService';
+import {
+  canOpenTelegramNative,
+  openTelegramStore,
+} from '../utils/linkingHelper';
 import { ChannelsPrivacyFootnote } from './ChannelsScreen';
 
 type Props = {
   onComplete: () => void;
 };
-
-const TELEGRAM_STORE_URL = Platform.select({
-  ios: 'https://apps.apple.com/app/telegram-messenger/id686449807',
-  android:
-    'https://play.google.com/store/apps/details?id=org.telegram.messenger',
-  default: 'https://telegram.org/dl',
-});
 
 const SITUATION_COUNT = ONBOARDING_SITUATIONS.length;
 /** 0 = prénom, 1..SITUATION_COUNT = situations, puis canal Telegram (si installé) */
@@ -77,8 +73,11 @@ export function OnboardingScreen({ onComplete }: Props) {
     null,
   );
   const [showTelegramReward, setShowTelegramReward] = useState(false);
+  const [telegramMissingVisible, setTelegramMissingVisible] = useState(false);
   const [channelGatePending, setChannelGatePending] = useState(false);
   const pendingTelegramInstallReward = useRef(false);
+  /** Retour store après « Installer » depuis la boîte CTA — relance connexion + fin onboarding. */
+  const pendingResumeTelegramConnect = useRef(false);
   const weightsRef = useRef(weights);
   weightsRef.current = weights;
 
@@ -94,24 +93,6 @@ export function OnboardingScreen({ onComplete }: Props) {
   useEffect(() => {
     void checkTelegramInstalled();
   }, [checkTelegramInstalled]);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next !== 'active') return;
-      void (async () => {
-        await checkTelegramInstalled();
-        if (!pendingTelegramInstallReward.current) return;
-        const can = await Linking.canOpenURL('tg://');
-        if (can) {
-          pendingTelegramInstallReward.current = false;
-          setTelegramInstalled(true);
-          await grantAdFreeDays(15);
-          setShowTelegramReward(true);
-        }
-      })();
-    });
-    return () => sub.remove();
-  }, [checkTelegramInstalled, grantAdFreeDays]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +126,49 @@ export function OnboardingScreen({ onComplete }: Props) {
     },
     [applyWeightsAndPersist, setLocale, persist, language, firstNameInput, spectrum, onComplete],
   );
+
+  const runTelegramConnectAndFinish = useCallback(async () => {
+    const uid = await getOrCreateDeviceId();
+    const url = buildTelegramStartLink(uid);
+    await savePrivateChannelChoice('telegram', url);
+    await AsyncStorage.removeItem(ONBOARDING_CHANNELS_SKIPPED_KEY);
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(
+        t('onboarding.privateChannel.whatsappErrorTitle'),
+        t('onboarding.privateChannel.genericOpenErrorBody'),
+      );
+    }
+    void finishOnboarding();
+  }, [t, finishOnboarding]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      void (async () => {
+        await checkTelegramInstalled();
+        const can = await canOpenTelegramNative();
+        if (!can) return;
+
+        if (pendingResumeTelegramConnect.current) {
+          pendingResumeTelegramConnect.current = false;
+          pendingTelegramInstallReward.current = false;
+          await grantAdFreeDays(15);
+          await runTelegramConnectAndFinish();
+          return;
+        }
+
+        if (pendingTelegramInstallReward.current) {
+          pendingTelegramInstallReward.current = false;
+          setTelegramInstalled(true);
+          await grantAdFreeDays(15);
+          setShowTelegramReward(true);
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, [checkTelegramInstalled, grantAdFreeDays, runTelegramConnectAndFinish]);
 
   const onContinueFirstName = async () => {
     const trimmed = firstNameInput.trim();
@@ -331,7 +355,7 @@ export function OnboardingScreen({ onComplete }: Props) {
                 textColor={theme.colors.onSurface}
                 onPress={() => {
                   pendingTelegramInstallReward.current = true;
-                  void Linking.openURL(TELEGRAM_STORE_URL);
+                  void openTelegramStore();
                 }}
               >
                 {t('onboarding.privateChannel.installTelegram')}
@@ -344,19 +368,12 @@ export function OnboardingScreen({ onComplete }: Props) {
               buttonColor={TELEGRAM_BRAND_BLUE}
               textColor="#ffffff"
               onPress={async () => {
-                const uid = await getOrCreateDeviceId();
-                const url = buildTelegramStartLink(uid);
-                await savePrivateChannelChoice('telegram', url);
-                await AsyncStorage.removeItem(ONBOARDING_CHANNELS_SKIPPED_KEY);
-                try {
-                  await Linking.openURL(url);
-                } catch {
-                  Alert.alert(
-                    t('onboarding.privateChannel.whatsappErrorTitle'),
-                    t('onboarding.privateChannel.genericOpenErrorBody'),
-                  );
+                const can = await canOpenTelegramNative();
+                if (!can) {
+                  setTelegramMissingVisible(true);
+                  return;
                 }
-                void finishOnboarding();
+                await runTelegramConnectAndFinish();
               }}
             >
               {t('onboarding.privateChannel.cta')}
@@ -374,6 +391,16 @@ export function OnboardingScreen({ onComplete }: Props) {
             </Button>
           </NeumorphicCard>
         </ScrollView>
+        <TelegramMissingDialog
+          visible={telegramMissingVisible}
+          onDismiss={() => setTelegramMissingVisible(false)}
+          onInstall={() => {
+            pendingResumeTelegramConnect.current = true;
+            setTelegramMissingVisible(false);
+            void openTelegramStore();
+          }}
+        />
+
         <Portal>
           {showTelegramReward ? (
             <View style={styles.rewardOverlay}>

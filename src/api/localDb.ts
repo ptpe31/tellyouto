@@ -1,7 +1,9 @@
 import * as SQLite from 'expo-sqlite';
 import { deleteAsync } from 'expo-file-system/legacy';
 import { defaultDatabaseDirectory } from 'expo-sqlite';
-import { DeviceEventEmitter, Platform } from 'react-native';
+import { DeviceEventEmitter } from 'react-native';
+
+import { Platform } from '../utils/rnPlatform';
 
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
 
@@ -45,7 +47,9 @@ const SCHEMA = `
     is_hard_constraint INTEGER NOT NULL DEFAULT 0,
     routine_id TEXT,
     anchor_date_ymd TEXT,
-    fixed_start_minutes INTEGER
+    fixed_start_minutes INTEGER,
+    raw_transcript TEXT,
+    energy_score REAL
   );
 
   CREATE TABLE IF NOT EXISTS routines (
@@ -193,6 +197,12 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
       `ALTER TABLE intentions ADD COLUMN fixed_start_minutes INTEGER`,
     );
   }
+  if (!names.has('raw_transcript')) {
+    await database.execAsync(`ALTER TABLE intentions ADD COLUMN raw_transcript TEXT`);
+  }
+  if (!names.has('energy_score')) {
+    await database.execAsync(`ALTER TABLE intentions ADD COLUMN energy_score REAL`);
+  }
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS routines (
       id TEXT PRIMARY KEY NOT NULL,
@@ -276,6 +286,10 @@ export type IntentionRow = {
   anchor_date_ymd: string | null;
   /** Début d’ancrage rail (minutes depuis minuit), null = placement libre */
   fixed_start_minutes: number | null;
+  /** Texte vocal / brut avant analyse (messagerie, tests) */
+  raw_transcript: string | null;
+  /** Score énergie / charge (0–1), optionnel */
+  energy_score: number | null;
 };
 
 export type RoutineRow = {
@@ -337,6 +351,14 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
       typeof row.fixed_start_minutes === 'number'
         ? row.fixed_start_minutes
         : null,
+    raw_transcript:
+      typeof row.raw_transcript === 'string' && row.raw_transcript.trim()
+        ? row.raw_transcript
+        : null,
+    energy_score:
+      typeof row.energy_score === 'number' && Number.isFinite(row.energy_score)
+        ? row.energy_score
+        : null,
   };
 }
 
@@ -359,6 +381,8 @@ export async function insertIntention(input: {
   routine_id?: string | null;
   anchor_date_ymd?: string | null;
   fixed_start_minutes?: number | null;
+  raw_transcript?: string | null;
+  energy_score?: number | null;
 }): Promise<void> {
   const database = await getLocalDatabase();
   const ufu = input.user_forced_urgent ? 1 : 0;
@@ -372,8 +396,9 @@ export async function insertIntention(input: {
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
       user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
-      is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
+      raw_transcript, energy_score
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.id,
       input.title,
@@ -393,6 +418,8 @@ export async function insertIntention(input: {
       input.routine_id ?? null,
       input.anchor_date_ymd ?? null,
       input.fixed_start_minutes ?? null,
+      input.raw_transcript ?? null,
+      input.energy_score ?? null,
     ],
   );
 }
@@ -426,8 +453,9 @@ export async function insertCompletedIntention(input: {
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
       user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
-      is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes
-    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)`,
+      is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
+      raw_transcript, energy_score
+    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL)`,
     [
       input.id,
       input.title,
@@ -677,8 +705,9 @@ export async function ensureRoutineIntentionInstancesForHorizon(
         platform_type, platform_user_id, created_at, synced,
         estimated_duration, actual_duration, completed_at,
         user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
-        is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 0, 1, ?, ?, ?, ?)`,
+        is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
+        raw_transcript, energy_score
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 0, 1, ?, ?, ?, ?, NULL, NULL)`,
       [
         intentionId,
         routine.title,
@@ -708,4 +737,32 @@ export async function checkpointLocalDatabase(): Promise<void> {
   } catch {
     /* mode journal non-WAL ou indisponible : ignoré */
   }
+}
+
+/** Aligné sur `INTENTIONS_CHANGED_EVENT` (externalIntentIngest) — évite import circulaire. */
+const INTENTIONS_CHANGED_DEBUG = 'tellyouto/intentions_changed';
+
+/**
+ * Supprime toutes les intentions locales (+ contrôles micro-habitudes) — tests Debug / profils.
+ */
+export async function deleteAllIntentions(): Promise<void> {
+  const database = await getLocalDatabase();
+  await database.runAsync(`DELETE FROM micro_habit_checks`);
+  await database.runAsync(`DELETE FROM intentions`);
+  DeviceEventEmitter.emit(INTENTIONS_CHANGED_DEBUG);
+}
+
+/** Vue compacte pour l’écran Debug (Use Cases / sync Firebase). */
+export function intentionRowToDebugSnapshot(row: IntentionRow): Record<string, unknown> {
+  return {
+    title: row.title,
+    start_time_ms: row.created_at,
+    rail_start_minutes: row.fixed_start_minutes,
+    isMicroHabit: row.is_micro_habit,
+    isHardConstraint: row.is_hard_constraint,
+    energy_score: row.energy_score,
+    sync_status: row.synced === 1 ? 'synced' : 'pending',
+    raw_transcript: row.raw_transcript,
+    _full_row: row,
+  };
 }

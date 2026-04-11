@@ -14,6 +14,12 @@
     "copyLink": "Copier le lien",
     "copyAll": "Copier tous les liens"
   },
+  "linking": {
+    "telegramMissingTitle": "Telegram",
+    "telegramMissingBody": "Telegram n'est pas installé. Pour parler à ton Allié gratuitement, installe l’application.",
+    "telegramMissingInstall": "Installer Telegram",
+    "telegramMissingLater": "Plus tard"
+  },
   "settings": {
     "privateChannelTitle": "Canal privé",
     "privateChannelSubtitle": "Telegram est inclus ; WhatsApp, Slack et LINE sont réservés au forfait Pro.",
@@ -287,6 +293,14 @@
     "busySqlite": "SQLite…",
     "proUserToggle": "Simuler compte Pro (local + sync)",
     "sectionSpectrum": "UserSpectrumContext (brut)",
+    "sectionRawIntentions": "Intentions (brut)",
+    "rawIntentionsHelp": "Dump SQLite : title, start_time_ms, rail_start_minutes, isMicroHabit, isHardConstraint, energy_score, sync_status, raw_transcript, puis _full_row (ligne complète). Rafraîchit à chaque insertion ou reset.",
+    "purgeIntentions": "Vider les Intentions",
+    "purgeIntentionsBusy": "Suppression des intentions…",
+    "purgeIntentionsConfirmTitle": "Vider toutes les intentions ?",
+    "purgeIntentionsConfirmBody": "Supprime toutes les intentions et les contrôles micro-habitudes locaux. Utile pour enchaîner les tests de profils (Zen, Momentum…).",
+    "purgeIntentionsCancel": "Annuler",
+    "purgeIntentionsConfirm": "Tout supprimer",
     "sectionPower": "PowerContext (brut)",
     "simSectionTitle": "Simulation entrée externe",
     "simSectionHelp": "Injection type webhook. Si un identifiant utilisateur plateforme est défini, l’expéditeur doit correspondre.",

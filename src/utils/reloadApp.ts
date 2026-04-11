@@ -1,4 +1,6 @@
-import { DevSettings, Platform } from 'react-native';
+import { DevSettings } from 'react-native';
+
+import { Platform } from './rnPlatform';
 import * as Updates from 'expo-updates';
 
 /**

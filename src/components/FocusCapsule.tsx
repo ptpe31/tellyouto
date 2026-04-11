@@ -4,7 +4,6 @@ import {
   Animated,
   Easing,
   LayoutAnimation,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -17,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Dialog, Portal, useTheme } from 'react-native-paper';
 
+import { Platform } from '../utils/rnPlatform';
 import { syncPendingIntentions } from '../api/syncService';
 import { setRemoteFocusSessionActive } from '../api/focusSessionRemote';
 import {

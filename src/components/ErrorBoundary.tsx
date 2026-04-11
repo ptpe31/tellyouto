@@ -1,12 +1,7 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { Platform } from '../utils/rnPlatform';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { palette } from '../theme/colors';

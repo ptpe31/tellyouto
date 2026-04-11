@@ -4,6 +4,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Linking,
   Pressable,
   ScrollView,
@@ -27,6 +28,7 @@ import {
   NeumorphicCard,
 } from '../components';
 import { ChannelCatalogCard } from '../components/ChannelCatalogCard';
+import { TelegramMissingDialog } from '../components/TelegramMissingDialog';
 import { PassProModal } from '../components/PassProModal';
 import { SingleChannelSwitchModal } from '../components/SingleChannelSwitchModal';
 import { IS_PRODUCTION } from '../config/appConfig';
@@ -52,6 +54,10 @@ import {
 } from '../services/connectorLinks';
 import { disconnectChannelRemote } from '../services/channelsService';
 import { getOrCreateDeviceId } from '../api/syncService';
+import {
+  canOpenTelegramNative,
+  openTelegramStore,
+} from '../utils/linkingHelper';
 import { ChannelsPrivacyFootnote } from './ChannelsScreen';
 
 const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
@@ -100,6 +106,8 @@ export function AgentSettingsScreen() {
   const [leadDraft, setLeadDraft] = useState(
     String(spectrum.messenger_reminder_lead_minutes),
   );
+  const [telegramMissingVisible, setTelegramMissingVisible] = useState(false);
+  const pendingTelegramStoreReturn = useRef(false);
 
   useEffect(() => {
     setLeadDraft(String(spectrum.messenger_reminder_lead_minutes));
@@ -132,10 +140,20 @@ export function AgentSettingsScreen() {
   );
 
   const connectChannel = useCallback(
-    async (id: PrivateChannelId) => {
+    async (
+      id: PrivateChannelId,
+      opts?: { skipTelegramNativeCheck?: boolean },
+    ) => {
       if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
         setPassProVisible(true);
         return;
+      }
+      if (id === 'telegram' && !opts?.skipTelegramNativeCheck) {
+        const can = await canOpenTelegramNative();
+        if (!can) {
+          setTelegramMissingVisible(true);
+          return;
+        }
       }
       await applyChannel(id);
       const url = await getStoredPrivateChannelBotUrl();
@@ -149,6 +167,19 @@ export function AgentSettingsScreen() {
     },
     [applyChannel, spectrum.isProUser],
   );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !pendingTelegramStoreReturn.current) return;
+      void (async () => {
+        const can = await canOpenTelegramNative();
+        if (!can) return;
+        pendingTelegramStoreReturn.current = false;
+        await connectChannel('telegram', { skipTelegramNativeCheck: true });
+      })();
+    });
+    return () => sub.remove();
+  }, [connectChannel]);
 
   const disconnectActiveChannel = useCallback(
     async (id: PrivateChannelId) => {
@@ -375,6 +406,16 @@ export function AgentSettingsScreen() {
           if (rootNavigationRef.isReady()) {
             rootNavigationRef.navigate('ProSubscription');
           }
+        }}
+      />
+
+      <TelegramMissingDialog
+        visible={telegramMissingVisible}
+        onDismiss={() => setTelegramMissingVisible(false)}
+        onInstall={() => {
+          pendingTelegramStoreReturn.current = true;
+          setTelegramMissingVisible(false);
+          void openTelegramStore();
         }}
       />
 

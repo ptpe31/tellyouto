@@ -6,13 +6,13 @@ import {
   DeviceEventEmitter,
   FlatList,
   LayoutAnimation,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   UIManager,
   View,
 } from 'react-native';
+import { Platform } from '../utils/rnPlatform';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';

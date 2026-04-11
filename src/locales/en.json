@@ -14,6 +14,12 @@
     "copyLink": "Copy link",
     "copyAll": "Copy all links"
   },
+  "linking": {
+    "telegramMissingTitle": "Telegram",
+    "telegramMissingBody": "Telegram isn’t installed. To talk to your Ally for free, install the app.",
+    "telegramMissingInstall": "Install Telegram",
+    "telegramMissingLater": "Not now"
+  },
   "settings": {
     "privateChannelTitle": "Private channel",
     "privateChannelSubtitle": "Telegram is included; WhatsApp, Slack, and LINE require Pro.",
@@ -287,6 +293,14 @@
     "busySqlite": "SQLite…",
     "proUserToggle": "Simulate Pro (local + sync)",
     "sectionSpectrum": "UserSpectrumContext (raw)",
+    "sectionRawIntentions": "Intentions (raw)",
+    "rawIntentionsHelp": "SQLite dump: title, start_time_ms, rail_start_minutes, isMicroHabit, isHardConstraint, energy_score, sync_status, raw_transcript, then _full_row. Refreshes on each insert or reset.",
+    "purgeIntentions": "Clear intentions",
+    "purgeIntentionsBusy": "Deleting intentions…",
+    "purgeIntentionsConfirmTitle": "Clear all intentions?",
+    "purgeIntentionsConfirmBody": "Deletes all local intentions and micro-habit checks. Useful between profile test runs (Zen, Momentum…).",
+    "purgeIntentionsCancel": "Cancel",
+    "purgeIntentionsConfirm": "Delete all",
     "sectionPower": "PowerContext (raw)",
     "simSectionTitle": "External entry simulation",
     "simSectionHelp": "Webhook-style injection. If a platform user ID is set in your profile, the sender ID must match it.",

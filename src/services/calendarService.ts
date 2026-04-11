@@ -1,6 +1,6 @@
 import * as Calendar from 'expo-calendar';
 import type { Event } from 'expo-calendar';
-import { Platform } from 'react-native';
+import { Platform } from '../utils/rnPlatform';
 
 /** Intervalle occupé en minutes depuis minuit — aucun titre ni lieu (confidentialité). */
 export type BusyIntervalMinutes = {

@@ -1,5 +1,7 @@
-import { Platform, type ViewStyle } from 'react-native';
+import type { ViewStyle } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
+
+import { Platform } from '../utils/rnPlatform';
 
 /**
  * Ombres douces type neumorphisme (compatible stores : pas d’API propriétaire).

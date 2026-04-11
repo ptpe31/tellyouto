@@ -72,6 +72,7 @@ export async function ingestExternalRawMessage(options: {
 
   const uid = spectrum.platform_user_id || externalUserId;
   const id = randomUUID();
+  const energyScore = Math.min(1, Math.max(0, priority / 100));
 
   if (isHardConstraint) {
     const plan = inferStructuralRoutinePlan(
@@ -122,6 +123,8 @@ export async function ingestExternalRawMessage(options: {
         alarm_enabled: false,
         is_micro_habit: isMicroHabit,
         is_hard_constraint: false,
+        raw_transcript: raw,
+        energy_score: energyScore,
       });
     }
   } else {
@@ -146,6 +149,8 @@ export async function ingestExternalRawMessage(options: {
       alarm_enabled: false,
       is_micro_habit: isMicroHabit,
       is_hard_constraint: false,
+      raw_transcript: raw,
+      energy_score: energyScore,
     });
   }
 

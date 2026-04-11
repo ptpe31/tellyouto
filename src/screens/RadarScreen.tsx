@@ -9,7 +9,6 @@ import {
   DeviceEventEmitter,
   FlatList,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -73,6 +72,7 @@ import {
   recordQuickCompleteWithoutCapsule,
 } from '../services/focusHabits';
 import { useWhatsAppInitCelebration } from '../hooks/useWhatsAppInitCelebration';
+import { Platform } from '../utils/rnPlatform';
 import {
   ONBOARDING_CHANNELS_SKIPPED_KEY,
   RADAR_CHANNELS_NUDGE_DISMISSED_KEY,

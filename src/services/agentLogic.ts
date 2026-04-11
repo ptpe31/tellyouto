@@ -524,6 +524,8 @@ export function previewManualIntentionOverlapsHardRoutine(
     routine_id: null,
     anchor_date_ymd: null,
     fixed_start_minutes: null,
+    raw_transcript: null,
+    energy_score: null,
   };
 
   const pool = pending.filter((r) => r.status !== 'done');

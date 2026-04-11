@@ -14,6 +14,12 @@
     "copyLink": "Copiar enlace",
     "copyAll": "Copiar todos los enlaces"
   },
+  "linking": {
+    "telegramMissingTitle": "Telegram",
+    "telegramMissingBody": "Telegram no está instalado. Para hablar con tu Aliado gratis, instala la aplicación.",
+    "telegramMissingInstall": "Instalar Telegram",
+    "telegramMissingLater": "Más tarde"
+  },
   "settings": {
     "privateChannelTitle": "Canal privado",
     "privateChannelSubtitle": "Telegram está incluido; WhatsApp, Slack y LINE requieren Pro.",
@@ -287,6 +293,14 @@
     "busySqlite": "SQLite…",
     "proUserToggle": "Simular Pro (local + sync)",
     "sectionSpectrum": "UserSpectrumContext (raw)",
+    "sectionRawIntentions": "Intentions (bruto)",
+    "rawIntentionsHelp": "Volcado SQLite: title, start_time_ms, rail_start_minutes, isMicroHabit, isHardConstraint, energy_score, sync_status, raw_transcript, luego _full_row. Se actualiza al insertar o al reset.",
+    "purgeIntentions": "Vaciar intentions",
+    "purgeIntentionsBusy": "Eliminando intentions…",
+    "purgeIntentionsConfirmTitle": "¿Vaciar todas las intentions?",
+    "purgeIntentionsConfirmBody": "Elimina todas las intentions locales y los controles de micro-hábitos. Útil entre pruebas de perfil (Zen, Momentum…).",
+    "purgeIntentionsCancel": "Cancelar",
+    "purgeIntentionsConfirm": "Eliminar todo",
     "sectionPower": "PowerContext (raw)",
     "simSectionTitle": "Simulación de entrada externa",
     "simSectionHelp": "Inyección tipo webhook. Si hay ID de usuario de plataforma, el remitente debe coincidir.",

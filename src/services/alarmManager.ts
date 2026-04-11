@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Platform } from '../utils/rnPlatform';
 
 import { ensureNotificationPermissions, getNotifications } from './notifications';
 import type { IntentionRow } from '../api/localDb';

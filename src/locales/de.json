@@ -14,6 +14,12 @@
     "copyLink": "Link kopieren",
     "copyAll": "Alle Links kopieren"
   },
+  "linking": {
+    "telegramMissingTitle": "Telegram",
+    "telegramMissingBody": "Telegram ist nicht installiert. Installiere die App, um kostenlos mit deinem Ally zu sprechen.",
+    "telegramMissingInstall": "Telegram installieren",
+    "telegramMissingLater": "Später"
+  },
   "settings": {
     "privateChannelTitle": "Privater Kanal",
     "privateChannelSubtitle": "Telegram ist enthalten; WhatsApp, Slack und LINE erfordern Pro.",
@@ -287,6 +293,14 @@
     "busySqlite": "SQLite…",
     "proUserToggle": "Pro simulieren (lokal + Sync)",
     "sectionSpectrum": "UserSpectrumContext (Rohdaten)",
+    "sectionRawIntentions": "Intentions (Rohdaten)",
+    "rawIntentionsHelp": "SQLite-Dump: title, start_time_ms, rail_start_minutes, isMicroHabit, isHardConstraint, energy_score, sync_status, raw_transcript, dann _full_row. Aktualisiert bei Insert oder Reset.",
+    "purgeIntentions": "Intentions leeren",
+    "purgeIntentionsBusy": "Intentions werden gelöscht…",
+    "purgeIntentionsConfirmTitle": "Alle Intentions löschen?",
+    "purgeIntentionsConfirmBody": "Löscht alle lokalen Intentions und Micro-Habit-Checks. Nützlich zwischen Profil-Tests (Zen, Momentum …).",
+    "purgeIntentionsCancel": "Abbrechen",
+    "purgeIntentionsConfirm": "Alles löschen",
     "sectionPower": "PowerContext (Rohdaten)",
     "simSectionTitle": "Externe Eingabe (Simulation)",
     "simSectionHelp": "Webhook-ähnliche Injektion. Ist eine Plattform-Benutzer-ID gesetzt, muss der Absender übereinstimmen.",

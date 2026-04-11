@@ -63,6 +63,10 @@ export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => 
           );
           const { priority, isMicroHabit, isLateNight, isHardConstraint } =
             analyzeNewIntentionSemantics(title, description, spectrum, now);
+          const rawTranscript =
+            [title, description].filter((x) => String(x).trim()).join('\n') ||
+            title;
+          const energyScore = Math.min(1, Math.max(0, priority / 100));
           const is_late_night = isLateNight;
           const uid =
             spectrum.platform_user_id?.trim() ||
@@ -122,6 +126,8 @@ export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => 
                   alarm_enabled: false,
                   is_micro_habit: isMicroHabit,
                   is_hard_constraint: false,
+                  raw_transcript: rawTranscript,
+                  energy_score: energyScore,
                 });
               }
             } else {
@@ -147,6 +153,8 @@ export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => 
                 alarm_enabled: false,
                 is_micro_habit: isMicroHabit,
                 is_hard_constraint: false,
+                raw_transcript: rawTranscript,
+                energy_score: energyScore,
               });
             }
           } catch {

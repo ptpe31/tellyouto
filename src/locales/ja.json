@@ -14,6 +14,12 @@
     "copyLink": "リンクをコピー",
     "copyAll": "すべてコピー"
   },
+  "linking": {
+    "telegramMissingTitle": "Telegram",
+    "telegramMissingBody": "Telegram が入っていません。無料でアリーと話すにはアプリをインストールしてね。",
+    "telegramMissingInstall": "Telegram をインストール",
+    "telegramMissingLater": "あとで"
+  },
   "settings": {
     "privateChannelTitle": "プライベートチャネル",
     "privateChannelSubtitle": "Telegram は含まれます。WhatsApp・Slack・LINE は Pro が必要です。",
@@ -287,6 +293,14 @@
     "busySqlite": "SQLite…",
     "proUserToggle": "Pro をシミュレート（端末＋同期）",
     "sectionSpectrum": "UserSpectrumContext（生）",
+    "sectionRawIntentions": "Intentions（生）",
+    "rawIntentionsHelp": "SQLite ダンプ：title, start_time_ms, rail_start_minutes, isMicroHabit, isHardConstraint, energy_score, sync_status, raw_transcript、続けて _full_row。挿入またはリセットで更新。",
+    "purgeIntentions": "Intentions を空にする",
+    "purgeIntentionsBusy": "削除中…",
+    "purgeIntentionsConfirmTitle": "すべての Intentions を削除？",
+    "purgeIntentionsConfirmBody": "ローカルの Intentions とマイクロ習慣チェックを削除。プロファイル試験の合間に便利。",
+    "purgeIntentionsCancel": "キャンセル",
+    "purgeIntentionsConfirm": "すべて削除",
     "sectionPower": "PowerContext（生）",
     "simSectionTitle": "外部入力シミュレーション",
     "simSectionHelp": "Webhook 風の注入。プラットフォームユーザーIDがある場合、送信者と一致する必要があります。",

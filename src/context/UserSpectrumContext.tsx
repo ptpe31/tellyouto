@@ -7,7 +7,9 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AppState, type AppStateStatus, DeviceEventEmitter, Platform } from 'react-native';
+import { AppState, type AppStateStatus, DeviceEventEmitter } from 'react-native';
+
+import { Platform } from '../utils/rnPlatform';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {

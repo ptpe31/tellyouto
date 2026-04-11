@@ -1,5 +1,5 @@
 import { randomUUID } from 'expo-crypto';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,13 @@ import { Button, Switch, useTheme } from 'react-native-paper';
 
 import { CalendarGranularSection } from '../components';
 import { LineConnector, WhatsAppConnector } from '../api/connectors';
-import { insertIntention } from '../api/localDb';
+import {
+  deleteAllIntentions,
+  insertIntention,
+  intentionRowToDebugSnapshot,
+  listIntentionsDescending,
+  LOCAL_DB_RESET_EVENT,
+} from '../api/localDb';
 import { syncPendingIntentions } from '../api/syncService';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { useOnboardingReset } from '../context/OnboardingResetContext';
@@ -38,9 +44,43 @@ export function DebugScreen() {
     | 'simLine'
     | 'demoDay'
     | 'simWaIntent'
+    | 'purgeIntentions'
     | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [rawIntentionsJson, setRawIntentionsJson] = useState<string>('[]');
+
+  const refreshRawIntentions = useCallback(async () => {
+    try {
+      const rows = await listIntentionsDescending();
+      const snap = rows.map(intentionRowToDebugSnapshot);
+      setRawIntentionsJson(JSON.stringify(snap, null, 2));
+    } catch (e) {
+      setRawIntentionsJson(
+        JSON.stringify(
+          { error: e instanceof Error ? e.message : String(e) },
+          null,
+          2,
+        ),
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRawIntentions();
+    const subIntentions = DeviceEventEmitter.addListener(
+      INTENTIONS_CHANGED_EVENT,
+      () => void refreshRawIntentions(),
+    );
+    const subReset = DeviceEventEmitter.addListener(
+      LOCAL_DB_RESET_EVENT,
+      () => void refreshRawIntentions(),
+    );
+    return () => {
+      subIntentions.remove();
+      subReset.remove();
+    };
+  }, [refreshRawIntentions]);
 
   const onResetProfile = useCallback(async () => {
     setLastError(null);
@@ -246,6 +286,8 @@ export function DebugScreen() {
         alarm_enabled: false,
         is_micro_habit: false,
         is_hard_constraint: false,
+        raw_transcript: 'Test WhatsApp (simulation debug)',
+        energy_score: 0.72,
       });
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
       void syncPendingIntentions();
@@ -275,6 +317,34 @@ export function DebugScreen() {
       setBusy(null);
     }
   }, [externalSenderId, spectrum, t]);
+
+  const onPurgeIntentions = useCallback(() => {
+    Alert.alert(
+      t('debug.purgeIntentionsConfirmTitle'),
+      t('debug.purgeIntentionsConfirmBody'),
+      [
+        { text: t('debug.purgeIntentionsCancel'), style: 'cancel' },
+        {
+          text: t('debug.purgeIntentionsConfirm'),
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setLastError(null);
+              setBusy('purgeIntentions');
+              try {
+                await deleteAllIntentions();
+                await refreshRawIntentions();
+              } catch (e) {
+                setLastError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setBusy(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [refreshRawIntentions, t]);
 
   return (
     <ScrollView
@@ -396,7 +466,9 @@ export function DebugScreen() {
                   ? t('debug.demoDayBusy')
                   : busy === 'simWaIntent'
                     ? t('debug.simWhatsAppIntentionBusy')
-                    : t('debug.simBusy')}
+                    : busy === 'purgeIntentions'
+                      ? t('debug.purgeIntentionsBusy')
+                      : t('debug.simBusy')}
           </Text>
         </View>
       )}
@@ -445,6 +517,27 @@ export function DebugScreen() {
           2,
         )}
       </Text>
+
+      <Text style={[styles.blockTitle, { color: theme.colors.primary }]}>
+        {t('debug.sectionRawIntentions')}
+      </Text>
+      <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+        {t('debug.rawIntentionsHelp')}
+      </Text>
+      <Button
+        mode="outlined"
+        onPress={onPurgeIntentions}
+        disabled={busy !== null}
+        style={[styles.btn, styles.btnSecond]}
+      >
+        {t('debug.purgeIntentions')}
+      </Button>
+      <Text
+        style={[styles.mono, styles.rawJson, { color: theme.colors.onSurface }]}
+        selectable
+      >
+        {rawIntentionsJson}
+      </Text>
     </ScrollView>
   );
 }
@@ -481,4 +574,5 @@ const styles = StyleSheet.create({
   err: { marginBottom: 12, fontSize: 13 },
   blockTitle: { fontSize: 14, fontWeight: '600', marginTop: 16, marginBottom: 8 },
   mono: { fontFamily: 'monospace', fontSize: 11, lineHeight: 16 },
+  rawJson: { marginTop: 10 },
 });
