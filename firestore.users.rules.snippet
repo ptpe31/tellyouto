@@ -1,0 +1,6 @@
+    // --- Collection `users` (telegramWebhook /start userId) : fusionner dans vos règles ---
+    // Document id = userId du deep-link (ex. deviceId). Écriture serveur uniquement.
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update, delete: if false;
+    }

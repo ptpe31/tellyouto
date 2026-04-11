@@ -1,3 +1,4 @@
+import { FieldValue } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 
@@ -9,19 +10,15 @@ import { runMessengerWebhookCore } from './messengerWebhookCore';
 /** En-tête envoyé par les serveurs Telegram si `secret_token` a été défini dans setWebhook. */
 const TG_SECRET_HEADER = 'x-telegram-bot-api-secret-token';
 
+/** `TELEGRAM_BOT_TOKEN` est obligatoire (configurer dans la console Firebase / secrets). */
 function requireTelegramEnv(): { token: string; botName: string } | null {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  const botName = process.env.TELEGRAM_BOT_NAME?.trim();
   if (!token) {
     console.error('Erreur : Token Telegram manquant');
     return null;
   }
-  if (!botName) {
-    console.error(
-      'Erreur : configuration Telegram — TELEGRAM_BOT_NAME manquant (nom du bot sans @)',
-    );
-    return null;
-  }
+  const botName =
+    process.env.TELEGRAM_BOT_NAME?.trim() || 'TellYouToBot';
   return { token, botName };
 }
 
@@ -116,26 +113,41 @@ function telegramMessageToPayload(
 }
 
 /**
- * `/start` avec paramètre deep-link = deviceId (liaison Firebase).
+ * `/start` avec paramètre deep-link = userId (deviceId côté app — liaison Firebase).
  */
 async function handleStartWithPayload(
   firestore: Firestore,
   messengerUserId: string,
-  deviceId: string,
+  userId: string,
+  telegramChatId: string,
 ): Promise<void> {
+  const uid = userId.trim();
+
+  await firestore
+    .collection('users')
+    .doc(uid)
+    .set(
+      {
+        telegramChatId,
+        telegram_user_id: messengerUserId,
+        updated_at: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+
   const bindRef = firestore
     .collection('messengerBindings')
     .doc(`telegram_${messengerUserId}`);
   await bindRef.set(
     {
-      deviceId: deviceId.trim(),
+      deviceId: uid,
       channel: 'telegram',
       updated_at: Date.now(),
     },
     { merge: true },
   );
 
-  const deviceRef = firestore.collection('devices').doc(deviceId.trim());
+  const deviceRef = firestore.collection('devices').doc(uid);
   const messengerMeta = {
     last_messenger_channel: 'telegram',
     last_messenger_user_id: messengerUserId,
@@ -190,6 +202,11 @@ export async function handleTelegramWebhook(
     return;
   }
 
+  console.log(
+    'telegramWebhook brut reçu (Telegram Update):',
+    JSON.stringify(req.body),
+  );
+
   const extracted = extractFromUpdate(req.body);
   const msg = extracted?.message;
   if (!msg) {
@@ -206,12 +223,20 @@ export async function handleTelegramWebhook(
   const messengerUserId = String(from.id);
   const text = typeof msg.text === 'string' ? msg.text.trim() : '';
 
+  const telegramChatId =
+    typeof msg.chat?.id === 'number' ? String(msg.chat.id) : messengerUserId;
+
   const startMatch = text.match(/^\/start(?:\s+(\S+))?/);
   if (startMatch) {
     const payload = startMatch[1]?.trim();
     if (payload) {
       try {
-        await handleStartWithPayload(firestore, messengerUserId, payload);
+        await handleStartWithPayload(
+          firestore,
+          messengerUserId,
+          payload,
+          telegramChatId,
+        );
       } catch (e) {
         console.error('telegramWebhook: handleStartWithPayload', e);
       }
