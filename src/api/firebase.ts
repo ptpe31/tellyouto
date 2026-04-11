@@ -117,20 +117,23 @@ export function getFirebaseAuth(): Auth | null {
 function scheduleFirestoreConnectionWriteTest(db: Firestore): void {
   if (firestoreConnectionTestScheduled) return;
   firestoreConnectionTestScheduled = true;
-  void (async () => {
-    try {
-      await ensureFirebaseAnonymousAuth();
-      const testRef = collection(db, 'CONNECTION_TESTS');
-      await addDoc(testRef, {
-        timestamp: Date.now(),
-        device: 'App-Mobile',
-        status: 'Trying to connect...',
-      });
-      console.log("✅ TEST D'ÉCRITURE RÉUSSI DANS FIRESTORE !");
-    } catch (e) {
-      console.error('❌ ÉCHEC CRITIQUE FIRESTORE:', e);
-    }
-  })();
+  /** Hors chemin critique TTI : laisser le premier rendu / SQLite / navigation passer avant réseau. */
+  setTimeout(() => {
+    void (async () => {
+      try {
+        await ensureFirebaseAnonymousAuth();
+        const testRef = collection(db, 'CONNECTION_TESTS');
+        await addDoc(testRef, {
+          timestamp: Date.now(),
+          device: 'App-Mobile',
+          status: 'Trying to connect...',
+        });
+        console.log("✅ TEST D'ÉCRITURE RÉUSSI DANS FIRESTORE !");
+      } catch (e) {
+        console.error('❌ ÉCHEC CRITIQUE FIRESTORE:', e);
+      }
+    })();
+  }, 2500);
 }
 
 export function getFirestoreDb(): Firestore | null {

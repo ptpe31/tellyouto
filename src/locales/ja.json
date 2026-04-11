@@ -520,6 +520,8 @@
     "yes": "はい",
     "no": "いいえ",
     "agentPool": "コパイロット時間: {{seconds}} 秒",
-    "allyPreview": "声: {{voice}} · トーン: {{tone}} · AI言語: {{lang}}"
+    "allyPreview": "声: {{voice}} · トーン: {{tone}} · AI言語: {{lang}}",
+    "alarmPermissionTitle": "通知が必要です",
+    "alarmPermissionBody": "通知の許可がないと、ローカルAIエージェントはレールのアラームを端末に設定できません。システム設定でこのアプリの通知（Androidではアラーム）を有効にしてください。"
   }
 }

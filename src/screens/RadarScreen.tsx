@@ -51,6 +51,7 @@ import {
 } from '../components';
 import type { FocusCapsuleMode } from '../navigation/types';
 import {
+  refreshRailAlarmsAfterLocalDbChange,
   requestAlarmPermissionIfNeeded,
   syncRailAlarmsWithTimeline,
 } from '../services/alarmManager';
@@ -61,6 +62,7 @@ import { useFocusCalendarConflict } from '../hooks/useFocusCalendarConflict';
 import {
   analyzeNewIntentionSemantics,
   buildTimelineSlots,
+  computeRailAnchorAndFixedStartForNewIntention,
   estimateDurationMinutes,
   inferStructuralRoutinePlan,
   previewManualIntentionOverlapsHardRoutine,
@@ -425,6 +427,70 @@ export function RadarScreen() {
           spectrum,
         );
 
+        const insertRadarPendingIntention = async () => {
+          const id = newRadarEntityId();
+          const weights = {
+            structure: spectrum.structure,
+            momentum: spectrum.momentum,
+            zen: spectrum.zen,
+            stats: spectrum.stats,
+          };
+          const candidate: IntentionRow = {
+            id,
+            title: trimmedTitle,
+            description: desc,
+            status: 'pending',
+            priority,
+            weights,
+            platform_type: 'none',
+            platform_user_id: uid,
+            created_at: Date.now(),
+            synced: 0,
+            estimated_duration,
+            actual_duration: null,
+            completed_at: null,
+            user_forced_urgent: userForcedUrgent,
+            is_late_night,
+            alarm_enabled: alarmPref,
+            is_micro_habit: isMicroHabit,
+            is_hard_constraint: false,
+            routine_id: null,
+            anchor_date_ymd: null,
+            fixed_start_minutes: null,
+            raw_transcript: null,
+            energy_score: null,
+            local_notification_id: null,
+            recurrence_rrule: null,
+          };
+          const { anchor_date_ymd, fixed_start_minutes } =
+            computeRailAnchorAndFixedStartForNewIntention({
+              pendingOthers: pending,
+              candidate,
+              spectrum: weights,
+              now,
+              busyIntervals: busyForAgent,
+            });
+          await insertIntention({
+            id,
+            title: trimmedTitle,
+            description: desc,
+            status: 'pending',
+            priority,
+            weights,
+            platform_type: 'none',
+            platform_user_id: uid,
+            created_at: Date.now(),
+            estimated_duration,
+            user_forced_urgent: userForcedUrgent,
+            is_late_night,
+            alarm_enabled: alarmPref,
+            is_micro_habit: isMicroHabit,
+            is_hard_constraint: false,
+            anchor_date_ymd,
+            fixed_start_minutes,
+          });
+        };
+
         if (isHardConstraint) {
           const plan = inferStructuralRoutinePlan(
             trimmedTitle,
@@ -454,53 +520,13 @@ export function RadarScreen() {
             });
             await ensureRoutineIntentionInstancesForHorizon(routineId, uid);
           } else {
-            await insertIntention({
-              id: newRadarEntityId(),
-              title: trimmedTitle,
-              description: desc,
-              status: 'pending',
-              priority,
-              weights: {
-                structure: spectrum.structure,
-                momentum: spectrum.momentum,
-                zen: spectrum.zen,
-                stats: spectrum.stats,
-              },
-              platform_type: 'none',
-              platform_user_id: uid,
-              created_at: Date.now(),
-              estimated_duration,
-              user_forced_urgent: userForcedUrgent,
-              is_late_night,
-              alarm_enabled: alarmPref,
-              is_micro_habit: isMicroHabit,
-              is_hard_constraint: false,
-            });
+            await insertRadarPendingIntention();
           }
         } else {
-          await insertIntention({
-            id: newRadarEntityId(),
-            title: trimmedTitle,
-            description: desc,
-            status: 'pending',
-            priority,
-            weights: {
-              structure: spectrum.structure,
-              momentum: spectrum.momentum,
-              zen: spectrum.zen,
-              stats: spectrum.stats,
-            },
-            platform_type: 'none',
-            platform_user_id: uid,
-            created_at: Date.now(),
-            estimated_duration,
-            user_forced_urgent: userForcedUrgent,
-            is_late_night,
-            alarm_enabled: alarmPref,
-            is_micro_habit: isMicroHabit,
-            is_hard_constraint: false,
-          });
+          await insertRadarPendingIntention();
         }
+
+        await refreshRailAlarmsAfterLocalDbChange();
       };
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -523,30 +549,7 @@ export function RadarScreen() {
       setDialogOpen(false);
       await load();
       void syncPendingIntentions();
-
-      const list = await listIntentionsDescending();
-      const pendingAfter = list.filter((r) => r.status !== 'done');
-      let busyAfter: BusyInterval[] = [];
-      if (connectEnabled) {
-        busyAfter = await refreshBusy();
-      }
-      const railNow = new Date();
-      const built = buildTimelineSlots(
-        pendingAfter,
-        {
-          structure: spectrum.structure,
-          momentum: spectrum.momentum,
-          zen: spectrum.zen,
-          stats: spectrum.stats,
-        },
-        railNow,
-        { busyIntervals: busyAfter },
-      );
-      await syncRailAlarmsWithTimeline({
-        pendingIntentions: pendingAfter,
-        slots: built,
-        now: railNow,
-      });
+      await syncRailAlarmsWithTimeline({ now: new Date() });
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -572,10 +575,7 @@ export function RadarScreen() {
     urgent,
     alarm,
     spectrum,
-    connectEnabled,
-    busyIntervals,
     load,
-    refreshBusy,
     t,
   ]);
 

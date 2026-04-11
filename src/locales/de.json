@@ -520,6 +520,8 @@
     "yes": "ja",
     "no": "nein",
     "agentPool": "Co-Pilot-Zeitreserve: {{seconds}} s",
-    "allyPreview": "Stimme: {{voice}} · Ton: {{tone}} · KI-Sprache: {{lang}}"
+    "allyPreview": "Stimme: {{voice}} · Ton: {{tone}} · KI-Sprache: {{lang}}",
+    "alarmPermissionTitle": "Benachrichtigungen erforderlich",
+    "alarmPermissionBody": "Ohne Benachrichtigungsberechtigung kann der lokale Agent keine Rail-Alarme auf dem Gerät auslösen. Aktiviere Benachrichtigungen (und Alarme unter Android) in den Systemeinstellungen für diese App."
   }
 }

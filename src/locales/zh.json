@@ -520,6 +520,8 @@
     "yes": "是",
     "no": "否",
     "agentPool": "副驾驶时间储备：{{seconds}} 秒",
-    "allyPreview": "声音：{{voice}} · 语气：{{tone}} · AI 语言：{{lang}}"
+    "allyPreview": "声音：{{voice}} · 语气：{{tone}} · AI 语言：{{lang}}",
+    "alarmPermissionTitle": "需要通知权限",
+    "alarmPermissionBody": "没有通知权限，本地智能体无法在本机设置轨道闹钟。请在系统设置中为本应用开启通知（Android 上包括闹钟相关权限）。"
   }
 }

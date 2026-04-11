@@ -922,6 +922,41 @@ export function buildTimelineSlots(
   return merged;
 }
 
+/**
+ * Ancre du jour + première minute du rail pour une nouvelle intention (agent / manuel).
+ * S’appuie sur le premier créneau attribué par `buildTimelineSlots` — requis pour une alarme à heure fixe.
+ */
+export function computeRailAnchorAndFixedStartForNewIntention(args: {
+  pendingOthers: IntentionRow[];
+  candidate: IntentionRow;
+  spectrum: SpectrumWeights;
+  now: Date;
+  busyIntervals?: BusyInterval[];
+}): { anchor_date_ymd: string; fixed_start_minutes: number } {
+  const merged = buildTimelineSlots(
+    [...args.pendingOthers, args.candidate],
+    args.spectrum,
+    args.now,
+    { busyIntervals: args.busyIntervals ?? [] },
+  );
+  const mine = merged
+    .filter((s) => s.intention.id === args.candidate.id)
+    .sort((a, b) => a.startMinutes - b.startMinutes)[0];
+  const railOpenMin = DAY_START_MIN + Math.round(args.spectrum.structure * 15);
+  const nowMin = minutesSinceMidnight(args.now);
+  const fallbackMin = Math.min(Math.max(nowMin, railOpenMin) + 15, 23 * 60 + 45);
+  if (!mine) {
+    return {
+      anchor_date_ymd: formatLocalDateYmd(args.now),
+      fixed_start_minutes: fallbackMin,
+    };
+  }
+  return {
+    anchor_date_ymd: formatLocalDateYmd(args.now),
+    fixed_start_minutes: mine.startMinutes,
+  };
+}
+
 /** Indique si un créneau [startMin, endMin] chevauche un intervalle occupé. */
 export function slotOverlapsBusyIntervals(
   startMin: number,

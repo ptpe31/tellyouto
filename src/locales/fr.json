@@ -533,6 +533,8 @@
     "yes": "oui",
     "no": "non",
     "agentPool": "Réserve temps co-pilote : {{seconds}} s",
-    "allyPreview": "Voix : {{voice}} · Tonalité : {{tone}} · Langue IA : {{lang}}"
+    "allyPreview": "Voix : {{voice}} · Tonalité : {{tone}} · Langue IA : {{lang}}",
+    "alarmPermissionTitle": "Notifications nécessaires",
+    "alarmPermissionBody": "L’agent IA local ne peut pas faire sonner le téléphone pour les alarmes Rail sans l’autorisation notifications (et alarmes sur Android). Active-les pour cette app dans les réglages système."
   }
 }

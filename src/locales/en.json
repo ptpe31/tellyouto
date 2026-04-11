@@ -533,6 +533,8 @@
     "yes": "yes",
     "no": "no",
     "agentPool": "Co-pilot time reserve: {{seconds}} s",
-    "allyPreview": "Voice: {{voice}} · Tone: {{tone}} · AI language: {{lang}}"
+    "allyPreview": "Voice: {{voice}} · Tone: {{tone}} · AI language: {{lang}}",
+    "alarmPermissionTitle": "Notifications required",
+    "alarmPermissionBody": "The local AI agent cannot ring rail alarms on this device without notification permission. Enable notifications (and alarms on Android) for this app in system settings."
   }
 }

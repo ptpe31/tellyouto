@@ -13,6 +13,35 @@ import {
 } from '../utils/nativeModuleErrorAlert';
 
 let db: SQLite.SQLiteDatabase | null = null;
+/** Évite deux ouvertures concurrentes (cold start : alarmes + écrans). */
+let openingDb: Promise<SQLite.SQLiteDatabase> | null = null;
+
+/** File d’attente réentrante : un seul flux SQLite à la fois, sans blocage si sync appelle listIntentions depuis insert. */
+let sqliteQueueTail: Promise<unknown> = Promise.resolve();
+let sqliteReentrantDepth = 0;
+
+export function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> {
+  if (sqliteReentrantDepth > 0) {
+    return operation();
+  }
+  const next = sqliteQueueTail.then(async () => {
+    sqliteReentrantDepth += 1;
+    try {
+      return await operation();
+    } finally {
+      sqliteReentrantDepth -= 1;
+    }
+  });
+  sqliteQueueTail = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+let pragmasApplied = false;
+/** Après le premier `execAsync(SCHEMA)` réussi de la session — évite de re-parser le DDL à chaque accès. */
+let sessionSchemaPrimed = false;
 
 export const DB_FILE_NAME = 'tellyouto.db';
 
@@ -114,34 +143,39 @@ async function deletePhysicalDatabaseFiles(): Promise<void> {
  * Ferme la connexion SQLite, supprime les fichiers sur disque (hors web), recrée la base et les migrations.
  */
 export async function dangerouslyResetDatabase(): Promise<void> {
-  if (db) {
-    try {
-      await db.closeAsync();
-    } catch {
-      /* déjà fermée */
+  await runSerializedSqlite(async () => {
+    openingDb = null;
+    pragmasApplied = false;
+    sessionSchemaPrimed = false;
+    if (db) {
+      try {
+        await db.closeAsync();
+      } catch {
+        /* déjà fermée */
+      }
+      db = null;
     }
-    db = null;
-  }
 
-  if (Platform.OS === 'web') {
-    const database = await SQLite.openDatabaseAsync(DB_FILE_NAME);
-    await database.execAsync(`
+    if (Platform.OS === 'web') {
+      const database = await SQLite.openDatabaseAsync(DB_FILE_NAME);
+      await database.execAsync(`
       DROP TABLE IF EXISTS micro_habit_checks;
       DROP TABLE IF EXISTS intentions;
       DROP TABLE IF EXISTS routines;
       DROP TABLE IF EXISTS sync_queue;
     `);
-    try {
-      await database.closeAsync();
-    } catch {
-      /* */
+      try {
+        await database.closeAsync();
+      } catch {
+        /* */
+      }
+      db = null;
+    } else {
+      await deletePhysicalDatabaseFiles();
     }
-    db = null;
-  } else {
-    await deletePhysicalDatabaseFiles();
-  }
 
-  await getLocalDatabase();
+    await ensureDbReady();
+  });
   try {
     const { cancelAllScheduledRailAlarms } = await import(
       '../services/alarmManager'
@@ -256,17 +290,58 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
 }
 
 /**
- * SQLite local — offline-first (intentions + file de sync).
- * Les migrations tournent **à chaque accès** : après une mise à jour JS (Metro) le singleton `db`
- * peut rester ouvert sans repasser par le bloc d’ouverture — sinon des colonnes manquent (ex. `is_hard_constraint`).
+ * Ouvre la base si besoin, applique schéma + migrations + PRAGMAs (WAL / busy_timeout sur mobile).
+ * À n’appeler que depuis `runSerializedSqlite` ou `withLocalDatabase`.
  */
-export async function getLocalDatabase(): Promise<SQLite.SQLiteDatabase> {
+async function ensureDbReady(): Promise<SQLite.SQLiteDatabase> {
   if (!db) {
-    db = await SQLite.openDatabaseAsync(DB_FILE_NAME);
+    openingDb ??= SQLite.openDatabaseAsync(DB_FILE_NAME);
+    try {
+      db = await openingDb;
+    } catch (e) {
+      openingDb = null;
+      throw e;
+    } finally {
+      openingDb = null;
+    }
   }
-  await db.execAsync(SCHEMA);
+  if (!sessionSchemaPrimed) {
+    await db.execAsync(SCHEMA);
+    sessionSchemaPrimed = true;
+  }
   await migrateIntentionsColumns(db);
+  if (!pragmasApplied && Platform.OS !== 'web') {
+    try {
+      await db.execAsync('PRAGMA journal_mode=WAL;');
+      await db.execAsync('PRAGMA busy_timeout=8000;');
+    } catch {
+      /* indisponible selon build */
+    }
+    pragmasApplied = true;
+  }
   return db;
+}
+
+/**
+ * Exécute un bloc avec la base prête — toutes les requêtes du callback sont sérialisées avec le reste de l’app.
+ */
+export async function withLocalDatabase<T>(
+  fn: (database: SQLite.SQLiteDatabase) => Promise<T>,
+): Promise<T> {
+  return runSerializedSqlite(async () => fn(await ensureDbReady()));
+}
+
+/**
+ * Lecture minimale sur `intentions` pour valider que SQLite est prêt (splash / TTI).
+ * Ne charge pas toute la table.
+ */
+export async function touchLocalDatabaseForStartup(): Promise<void> {
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.getFirstAsync<{ id: string }>(
+      `SELECT id FROM intentions LIMIT 1`,
+    );
+  });
 }
 
 /**
@@ -424,14 +499,15 @@ export async function insertIntention(input: {
   recurrence_rrule?: string | null;
 }): Promise<void> {
   try {
-    const database = await getLocalDatabase();
-    const ufu = input.user_forced_urgent ? 1 : 0;
-    const iln = input.is_late_night ? 1 : 0;
-    const alarm = input.alarm_enabled ? 1 : 0;
-    const micro = input.is_micro_habit ? 1 : 0;
-    const hard = input.is_hard_constraint ? 1 : 0;
-    await database.runAsync(
-      `INSERT INTO intentions (
+    await runSerializedSqlite(async () => {
+      const database = await ensureDbReady();
+      const ufu = input.user_forced_urgent ? 1 : 0;
+      const iln = input.is_late_night ? 1 : 0;
+      const alarm = input.alarm_enabled ? 1 : 0;
+      const micro = input.is_micro_habit ? 1 : 0;
+      const hard = input.is_hard_constraint ? 1 : 0;
+      await database.runAsync(
+        `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
@@ -439,30 +515,31 @@ export async function insertIntention(input: {
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
       raw_transcript, energy_score, local_notification_id, recurrence_rrule
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-      [
-        input.id,
-        input.title,
-        input.description,
-        input.status,
-        input.priority,
-        JSON.stringify(input.weights),
-        input.platform_type,
-        input.platform_user_id,
-        input.created_at,
-        input.estimated_duration,
-        ufu,
-        iln,
-        alarm,
-        micro,
-        hard,
-        input.routine_id ?? null,
-        input.anchor_date_ymd ?? null,
-        input.fixed_start_minutes ?? null,
-        input.raw_transcript ?? null,
-        input.energy_score ?? null,
-        input.recurrence_rrule?.trim() ?? null,
-      ],
-    );
+        [
+          input.id,
+          input.title,
+          input.description,
+          input.status,
+          input.priority,
+          JSON.stringify(input.weights),
+          input.platform_type,
+          input.platform_user_id,
+          input.created_at,
+          input.estimated_duration,
+          ufu,
+          iln,
+          alarm,
+          micro,
+          hard,
+          input.routine_id ?? null,
+          input.anchor_date_ymd ?? null,
+          input.fixed_start_minutes ?? null,
+          input.raw_transcript ?? null,
+          input.energy_score ?? null,
+          input.recurrence_rrule?.trim() ?? null,
+        ],
+      );
+    });
     if (input.alarm_enabled) {
       const alarmMod = await import('../services/alarmManager');
       await alarmMod.requestAlarmPermissionIfNeeded();
@@ -494,13 +571,14 @@ export async function insertCompletedIntention(input: {
   alarm_enabled?: boolean;
   is_micro_habit?: boolean;
 }): Promise<void> {
-  const database = await getLocalDatabase();
-  const ufu = input.user_forced_urgent ? 1 : 0;
-  const iln = input.is_late_night ? 1 : 0;
-  const alarm = input.alarm_enabled ? 1 : 0;
-  const micro = input.is_micro_habit ? 1 : 0;
-  await database.runAsync(
-    `INSERT INTO intentions (
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const ufu = input.user_forced_urgent ? 1 : 0;
+    const iln = input.is_late_night ? 1 : 0;
+    const alarm = input.alarm_enabled ? 1 : 0;
+    const micro = input.is_micro_habit ? 1 : 0;
+    await database.runAsync(
+      `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
@@ -508,24 +586,25 @@ export async function insertCompletedIntention(input: {
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
       raw_transcript, energy_score, local_notification_id, recurrence_rrule
     ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
-    [
-      input.id,
-      input.title,
-      input.description,
-      input.priority,
-      JSON.stringify(input.weights),
-      input.platform_type,
-      input.platform_user_id,
-      input.created_at,
-      input.estimated_duration,
-      input.actual_duration,
-      input.completed_at,
-      ufu,
-      iln,
-      alarm,
-      micro,
-    ],
-  );
+      [
+        input.id,
+        input.title,
+        input.description,
+        input.priority,
+        JSON.stringify(input.weights),
+        input.platform_type,
+        input.platform_user_id,
+        input.created_at,
+        input.estimated_duration,
+        input.actual_duration,
+        input.completed_at,
+        ufu,
+        iln,
+        alarm,
+        micro,
+      ],
+    );
+  });
   await syncNativeRailAlarmsAfterIntentionWrite('insertCompletedIntention');
 }
 
@@ -535,40 +614,46 @@ export async function recordMicroHabitFragmentCheck(input: {
   day_ymd: string;
   fragment_index: number;
 }): Promise<void> {
-  const database = await getLocalDatabase();
-  await database.runAsync(
-    `INSERT OR REPLACE INTO micro_habit_checks (id, intention_id, day_ymd, fragment_index, created_at)
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `INSERT OR REPLACE INTO micro_habit_checks (id, intention_id, day_ymd, fragment_index, created_at)
      VALUES (?, ?, ?, ?, ?)`,
-    [
-      input.id,
-      input.intention_id,
-      input.day_ymd,
-      input.fragment_index,
-      Date.now(),
-    ],
-  );
+      [
+        input.id,
+        input.intention_id,
+        input.day_ymd,
+        input.fragment_index,
+        Date.now(),
+      ],
+    );
+  });
 }
 
 export async function countMicroHabitChecksOnDay(dayYmd: string): Promise<number> {
-  const database = await getLocalDatabase();
-  const row = await database.getFirstAsync<{ c: number }>(
-    `SELECT COUNT(*) as c FROM micro_habit_checks WHERE day_ymd = ?`,
-    [dayYmd],
-  );
-  return row?.c ?? 0;
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const row = await database.getFirstAsync<{ c: number }>(
+      `SELECT COUNT(*) as c FROM micro_habit_checks WHERE day_ymd = ?`,
+      [dayYmd],
+    );
+    return row?.c ?? 0;
+  });
 }
 
 export async function updateIntentionAlarmEnabled(
   id: string,
   enabled: boolean,
 ): Promise<void> {
-  const database = await getLocalDatabase();
-  await database.runAsync(
-    enabled
-      ? `UPDATE intentions SET alarm_enabled = ?, synced = 0 WHERE id = ?`
-      : `UPDATE intentions SET alarm_enabled = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
-    [enabled ? 1 : 0, id],
-  );
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      enabled
+        ? `UPDATE intentions SET alarm_enabled = ?, synced = 0 WHERE id = ?`
+        : `UPDATE intentions SET alarm_enabled = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
+      [enabled ? 1 : 0, id],
+    );
+  });
   const alarm = await import('../services/alarmManager');
   if (enabled) {
     await alarm.requestAlarmPermissionIfNeeded();
@@ -579,20 +664,24 @@ export async function updateIntentionAlarmEnabled(
 export async function getIntentionById(
   id: string,
 ): Promise<IntentionRow | null> {
-  const database = await getLocalDatabase();
-  const row = await database.getFirstAsync<Record<string, unknown>>(
-    `SELECT * FROM intentions WHERE id = ?`,
-    [id],
-  );
-  return row ? rowToIntention(row) : null;
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const row = await database.getFirstAsync<Record<string, unknown>>(
+      `SELECT * FROM intentions WHERE id = ?`,
+      [id],
+    );
+    return row ? rowToIntention(row) : null;
+  });
 }
 
 export async function markIntentionActive(id: string): Promise<void> {
-  const database = await getLocalDatabase();
-  await database.runAsync(
-    `UPDATE intentions SET status = 'active', synced = 0 WHERE id = ?`,
-    [id],
-  );
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `UPDATE intentions SET status = 'active', synced = 0 WHERE id = ?`,
+      [id],
+    );
+  });
   await syncNativeRailAlarmsAfterIntentionWrite('markIntentionActive');
 }
 
@@ -600,21 +689,25 @@ export async function setIntentionLocalNotificationId(
   id: string,
   notificationId: string | null,
 ): Promise<void> {
-  const database = await getLocalDatabase();
-  await database.runAsync(
-    `UPDATE intentions SET local_notification_id = ?, synced = 0 WHERE id = ?`,
-    [notificationId, id],
-  );
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `UPDATE intentions SET local_notification_id = ?, synced = 0 WHERE id = ?`,
+      [notificationId, id],
+    );
+  });
 }
 
 /**
  * Remet à NULL toutes les poignées `local_notification_id` (ex. après `cancelAllScheduledRailAlarms`).
  */
 export async function clearAllIntentionLocalNotificationHandles(): Promise<void> {
-  const database = await getLocalDatabase();
-  await database.runAsync(
-    `UPDATE intentions SET local_notification_id = NULL WHERE local_notification_id IS NOT NULL`,
-  );
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `UPDATE intentions SET local_notification_id = NULL WHERE local_notification_id IS NOT NULL`,
+    );
+  });
 }
 
 /**
@@ -623,8 +716,10 @@ export async function clearAllIntentionLocalNotificationHandles(): Promise<void>
 export async function deleteIntentionById(id: string): Promise<void> {
   const { cancelIntentionRailAlarm } = await import('../services/alarmManager');
   await cancelIntentionRailAlarm(id);
-  const database = await getLocalDatabase();
-  await database.runAsync(`DELETE FROM intentions WHERE id = ?`, [id]);
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(`DELETE FROM intentions WHERE id = ?`, [id]);
+  });
   await syncNativeRailAlarmsAfterIntentionWrite('deleteIntentionById');
 }
 
@@ -644,11 +739,13 @@ export async function advanceIntentionToNextRecurrenceSlot(
   await cancelIntentionRailAlarm(id);
   const ymd = formatLocalDateYmd(next);
   const mins = next.getHours() * 60 + next.getMinutes();
-  const database = await getLocalDatabase();
-  await database.runAsync(
-    `UPDATE intentions SET anchor_date_ymd = ?, fixed_start_minutes = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
-    [ymd, mins, id],
-  );
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `UPDATE intentions SET anchor_date_ymd = ?, fixed_start_minutes = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
+      [ymd, mins, id],
+    );
+  });
   await syncNativeRailAlarmsAfterIntentionWrite(
     'advanceIntentionToNextRecurrenceSlot',
   );
@@ -678,11 +775,13 @@ export async function updateIntentionScheduleFields(input: {
     input.recurrence_rrule !== undefined
       ? input.recurrence_rrule?.trim() ?? null
       : row.recurrence_rrule;
-  const database = await getLocalDatabase();
-  await database.runAsync(
-    `UPDATE intentions SET anchor_date_ymd = ?, fixed_start_minutes = ?, recurrence_rrule = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
-    [ymd, mins, rrule, input.id],
-  );
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `UPDATE intentions SET anchor_date_ymd = ?, fixed_start_minutes = ?, recurrence_rrule = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
+      [ymd, mins, rrule, input.id],
+    );
+  });
   await syncNativeRailAlarmsAfterIntentionWrite('updateIntentionScheduleFields');
 }
 
@@ -691,46 +790,48 @@ export async function updateIntentionAfterFocus(input: {
   actual_duration: number;
   status: IntentionStatus;
 }): Promise<void> {
-  const database = await getLocalDatabase();
-  const row = await getIntentionById(input.id);
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const row = await getIntentionById(input.id);
 
-  if (input.status === 'done' && row?.recurrence_rrule?.trim()) {
-    const { nextOccurrenceAfter } = await import('../services/recurrenceRrule');
-    const next = nextOccurrenceAfter(row, new Date());
-    if (next) {
-      logIaAlarmNextOccurrence(row.title, next);
+    if (input.status === 'done' && row?.recurrence_rrule?.trim()) {
+      const { nextOccurrenceAfter } = await import('../services/recurrenceRrule');
+      const next = nextOccurrenceAfter(row, new Date());
+      if (next) {
+        logIaAlarmNextOccurrence(row.title, next);
+        const am = await import('../services/alarmManager');
+        await am.cancelIntentionRailAlarm(input.id);
+        const ymd = formatLocalDateYmd(next);
+        const mins = next.getHours() * 60 + next.getMinutes();
+        await database.runAsync(
+          `UPDATE intentions SET actual_duration = NULL, status = 'pending', completed_at = NULL, anchor_date_ymd = ?, fixed_start_minutes = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
+          [ymd, mins, input.id],
+        );
+        await syncNativeRailAlarmsAfterIntentionWrite(
+          'updateIntentionAfterFocus/recurrence',
+        );
+        return;
+      }
+    }
+
+    const completedAt = input.status === 'done' ? Date.now() : null;
+    if (input.status === 'done') {
+      await database.runAsync(
+        `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ?, local_notification_id = NULL WHERE id = ?`,
+        [input.actual_duration, input.status, completedAt, input.id],
+      );
+    } else {
+      await database.runAsync(
+        `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ? WHERE id = ?`,
+        [input.actual_duration, input.status, completedAt, input.id],
+      );
+    }
+    if (input.status === 'done') {
       const am = await import('../services/alarmManager');
       await am.cancelIntentionRailAlarm(input.id);
-      const ymd = formatLocalDateYmd(next);
-      const mins = next.getHours() * 60 + next.getMinutes();
-      await database.runAsync(
-        `UPDATE intentions SET actual_duration = NULL, status = 'pending', completed_at = NULL, anchor_date_ymd = ?, fixed_start_minutes = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
-        [ymd, mins, input.id],
-      );
-      await syncNativeRailAlarmsAfterIntentionWrite(
-        'updateIntentionAfterFocus/recurrence',
-      );
-      return;
     }
-  }
-
-  const completedAt = input.status === 'done' ? Date.now() : null;
-  if (input.status === 'done') {
-    await database.runAsync(
-      `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ?, local_notification_id = NULL WHERE id = ?`,
-      [input.actual_duration, input.status, completedAt, input.id],
-    );
-  } else {
-    await database.runAsync(
-      `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ? WHERE id = ?`,
-      [input.actual_duration, input.status, completedAt, input.id],
-    );
-  }
-  if (input.status === 'done') {
-    const am = await import('../services/alarmManager');
-    await am.cancelIntentionRailAlarm(input.id);
-  }
-  await syncNativeRailAlarmsAfterIntentionWrite('updateIntentionAfterFocus');
+    await syncNativeRailAlarmsAfterIntentionWrite('updateIntentionAfterFocus');
+  });
 }
 
 /** Termine une intention depuis la liste (sans session timer) — durée indicative pour l’historique. */
@@ -746,26 +847,32 @@ export async function markIntentionQuickComplete(id: string): Promise<void> {
 }
 
 export async function listIntentionsDescending(): Promise<IntentionRow[]> {
-  const database = await getLocalDatabase();
-  const rows = await database.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM intentions ORDER BY priority DESC, created_at DESC`,
-  );
-  return rows.map(rowToIntention);
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const rows = await database.getAllAsync<Record<string, unknown>>(
+      `SELECT * FROM intentions ORDER BY priority DESC, created_at DESC`,
+    );
+    return rows.map(rowToIntention);
+  });
 }
 
 export async function listUnsyncedIntentions(): Promise<IntentionRow[]> {
-  const database = await getLocalDatabase();
-  const rows = await database.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM intentions WHERE synced = 0`,
-  );
-  return rows.map(rowToIntention);
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const rows = await database.getAllAsync<Record<string, unknown>>(
+      `SELECT * FROM intentions WHERE synced = 0`,
+    );
+    return rows.map(rowToIntention);
+  });
 }
 
 export async function markIntentionSynced(id: string): Promise<void> {
-  const database = await getLocalDatabase();
-  await database.runAsync(`UPDATE intentions SET synced = 1 WHERE id = ?`, [
-    id,
-  ]);
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(`UPDATE intentions SET synced = 1 WHERE id = ?`, [
+      id,
+    ]);
+  });
 }
 
 /** Sessions focus terminées dont l’horodatage (completed_at ou repli created_at) est dans [startMs, endMs]. */
@@ -773,31 +880,35 @@ export async function listCompletedSessionsBetween(
   startMs: number,
   endMs: number,
 ): Promise<IntentionRow[]> {
-  const database = await getLocalDatabase();
-  const rows = await database.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM intentions
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const rows = await database.getAllAsync<Record<string, unknown>>(
+      `SELECT * FROM intentions
      WHERE status = 'done' AND actual_duration IS NOT NULL
        AND COALESCE(completed_at, created_at) >= ?
        AND COALESCE(completed_at, created_at) <= ?
      ORDER BY COALESCE(completed_at, created_at) DESC`,
-    [startMs, endMs],
-  );
-  return rows.map(rowToIntention);
+      [startMs, endMs],
+    );
+    return rows.map(rowToIntention);
+  });
 }
 
 /** Dernières sessions terminées — pour historique par jour (grouper côté UI). */
 export async function listRecentCompletedFocusSessions(
   limit: number,
 ): Promise<IntentionRow[]> {
-  const database = await getLocalDatabase();
-  const rows = await database.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM intentions
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const rows = await database.getAllAsync<Record<string, unknown>>(
+      `SELECT * FROM intentions
      WHERE status = 'done' AND actual_duration IS NOT NULL
      ORDER BY COALESCE(completed_at, created_at) DESC
      LIMIT ?`,
-    [limit],
-  );
-  return rows.map(rowToIntention);
+      [limit],
+    );
+    return rows.map(rowToIntention);
+  });
 }
 
 function logIaAlarmNextOccurrence(title: string, next: Date): void {
@@ -826,26 +937,28 @@ export function formatLocalDateYmd(d: Date): string {
 }
 
 export async function insertRoutine(input: RoutineRow): Promise<void> {
-  const database = await getLocalDatabase();
-  await database.runAsync(
-    `INSERT INTO routines (
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `INSERT INTO routines (
       id, title, description, weekday, start_minutes, duration_min, weights,
       priority, platform_type, platform_user_id, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      input.id,
-      input.title,
-      input.description,
-      input.weekday,
-      input.start_minutes,
-      input.duration_min,
-      JSON.stringify(input.weights),
-      input.priority,
-      input.platform_type,
-      input.platform_user_id,
-      input.created_at,
-    ],
-  );
+      [
+        input.id,
+        input.title,
+        input.description,
+        input.weekday,
+        input.start_minutes,
+        input.duration_min,
+        JSON.stringify(input.weights),
+        input.priority,
+        input.platform_type,
+        input.platform_user_id,
+        input.created_at,
+      ],
+    );
+  });
 }
 
 /**
@@ -856,48 +969,49 @@ export async function ensureRoutineIntentionInstancesForHorizon(
   platformUserId: string,
   horizonDays = 14,
 ): Promise<void> {
-  const database = await getLocalDatabase();
-  const row = await database.getFirstAsync<Record<string, unknown>>(
-    `SELECT * FROM routines WHERE id = ?`,
-    [routineId],
-  );
-  if (!row) return;
-
-  const routine: RoutineRow = {
-    id: row.id as string,
-    title: row.title as string,
-    description: row.description as string,
-    weekday: row.weekday as number,
-    start_minutes: row.start_minutes as number,
-    duration_min: row.duration_min as number,
-    weights: JSON.parse(row.weights as string) as SpectrumWeights,
-    priority: row.priority as number,
-    platform_type: row.platform_type as string,
-    platform_user_id: row.platform_user_id as string,
-    created_at: row.created_at as number,
-  };
-
-  const uid = platformUserId.trim() || routine.platform_user_id;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  let inserted = 0;
-  for (let delta = 0; delta < horizonDays; delta++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + delta);
-    if (d.getDay() !== routine.weekday) continue;
-
-    const ymd = formatLocalDateYmd(d);
-    const intentionId = `${routineId}_${ymd}`;
-
-    const existing = await database.getFirstAsync<{ id: string }>(
-      `SELECT id FROM intentions WHERE id = ?`,
-      [intentionId],
+  const inserted = await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const row = await database.getFirstAsync<Record<string, unknown>>(
+      `SELECT * FROM routines WHERE id = ?`,
+      [routineId],
     );
-    if (existing) continue;
+    if (!row) return 0;
 
-    await database.runAsync(
-      `INSERT INTO intentions (
+    const routine: RoutineRow = {
+      id: row.id as string,
+      title: row.title as string,
+      description: row.description as string,
+      weekday: row.weekday as number,
+      start_minutes: row.start_minutes as number,
+      duration_min: row.duration_min as number,
+      weights: JSON.parse(row.weights as string) as SpectrumWeights,
+      priority: row.priority as number,
+      platform_type: row.platform_type as string,
+      platform_user_id: row.platform_user_id as string,
+      created_at: row.created_at as number,
+    };
+
+    const uid = platformUserId.trim() || routine.platform_user_id;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let n = 0;
+    for (let delta = 0; delta < horizonDays; delta++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + delta);
+      if (d.getDay() !== routine.weekday) continue;
+
+      const ymd = formatLocalDateYmd(d);
+      const intentionId = `${routineId}_${ymd}`;
+
+      const existing = await database.getFirstAsync<{ id: string }>(
+        `SELECT id FROM intentions WHERE id = ?`,
+        [intentionId],
+      );
+      if (existing) continue;
+
+      await database.runAsync(
+        `INSERT INTO intentions (
         id, title, description, status, priority, weights,
         platform_type, platform_user_id, created_at, synced,
         estimated_duration, actual_duration, completed_at,
@@ -905,23 +1019,25 @@ export async function ensureRoutineIntentionInstancesForHorizon(
         is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
         raw_transcript, energy_score, local_notification_id, recurrence_rrule
       ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 0, 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
-      [
-        intentionId,
-        routine.title,
-        routine.description,
-        routine.priority,
-        JSON.stringify(routine.weights),
-        routine.platform_type,
-        uid,
-        Date.now(),
-        routine.duration_min,
-        routineId,
-        ymd,
-        routine.start_minutes,
-      ],
-    );
-    inserted += 1;
-  }
+        [
+          intentionId,
+          routine.title,
+          routine.description,
+          routine.priority,
+          JSON.stringify(routine.weights),
+          routine.platform_type,
+          uid,
+          Date.now(),
+          routine.duration_min,
+          routineId,
+          ymd,
+          routine.start_minutes,
+        ],
+      );
+      n += 1;
+    }
+    return n;
+  });
   if (inserted > 0) {
     await syncNativeRailAlarmsAfterIntentionWrite(
       'ensureRoutineIntentionInstancesForHorizon',
@@ -935,8 +1051,10 @@ export async function ensureRoutineIntentionInstancesForHorizon(
  */
 export async function checkpointLocalDatabase(): Promise<void> {
   try {
-    const database = await getLocalDatabase();
-    await database.execAsync('PRAGMA wal_checkpoint(TRUNCATE);');
+    await runSerializedSqlite(async () => {
+      const database = await ensureDbReady();
+      await database.execAsync('PRAGMA wal_checkpoint(TRUNCATE);');
+    });
   } catch {
     /* mode journal non-WAL ou indisponible : ignoré */
   }
@@ -949,9 +1067,11 @@ const INTENTIONS_CHANGED_DEBUG = 'tellyouto/intentions_changed';
  * Supprime toutes les intentions locales (+ contrôles micro-habitudes) — tests Debug / profils.
  */
 export async function deleteAllIntentions(): Promise<void> {
-  const database = await getLocalDatabase();
-  await database.runAsync(`DELETE FROM micro_habit_checks`);
-  await database.runAsync(`DELETE FROM intentions`);
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(`DELETE FROM micro_habit_checks`);
+    await database.runAsync(`DELETE FROM intentions`);
+  });
   const { cancelAllScheduledRailAlarms } = await import('../services/alarmManager');
   await cancelAllScheduledRailAlarms();
   await syncNativeRailAlarmsAfterIntentionWrite('deleteAllIntentions');

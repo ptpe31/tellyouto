@@ -20,6 +20,7 @@ import {
   ONBOARDING_CHANNELS_SKIPPED_KEY,
   RADAR_CHANNELS_NUDGE_DISMISSED_KEY,
 } from '../data/onboardingFlags';
+import { touchLocalDatabaseForStartup } from '../api/localDb';
 import { markAppInteractive } from '../services/performance';
 
 const ONBOARDING_KEY = '@tellyouto/onboarding_complete';
@@ -35,7 +36,10 @@ function RootNavigatorInner() {
   >(null);
 
   const refreshRoute = useCallback(async () => {
-    const v = await AsyncStorage.getItem(ONBOARDING_KEY);
+    const [v] = await Promise.all([
+      AsyncStorage.getItem(ONBOARDING_KEY),
+      touchLocalDatabaseForStartup().catch(() => undefined),
+    ]);
     setInitialRoute(v === 'true' ? 'App' : 'Onboarding');
     setReady(true);
   }, []);

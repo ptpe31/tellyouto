@@ -1,3 +1,6 @@
+import { Alert } from 'react-native';
+
+import i18n from '../locales/i18n';
 import { Platform } from '../utils/rnPlatform';
 
 import {
@@ -6,7 +9,7 @@ import {
 } from './notifications';
 import type { IntentionRow } from '../api/localDb';
 import type { TimelineSlot } from './agentLogic';
-import { nextOccurrenceFrom } from './recurrenceRrule';
+import { nextOccurrenceAfter, nextOccurrenceFrom } from './recurrenceRrule';
 
 /** Fichier listé dans app.json → plugin expo-notifications → sounds (rebuild natif requis). */
 const RAIL_ALARM_SOUND_FILE = 'rail_alarm.wav';
@@ -19,6 +22,19 @@ export function intentionRailAlarmNotificationId(intentionId: string): string {
 }
 
 let androidChannelReady = false;
+
+let permissionDeniedAlertLastShown = 0;
+const PERMISSION_ALERT_THROTTLE_MS = 45_000;
+
+function maybeAlertAgentAlarmPermissionDenied(): void {
+  const t = Date.now();
+  if (t - permissionDeniedAlertLastShown < PERMISSION_ALERT_THROTTLE_MS) return;
+  permissionDeniedAlertLastShown = t;
+  Alert.alert(
+    i18n.t('agent.alarmPermissionTitle'),
+    i18n.t('agent.alarmPermissionBody'),
+  );
+}
 
 async function ensureAndroidAlarmChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
@@ -170,6 +186,7 @@ async function persistScheduledId(intentionId: string, scheduledId: string): Pro
 /**
  * Planifie une alarme à une date absolue (RRULE ou rail).
  * Annule toujours l’ancienne poignée (`local_notification_id` + id stable) avant création.
+ * Pilotage 100 % local : permission vérifiée ici avant tout accès OS.
  */
 async function scheduleIntentionRailAlarmAtDate(
   row: IntentionRow,
@@ -178,7 +195,12 @@ async function scheduleIntentionRailAlarmAtDate(
 ): Promise<void> {
   const n = getNotifications();
   if (!n) return;
-  await ensureAndroidAlarmChannel();
+
+  const permitted = await requestAlarmPermissionIfNeeded();
+  if (!permitted) {
+    maybeAlertAgentAlarmPermissionDenied();
+    return;
+  }
 
   if (when.getTime() <= now.getTime() + 10_000) {
     await cancelIntentionRailAlarm(row.id);
@@ -191,6 +213,8 @@ async function scheduleIntentionRailAlarmAtDate(
     fresh.id,
     fresh.local_notification_id ?? undefined,
   );
+
+  await ensureAndroidAlarmChannel();
 
   const identifier = intentionRailAlarmNotificationId(row.id);
   const soundName = RAIL_ALARM_SOUND_FILE;
@@ -217,6 +241,11 @@ async function scheduleIntentionRailAlarmAtDate(
     },
   });
   await persistScheduledId(row.id, scheduledId);
+  const timeLabel = when.toLocaleString(undefined, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+  console.log(`[Hardware] Alarme programmée pour ${row.title} à ${timeLabel}`);
 }
 
 async function scheduleIntentionRailAlarm(
@@ -236,42 +265,35 @@ function computeNextRruleAlarmDate(row: IntentionRow, now: Date): Date | null {
 
 /**
  * Re-synchronise les alarmes après écriture SQLite (toggle alarme, insert agent, etc.).
- * Utilise le même placement rail que `syncRailAlarmsWithTimeline` (sans calendrier externe ici).
+ * Lecture locale uniquement — aucune attente Cloud.
  */
 export async function refreshRailAlarmsAfterLocalDbChange(): Promise<void> {
-  const { listIntentionsDescending } = await import('../api/localDb');
-  const { buildTimelineSlots } = await import('./agentLogic');
-  const pending = (await listIntentionsDescending()).filter((r) => r.status !== 'done');
-  if (pending.length === 0) return;
-  const wantsAlarm = pending.some((r) => r.alarm_enabled && !r.is_micro_habit);
-  if (wantsAlarm) {
-    const ok = await ensureNotificationPermissions();
-    if (!ok && __DEV__) {
-      console.warn(
-        '[TellYouTo] Notifications refusées — alarmes rail non planifiées',
-      );
-    }
-  }
-  const spectrum = pending[0]!.weights;
   const now = new Date();
-  const slots = buildTimelineSlots(pending, spectrum, now, { busyIntervals: [] });
-  await syncRailAlarmsWithTimeline({ pendingIntentions: pending, slots, now });
+  await syncRailAlarmsWithTimeline({ now });
 }
 
 /**
- * Annule les alarmes obsolètes et reprogramme selon le rail courant (créneaux suggérés).
- * Si `recurrence_rrule` est défini, une seule alarme native : prochaine occurrence RRULE (prioritaire sur le rail).
+ * Replanifie les alarmes matérielles à partir **uniquement** de la table `intentions` (SQLite).
+ * Les créneaux rail sont recalculés en mémoire sans calendrier externe ni état de sync Firebase.
  */
-export async function syncRailAlarmsWithTimeline(args: {
-  pendingIntentions: IntentionRow[];
-  slots: TimelineSlot[];
-  now: Date;
-}): Promise<void> {
+export async function syncRailAlarmsWithTimeline(args: { now: Date }): Promise<void> {
   const n = getNotifications();
   if (!n) return;
 
-  const { pendingIntentions, slots, now } = args;
+  const { listIntentionsDescending } = await import('../api/localDb');
+  const { buildTimelineSlots } = await import('./agentLogic');
+  const { now } = args;
+
+  const pendingIntentions = (await listIntentionsDescending()).filter(
+    (r) => r.status !== 'done',
+  );
+  if (pendingIntentions.length === 0) return;
+
   const slotById = new Map<string, TimelineSlot>();
+  const spectrum = pendingIntentions[0]!.weights;
+  const slots = buildTimelineSlots(pendingIntentions, spectrum, now, {
+    busyIntervals: [],
+  });
   for (const s of slots) {
     const prev = slotById.get(s.intention.id);
     if (!prev || s.startMinutes < prev.startMinutes) {
@@ -312,7 +334,8 @@ const lastRailAlarmHandledAt = new Map<string, number>();
 const RAIL_ALARM_DEBOUNCE_MS = 2500;
 
 /**
- * Réaction Agent / matériel : sonnerie ou interaction — avance RRULE et reprogramme.
+ * Réaction Agent / matériel : sonnerie ou interaction — avance RRULE dans SQLite
+ * (`anchor_date_ymd`, `fixed_start_minutes`) puis reprogramme la prochaine occurrence native.
  */
 export async function handleRailAlarmDelivered(intentionId: string): Promise<void> {
   const t = Date.now();
@@ -325,14 +348,30 @@ export async function handleRailAlarmDelivered(intentionId: string): Promise<voi
   );
   const row = await getIntentionById(intentionId);
   if (!row?.recurrence_rrule?.trim()) return;
-  await advanceIntentionToNextRecurrenceSlot(intentionId);
+
+  const advanced = await advanceIntentionToNextRecurrenceSlot(intentionId);
+  if (!advanced) return;
+
+  const fresh = await getIntentionById(intentionId);
+  if (!fresh?.recurrence_rrule?.trim()) return;
+
+  const now = new Date();
+  const when = nextOccurrenceAfter(fresh, now);
+  if (!when) return;
+  await scheduleIntentionRailAlarmAtDate(fresh, when, now);
 }
 
 /**
- * Au cold start / après reboot : recharge SQLite et replanifie toutes les alarmes actives.
+ * Au cold start / après reboot : scan SQLite (intentions `pending` + alarme) puis replanification OS.
  */
 export async function bootstrapNativeAlarmsOnAppStart(): Promise<void> {
   try {
+    const { listIntentionsDescending } = await import('../api/localDb');
+    const rows = await listIntentionsDescending();
+    const count = rows.filter(
+      (r) => r.status === 'pending' && r.alarm_enabled && !r.is_micro_habit,
+    ).length;
+    console.log(`[Hardware-Alarm] ${count} alarmes reprogrammées au démarrage`);
     await refreshRailAlarmsAfterLocalDbChange();
   } catch (e) {
     if (__DEV__) console.warn('[TellYouTo] bootstrapNativeAlarmsOnAppStart', e);

@@ -520,6 +520,8 @@
     "yes": "sí",
     "no": "no",
     "agentPool": "Reserva tiempo copiloto: {{seconds}} s",
-    "allyPreview": "Voz: {{voice}} · Tono: {{tone}} · Idioma IA: {{lang}}"
+    "allyPreview": "Voz: {{voice}} · Tono: {{tone}} · Idioma IA: {{lang}}",
+    "alarmPermissionTitle": "Notificaciones necesarias",
+    "alarmPermissionBody": "Sin permiso de notificaciones, el agente local no puede programar alarmas del rail en el dispositivo. Activa las notificaciones (y alarmas en Android) para esta app en los ajustes del sistema."
   }
 }

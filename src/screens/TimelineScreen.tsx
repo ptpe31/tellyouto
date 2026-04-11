@@ -321,11 +321,7 @@ export function TimelineScreen() {
       { busyIntervals: busyForAgent },
     );
     setSlots(built);
-    await syncRailAlarmsWithTimeline({
-      pendingIntentions: rows,
-      slots: built,
-      now,
-    });
+    await syncRailAlarmsWithTimeline({ now });
     void syncRailReminderScheduleFromSlots(built, now, spectrum);
   }, [spectrum, connectEnabled, busyIntervals]);
 

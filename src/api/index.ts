@@ -5,7 +5,7 @@ export {
 } from './accountLinking';
 export { getFirebaseApp, getFirestoreDb } from './firebase';
 export {
-  getLocalDatabase,
+  withLocalDatabase,
   insertIntention,
   listCompletedSessionsBetween,
   listIntentionsDescending,

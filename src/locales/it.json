@@ -520,6 +520,8 @@
     "yes": "sì",
     "no": "no",
     "agentPool": "Riserva tempo copilota: {{seconds}} s",
-    "allyPreview": "Voce: {{voice}} · Tono: {{tone}} · Lingua IA: {{lang}}"
+    "allyPreview": "Voce: {{voice}} · Tono: {{tone}} · Lingua IA: {{lang}}",
+    "alarmPermissionTitle": "Notifiche necessarie",
+    "alarmPermissionBody": "Senza permesso notifiche, l’agente locale non può programmare gli allarmi del rail sul dispositivo. Abilita notifiche (e sveglie su Android) per questa app nelle impostazioni di sistema."
   }
 }
