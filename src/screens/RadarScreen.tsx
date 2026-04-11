@@ -684,6 +684,33 @@ export function RadarScreen() {
         eyebrow={t('radar.allyEyebrow')}
         message={allyBubbleText}
       />
+      {spectrum.lastMessengerUserId && spectrum.lastMessengerChannel ? (
+        <Text
+          style={[styles.messengerLinkHint, { color: theme.colors.tertiary }]}
+        >
+          {t('radar.messengerVoiceActive')}
+        </Text>
+      ) : (
+        <View style={styles.pureAllyRow}>
+          <View
+            style={[
+              styles.pureAllyBadge,
+              { borderColor: theme.colors.outlineVariant },
+            ]}
+          >
+            <Text
+              style={[styles.pureAllyBadgeText, { color: theme.colors.outline }]}
+            >
+              {t('radar.pureAllyModeBadge')}
+            </Text>
+          </View>
+          <Text
+            style={[styles.messengerInactiveHint, { color: theme.colors.outline }]}
+          >
+            {t('radar.messengerDictationInactive')}
+          </Text>
+        </View>
+      )}
       </>
     ),
     [
@@ -692,6 +719,8 @@ export function RadarScreen() {
       allyBubbleText,
       spectrum.first_name,
       spectrum.isProUser,
+      spectrum.lastMessengerUserId,
+      spectrum.lastMessengerChannel,
       celebrateWa,
       dismissCelebrateWa,
       showChannelsNudge,
@@ -1030,4 +1059,26 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   emptyBody: { fontSize: 15, lineHeight: 22, textAlign: 'center' },
+  messengerLinkHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  pureAllyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  pureAllyBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  pureAllyBadgeText: { fontSize: 11, fontWeight: '700' },
+  messengerInactiveHint: { fontSize: 12, flex: 1, minWidth: 120, lineHeight: 17 },
 });

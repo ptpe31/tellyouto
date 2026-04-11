@@ -21,6 +21,14 @@
     "channelsCatalogLead": "Un solo canale attivo alla volta — è lì che l’Alleato invia le tue intenzioni.",
     "channelsPrivacyFootnote": "Ogni canale Premium è una linea diretta crittografata tra te e il tuo rail locale. Nessun dato viene venduto: transita in un tunnel sicuro e viene cancellato dal Cloud non appena sincronizzato sul telefono."
   },
+  "channels": {
+    "connect": "Connetti",
+    "disconnect": "Disconnetti",
+    "linkingWait": "In attesa del tuo messaggio...",
+    "hints": {
+      "pro_account_required": "* Richiede un account Pro attivo su questo telefono"
+    }
+  },
   "pro": {
     "modalTitle": "Sblocca la massima potenza",
     "modalPrice": "9,99 € / mese",
@@ -50,15 +58,6 @@
       "teams": "Microsoft Teams",
       "signal": "Signal",
       "line": "LINE / WeChat"
-    },
-    "taglines": {
-      "telegram": "Veloce, privato e consigliato.",
-      "whatsapp": "La scelta semplice.",
-      "slack": "Ideale per il lavoro.",
-      "discord": "Per la tua community.",
-      "teams": "Integrazione corporate.",
-      "signal": "Sicurezza massima.",
-      "line": "Internazionale."
     }
   },
   "channelSwitch": {
@@ -159,6 +158,9 @@
     "emptyTitle": "Il tuo binario è libero",
     "emptyBody": "Un buon momento per ricaricare con dolcezza o impostare una nuova direzione — tocca + quando vuoi.",
     "allyEyebrow": "Alleato",
+    "pureAllyModeBadge": "Modalità Alleato puro",
+    "messengerDictationInactive": "Dettatura messaggistica inattiva — collega un canale in Agente IA.",
+    "messengerVoiceActive": "Messaggistica collegata — dettatura disponibile.",
     "activeSessionTitle": "Focus attivo",
     "activeSessionOpen": "Torna alla capsula",
     "priority": "Priorità {{value}}",

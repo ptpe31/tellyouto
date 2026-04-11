@@ -2,6 +2,7 @@ import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 
+import { handleDisconnectMessenger } from './disconnectMessenger';
 import { handleBotWebhook } from './webhookHandler';
 import { purgeStaleTransitDocuments } from './purgeTransitData';
 import { runProactiveReminders } from './scheduleProactiveReminders';
@@ -16,6 +17,14 @@ export const botWebhook = onRequest(
   { cors: false, invoker: 'public' },
   async (req, res) => {
     await handleBotWebhook(db, req, res);
+  },
+);
+
+/** Déconnexion messagerie (app → secret partagé optionnel). */
+export const disconnectMessenger = onRequest(
+  { cors: true, invoker: 'public' },
+  async (req, res) => {
+    await handleDisconnectMessenger(db, req, res);
   },
 );
 

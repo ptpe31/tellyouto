@@ -21,6 +21,14 @@
     "channelsCatalogLead": "同時に有効にできるのは1チャネルのみ — アリーが意図を送る先です。",
     "channelsPrivacyFootnote": "各プレミアムチャネルは、あなたとローカルレール間の暗号化された専用回線です。データは販売されません。安全なトンネルを経由し、スマートフォンに同期された後はクラウドから直ちに削除されます。"
   },
+  "channels": {
+    "connect": "接続",
+    "disconnect": "切断",
+    "linkingWait": "メッセージを待っています...",
+    "hints": {
+      "pro_account_required": "* この端末で有効な Pro アカウントが必要です"
+    }
+  },
   "pro": {
     "modalTitle": "最大の力を解放",
     "modalPrice": "月額 9,99€",
@@ -50,15 +58,6 @@
       "teams": "Microsoft Teams",
       "signal": "Signal",
       "line": "LINE / WeChat"
-    },
-    "taglines": {
-      "telegram": "高速・プライバシー重視・おすすめ。",
-      "whatsapp": "手軽さ重視の選択。",
-      "slack": "仕事向け。",
-      "discord": "コミュニティ向け。",
-      "teams": "企業向け連携。",
-      "signal": "最大限のセキュリティ。",
-      "line": "グローバル向け。"
     }
   },
   "channelSwitch": {
@@ -159,6 +158,9 @@
     "emptyTitle": "レールは空いています",
     "emptyBody": "リチャージにも、新しい方向を決めるにも、ちょうどいい時間です。準備ができたら + を。",
     "allyEyebrow": "アリー",
+    "pureAllyModeBadge": "ピュア・アリーモード",
+    "messengerDictationInactive": "メッセンジャー音声入力はオフ — AIエージェントでチャネルを接続。",
+    "messengerVoiceActive": "メッセンジャー接続済み — 音声入力OK。",
     "activeSessionTitle": "フォーカス中",
     "activeSessionOpen": "カプセルを開く",
     "priority": "優先度 {{value}}",

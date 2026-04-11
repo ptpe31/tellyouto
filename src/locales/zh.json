@@ -21,6 +21,14 @@
     "channelsCatalogLead": "同时只能激活一个频道 — 盟友在此向你发送意图。",
     "channelsPrivacyFootnote": "每个高级频道都是你与本地轨道之间的加密直连。不出售任何数据：经安全隧道传输，并在同步到你的手机后立即从云端清除。"
   },
+  "channels": {
+    "connect": "连接",
+    "disconnect": "断开",
+    "linkingWait": "等待你的消息...",
+    "hints": {
+      "pro_account_required": "* 需要在此手机上拥有有效的 Pro 账户"
+    }
+  },
   "pro": {
     "modalTitle": "解锁全部能力",
     "modalPrice": "9.99€ / 月",
@@ -50,15 +58,6 @@
       "teams": "Microsoft Teams",
       "signal": "Signal",
       "line": "LINE / 微信"
-    },
-    "taglines": {
-      "telegram": "快速、私密、推荐。",
-      "whatsapp": "简单之选。",
-      "slack": "适合工作。",
-      "discord": "服务社群。",
-      "teams": "企业集成。",
-      "signal": "极致安全。",
-      "line": "面向全球。"
     }
   },
   "channelSwitch": {
@@ -159,6 +158,9 @@
     "emptyTitle": "轨道是空的",
     "emptyBody": "很适合轻轻充电或定下新方向 — 准备好时点 +。",
     "allyEyebrow": "盟友",
+    "pureAllyModeBadge": "纯盟友模式",
+    "messengerDictationInactive": "消息听写未激活 — 请在智能体中连接频道。",
+    "messengerVoiceActive": "消息通道已连接 — 可使用听写。",
     "activeSessionTitle": "专注进行中",
     "activeSessionOpen": "进入胶囊",
     "priority": "优先级 {{value}}",

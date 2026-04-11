@@ -4,6 +4,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -38,6 +39,8 @@ import {
   listPrivateChannelIds,
   type PrivateChannelId,
   savePrivateChannelChoice,
+  clearPrivateChannelChoice,
+  getStoredPrivateChannelBotUrl,
   getStoredPrivateChannelId,
 } from '../data/privateChannels';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -47,6 +50,7 @@ import {
   buildTelegramStartLink,
   buildWhatsAppRailDeepLink,
 } from '../services/connectorLinks';
+import { disconnectChannelRemote } from '../services/channelsService';
 import { getOrCreateDeviceId } from '../api/syncService';
 import { ChannelsPrivacyFootnote } from './ChannelsScreen';
 
@@ -80,7 +84,12 @@ export function AgentSettingsScreen() {
   const { language, setLanguage, interactionLanguage, setInteractionLanguage } =
     useLanguage();
   const { voice, tone, setVoice, setTone } = useAlly();
-  const { spectrum, applyMessengerReminderPrefs } = useUserSpectrum();
+  const {
+    spectrum,
+    applyMessengerReminderPrefs,
+    mergeRemoteProfile,
+    persist,
+  } = useUserSpectrum();
   const [passProVisible, setPassProVisible] = useState(false);
   const [switchVisible, setSwitchVisible] = useState(false);
   const [pendingChannelId, setPendingChannelId] =
@@ -122,25 +131,109 @@ export function AgentSettingsScreen() {
     [spectrum.first_name],
   );
 
-  const trySelectChannel = (id: PrivateChannelId) => {
-    if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
-      setPassProVisible(true);
-      return;
-    }
-    if (channelChoice !== null && channelChoice === id) return;
-    if (channelChoice !== null && channelChoice !== id) {
-      setPendingChannelId(id);
-      setSwitchVisible(true);
-      return;
-    }
-    void applyChannel(id);
-  };
+  const connectChannel = useCallback(
+    async (id: PrivateChannelId) => {
+      if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
+        setPassProVisible(true);
+        return;
+      }
+      await applyChannel(id);
+      const url = await getStoredPrivateChannelBotUrl();
+      if (url) {
+        try {
+          await Linking.openURL(url);
+        } catch {
+          /* app absente ou URL vide */
+        }
+      }
+    },
+    [applyChannel, spectrum.isProUser],
+  );
 
-  const confirmChannelSwitch = () => {
-    if (pendingChannelId) void applyChannel(pendingChannelId);
+  const disconnectActiveChannel = useCallback(
+    async (id: PrivateChannelId) => {
+      if (
+        spectrum.lastMessengerChannel === id &&
+        spectrum.lastMessengerUserId
+      ) {
+        await disconnectChannelRemote(id);
+      }
+      await clearPrivateChannelChoice();
+      mergeRemoteProfile({
+        last_messenger_channel: null,
+        last_messenger_user_id: null,
+      });
+      setChannelChoice(null);
+      await persist();
+    },
+    [
+      mergeRemoteProfile,
+      persist,
+      spectrum.lastMessengerChannel,
+      spectrum.lastMessengerUserId,
+    ],
+  );
+
+  const trySelectChannel = useCallback(
+    (id: PrivateChannelId) => {
+      if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
+        setPassProVisible(true);
+        return;
+      }
+      const otherLinked =
+        spectrum.lastMessengerChannel &&
+        spectrum.lastMessengerUserId &&
+        spectrum.lastMessengerChannel !== id;
+      if (otherLinked) {
+        setPendingChannelId(id);
+        setSwitchVisible(true);
+        return;
+      }
+      if (channelChoice === id) {
+        const live =
+          spectrum.lastMessengerChannel === id &&
+          !!spectrum.lastMessengerUserId;
+        if (live) return;
+        void connectChannel(id);
+        return;
+      }
+      void connectChannel(id);
+    },
+    [
+      channelChoice,
+      connectChannel,
+      spectrum.isProUser,
+      spectrum.lastMessengerChannel,
+      spectrum.lastMessengerUserId,
+    ],
+  );
+
+  const confirmChannelSwitch = useCallback(async () => {
+    const target = pendingChannelId;
     setSwitchVisible(false);
     setPendingChannelId(null);
-  };
+    if (!target) return;
+    const linkedCh = spectrum.lastMessengerChannel;
+    const linkedUid = spectrum.lastMessengerUserId;
+    if (linkedCh && linkedUid) {
+      await disconnectChannelRemote(linkedCh as PrivateChannelId);
+      await clearPrivateChannelChoice();
+      mergeRemoteProfile({
+        last_messenger_channel: null,
+        last_messenger_user_id: null,
+      });
+      setChannelChoice(null);
+      await persist();
+    }
+    await connectChannel(target);
+  }, [
+    pendingChannelId,
+    spectrum.lastMessengerChannel,
+    spectrum.lastMessengerUserId,
+    connectChannel,
+    mergeRemoteProfile,
+    persist,
+  ]);
 
   const dismissChannelSwitch = () => {
     setSwitchVisible(false);
@@ -220,17 +313,23 @@ export function AgentSettingsScreen() {
         <Text style={[styles.section, { color: theme.colors.primary }]}>
           {t('settings.channelsCatalogTitle')}
         </Text>
-        <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>
-          {t('settings.channelsCatalogLead')}
-        </Text>
         {listPrivateChannelIds().map((id) => {
           const isPremium = isPremiumPrivateChannel(id);
           const locked = isPremium && !spectrum.isProUser;
+          const connectionStatus = (() => {
+            if (
+              spectrum.lastMessengerChannel === id &&
+              spectrum.lastMessengerUserId
+            ) {
+              return 'connected' as const;
+            }
+            if (channelChoice === id) return 'linking' as const;
+            return 'disconnected' as const;
+          })();
           return (
             <ChannelCatalogCard
               key={id}
               title={t(`channelCatalog.names.${id}`)}
-              tagline={t(`channelCatalog.taglines.${id}`)}
               freeBadgeLabel={
                 id === 'telegram' ? t('channelCatalog.freeBadge') : undefined
               }
@@ -240,14 +339,17 @@ export function AgentSettingsScreen() {
               proBadgeLabel={t('channelCatalog.proBadge')}
               isPremiumChannel={isPremium}
               showProLock={locked}
-              isActive={channelChoice === id}
-              onPress={() => trySelectChannel(id)}
-              extraHint={
-                id === 'whatsapp'
-                  ? t('onboarding.privateChannel.whatsappCostHint')
+              connectionStatus={connectionStatus}
+              connectLabel={t('channels.connect')}
+              disconnectLabel={t('channels.disconnect')}
+              linkingLabel={t('channels.linkingWait')}
+              onConnect={() => trySelectChannel(id)}
+              onDisconnect={() => void disconnectActiveChannel(id)}
+              footerHint={
+                id === 'slack' || id === 'teams'
+                  ? t('channels.hints.pro_account_required')
                   : undefined
               }
-              extraHintColor={theme.colors.error}
             />
           );
         })}
@@ -262,7 +364,7 @@ export function AgentSettingsScreen() {
             : ''
         }
         onDismiss={dismissChannelSwitch}
-        onConfirm={confirmChannelSwitch}
+        onConfirm={() => void confirmChannelSwitch()}
       />
 
       <PassProModal

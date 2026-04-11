@@ -18,6 +18,10 @@ export type DeviceProfileFields = {
   ad_free_until_ms?: number;
   /** Abonnement TellYouTo Pro (canaux premium + sans pub) */
   is_pro_user?: boolean;
+  /** Dernier canal messager lié (webhook) */
+  last_messenger_channel?: string | null;
+  /** Identifiant utilisateur côté messagerie */
+  last_messenger_user_id?: string | null;
   profile_updated_at?: number;
 };
 
@@ -80,6 +84,18 @@ export async function fetchDeviceProfileFromFirestore(): Promise<DeviceProfileFi
         : undefined,
     is_pro_user:
       typeof d.is_pro_user === 'boolean' ? d.is_pro_user : undefined,
+    last_messenger_channel:
+      typeof d.last_messenger_channel === 'string'
+        ? d.last_messenger_channel
+        : d.last_messenger_channel === null
+          ? null
+          : undefined,
+    last_messenger_user_id:
+      typeof d.last_messenger_user_id === 'string'
+        ? d.last_messenger_user_id
+        : d.last_messenger_user_id === null
+          ? null
+          : undefined,
   };
 }
 

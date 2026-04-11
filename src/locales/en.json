@@ -21,6 +21,14 @@
     "channelsCatalogLead": "Only one active channel at a time — that’s where your Ally sends your intentions.",
     "channelsPrivacyFootnote": "Each Premium channel is an encrypted direct line between you and your local rail. Nothing is sold: it travels through a secure tunnel and is erased from the Cloud as soon as it has been synced to your phone."
   },
+  "channels": {
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "linkingWait": "Waiting for your message...",
+    "hints": {
+      "pro_account_required": "* Requires an active Pro account on this phone"
+    }
+  },
   "pro": {
     "modalTitle": "Unlock maximum power",
     "modalPrice": "€9.99 / month",
@@ -50,15 +58,6 @@
       "teams": "Microsoft Teams",
       "signal": "Signal",
       "line": "LINE / WeChat"
-    },
-    "taglines": {
-      "telegram": "Fast, private, and recommended.",
-      "whatsapp": "The simple choice.",
-      "slack": "Built for work.",
-      "discord": "For your community.",
-      "teams": "Corporate integration.",
-      "signal": "Maximum security.",
-      "line": "International."
     }
   },
   "channelSwitch": {
@@ -159,6 +158,9 @@
     "emptyTitle": "Your rail is clear",
     "emptyBody": "A gentle moment to recharge or set a new direction — tap + when you feel ready.",
     "allyEyebrow": "Ally",
+    "pureAllyModeBadge": "Pure Ally mode",
+    "messengerDictationInactive": "Messenger dictation inactive — link a channel in AI Agent.",
+    "messengerVoiceActive": "Messenger linked — dictation available.",
     "activeSessionTitle": "Focus in progress",
     "activeSessionOpen": "Back to capsule",
     "priority": "Priority {{value}}",

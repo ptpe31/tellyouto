@@ -88,3 +88,11 @@ export async function getStoredPrivateChannelId(): Promise<PrivateChannelId | nu
 export async function getStoredPrivateChannelBotUrl(): Promise<string> {
   return (await AsyncStorage.getItem(PRIVATE_CHANNEL_BOT_URL_KEY)) ?? '';
 }
+
+/** Efface le choix de canal local (déconnexion ou bascule). */
+export async function clearPrivateChannelChoice(): Promise<void> {
+  await AsyncStorage.multiRemove([
+    PRIVATE_CHANNEL_CHOICE_KEY,
+    PRIVATE_CHANNEL_BOT_URL_KEY,
+  ]);
+}

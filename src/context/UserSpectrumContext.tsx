@@ -51,6 +51,10 @@ export type UserSpectrumState = SpectrumWeights & {
   ad_free_until_ms: number | null;
   /** Abonnement Pro — canaux premium + sans pub permanent */
   isProUser: boolean;
+  /** Dernier canal messager lié (miroir Firestore `devices/{id}`) */
+  lastMessengerChannel: string | null;
+  /** Identifiant messager lié */
+  lastMessengerUserId: string | null;
 };
 
 function detectPlatformType(): PlatformType {
@@ -84,6 +88,8 @@ const defaultSpectrum = (): UserSpectrumState => ({
   messenger_reminder_lead_minutes: 5,
   ad_free_until_ms: null,
   isProUser: false,
+  lastMessengerChannel: null,
+  lastMessengerUserId: null,
 });
 
 type UserSpectrumContextValue = {
@@ -229,6 +235,14 @@ export function UserSpectrumProvider({
           typeof remote.is_pro_user === 'boolean'
             ? remote.is_pro_user
             : prev.isProUser,
+        lastMessengerChannel:
+          remote.last_messenger_channel !== undefined
+            ? remote.last_messenger_channel
+            : prev.lastMessengerChannel,
+        lastMessengerUserId:
+          remote.last_messenger_user_id !== undefined
+            ? remote.last_messenger_user_id
+            : prev.lastMessengerUserId,
       };
       spectrumRef.current = merged;
       return merged;
@@ -348,6 +362,16 @@ export function UserSpectrumProvider({
           typeof parsed.isProUser === 'boolean'
             ? parsed.isProUser
             : prev.isProUser,
+        lastMessengerChannel: (() => {
+          const v = (parsed as Partial<UserSpectrumState>).lastMessengerChannel;
+          if (v === null || typeof v === 'string') return v ?? null;
+          return prev.lastMessengerChannel;
+        })(),
+        lastMessengerUserId: (() => {
+          const v = (parsed as Partial<UserSpectrumState>).lastMessengerUserId;
+          if (v === null || typeof v === 'string') return v ?? null;
+          return prev.lastMessengerUserId;
+        })(),
       }));
     } catch {
       /* ignore */

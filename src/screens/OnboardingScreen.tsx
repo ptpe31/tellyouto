@@ -285,14 +285,6 @@ export function OnboardingScreen({ onComplete }: Props) {
                 </View>
               </View>
             </View>
-            <Text
-              style={[
-                styles.telegramOnlyTagline,
-                { color: theme.colors.onSurfaceVariant },
-              ]}
-            >
-              {t('channelCatalog.taglines.telegram')}
-            </Text>
 
             <Text
               style={[styles.initLabel, { color: theme.colors.onSurfaceVariant }]}
@@ -543,7 +535,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   miniPillText: { fontSize: 11, fontWeight: '700' },
-  telegramOnlyTagline: { fontSize: 13, lineHeight: 19, marginBottom: 12 },
   giftBadge: {
     borderWidth: 1,
     borderRadius: 12,

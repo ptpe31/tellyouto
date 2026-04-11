@@ -21,6 +21,14 @@
     "channelsCatalogLead": "Solo un canal activo a la vez — ahí tu Aliado envía tus intenciones.",
     "channelsPrivacyFootnote": "Cada canal Premium es una línea directa cifrada entre tú y tu rail local. No se venden datos: transitan por un túnel seguro y se borran de la nube en cuanto se sincronizan en tu teléfono."
   },
+  "channels": {
+    "connect": "Conectar",
+    "disconnect": "Desconectar",
+    "linkingWait": "Esperando tu mensaje...",
+    "hints": {
+      "pro_account_required": "* Requiere una cuenta Pro activa en este teléfono"
+    }
+  },
   "pro": {
     "modalTitle": "Desbloquea el máximo potencial",
     "modalPrice": "9,99 € / mes",
@@ -50,15 +58,6 @@
       "teams": "Microsoft Teams",
       "signal": "Signal",
       "line": "LINE / WeChat"
-    },
-    "taglines": {
-      "telegram": "Rápido, privado y recomendado.",
-      "whatsapp": "La opción simple.",
-      "slack": "Ideal para el trabajo.",
-      "discord": "Para tu comunidad.",
-      "teams": "Integración corporativa.",
-      "signal": "Máxima seguridad.",
-      "line": "Internacional."
     }
   },
   "channelSwitch": {
@@ -159,6 +158,9 @@
     "emptyTitle": "Tu riel está libre",
     "emptyBody": "Un buen momento para recargar con calma o trazar una nueva dirección — pulsa + cuando quieras.",
     "allyEyebrow": "Aliado",
+    "pureAllyModeBadge": "Modo Aliado puro",
+    "messengerDictationInactive": "Dictado por mensajería inactivo — enlaza un canal en Agente IA.",
+    "messengerVoiceActive": "Mensajería enlazada — dictado disponible.",
     "activeSessionTitle": "Foco activo",
     "activeSessionOpen": "Volver a la cápsula",
     "priority": "Prioridad {{value}}",

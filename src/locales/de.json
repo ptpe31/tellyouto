@@ -21,6 +21,14 @@
     "channelsCatalogLead": "Nur ein aktiver Kanal — dorthin sendet dein Ally deine Intentionen.",
     "channelsPrivacyFootnote": "Jeder Premium-Kanal ist eine verschlüsselte Direktleitung zwischen dir und deinem lokalen Rail. Es werden keine Daten verkauft: Sie passieren einen sicheren Tunnel und werden in der Cloud gelöscht, sobald sie auf deinem Telefon synchronisiert sind."
   },
+  "channels": {
+    "connect": "Verbinden",
+    "disconnect": "Trennen",
+    "linkingWait": "Warte auf deine Nachricht...",
+    "hints": {
+      "pro_account_required": "* Erfordert ein aktives Pro-Konto auf diesem Telefon"
+    }
+  },
   "pro": {
     "modalTitle": "Volle Leistung freischalten",
     "modalPrice": "9,99 € / Monat",
@@ -50,15 +58,6 @@
       "teams": "Microsoft Teams",
       "signal": "Signal",
       "line": "LINE / WeChat"
-    },
-    "taglines": {
-      "telegram": "Schnell, privat, empfohlen.",
-      "whatsapp": "Die einfache Wahl.",
-      "slack": "Ideal für die Arbeit.",
-      "discord": "Für deine Community.",
-      "teams": "Unternehmens-Integration.",
-      "signal": "Maximale Sicherheit.",
-      "line": "International."
     }
   },
   "channelSwitch": {
@@ -159,6 +158,9 @@
     "emptyTitle": "Deine Schiene ist frei",
     "emptyBody": "Ein guter Moment für eine sanfte Pause oder eine neue Richtung — tippe auf +, wenn es passt.",
     "allyEyebrow": "Ally",
+    "pureAllyModeBadge": "Reiner-Ally-Modus",
+    "messengerDictationInactive": "Messenger-Diktat inaktiv — verbinde einen Kanal im KI-Agenten.",
+    "messengerVoiceActive": "Messenger verbunden — Diktat verfügbar.",
     "activeSessionTitle": "Fokus aktiv",
     "activeSessionOpen": "Zur Kapsel",
     "priority": "Priorität {{value}}",

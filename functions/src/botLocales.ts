@@ -77,6 +77,18 @@ const PREMIUM_ONLY: Record<BotLocale, string> = {
     '抱歉{{firstName}}，此通道仅面向 Pro 会员。请在 Telegram 继续，或在应用内订阅 Pro！',
 };
 
+/** Message envoyé lors d’une déconnexion explicite depuis l’app. */
+const DISCONNECT: Record<BotLocale, string> = {
+  fr:
+    "Ton Allié s'est déconnecté. Ton Rail reste privé sur ton téléphone.",
+  en: 'Your Ally has disconnected. Your Rail stays private on your phone.',
+  es: 'Tu Aliado se ha desconectado. Tu Rail sigue siendo privado en tu teléfono.',
+  de: 'Dein Ally hat die Verbindung getrennt. Dein Rail bleibt privat auf deinem Telefon.',
+  it: 'Il tuo Alleato si è disconnesso. Il tuo Rail resta privato sul telefono.',
+  ja: 'アライが切断したよ。レールはスマホ上だけのプライベートのまま。',
+  zh: '你的盟友已断开连接。你的时间轨仍仅保留在你的手机上。',
+};
+
 const RECHARGE: Record<BotLocale, string> = {
   fr: "Ton quota messagerie est à zéro — recharge ici : {{url}}",
   en: 'Your messenger quota is empty — recharge here: {{url}}',
@@ -136,4 +148,9 @@ export function formatBotRechargeAck(
 ): string {
   const k = normLocale(locale);
   return RECHARGE[k].replace('{{url}}', url);
+}
+
+export function formatBotDisconnect(locale: string | undefined): string {
+  const k = normLocale(locale);
+  return DISCONNECT[k];
 }
