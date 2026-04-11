@@ -65,3 +65,11 @@ export {
   onDeviceIntentionTransitProcessed,
   onRailInboxMarkedProcessed,
 } from './transitPurgeTriggers';
+
+/** HTTP de test — vérifie que le déploiement Functions répond. */
+export const helloWorld = onRequest(
+  { cors: true, invoker: 'public' },
+  async (_req, res) => {
+    res.status(200).send('ok');
+  },
+);
