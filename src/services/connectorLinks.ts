@@ -2,6 +2,22 @@ import * as Linking from 'expo-linking';
 
 import { DEBUG_BOT_NUMBER } from '../config/debugConfig';
 import i18n from '../locales/i18n';
+
+/** Nom du bot sans @ (EXPO_PUBLIC_TELEGRAM_BOT_USERNAME). */
+export function getTelegramBotUsername(): string {
+  const u = process.env.EXPO_PUBLIC_TELEGRAM_BOT_USERNAME?.trim();
+  return u && u.length > 0 ? u.replace(/^@/, '') : 'TellYouToBot';
+}
+
+/**
+ * Lien Telegram avec `start` = identifiant appareil (liaison instantanée, sans copier-coller).
+ * @see https://core.telegram.org/bots#deep-linking
+ */
+export function buildTelegramStartLink(userId: string): string {
+  const bot = getTelegramBotUsername();
+  const start = encodeURIComponent(userId.trim());
+  return `https://t.me/${bot}?start=${start}`;
+}
 import type { AppLanguage } from '../context/LanguageContext';
 
 /** Doit correspondre à `scheme` dans app.json */
@@ -11,9 +27,32 @@ export type AppDeepLinkTab = 'radar' | 'timeline' | 'recharge';
 
 /**
  * Lien profond vers un onglet principal (ouvre l’app sur Radar, Timeline ou Recharge).
+ * Ex. `buildAppDeepLink('radar', { from: 'whatsapp_init' })` pour la bannière de retour.
  */
-export function buildAppDeepLink(tab: AppDeepLinkTab): string {
-  return `${APP_SCHEME}://${tab}`;
+export function buildAppDeepLink(
+  tab: AppDeepLinkTab,
+  query?: Record<string, string>,
+): string {
+  let url = `${APP_SCHEME}://${tab}`;
+  if (query && Object.keys(query).length > 0) {
+    url += `?${new URLSearchParams(query).toString()}`;
+  }
+  return url;
+}
+
+/** Parse `tellyouto://radar?from=…` (host = onglet). */
+export function parseTellyoutoDeepLink(
+  url: string | null | undefined,
+): { tab: string; query: Record<string, string> } | null {
+  if (!url || !url.startsWith(`${APP_SCHEME}:`)) return null;
+  try {
+    const u = new URL(url);
+    const tab = u.hostname;
+    if (!tab) return null;
+    return { tab, query: Object.fromEntries(u.searchParams.entries()) };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -63,6 +102,23 @@ export function getBotInitializationMessage(
     firstName.trim() ||
     (t('connector.defaultFirstName', { defaultValue: '' }) as string);
   return t('connector.botWelcomeMessage', {
+    firstName: name,
+    appLink,
+  }) as string;
+}
+
+/** Message d’accueil Allié pour Telegram (script prioritaire). */
+export function getTelegramAllyWelcomeMessage(
+  language: string,
+  firstName: string,
+  appLink: string,
+): string {
+  const lng = normalizeLang(language);
+  const t = i18n.getFixedT(lng);
+  const name =
+    firstName.trim() ||
+    (t('connector.defaultFirstName', { defaultValue: '' }) as string);
+  return t('connector.telegramAllyWelcome', {
     firstName: name,
     appLink,
   }) as string;

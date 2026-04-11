@@ -17,6 +17,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { NeumorphicSurface } from '../components';
 import { usePower } from '../context/PowerContext';
+import {
+  isAdFreeModeActive,
+  useUserSpectrum,
+} from '../context/UserSpectrumContext';
 import { palette } from '../theme/colors';
 import { neumorphicRaised } from '../theme/neumorphism';
 
@@ -41,7 +45,9 @@ export function RechargeScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const { spectrum } = useUserSpectrum();
   const { boostEnergyScore, addAgentEnergySeconds } = usePower();
+  const adFree = isAdFreeModeActive(spectrum);
 
   const [flow, setFlow] = useState<Flow>('idle');
   const [selectedMode, setSelectedMode] = useState<RechargeMode | null>(null);
@@ -79,6 +85,11 @@ export function RechargeScreen() {
   const startSequence = (mode: RechargeMode) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setSelectedMode(mode);
+    if (adFree) {
+      setFlow('pause');
+      setPauseElapsed(0);
+      return;
+    }
     setFlow('ad');
     setTimeout(() => {
       setFlow('pause');

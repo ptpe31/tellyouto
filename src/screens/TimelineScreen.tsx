@@ -42,6 +42,7 @@ import {
 } from '../services/agentLogic';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { recordQuickCompleteWithoutCapsule } from '../services/focusHabits';
+import { useWhatsAppInitCelebration } from '../hooks/useWhatsAppInitCelebration';
 import { syncRailReminderScheduleFromSlots } from '../services/railReminderSchedule';
 import {
   cancelIntentionRailAlarm,
@@ -298,6 +299,8 @@ export function TimelineScreen() {
     row: IntentionRow;
     mode: FocusCapsuleMode;
   } | null>(null);
+  const { visible: celebrateWa, dismiss: dismissCelebrateWa } =
+    useWhatsAppInitCelebration('timeline');
 
   const load = useCallback(async () => {
     const rows = (await listIntentionsDescending()).filter(
@@ -412,6 +415,23 @@ export function TimelineScreen() {
   const listHeader = useMemo(
     () => (
       <View style={styles.header}>
+        {celebrateWa ? (
+          <NeumorphicCard
+            style={[
+              styles.celebrationCard,
+              { borderColor: theme.colors.primary },
+            ]}
+          >
+            <Text
+              style={[styles.celebrationText, { color: theme.colors.primary }]}
+            >
+              {t('connector.whatsappInitCelebration')}
+            </Text>
+            <Button mode="text" compact onPress={dismissCelebrateWa}>
+              {t('health.dismiss')}
+            </Button>
+          </NeumorphicCard>
+        ) : null}
         <Text style={[styles.title, { color: theme.colors.onBackground }]}>
           {t('tabs.timeline')}
         </Text>
@@ -428,7 +448,14 @@ export function TimelineScreen() {
         />
       </View>
     ),
-    [t, theme.colors.onBackground, theme.colors.onSurfaceVariant],
+    [
+      celebrateWa,
+      dismissCelebrateWa,
+      t,
+      theme.colors.onBackground,
+      theme.colors.onSurfaceVariant,
+      theme.colors.primary,
+    ],
   );
 
   const renderItem = ({ item }: { item: RailRow }) => {
@@ -548,6 +575,13 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   listPad: { padding: 16 },
   header: { marginBottom: 8 },
+  celebrationCard: {
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+  },
+  celebrationText: { fontSize: 15, fontWeight: '600', lineHeight: 22 },
   externalCard: {
     marginBottom: 10,
     paddingVertical: 10,

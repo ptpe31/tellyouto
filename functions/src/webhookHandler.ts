@@ -1,8 +1,12 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 
-import { formatBotRailAck, formatBotRechargeAck } from './botLocales';
-import { buildDeepLink, sendTelegramText } from './botReply';
+import { formatBotRailAck, formatBotRechargeAck, formatBotWelcomeConnect } from './botLocales';
+import { buildDeepLink, sendBotReply } from './botReply';
+import {
+  extractHandshakeFirstName,
+  isRailConnectionHandshake,
+} from './railHandshake';
 
 const DEFAULT_INTENTIONS_QUOTA = (() => {
   const n = parseInt(process.env.DEFAULT_INTENTIONS_QUOTA ?? '50', 10);
@@ -116,6 +120,42 @@ export async function handleBotWebhook(
   }
 
   const deviceRef = firestore.collection('devices').doc(deviceId.trim());
+
+  const messengerMeta = {
+    last_messenger_channel: parsed.channel,
+    last_messenger_user_id: parsed.messengerUserId,
+    last_messenger_updated_at: Date.now(),
+  };
+
+  /** Premier message « Connecte-moi à mon Rail ID » — accueil Allié, pas d’intention ni de quota. */
+  if (isRailConnectionHandshake(parsed.text)) {
+    const deviceSnap = await deviceRef.get();
+    const d = deviceSnap.data() ?? {};
+    const loc =
+      typeof d.locale === 'string' && d.locale.trim()
+        ? d.locale.trim()
+        : 'fr';
+    const fromDevice =
+      typeof d.first_name === 'string' ? d.first_name.trim() : '';
+    const fromMsg = extractHandshakeFirstName(parsed.text);
+    const firstName =
+      fromDevice ||
+      fromMsg ||
+      (loc.split('-')[0]?.toLowerCase() === 'en' ? 'there' : 'toi');
+    const radarUrl = buildDeepLink('radar', { from: 'whatsapp_init' });
+    const timelineUrl = buildDeepLink('timeline', { from: 'whatsapp_init' });
+    const welcome = formatBotWelcomeConnect(
+      loc,
+      firstName,
+      radarUrl,
+      timelineUrl,
+    );
+    await sendBotReply(parsed.channel, parsed.messengerUserId, welcome);
+    await deviceRef.set(messengerMeta, { merge: true });
+    res.status(200).json({ ok: true, handshake: true });
+    return;
+  }
+
   const docRef = deviceRef.collection('rail_inbox').doc();
 
   const inboxPayload = {
@@ -146,20 +186,12 @@ export async function handleBotWebhook(
     return { kind: 'ok' as const, locale: loc };
   });
 
-  const messengerMeta = {
-    last_messenger_channel: parsed.channel,
-    last_messenger_user_id: parsed.messengerUserId,
-    last_messenger_updated_at: Date.now(),
-  };
-
   if (outcome.kind === 'blocked') {
     const msg = formatBotRechargeAck(
       outcome.locale,
       buildDeepLink('recharge'),
     );
-    if (parsed.channel === 'telegram') {
-      await sendTelegramText(parsed.messengerUserId, msg);
-    }
+    await sendBotReply(parsed.channel, parsed.messengerUserId, msg);
     await deviceRef.set(messengerMeta, { merge: true });
     res.status(200).json({
       ok: true,
@@ -170,9 +202,7 @@ export async function handleBotWebhook(
   }
 
   const ack = formatBotRailAck(outcome.locale, buildDeepLink('radar'));
-  if (parsed.channel === 'telegram') {
-    await sendTelegramText(parsed.messengerUserId, ack);
-  }
+  await sendBotReply(parsed.channel, parsed.messengerUserId, ack);
 
   await deviceRef.set(messengerMeta, { merge: true });
 

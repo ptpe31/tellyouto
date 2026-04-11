@@ -948,6 +948,9 @@ export function getDominantSpectrumAxis(w: SpectrumWeights): SpectrumAxis {
   return dominantAxis(w);
 }
 
+/** Message d’accueil messagerie / handshake — même heuristique que la Cloud Function. */
+export { isRailConnectionHandshakeMessage } from './railMessaging';
+
 /** Félicitations + tonalité : Zen = plus posé / long ; Momentum = plus court et dynamique */
 const ENCOURAGEMENT: Record<
   AppLanguage,

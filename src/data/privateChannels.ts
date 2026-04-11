@@ -5,11 +5,12 @@ export type PrivateChannelId = 'whatsapp' | 'telegram' | 'slack' | 'line';
 export const PRIVATE_CHANNEL_CHOICE_KEY = '@tellyouto/private_channel_id';
 export const PRIVATE_CHANNEL_BOT_URL_KEY = '@tellyouto/private_channel_bot_url';
 
+/** Telegram en tête (recommandé) ; WhatsApp secondaire ; LINE / Slack pour pros. */
 const CHANNEL_ORDER: PrivateChannelId[] = [
-  'whatsapp',
   'telegram',
-  'slack',
+  'whatsapp',
   'line',
+  'slack',
 ];
 
 /**
@@ -36,8 +37,9 @@ export function listPrivateChannelIds(): PrivateChannelId[] {
 
 export async function savePrivateChannelChoice(
   id: PrivateChannelId,
+  resolvedBotUrl?: string,
 ): Promise<void> {
-  const url = resolvePrivateChannelBotUrl(id);
+  const url = resolvedBotUrl ?? resolvePrivateChannelBotUrl(id);
   await AsyncStorage.multiSet([
     [PRIVATE_CHANNEL_CHOICE_KEY, id],
     [PRIVATE_CHANNEL_BOT_URL_KEY, url],

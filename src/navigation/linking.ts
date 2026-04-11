@@ -14,11 +14,23 @@ export const appLinking = {
     screens: {
       Onboarding: 'onboarding',
       App: {
+        path: '',
         screens: {
           Tabs: {
+            path: '',
             screens: {
-              Radar: 'radar',
-              Timeline: 'timeline',
+              Radar: {
+                path: 'radar',
+                parse: {
+                  from: (value: string) => value ?? undefined,
+                },
+              },
+              Timeline: {
+                path: 'timeline',
+                parse: {
+                  from: (value: string) => value ?? undefined,
+                },
+              },
               Recharge: 'recharge',
             },
           },

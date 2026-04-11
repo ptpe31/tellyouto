@@ -2,14 +2,61 @@
 
 export type BotLocale = 'fr' | 'en' | 'es' | 'de' | 'it' | 'ja' | 'zh';
 
+/** Accusé après une vraie intention (pas le handshake de liaison). */
 const RAIL: Record<BotLocale, string> = {
-  fr: "C'est sur ton Rail ! 🚀 Visualise-le ici : {{url}}",
-  en: "It's on your Rail! 🚀 Open it here: {{url}}",
-  es: '¡Está en tu Rail! 🚀 Ábrelo aquí: {{url}}',
-  de: 'Liegt auf deinem Rail! 🚀 Hier öffnen: {{url}}',
-  it: 'È sul tuo Rail! 🚀 Aprilo qui: {{url}}',
-  ja: 'レールに載せました 🚀 こちら：{{url}}',
-  zh: '已放到你的时间轨 🚀 在此查看：{{url}}',
+  fr: "Bien reçu ! C'est ajouté. Regarde ton Rail ⚡️\n{{url}}",
+  en: 'Got it! Added. Check your Rail ⚡️\n{{url}}',
+  es: '¡Recibido! Está añadido. Mira tu Rail ⚡️\n{{url}}',
+  de: 'Alles klar! Ist drauf. Schau auf deinen Rail ⚡️\n{{url}}',
+  it: 'Ricevuto! È aggiunto. Guarda il Rail ⚡️\n{{url}}',
+  ja: '受け取ったよ！追加済み。レールを見てね ⚡️\n{{url}}',
+  zh: '收到！已添加。看看你的时间轨 ⚡️\n{{url}}',
+};
+
+/** Premier message de connexion au canal privé — réponse instantanée. */
+const WELCOME_CONNECT: Record<BotLocale, string> = {
+  fr:
+    'Enchanté {{firstName}} ! Ton Rail est maintenant connecté à ce canal privé. 🛡️\n\n' +
+    'Ici, je suis tes oreilles. Essaye tout de suite :\n' +
+    '🎤 Envoie-moi un message vocal (ex: « Acheter du pain ce soir ») ou écris-moi une idée.\n\n' +
+    'Radar : {{radarUrl}}\n' +
+    'Temps : {{timelineUrl}}',
+  en:
+    'Nice to meet you, {{firstName}}! Your Rail is now linked to this private channel. 🛡️\n\n' +
+    "I'm listening here. Try right away:\n" +
+    '🎤 Send a voice note (e.g. “Buy bread tonight”) or type an idea.\n\n' +
+    'Radar: {{radarUrl}}\n' +
+    'Timeline: {{timelineUrl}}',
+  es:
+    '¡Encantado, {{firstName}}! Tu Rail ya está conectado a este canal privado. 🛡️\n\n' +
+    'Aquí te escucho. Prueba ya:\n' +
+    '🎤 Envía un audio (p. ej. «comprar pan esta noche») o escribe una idea.\n\n' +
+    'Radar: {{radarUrl}}\n' +
+    'Tiempo: {{timelineUrl}}',
+  de:
+    'Freut mich, {{firstName}}! Dein Rail ist jetzt mit diesem privaten Kanal verbunden. 🛡️\n\n' +
+    'Hier höre ich zu. Probier’s gleich:\n' +
+    '🎤 Sprachnachricht (z. B. „Brot heute Abend kaufen“) oder eine Idee schreiben.\n\n' +
+    'Radar: {{radarUrl}}\n' +
+    'Zeit: {{timelineUrl}}',
+  it:
+    'Piacere, {{firstName}}! Il tuo Rail è collegato a questo canale privato. 🛡️\n\n' +
+    'Qui ti ascolto. Prova subito:\n' +
+    '🎤 Un messaggio vocale (es. «comprare il pane stasera») o scrivi un’idea.\n\n' +
+    'Radar: {{radarUrl}}\n' +
+    'Tempo: {{timelineUrl}}',
+  ja:
+    '{{firstName}}、はじめまして！レールがこのプライベートチャネルにつながったよ 🛡️\n\n' +
+    'ここでは耳を傾けるよ。すぐ試してね：\n' +
+    '🎤 ボイス（例：「今夜パンを買う」）か、テキストでアイデアを。\n\n' +
+    'レーダー：{{radarUrl}}\n' +
+    'タイムライン：{{timelineUrl}}',
+  zh:
+    '{{firstName}}，很高兴认识你！你的时间轨已与此私人通道连接 🛡️\n\n' +
+    '我在这里倾听。马上试试：\n' +
+    '🎤 发语音（例如「今晚买面包」）或输入一个想法。\n\n' +
+    '雷达：{{radarUrl}}\n' +
+    '时间：{{timelineUrl}}',
 };
 
 const RECHARGE: Record<BotLocale, string> = {
@@ -41,6 +88,19 @@ function normLocale(raw: string | undefined): BotLocale {
 export function formatBotRailAck(locale: string | undefined, url: string): string {
   const k = normLocale(locale);
   return RAIL[k].replace('{{url}}', url);
+}
+
+export function formatBotWelcomeConnect(
+  locale: string | undefined,
+  firstName: string,
+  radarUrl: string,
+  timelineUrl: string,
+): string {
+  const k = normLocale(locale);
+  return WELCOME_CONNECT[k]
+    .replace(/\{\{firstName\}\}/g, firstName)
+    .replace(/\{\{radarUrl\}\}/g, radarUrl)
+    .replace(/\{\{timelineUrl\}\}/g, timelineUrl);
 }
 
 export function formatBotRechargeAck(

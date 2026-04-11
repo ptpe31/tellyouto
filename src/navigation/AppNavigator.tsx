@@ -22,8 +22,9 @@ import {
 import { IS_PRODUCTION } from '../config/appConfig';
 import { useDebugUnlock } from '../context/DebugUnlockContext';
 import { AgentStack } from './AgentStack';
+import type { AppTabParamList } from './types';
 
-const Tab = createBottomTabNavigator();
+const Tab = createBottomTabNavigator<AppTabParamList>();
 
 export function AppNavigator() {
   const { t } = useTranslation();

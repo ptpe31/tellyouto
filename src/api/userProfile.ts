@@ -14,6 +14,8 @@ export type DeviceProfileFields = {
   /** Rappels proactifs messagerie (montre / téléphone) */
   messenger_reminders_enabled?: boolean;
   messenger_reminder_lead_minutes?: number;
+  /** Fin du mode sans pub (offre Telegram, ms epoch UTC) */
+  ad_free_until_ms?: number;
   profile_updated_at?: number;
 };
 
@@ -68,6 +70,11 @@ export async function fetchDeviceProfileFromFirestore(): Promise<DeviceProfileFi
     messenger_reminder_lead_minutes:
       typeof d.messenger_reminder_lead_minutes === 'number'
         ? d.messenger_reminder_lead_minutes
+        : undefined,
+    ad_free_until_ms:
+      typeof d.ad_free_until_ms === 'number' &&
+      Number.isFinite(d.ad_free_until_ms)
+        ? d.ad_free_until_ms
         : undefined,
   };
 }

@@ -64,9 +64,19 @@
       }
     },
     "privateChannel": {
-      "title": "Active ton canal privé",
-      "subtitle": "Choisis comment l’Allié t’envoie des intentions — échange avec un bot dédié, pas un simple SMS.",
+      "title": "Choisis ton Allié",
+      "subtitle": "Le canal par lequel ton Allié t’envoie des intentions — privé, lié à ton appareil.",
       "explainBot": "Tu ne parles pas à un numéro type +33 : le bot est lié à ton appareil et à la messagerie choisie — tout reste dans ton espace TellYouTo.",
+      "telegramPitch": "Telegram offre la meilleure expérience vocale et protège ta vie privée. C’est le canal 100 % gratuit pour ton Allié.",
+      "recommended": "Recommandé",
+      "telegramGiftBadge": "🎁 CADEAU : Installe Telegram et gagne 15 jours de Mode Sans Pub !",
+      "telegramReady": "Canal prêt à l’emploi.",
+      "whatsappCostHint": "Peut engendrer des frais de service ou des quotas d’intentions.",
+      "proChannelsHint": "Option pro / équipes",
+      "installTelegram": "Installer Telegram",
+      "rewardTitle": "Merci !",
+      "rewardBody": "Félicitations ! Ton Allié est sur Telegram et ton Rail est pur pour 15 jours.",
+      "rewardDismiss": "Continuer",
       "platforms": {
         "whatsapp": "WhatsApp",
         "telegram": "Telegram",
@@ -82,7 +92,8 @@
       "waitingConnection": "En attente de connexion...",
       "whatsappErrorTitle": "Erreur",
       "whatsappErrorBody": "Impossible d'ouvrir WhatsApp. Vérifie qu'il est installé.",
-      "genericOpenErrorBody": "Impossible d'ouvrir le lien. Vérifie que l'application est installée."
+      "genericOpenErrorBody": "Impossible d'ouvrir le lien. Vérifie que l'application est installée.",
+      "dictationHint": "Une fois dans WhatsApp, essaye la dictée vocale !"
     }
   },
   "radar": {
@@ -290,8 +301,10 @@
   },
   "connector": {
     "defaultFirstName": "toi",
+    "telegramAllyWelcome": "Bonjour {{firstName}} ! Je suis ton Allié. Envoie-moi un vocal ou un texte, je m'occupe de ton Rail. {{appLink}}",
     "botWelcomeMessage": "Bonjour {{firstName}}, ici c'est ton espace privé pour créer tes intentions (texte ou vocal). Tout reste strictement confidentiel et synchronisé sur ton téléphone. {{appLink}}",
-    "botRailAck": "C'est sur ton Rail ! 🚀 Visualise-le ici : {{url}}",
+    "botRailAck": "Bien reçu ! C'est ajouté. Regarde ton Rail ⚡️\n{{url}}",
+    "whatsappInitCelebration": "Connexion réussie ! Ton Allié écoute...",
     "botRechargeRedirect": "Ton quota messagerie est à zéro — ouvre la Station de Recharge : {{url}}",
     "copyLinkHint": "Si l’app de messagerie n’est pas installée, copie ce lien.",
     "deepLinkRadar": "Ouvrir le Radar",

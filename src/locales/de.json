@@ -64,9 +64,19 @@
       }
     },
     "privateChannel": {
-      "title": "Privaten Kanal aktivieren",
-      "subtitle": "Wähle, wie der Ally dir Intentionen sendet — ein Bot, kein klassischer SMS-Verlauf.",
+      "title": "Wähle deinen Ally",
+      "subtitle": "Der Kanal, über den dein Ally Intentionen sendet — privat und mit deinem Gerät verknüpft.",
       "explainBot": "Du chattest nicht mit einer +33-Nummer: Der Bot ist mit deinem Gerät und der gewählten App verbunden — alles bleibt in deinem TellYouTo-Raum.",
+      "telegramPitch": "Telegram bietet die beste Spracherfahrung und schützt deine Privatsphäre. Es ist der 100 % kostenlose Kanal für deinen Ally.",
+      "recommended": "Empfohlen",
+      "telegramGiftBadge": "🎁 GESCHENK: Installiere Telegram und erhalte 15 Tage ohne Werbung!",
+      "telegramReady": "Kanal einsatzbereit.",
+      "whatsappCostHint": "Kann Servicegebühren oder Intention-Kontingente verursachen.",
+      "proChannelsHint": "Pro / Team-Option",
+      "installTelegram": "Telegram installieren",
+      "rewardTitle": "Danke!",
+      "rewardBody": "Glückwunsch! Dein Ally läuft über Telegram — dein Rail bleibt 15 Tage werbefrei.",
+      "rewardDismiss": "Weiter",
       "platforms": {
         "whatsapp": "WhatsApp",
         "telegram": "Telegram",
@@ -82,7 +92,8 @@
       "waitingConnection": "Warte auf Verbindung...",
       "whatsappErrorTitle": "Fehler",
       "whatsappErrorBody": "WhatsApp konnte nicht geöffnet werden. Prüfe, ob es installiert ist.",
-      "genericOpenErrorBody": "Link konnte nicht geöffnet werden. Prüfe, ob die App installiert ist."
+      "genericOpenErrorBody": "Link konnte nicht geöffnet werden. Prüfe, ob die App installiert ist.",
+      "dictationHint": "In WhatsApp kannst du auch per Spracheingabe diktieren!"
     }
   },
   "radar": {
@@ -290,8 +301,10 @@
   },
   "connector": {
     "defaultFirstName": "du",
+    "telegramAllyWelcome": "Hallo {{firstName}}! Ich bin dein Ally. Schick mir eine Sprachnachricht oder Text — ich kümmere mich um deinen Rail. {{appLink}}",
     "botWelcomeMessage": "Hallo {{firstName}}, hier ist dein privater Bereich für Intentionen (Text oder Sprache). Alles bleibt vertraulich und mit deinem Handy synchronisiert. {{appLink}}",
-    "botRailAck": "Liegt auf deinem Rail! 🚀 Hier öffnen: {{url}}",
+    "botRailAck": "Alles klar! Ist drauf. Schau auf deinen Rail ⚡️\n{{url}}",
+    "whatsappInitCelebration": "Verbunden! Dein Allié hört zu …",
     "botRechargeRedirect": "Dein Messenger-Kontingent ist leer — Aufladestation: {{url}}",
     "copyLinkHint": "Wenn die Chat-App fehlt, kopiere diesen Link.",
     "deepLinkRadar": "Radar öffnen",

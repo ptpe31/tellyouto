@@ -70,6 +70,7 @@ import {
   getQuickCompleteStreak,
   recordQuickCompleteWithoutCapsule,
 } from '../services/focusHabits';
+import { useWhatsAppInitCelebration } from '../hooks/useWhatsAppInitCelebration';
 
 type RadarRowProps = {
   item: IntentionRow;
@@ -193,6 +194,8 @@ export function RadarScreen() {
   const [hardRoutineConflictOpen, setHardRoutineConflictOpen] = useState(false);
   const [hardBlockingRoutineName, setHardBlockingRoutineName] = useState('');
   const [railSlots, setRailSlots] = useState<TimelineSlot[]>([]);
+  const { visible: celebrateWa, dismiss: dismissCelebrateWa } =
+    useWhatsAppInitCelebration('radar');
 
   const load = useCallback(async () => {
     const list = await listIntentionsDescending();
@@ -502,6 +505,23 @@ export function RadarScreen() {
   const listHeader = useMemo(
     () => (
       <>
+        {celebrateWa ? (
+          <NeumorphicCard
+            style={[
+              styles.celebrationCard,
+              { borderColor: theme.colors.primary },
+            ]}
+          >
+            <Text
+              style={[styles.celebrationText, { color: theme.colors.primary }]}
+            >
+              {t('connector.whatsappInitCelebration')}
+            </Text>
+            <Button mode="text" compact onPress={dismissCelebrateWa}>
+              {t('health.dismiss')}
+            </Button>
+          </NeumorphicCard>
+        ) : null}
         {activeIntention ? (
           <NeumorphicCard style={styles.activeCard}>
             <View style={styles.activeRow}>
@@ -586,6 +606,8 @@ export function RadarScreen() {
       activeIntention,
       dueMicroSlot,
       allyBubbleText,
+      celebrateWa,
+      dismissCelebrateWa,
       openActiveCapsule,
       onVerifyMicro,
       t,
@@ -817,6 +839,13 @@ export function RadarScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   listPad: { padding: 16, paddingBottom: 8 },
+  celebrationCard: {
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+  },
+  celebrationText: { fontSize: 15, fontWeight: '600', lineHeight: 22 },
   activeCard: { marginBottom: 12, paddingVertical: 12 },
   microNowCard: {
     marginBottom: 12,

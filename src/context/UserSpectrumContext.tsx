@@ -47,6 +47,8 @@ export type UserSpectrumState = SpectrumWeights & {
   /** Rappels messagerie avant créneau (montre / téléphone) */
   messenger_reminders_enabled: boolean;
   messenger_reminder_lead_minutes: number;
+  /** Fin du mode sans pub (ms) — ex. offre installation Telegram */
+  ad_free_until_ms: number | null;
 };
 
 function detectPlatformType(): PlatformType {
@@ -78,6 +80,7 @@ const defaultSpectrum = (): UserSpectrumState => ({
   locale: 'fr',
   messenger_reminders_enabled: true,
   messenger_reminder_lead_minutes: 5,
+  ad_free_until_ms: null,
 });
 
 type UserSpectrumContextValue = {
@@ -96,6 +99,8 @@ type UserSpectrumContextValue = {
     leadMinutes: number,
   ) => Promise<void>;
   mergeRemoteProfile: (remote: DeviceProfileFields) => void;
+  /** Prolonge ou définit le mode sans pub (persist + Firestore si dispo). */
+  grantAdFreeDays: (days: number) => Promise<void>;
   resetSpectrum: () => void;
   persist: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
@@ -207,6 +212,15 @@ export function UserSpectrumProvider({
                 Math.max(1, Math.round(remote.messenger_reminder_lead_minutes)),
               )
             : prev.messenger_reminder_lead_minutes,
+        ad_free_until_ms: (() => {
+          const r = remote.ad_free_until_ms;
+          const p = prev.ad_free_until_ms;
+          const rN = typeof r === 'number' && Number.isFinite(r) ? r : null;
+          const pN = typeof p === 'number' && Number.isFinite(p) ? p : null;
+          if (rN == null) return pN;
+          if (pN == null) return rN;
+          return Math.max(rN, pN);
+        })(),
       };
       spectrumRef.current = merged;
       return merged;
@@ -223,6 +237,31 @@ export function UserSpectrumProvider({
       JSON.stringify(spectrumRef.current),
     );
   }, []);
+
+  const grantAdFreeDays = useCallback(
+    async (days: number) => {
+      const d = Math.min(365 * 5, Math.max(1, Math.round(days)));
+      const until = Date.now() + d * 24 * 60 * 60 * 1000;
+      setSpectrum((prev) => {
+        const cur = prev.ad_free_until_ms;
+        const nextUntil =
+          typeof cur === 'number' && cur > Date.now()
+            ? Math.max(until, cur)
+            : until;
+        const merged = { ...prev, ad_free_until_ms: nextUntil };
+        spectrumRef.current = merged;
+        return merged;
+      });
+      await AsyncStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(spectrumRef.current),
+      );
+      await pushDeviceProfileToFirestore({
+        ad_free_until_ms: spectrumRef.current.ad_free_until_ms ?? undefined,
+      });
+    },
+    [],
+  );
 
   const applyMessengerReminderPrefs = useCallback(
     async (enabled: boolean, leadMinutes: number) => {
@@ -284,6 +323,11 @@ export function UserSpectrumProvider({
                 Math.max(1, Math.round(parsed.messenger_reminder_lead_minutes)),
               )
             : prev.messenger_reminder_lead_minutes,
+        ad_free_until_ms:
+          typeof parsed.ad_free_until_ms === 'number' &&
+          Number.isFinite(parsed.ad_free_until_ms)
+            ? parsed.ad_free_until_ms
+            : prev.ad_free_until_ms,
       }));
     } catch {
       /* ignore */
@@ -337,6 +381,7 @@ export function UserSpectrumProvider({
       setMessengerReminderLeadMinutes,
       applyMessengerReminderPrefs,
       mergeRemoteProfile,
+      grantAdFreeDays,
       resetSpectrum,
       persist,
       loadFromStorage,
@@ -352,6 +397,7 @@ export function UserSpectrumProvider({
       setMessengerReminderLeadMinutes,
       applyMessengerReminderPrefs,
       mergeRemoteProfile,
+      grantAdFreeDays,
       resetSpectrum,
       persist,
       loadFromStorage,
@@ -371,4 +417,12 @@ export function useUserSpectrum() {
     throw new Error('useUserSpectrum must be used within UserSpectrumProvider');
   }
   return ctx;
+}
+
+export function isAdFreeModeActive(
+  state: UserSpectrumState,
+  nowMs: number = Date.now(),
+): boolean {
+  const u = state.ad_free_until_ms;
+  return typeof u === 'number' && Number.isFinite(u) && u > nowMs;
 }

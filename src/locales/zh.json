@@ -64,9 +64,19 @@
       }
     },
     "privateChannel": {
-      "title": "启用你的私人通道",
-      "subtitle": "选择盟友如何发送意图 — 使用专用机器人，而非普通短信。",
+      "title": "选择你的盟友",
+      "subtitle": "盟友发送意图的通道 — 私密并绑定设备。",
       "explainBot": "你不是在拨打 +33 这类号码：机器人绑定你的设备与所选应用 — 一切留在 TellYouTo 空间内。",
+      "telegramPitch": "Telegram 语音体验好、隐私强。这是盟友的 100% 免费通道。",
+      "recommended": "推荐",
+      "telegramGiftBadge": "🎁 好礼：安装 Telegram，享 15 天无广告模式！",
+      "telegramReady": "通道已就绪。",
+      "whatsappCostHint": "可能产生服务费或意图配额限制。",
+      "proChannelsHint": "专业 / 团队选项",
+      "installTelegram": "安装 Telegram",
+      "rewardTitle": "谢谢！",
+      "rewardBody": "恭喜！盟友已在 Telegram 上，你的时间轨 15 天无广告。",
+      "rewardDismiss": "继续",
       "platforms": {
         "whatsapp": "WhatsApp",
         "telegram": "Telegram",
@@ -82,7 +92,8 @@
       "waitingConnection": "正在等待连接…",
       "whatsappErrorTitle": "错误",
       "whatsappErrorBody": "无法打开 WhatsApp。请确认已安装。",
-      "genericOpenErrorBody": "无法打开链接。请确认应用已安装。"
+      "genericOpenErrorBody": "无法打开链接。请确认应用已安装。",
+      "dictationHint": "在 WhatsApp 里试试语音输入！"
     }
   },
   "radar": {
@@ -290,8 +301,10 @@
   },
   "connector": {
     "defaultFirstName": "朋友",
+    "telegramAllyWelcome": "你好{{firstName}}！我是你的盟友。发语音或文字 — 时间轨交给我。{{appLink}}",
     "botWelcomeMessage": "你好{{firstName}}，这是创建意图的私人空间（文字或语音）。内容严格保密，并与手机同步。{{appLink}}",
-    "botRailAck": "已放到你的时间轨 🚀 在此查看：{{url}}",
+    "botRailAck": "收到！已添加。看看你的时间轨 ⚡️\n{{url}}",
+    "whatsappInitCelebration": "连接成功！盟友正在倾听…",
     "botRechargeRedirect": "消息配额已用完 — 打开充电站：{{url}}",
     "copyLinkHint": "若没有聊天应用，可复制此链接。",
     "deepLinkRadar": "打开雷达",

@@ -64,9 +64,19 @@
       }
     },
     "privateChannel": {
-      "title": "Attiva il canale privato",
-      "subtitle": "Scegli come l’Alleato invia le intenzioni — un bot dedicato, non un SMS classico.",
+      "title": "Scegli il tuo Alleato",
+      "subtitle": "Il canale con cui l’Alleato invia le intenzioni — privato e legato al dispositivo.",
       "explainBot": "Non parli con un numero tipo +33: il bot è legato al dispositivo e all’app scelta — tutto resta nel tuo spazio TellYouTo.",
+      "telegramPitch": "Telegram offre la migliore esperienza vocale e tutela la privacy. È il canale 100% gratuito per il tuo Alleato.",
+      "recommended": "Consigliato",
+      "telegramGiftBadge": "🎁 REGALO: installa Telegram e ottieni 15 giorni senza pubblicità!",
+      "telegramReady": "Canale pronto all’uso.",
+      "whatsappCostHint": "Possibili costi di servizio o limiti sulle intenzioni.",
+      "proChannelsHint": "Opzione pro / team",
+      "installTelegram": "Installa Telegram",
+      "rewardTitle": "Grazie!",
+      "rewardBody": "Complimenti! Il tuo Alleato è su Telegram — Rail senza pubblicità per 15 giorni.",
+      "rewardDismiss": "Continua",
       "platforms": {
         "whatsapp": "WhatsApp",
         "telegram": "Telegram",
@@ -82,7 +92,8 @@
       "waitingConnection": "In attesa di connessione...",
       "whatsappErrorTitle": "Errore",
       "whatsappErrorBody": "Impossibile aprire WhatsApp. Verifica che sia installato.",
-      "genericOpenErrorBody": "Impossibile aprire il link. Verifica che l'app sia installata."
+      "genericOpenErrorBody": "Impossibile aprire il link. Verifica che l'app sia installata.",
+      "dictationHint": "Su WhatsApp prova il dettatura vocale!"
     }
   },
   "radar": {
@@ -290,8 +301,10 @@
   },
   "connector": {
     "defaultFirstName": "tu",
+    "telegramAllyWelcome": "Ciao {{firstName}}! Sono il tuo Alleato. Mandami un vocale o un testo — mi occupo del tuo Rail. {{appLink}}",
     "botWelcomeMessage": "Ciao {{firstName}}, questo è il tuo spazio privato per le intenzioni (testo o voce). Tutto resta confidenziale e sincronizzato sul telefono. {{appLink}}",
-    "botRailAck": "È sul tuo Rail! 🚀 Aprilo qui: {{url}}",
+    "botRailAck": "Ricevuto! È aggiunto. Guarda il Rail ⚡️\n{{url}}",
+    "whatsappInitCelebration": "Connessione riuscita! L’Alleato ti ascolta…",
     "botRechargeRedirect": "Hai esaurito il quota messaggi — apri la stazione di ricarica: {{url}}",
     "copyLinkHint": "Se manca l’app di chat, copia questo link.",
     "deepLinkRadar": "Apri Radar",

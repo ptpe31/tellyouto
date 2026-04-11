@@ -64,9 +64,19 @@
       }
     },
     "privateChannel": {
-      "title": "プライベートチャネルを有効にする",
-      "subtitle": "アリーが意図を送る方法を選ぶ — 専用ボットで、普通のSMSではありません。",
+      "title": "アリーを選ぶ",
+      "subtitle": "アリーが意図を送るチャネル — プライベートで端末に紐づきます。",
       "explainBot": "+33のような番号ではありません。ボットは端末と選んだアプリに紐づき、TellYouToの空間に留まります。",
+      "telegramPitch": "Telegramは音声に強く、プライバシーを守ります。アリー向けに100%無料のチャネルです。",
+      "recommended": "おすすめ",
+      "telegramGiftBadge": "🎁 特典：Telegramを入れると広告なし15日！",
+      "telegramReady": "チャネルは利用可能です。",
+      "whatsappCostHint": "サービス料や意図の枠がかかる場合があります。",
+      "proChannelsHint": "プロ／チーム向け",
+      "installTelegram": "Telegramをインストール",
+      "rewardTitle": "ありがとう！",
+      "rewardBody": "おめでとう！アリーはTelegram上 — レールは15日間広告なし。",
+      "rewardDismiss": "続ける",
       "platforms": {
         "whatsapp": "WhatsApp",
         "telegram": "Telegram",
@@ -82,7 +92,8 @@
       "waitingConnection": "接続を待っています…",
       "whatsappErrorTitle": "エラー",
       "whatsappErrorBody": "WhatsApp を開けませんでした。インストールされているか確認してください。",
-      "genericOpenErrorBody": "リンクを開けませんでした。アプリがインストールされているか確認してください。"
+      "genericOpenErrorBody": "リンクを開けませんでした。アプリがインストールされているか確認してください。",
+      "dictationHint": "WhatsApp では音声入力も試してね！"
     }
   },
   "radar": {
@@ -290,8 +301,10 @@
   },
   "connector": {
     "defaultFirstName": "あなた",
+    "telegramAllyWelcome": "{{firstName}}さん、こんにちは！アリーだよ。ボイスでもテキストでも送って — レールは任せて。{{appLink}}",
     "botWelcomeMessage": "こんにちは{{firstName}}さん。ここは意図を作るプライベート空間です（テキストまたは音声）。内容は厳密に機密で、スマホと同期します。{{appLink}}",
-    "botRailAck": "レールに載せました 🚀 こちら：{{url}}",
+    "botRailAck": "受け取ったよ！追加済み。レールを見てね ⚡️\n{{url}}",
+    "whatsappInitCelebration": "接続できたよ！アリーが聞いている…",
     "botRechargeRedirect": "メッセンジャー枠がゼロです。チャージはこちら：{{url}}",
     "copyLinkHint": "チャットアプリがない場合はリンクをコピーしてください。",
     "deepLinkRadar": "レーダーを開く",
