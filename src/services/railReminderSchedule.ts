@@ -42,7 +42,6 @@ export async function syncRailReminderScheduleFromSlots(
   const windows: RailReminderWindowPayload[] = [];
 
   for (const s of slots) {
-    if (s.railVariant === 'micro_pastille') continue;
     const row = s.intention;
     if (row.status === 'done' || row.status === 'active') continue;
 

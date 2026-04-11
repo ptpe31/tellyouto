@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
-import * as Haptics from 'expo-haptics';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,7 +37,6 @@ import {
   insertRoutine,
   listIntentionsDescending,
   markIntentionQuickComplete,
-  recordMicroHabitFragmentCheck,
   LOCAL_DB_RESET_EVENT,
   type IntentionRow,
 } from '../api/localDb';
@@ -286,34 +284,6 @@ export function RadarScreen() {
     void syncRailReminderScheduleFromSlots(built, new Date(), spectrum);
   }, [rows, spectrum, connectEnabled, busyIntervals]);
 
-  const nowMinutes = useMemo(() => {
-    const d = new Date();
-    return d.getHours() * 60 + d.getMinutes();
-  }, [allyTick, rows]);
-
-  const dueMicroSlot = useMemo(() => {
-    for (const s of railSlots) {
-      if (s.railVariant !== 'micro_pastille') continue;
-      if (nowMinutes >= s.startMinutes && nowMinutes < s.endMinutes) {
-        return s;
-      }
-    }
-    return null;
-  }, [railSlots, nowMinutes]);
-
-  const onVerifyMicro = useCallback(async (slot: TimelineSlot) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const now = new Date();
-    const dayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    await recordMicroHabitFragmentCheck({
-      id: `${slot.intention.id}_${dayYmd}_${slot.microFragmentIndex ?? 0}`,
-      intention_id: slot.intention.id,
-      day_ymd: dayYmd,
-      fragment_index: slot.microFragmentIndex ?? 1,
-    });
-    DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
-  }, []);
-
   const activeIntention = useMemo(
     () => rows.find((r) => r.status === 'active') ?? null,
     [rows],
@@ -415,7 +385,6 @@ export function RadarScreen() {
       const persistToLocalDb = async () => {
         const {
           priority,
-          isMicroHabit,
           isLateNight: is_late_night,
           isHardConstraint,
         } = analyzeNewIntentionSemantics(trimmedTitle, desc, spectrum, now, {
@@ -452,7 +421,7 @@ export function RadarScreen() {
             user_forced_urgent: userForcedUrgent,
             is_late_night,
             alarm_enabled: alarmPref,
-            is_micro_habit: isMicroHabit,
+            is_micro_habit: false,
             is_hard_constraint: false,
             routine_id: null,
             anchor_date_ymd: null,
@@ -484,7 +453,7 @@ export function RadarScreen() {
             user_forced_urgent: userForcedUrgent,
             is_late_night,
             alarm_enabled: alarmPref,
-            is_micro_habit: isMicroHabit,
+            is_micro_habit: false,
             is_hard_constraint: false,
             anchor_date_ymd,
             fixed_start_minutes,
@@ -698,35 +667,6 @@ export function RadarScreen() {
           </NeumorphicCard>
         ) : null}
 
-        {dueMicroSlot ? (
-          <NeumorphicCard style={styles.microNowCard}>
-            <Text style={[styles.activeLabel, { color: theme.colors.secondary }]}>
-              {t('radar.microNowTitle')}
-            </Text>
-            <Text
-              style={[styles.microNowTitle, { color: theme.colors.onSurface }]}
-              numberOfLines={2}
-            >
-              {dueMicroSlot.intention.title}
-            </Text>
-            <Text
-              style={[
-                styles.microNowHint,
-                { color: theme.colors.onSurfaceVariant },
-              ]}
-            >
-              {t('radar.microVerifyQuestion')}
-            </Text>
-            <Button
-              mode="contained-tonal"
-              onPress={() => void onVerifyMicro(dueMicroSlot)}
-              style={styles.microVerifyBtn}
-            >
-              {t('radar.microVerifyCta')}
-            </Button>
-          </NeumorphicCard>
-        ) : null}
-
         <NeumorphicCard style={styles.headerCard}>
           <Text style={[styles.title, { color: theme.colors.onBackground }]}>
             {t('tabs.radar')}
@@ -790,7 +730,6 @@ export function RadarScreen() {
     ),
     [
       activeIntention,
-      dueMicroSlot,
       allyBubbleText,
       spectrum.first_name,
       spectrum.isProUser,
@@ -801,7 +740,6 @@ export function RadarScreen() {
       showChannelsNudge,
       navigation,
       openActiveCapsule,
-      onVerifyMicro,
       t,
       theme.colors,
     ],
@@ -1059,15 +997,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   activeCard: { marginBottom: 12, paddingVertical: 12 },
-  microNowCard: {
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(186, 220, 205, 0.35)',
-  },
-  microNowTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6 },
-  microNowHint: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
-  microVerifyBtn: { alignSelf: 'flex-start' },
   activeRow: {
     flexDirection: 'row',
     alignItems: 'center',

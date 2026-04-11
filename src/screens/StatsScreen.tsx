@@ -13,9 +13,7 @@ import { useTheme } from 'react-native-paper';
 import Svg, { Circle, G } from 'react-native-svg';
 
 import {
-  countMicroHabitChecksOnDay,
   listCompletedSessionsBetween,
-  listIntentionsDescending,
   listRecentCompletedFocusSessions,
   LOCAL_DB_RESET_EVENT,
   type IntentionRow,
@@ -26,7 +24,6 @@ import { NeumorphicCard } from '../components';
 import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { buildTimelineSlots, type BusyInterval } from '../services/agentLogic';
 import {
   clarityPercent,
   distributeMinutesBySpectrum,
@@ -172,7 +169,7 @@ export function StatsScreen() {
   const theme = useTheme();
   const power = usePower();
   const { spectrum } = useUserSpectrum();
-  const { connectEnabled, busyIntervals, refreshBusy } = useCalendarIntegration();
+  const { connectEnabled, refreshBusy } = useCalendarIntegration();
   const [loading, setLoading] = useState(true);
   const [todayRows, setTodayRows] = useState<IntentionRow[]>([]);
   const [historyRows, setHistoryRows] = useState<IntentionRow[]>([]);
@@ -182,33 +179,16 @@ export function StatsScreen() {
   const load = useCallback(async () => {
     const { start, end } = startEndLocalDay(new Date());
     const dayYmd = localDayYmd(new Date());
-    const [dayList, recent, pending, checks] = await Promise.all([
+    const [dayList, recent] = await Promise.all([
       listCompletedSessionsBetween(start, end),
       listRecentCompletedFocusSessions(200),
-      listIntentionsDescending(),
-      countMicroHabitChecksOnDay(dayYmd),
     ]);
     setTodayRows(dayList);
     setHistoryRows(recent);
-    setWellbeingChecks(checks);
-    const pend = pending.filter((r) => r.status !== 'done');
-    const busy: BusyInterval[] = connectEnabled ? busyIntervals : [];
-    const slots = buildTimelineSlots(
-      pend,
-      {
-        structure: spectrum.structure,
-        momentum: spectrum.momentum,
-        zen: spectrum.zen,
-        stats: spectrum.stats,
-      },
-      new Date(),
-      { busyIntervals: busy },
-    );
-    setWellbeingScheduled(
-      slots.filter((s) => s.railVariant === 'micro_pastille').length,
-    );
+    setWellbeingChecks(0);
+    setWellbeingScheduled(0);
     setLoading(false);
-  }, [spectrum, connectEnabled, busyIntervals]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {

@@ -302,7 +302,7 @@ export async function syncRailAlarmsWithTimeline(args: { now: Date }): Promise<v
   }
 
   for (const row of pendingIntentions) {
-    if (!row.alarm_enabled || row.is_micro_habit) {
+    if (!row.alarm_enabled) {
       await cancelIntentionRailAlarm(row.id);
       continue;
     }
@@ -369,7 +369,7 @@ export async function bootstrapNativeAlarmsOnAppStart(): Promise<void> {
     const { listIntentionsDescending } = await import('../api/localDb');
     const rows = await listIntentionsDescending();
     const count = rows.filter(
-      (r) => r.status === 'pending' && r.alarm_enabled && !r.is_micro_habit,
+      (r) => r.status === 'pending' && r.alarm_enabled,
     ).length;
     console.log(`[Hardware-Alarm] ${count} alarmes reprogrammées au démarrage`);
     await refreshRailAlarmsAfterLocalDbChange();

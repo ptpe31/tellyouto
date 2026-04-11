@@ -275,7 +275,6 @@ function inferWeekdayIndexFromEmbedding(title: string, description: string): num
 
 /**
  * Routine structurelle : récurrence sémantique + heure extraite du texte — ancre rail.
- * Exclut les micro-habitudes.
  */
 export function inferIsHardConstraint(
   title: string,
@@ -283,7 +282,6 @@ export function inferIsHardConstraint(
   spectrum: SpectrumWeights,
   now: Date,
 ): boolean {
-  if (inferIsMicroHabit(title, description, spectrum, now)) return false;
   const rec = inferRecurrenceStrength(title, description);
   const clock = extractClockMinutesFromText(`${title}\n${description}`);
   const structured = spectrum.structure >= 0.28;
@@ -312,34 +310,14 @@ export function inferStructuralRoutinePlan(
   };
 }
 
-/**
- * Détecte une micro-habitude (soin répété, léger) par alignement texte ↔ ancre spectrale,
- * brièveté et absence de jalons « projet » — pas de liste de mots-clés en dur.
- */
+/** Micro-habitudes désactivées — conservé pour compatibilité d’API. */
 export function inferIsMicroHabit(
-  title: string,
-  description: string,
-  spectrum: SpectrumWeights,
-  now: Date,
+  _title: string,
+  _description: string,
+  _spectrum: SpectrumWeights,
+  _now: Date,
 ): boolean {
-  const full = `${title}\n${description}`;
-  const emb = textEmbeddingVector(full);
-  const anchor = spectrumWellnessAnchor(spectrum);
-  const align = (cosineSim(emb, anchor) + 1) / 2;
-  const compact =
-    title.length <= 72 && title.split(/\s+/).filter(Boolean).length <= 10
-      ? 0.22
-      : 0.08;
-  const calmPrior = spectrum.zen * 0.14 + (1 - spectrum.momentum) * 0.06;
-  const hourSpread = 1 - Math.min(1, Math.abs(now.getHours() - 14) / 12) * 0.04;
-  let deadlinePenalty = 0;
-  if (/\b20[2-3]\d\b/.test(full)) deadlinePenalty += 0.12;
-  if (/\b(?:q[1-4]|sprint|milestone|jalon|deadline|due date)\b/i.test(full)) {
-    deadlinePenalty += 0.1;
-  }
-  const score =
-    align * 0.52 + compact + calmPrior + hourSpread * 0.06 - deadlinePenalty;
-  return score > 0.54;
+  return false;
 }
 
 /**
@@ -369,11 +347,7 @@ export function computeIntentionPriority(
     dim.stats * spectrum.stats;
   const semantic = scoreSemanticImportance(text, now);
   const blended = alignment * 0.4 + semantic * 0.6;
-  let p = Math.max(1, Math.min(100, Math.round(blended * 92 + 4)));
-  if (inferIsMicroHabit(title, description, spectrum, now)) {
-    p = Math.max(1, Math.round(p * 0.86));
-  }
-  return p;
+  return Math.max(1, Math.min(100, Math.round(blended * 92 + 4)));
 }
 
 /**
@@ -461,7 +435,6 @@ export function analyzeNewIntentionSemantics(
   );
   const isMicroHabit = inferIsMicroHabit(title, description, spectrum, now);
   let isLateNight = inferIsLateNightIntent(title, description, now);
-  if (isMicroHabit) isLateNight = false;
   const isHardConstraint = inferIsHardConstraint(
     title,
     description,
@@ -519,7 +492,7 @@ export function previewManualIntentionOverlapsHardRoutine(
     user_forced_urgent: false,
     is_late_night: sem.isLateNight,
     alarm_enabled: false,
-    is_micro_habit: sem.isMicroHabit,
+    is_micro_habit: false,
     is_hard_constraint: false,
     routine_id: null,
     anchor_date_ymd: null,
@@ -582,85 +555,7 @@ export type TimelineSlot = {
   /** Libellés HH:mm pour affichage */
   startLabel: string;
   endLabel: string;
-  /** Pastilles micro-habitudes (fragments courts) */
-  railVariant?: 'default' | 'micro_pastille';
-  microFragmentIndex?: number;
-  microFragmentTotal?: number;
 };
-
-/** Durée d’un fragment micro-habitude (minutes). */
-export const MICRO_FRAGMENT_DURATION_MIN = 2;
-const MICRO_FRAGMENTS_MIN = 6;
-const MICRO_FRAGMENTS_MAX = 8;
-
-function microFragmentCountForIntention(id: string): number {
-  const h = stableHashForPriority(id);
-  return MICRO_FRAGMENTS_MIN + (h % (MICRO_FRAGMENTS_MAX - MICRO_FRAGMENTS_MIN + 1));
-}
-
-function findFreeGapsInRange(
-  blocks: BusyInterval[],
-  rangeStart: number,
-  rangeEnd: number,
-  minChunk: number,
-): { start: number; end: number }[] {
-  const merged = mergeBusyIntervalsForRail(blocks).filter(
-    (b) => b.endMinutes > rangeStart && b.startMinutes < rangeEnd,
-  );
-  const gaps: { start: number; end: number }[] = [];
-  let cur = rangeStart;
-  for (const b of merged) {
-    const bs = Math.max(rangeStart, b.startMinutes);
-    const be = Math.min(rangeEnd, b.endMinutes);
-    if (bs > cur && bs - cur >= minChunk) {
-      gaps.push({ start: cur, end: bs });
-    }
-    cur = Math.max(cur, be);
-    if (cur >= rangeEnd) break;
-  }
-  if (rangeEnd > cur && rangeEnd - cur >= minChunk) {
-    gaps.push({ start: cur, end: rangeEnd });
-  }
-  return gaps;
-}
-
-function allocateMicroInGapsRoundRobin(
-  gaps: { start: number; end: number }[],
-  count: number,
-  chunk: number,
-): { start: number; end: number }[] {
-  const work = gaps
-    .filter((g) => g.end - g.start >= chunk)
-    .map((g) => ({ start: g.start, end: g.end }));
-  const out: { start: number; end: number }[] = [];
-  let need = count;
-  let idx = 0;
-  let guard = 0;
-  while (need > 0 && work.length > 0 && guard < 4000) {
-    guard++;
-    let placedRound = false;
-    const len = work.length;
-    for (let r = 0; r < len && need > 0; r++) {
-      const gi = (idx + r) % work.length;
-      const g = work[gi]!;
-      if (g.end - g.start >= chunk) {
-        const s = g.start;
-        const e = s + chunk;
-        out.push({ start: s, end: e });
-        g.start = e;
-        need--;
-        placedRound = true;
-        idx = (gi + 1) % work.length;
-      }
-    }
-    if (!placedRound) break;
-    for (let i = work.length - 1; i >= 0; i--) {
-      if (work[i]!.end - work[i]!.start < chunk) work.splice(i, 1);
-    }
-  }
-  out.sort((a, b) => a.start - b.start);
-  return out;
-}
 
 /** Créneaux indisponibles (calendrier externe, etc.) — minutes depuis minuit, sans données sensibles. */
 export type BusyInterval = {
@@ -763,7 +658,6 @@ export function orderIntentionsBySpectrum(
 
 /**
  * Répartit les intentions : jamais dans le passé ; jour jusqu’à 20h ; fin de nuit après 21h.
- * Les micro-habitudes sont fragmentées en 6–8 créneaux de 2 min dans les creux du rail.
  * `busyIntervals` : blocs indisponibles (ex. calendrier système **connectés** dans les réglages) —
  * traités **uniquement en local**. Les calendriers « masqués sur le rail » mais connectés doivent
  * être inclus ici pour le placement ; l’affichage séparé est géré par l’écran (créneaux visibles).
@@ -785,18 +679,13 @@ export function buildTimelineSlots(
     (i) =>
       i.is_hard_constraint &&
       i.fixed_start_minutes != null &&
-      !i.is_micro_habit &&
       !i.is_late_night,
   );
-  const regular = pool.filter(
-    (i) => !i.is_hard_constraint && !i.is_late_night && !i.is_micro_habit,
-  );
-  const microList = pool.filter((i) => i.is_micro_habit && !i.is_late_night);
-  const late = pool.filter((i) => i.is_late_night && !i.is_micro_habit);
+  const regular = pool.filter((i) => !i.is_hard_constraint && !i.is_late_night);
+  const late = pool.filter((i) => i.is_late_night);
 
   const orderedHard = orderIntentionsBySpectrum(hardPool, spectrum);
   const orderedRegular = orderIntentionsBySpectrum(regular, spectrum);
-  const orderedMicro = orderIntentionsBySpectrum(microList, spectrum);
   const orderedLate = orderIntentionsBySpectrum(late, spectrum);
 
   const momentumStretch = spectrum.momentum > 0.52 ? 1.12 : 1;
@@ -864,62 +753,14 @@ export function buildTimelineSlots(
 
   pushList(orderedRegular, REGULAR_RAIL_END_MIN, busyWithHard);
 
-  const microSlots: TimelineSlot[] = [];
-  let occMicro = mergeBusyIntervalsForRail([
-    ...busyWithHard,
-    ...slots.map((s) => ({
-      startMinutes: s.startMinutes,
-      endMinutes: s.endMinutes,
-    })),
-  ]);
-
-  for (const mInt of orderedMicro) {
-    const nFrag = microFragmentCountForIntention(mInt.id);
-    const rangeLo = Math.max(railOpenMin, nowMin);
-    const gaps = findFreeGapsInRange(
-      occMicro,
-      rangeLo,
-      REGULAR_RAIL_END_MIN,
-      MICRO_FRAGMENT_DURATION_MIN,
-    );
-    const placements = allocateMicroInGapsRoundRobin(
-      gaps,
-      nFrag,
-      MICRO_FRAGMENT_DURATION_MIN,
-    );
-    const total = placements.length;
-    for (let i = 0; i < placements.length; i++) {
-      const p = placements[i]!;
-      microSlots.push({
-        intention: mInt,
-        startMinutes: p.start,
-        endMinutes: p.end,
-        startLabel: formatMinutesAsClock(p.start),
-        endLabel: formatMinutesAsClock(p.end),
-        railVariant: 'micro_pastille',
-        microFragmentIndex: i + 1,
-        microFragmentTotal: total,
-      });
-      occMicro.push({
-        startMinutes: p.start,
-        endMinutes: p.end,
-      });
-    }
-    occMicro = mergeBusyIntervalsForRail(occMicro);
-  }
-
   if (orderedLate.length > 0) {
     let lateCursor = Math.max(LATE_SEGMENT_START_MIN, nowMin);
     for (const s of slots) lateCursor = Math.max(lateCursor, s.endMinutes);
-    for (const s of microSlots) lateCursor = Math.max(lateCursor, s.endMinutes);
     cursor = lateCursor;
     pushList(orderedLate, LATE_RAIL_END_MIN, busy);
   }
 
-  const merged = [...slots, ...microSlots].sort(
-    (a, b) => a.startMinutes - b.startMinutes,
-  );
-  return merged;
+  return [...slots].sort((a, b) => a.startMinutes - b.startMinutes);
 }
 
 /**
