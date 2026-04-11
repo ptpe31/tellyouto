@@ -230,12 +230,16 @@ export function StatsScreen() {
       style={[styles.flex, { backgroundColor: theme.colors.background }]}
       contentContainerStyle={styles.pad}
     >
-      <Text style={[styles.screenTitle, { color: theme.colors.onBackground }]}>
-        {t('stats.screenTitle')}
-      </Text>
-      <Text style={[styles.screenSub, { color: theme.colors.onSurfaceVariant }]}>
-        {t('stats.screenSubtitle')}
-      </Text>
+      <NeumorphicCard style={styles.heroCard}>
+        <Text style={[styles.screenTitle, { color: theme.colors.onBackground }]}>
+          {t('stats.screenTitle')}
+        </Text>
+        <Text
+          style={[styles.screenSub, { color: theme.colors.onSurfaceVariant }]}
+        >
+          {t('stats.screenSubtitle')}
+        </Text>
+      </NeumorphicCard>
 
       {loading ? (
         <View style={styles.loader}>
@@ -364,6 +368,7 @@ export function StatsScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   pad: { padding: 16, paddingBottom: 40 },
+  heroCard: { marginBottom: 16, paddingVertical: 14 },
   screenTitle: { fontSize: 24, fontWeight: '700', marginBottom: 6 },
   screenSub: { fontSize: 14, lineHeight: 20, marginBottom: 18 },
   loader: { paddingVertical: 32, alignItems: 'center' },

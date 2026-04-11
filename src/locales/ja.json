@@ -124,7 +124,25 @@
     "busyProfile": "プロフィールをリセット中…",
     "busySqlite": "SQLite…",
     "sectionSpectrum": "UserSpectrumContext（生）",
-    "sectionPower": "PowerContext（生）"
+    "sectionPower": "PowerContext（生）",
+    "simSectionTitle": "外部入力シミュレーション",
+    "simSectionHelp": "Webhook 風の注入。プラットフォームユーザーIDがある場合、送信者と一致する必要があります。",
+    "simSampleRaw": "18時にパンを買う",
+    "simLineRaw": "通話前に資料を送る",
+    "simWhatsApp": "WhatsApp メッセージをシミュレート",
+    "simWhatsAppHelp": "WhatsApp コネクタ経由でサンプル意図を SQLite に投入します。",
+    "simLine": "LINE メッセージをシミュレート",
+    "simLineHelp": "LINE コネクタで同じフロー。",
+    "simBusy": "意図を注入中…",
+    "simErrorUser": "ユーザーIDが一致しません — プロフィールのIDを合わせるか、空のままローカルシムを使ってください。"
+  },
+  "connectors": {
+    "whatsapp": "WhatsApp",
+    "line": "LINE"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "アリーが新しい意図を受け取りました：{{title}}。レールに載っています。"
   },
   "recharge": {
     "eyebrow": "感覚ステーション",

@@ -124,7 +124,25 @@
     "busyProfile": "Réinitialisation du profil…",
     "busySqlite": "SQLite…",
     "sectionSpectrum": "UserSpectrumContext (brut)",
-    "sectionPower": "PowerContext (brut)"
+    "sectionPower": "PowerContext (brut)",
+    "simSectionTitle": "Simulation entrée externe",
+    "simSectionHelp": "Injection type webhook. Si un identifiant utilisateur plateforme est défini, l’expéditeur doit correspondre.",
+    "simSampleRaw": "Acheter du pain à 18h",
+    "simLineRaw": "Envoyer la présentation avant l’appel",
+    "simWhatsApp": "Simuler message WhatsApp",
+    "simWhatsAppHelp": "Injecte une intention d’exemple via le connecteur WhatsApp et SQLite (même pipeline qu’un webhook réel).",
+    "simLine": "Simuler message LINE",
+    "simLineHelp": "Même flux avec le connecteur LINE.",
+    "simBusy": "Injection de l’intention…",
+    "simErrorUser": "Identifiant utilisateur incompatible — aligne l’ID plateforme dans ton profil, ou laisse vide pour la sim locale."
+  },
+  "connectors": {
+    "whatsapp": "WhatsApp",
+    "line": "LINE"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "Ton Allié a capté une nouvelle intention : {{title}}. Elle est sur ton Rail."
   },
   "recharge": {
     "eyebrow": "STATION SENSORIELLE",

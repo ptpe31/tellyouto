@@ -124,7 +124,25 @@
     "busyProfile": "Restableciendo perfil…",
     "busySqlite": "SQLite…",
     "sectionSpectrum": "UserSpectrumContext (raw)",
-    "sectionPower": "PowerContext (raw)"
+    "sectionPower": "PowerContext (raw)",
+    "simSectionTitle": "Simulación de entrada externa",
+    "simSectionHelp": "Inyección tipo webhook. Si hay ID de usuario de plataforma, el remitente debe coincidir.",
+    "simSampleRaw": "Comprar pan a las 18h",
+    "simLineRaw": "Enviar el deck antes de la llamada",
+    "simWhatsApp": "Simular mensaje de WhatsApp",
+    "simWhatsAppHelp": "Inserta una intención de ejemplo vía conector WhatsApp y SQLite.",
+    "simLine": "Simular mensaje de LINE",
+    "simLineHelp": "Mismo flujo con el conector LINE.",
+    "simBusy": "Inyectando intención…",
+    "simErrorUser": "ID de usuario incompatible — alinea el ID en tu perfil o déjalo vacío para la simulación local."
+  },
+  "connectors": {
+    "whatsapp": "WhatsApp",
+    "line": "LINE"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "Tu aliado captó una nueva intención: {{title}}. Está en tu riel."
   },
   "recharge": {
     "eyebrow": "ESTACIÓN SENSORIAL",

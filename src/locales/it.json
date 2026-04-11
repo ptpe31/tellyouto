@@ -124,7 +124,25 @@
     "busyProfile": "Reimpostazione profilo…",
     "busySqlite": "SQLite…",
     "sectionSpectrum": "UserSpectrumContext (grezzo)",
-    "sectionPower": "PowerContext (grezzo)"
+    "sectionPower": "PowerContext (grezzo)",
+    "simSectionTitle": "Simulazione ingresso esterno",
+    "simSectionHelp": "Iniezione stile webhook. Se è impostato un ID utente piattaforma, il mittente deve coincidere.",
+    "simSampleRaw": "Comprare il pane alle 18",
+    "simLineRaw": "Invia il deck prima della call",
+    "simWhatsApp": "Simula messaggio WhatsApp",
+    "simWhatsAppHelp": "Inserisce un’intenzione di esempio via connettore WhatsApp e SQLite.",
+    "simLine": "Simula messaggio LINE",
+    "simLineHelp": "Stesso flusso con il connettore LINE.",
+    "simBusy": "Iniezione dell’intenzione…",
+    "simErrorUser": "ID utente non corrispondente — allinea l’ID nel profilo o lascia vuoto per la sim locale."
+  },
+  "connectors": {
+    "whatsapp": "WhatsApp",
+    "line": "LINE"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "Il tuo alleato ha colto una nuova intenzione: {{title}}. È sul tuo binario."
   },
   "recharge": {
     "eyebrow": "STAZIONE SENSORIALE",

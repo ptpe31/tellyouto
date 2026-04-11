@@ -28,7 +28,8 @@
     },
     "plugins": [
       "expo-sqlite",
-      "expo-localization"
+      "expo-localization",
+      "expo-notifications"
     ]
   }
 }

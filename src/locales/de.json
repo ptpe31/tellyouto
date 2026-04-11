@@ -124,7 +124,25 @@
     "busyProfile": "Profil wird zurückgesetzt…",
     "busySqlite": "SQLite…",
     "sectionSpectrum": "UserSpectrumContext (Rohdaten)",
-    "sectionPower": "PowerContext (Rohdaten)"
+    "sectionPower": "PowerContext (Rohdaten)",
+    "simSectionTitle": "Externe Eingabe (Simulation)",
+    "simSectionHelp": "Webhook-ähnliche Injektion. Ist eine Plattform-Benutzer-ID gesetzt, muss der Absender übereinstimmen.",
+    "simSampleRaw": "Brot um 18 Uhr kaufen",
+    "simLineRaw": "Deck vor dem Call senden",
+    "simWhatsApp": "WhatsApp-Nachricht simulieren",
+    "simWhatsAppHelp": "Beispiel-Intention über WhatsApp-Connector und SQLite einfügen.",
+    "simLine": "LINE-Nachricht simulieren",
+    "simLineHelp": "Gleicher Ablauf mit LINE-Connector.",
+    "simBusy": "Intention wird eingespielt…",
+    "simErrorUser": "Benutzer-ID passt nicht — ID im Profil anpassen oder für lokale Sim leer lassen."
+  },
+  "connectors": {
+    "whatsapp": "WhatsApp",
+    "line": "LINE"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "Dein Ally hat eine neue Intention erfasst: {{title}}. Sie liegt auf deiner Schiene."
   },
   "recharge": {
     "eyebrow": "SENSORISCHE STATION",

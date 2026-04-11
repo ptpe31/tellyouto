@@ -124,7 +124,25 @@
     "busyProfile": "Resetting profile…",
     "busySqlite": "SQLite…",
     "sectionSpectrum": "UserSpectrumContext (raw)",
-    "sectionPower": "PowerContext (raw)"
+    "sectionPower": "PowerContext (raw)",
+    "simSectionTitle": "External entry simulation",
+    "simSectionHelp": "Webhook-style injection. If a platform user ID is set in your profile, the sender ID must match it.",
+    "simSampleRaw": "Buy bread at 6pm",
+    "simLineRaw": "Send the deck before the call",
+    "simWhatsApp": "Simulate WhatsApp message",
+    "simWhatsAppHelp": "Inserts a sample intention via the WhatsApp connector and SQLite (same pipeline as a real webhook).",
+    "simLine": "Simulate LINE message",
+    "simLineHelp": "Same flow with the LINE connector.",
+    "simBusy": "Injecting intention…",
+    "simErrorUser": "User ID mismatch — clear or align platform user ID in your profile, or use the default local sim when empty."
+  },
+  "connectors": {
+    "whatsapp": "WhatsApp",
+    "line": "LINE"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "Your ally captured a new intention: {{title}}. It’s on your rail."
   },
   "recharge": {
     "eyebrow": "SENSORY STATION",

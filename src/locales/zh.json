@@ -124,7 +124,25 @@
     "busyProfile": "正在重置档案…",
     "busySqlite": "SQLite…",
     "sectionSpectrum": "UserSpectrumContext（原始）",
-    "sectionPower": "PowerContext（原始）"
+    "sectionPower": "PowerContext（原始）",
+    "simSectionTitle": "外部入口模拟",
+    "simSectionHelp": "类 Webhook 注入。若已设置平台用户 ID，发送方必须匹配。",
+    "simSampleRaw": "18 点买面包",
+    "simLineRaw": "会议前发送演示文稿",
+    "simWhatsApp": "模拟 WhatsApp 消息",
+    "simWhatsAppHelp": "通过 WhatsApp 连接器将示例意图写入 SQLite。",
+    "simLine": "模拟 LINE 消息",
+    "simLineHelp": "使用 LINE 连接器的相同流程。",
+    "simBusy": "正在注入意图…",
+    "simErrorUser": "用户 ID 不匹配 — 请在档案中对齐平台 ID，或留空以使用本地模拟。"
+  },
+  "connectors": {
+    "whatsapp": "WhatsApp",
+    "line": "LINE"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "你的盟友捕捉到新意图：{{title}}。它已在你的轨道上。"
   },
   "recharge": {
     "eyebrow": "感官站",

@@ -15,5 +15,15 @@ export {
   startConnectivitySyncListener,
   syncPendingIntentions,
 } from './syncService';
-export type { ConnectorId, ConnectorStatus, PlatformConnector } from './connectors';
-export { connectorRegistry } from './connectors';
+export type {
+  ConnectorId,
+  ConnectorStatus,
+  ParsedIncomingIntention,
+  PlatformConnector,
+} from './connectors';
+export {
+  connectorRegistry,
+  getConnectorById,
+  LineConnector,
+  WhatsAppConnector,
+} from './connectors';

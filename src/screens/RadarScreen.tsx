@@ -28,6 +28,7 @@ import {
   type IntentionRow,
 } from '../api/localDb';
 import { syncPendingIntentions } from '../api/syncService';
+import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { NeumorphicCard } from '../components';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import {
@@ -61,7 +62,13 @@ export function RadarScreen() {
     const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
       void load();
     });
-    return () => sub.remove();
+    const sub2 = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT, () => {
+      void load();
+    });
+    return () => {
+      sub.remove();
+      sub2.remove();
+    };
   }, [load]);
 
   const onAdd = async () => {
@@ -136,9 +143,11 @@ export function RadarScreen() {
           { paddingBottom: 100 + insets.bottom },
         ]}
         ListHeaderComponent={
-          <Text style={[styles.title, { color: theme.colors.onBackground }]}>
-            {t('tabs.radar')}
-          </Text>
+          <NeumorphicCard style={styles.headerCard}>
+            <Text style={[styles.title, { color: theme.colors.onBackground }]}>
+              {t('tabs.radar')}
+            </Text>
+          </NeumorphicCard>
         }
         ListEmptyComponent={
           <NeumorphicCard>
@@ -209,8 +218,9 @@ export function RadarScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   listPad: { padding: 16, paddingBottom: 8 },
-  title: { fontSize: 22, fontWeight: '600', marginBottom: 12 },
-  card: { marginBottom: 12 },
+  headerCard: { marginBottom: 14, paddingVertical: 14 },
+  title: { fontSize: 22, fontWeight: '600' },
+  card: { marginBottom: 14 },
   cardTitle: { fontSize: 17, fontWeight: '600' },
   cardDesc: { marginTop: 6, fontSize: 14, lineHeight: 20 },
   meta: { marginTop: 10, fontSize: 12, fontWeight: '600' },

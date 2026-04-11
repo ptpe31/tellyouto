@@ -19,6 +19,7 @@ import {
   StatsScreen,
   TimelineScreen,
 } from '../screens';
+import { IS_PRODUCTION } from '../config/appConfig';
 import { AgentStack } from './AgentStack';
 
 const Tab = createBottomTabNavigator();
@@ -98,15 +99,17 @@ export function AppNavigator() {
           ),
         }}
       />
-      <Tab.Screen
-        name="Debug"
-        component={DebugScreen}
-        options={{
-          tabBarLabel: t('tabs.debug'),
-          headerTitle: t('debug.pilotTitle'),
-          tabBarIcon: ({ color, size }) => <Bug color={color} size={size} />,
-        }}
-      />
+      {!IS_PRODUCTION && (
+        <Tab.Screen
+          name="Debug"
+          component={DebugScreen}
+          options={{
+            tabBarLabel: t('tabs.debug'),
+            headerTitle: t('debug.pilotTitle'),
+            tabBarIcon: ({ color, size }) => <Bug color={color} size={size} />,
+          }}
+        />
+      )}
     </Tab.Navigator>
   );
 }
