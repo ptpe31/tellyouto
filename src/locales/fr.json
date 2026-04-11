@@ -87,7 +87,16 @@
       "pending": "En attente",
       "active": "En cours",
       "done": "Terminé"
-    }
+    },
+    "cockpitKicker": "Tell Me To",
+    "sectionNow": "Maintenant",
+    "sectionNext": "Ensuite",
+    "launchCta": "LANCER",
+    "continueCta": "CONTINUER",
+    "moodTitle": "Ton humeur du moment ?",
+    "nextStarts": "Dès {{time}}",
+    "emptyCockpit": "Rien sur le rail pour l’instant — touche + pour une intention.",
+    "nowIdle": "Rien en cours — choisis ta prochaine action ci-dessous ou ajoute une intention."
   },
   "timeline": {
     "subtitle": "Rail du jour — créneaux suggérés selon ton spectre (Momentum élevé → blocs plus profonds).",
@@ -233,7 +242,14 @@
         "stats": "Les tableaux dormiront jusqu’à demain — fais de même si tu peux."
       }
     },
-    "suggestFocusCapsule": "Tu avances vite ! Peut-être qu’une Capsule de Focus t’aiderait sur une tâche plus complexe ?"
+    "suggestFocusCapsule": "Tu avances vite ! Peut-être qu’une Capsule de Focus t’aiderait sur une tâche plus complexe ?",
+    "mood": {
+      "0": "On y va doucement ? Voici une petite étape pour avancer sur ton rail.",
+      "1": "Jour un peu chargé — un seul bloc net, et le reste attendra.",
+      "2": "On trouve un rythme honnête : une intention claire, puis la suite.",
+      "3": "Belle énergie — enchaînons une action nette sur ce rail.",
+      "4": "Énergie max ! Conquérons ce rail ensemble."
+    }
   },
   "connectors": {
     "whatsapp": "WhatsApp",

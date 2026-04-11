@@ -87,7 +87,16 @@
       "pending": "待处理",
       "active": "进行中",
       "done": "已完成"
-    }
+    },
+    "cockpitKicker": "Tell Me To",
+    "sectionNow": "现在",
+    "sectionNext": "接下来",
+    "launchCta": "开始",
+    "continueCta": "继续",
+    "moodTitle": "此刻你的感受？",
+    "nextStarts": "{{time}} 起",
+    "emptyCockpit": "轨道上还没有内容 — 点 + 添加意图。",
+    "nowIdle": "暂无进行中的任务 — 在下方选择或添加意图。"
   },
   "timeline": {
     "subtitle": "今日轨道 — 按光谱建议时段（动能高 → 更深的工作块）。",
@@ -233,7 +242,14 @@
         "stats": "仪表盘睡了，你也可以。"
       }
     },
-    "suggestFocusCapsule": "你完成得很快！对更棘手的任务，专注胶囊也许能帮你稳住节奏。"
+    "suggestFocusCapsule": "你完成得很快！对更棘手的任务，专注胶囊也许能帮你稳住节奏。",
+    "mood": {
+      "0": "慢慢来？先在轨道上迈一小步。",
+      "1": "有点累 — 先锁定一个清晰区块，其余稍后再说。",
+      "2": "找个体贴的节奏：一个明确意图，然后再下一个。",
+      "3": "状态不错 — 在轨道上完成一个干脆的行动。",
+      "4": "能量拉满！一起拿下这条轨道。"
+    }
   },
   "connectors": {
     "whatsapp": "WhatsApp",

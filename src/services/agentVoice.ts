@@ -1,4 +1,4 @@
-import type { SpectrumWeights } from '../context/UserSpectrumContext';
+import type { SpectrumWeights, UserSpectrumState } from '../context/UserSpectrumContext';
 
 import { getDominantSpectrumAxis } from './agentLogic';
 import { QUICK_COMPLETE_SUGGEST_THRESHOLD } from './focusHabits';
@@ -44,15 +44,19 @@ export function getRadarAllyThoughtI18nKey(
 
 /**
  * Bulle Radar : si l’utilisateur marque souvent « Fait » sans Capsule,
- * message dédié (sinon message horaire + spectre).
+ * message dédié ; sinon si humeur choisie → message contextuel (`allyVoice.mood.*`) ;
+ * sinon message horaire + spectre.
  */
 export function getRadarAllyThoughtI18nKeyWithHabits(
-  spectrum: SpectrumWeights,
+  spectrum: UserSpectrumState,
   date: Date,
   quickCompleteStreak: number,
 ): string {
   if (quickCompleteStreak >= QUICK_COMPLETE_SUGGEST_THRESHOLD) {
     return 'allyVoice.suggestFocusCapsule';
+  }
+  if (spectrum.radar_mood != null) {
+    return `allyVoice.mood.${spectrum.radar_mood}`;
   }
   return buildRadarAllyThoughtI18nKey(spectrum, date);
 }

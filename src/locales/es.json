@@ -87,7 +87,16 @@
       "pending": "Pendiente",
       "active": "Activa",
       "done": "Hecha"
-    }
+    },
+    "cockpitKicker": "Tell Me To",
+    "sectionNow": "Ahora",
+    "sectionNext": "Siguiente",
+    "launchCta": "LANZAR",
+    "continueCta": "CONTINUAR",
+    "moodTitle": "¿Cómo te sientes ahora?",
+    "nextStarts": "Desde las {{time}}",
+    "emptyCockpit": "Nada en el riel — toca + para una intención.",
+    "nowIdle": "Nada en curso — elige abajo o añade una intención."
   },
   "timeline": {
     "subtitle": "Riel del día — ventanas sugeridas según tu espectro (Momentum alto → bloques más profundos).",
@@ -233,7 +242,14 @@
         "stats": "Los paneles duermen hasta mañán — tú también si puedes."
       }
     },
-    "suggestFocusCapsule": "¡Vas rápido! Para tareas más densas, una Cápsula de foco podría ayudarte a sostenerlas."
+    "suggestFocusCapsule": "¡Vas rápido! Para tareas más densas, una Cápsula de foco podría ayudarte a sostenerlas.",
+    "mood": {
+      "0": "¿Vamos suave? Un pequeño paso para tu riel.",
+      "1": "Día pesado — un bloque claro; el resto espera.",
+      "2": "Ritmo honesto: una intención clara y luego la siguiente.",
+      "3": "Buena energía — una acción nítida en el riel.",
+      "4": "¡Máxima energía! Este riel es nuestro."
+    }
   },
   "connectors": {
     "whatsapp": "WhatsApp",

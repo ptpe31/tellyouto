@@ -1,22 +1,20 @@
 import { randomUUID } from 'expo-crypto';
 import { useNavigation } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Animated,
   DeviceEventEmitter,
-  FlatList,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  UIManager,
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
-import type { MD3Theme } from 'react-native-paper';
-import { Check, Sparkles } from 'lucide-react-native';
 import {
   Button,
   Checkbox,
@@ -27,6 +25,7 @@ import {
   useTheme,
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Check, Sparkles } from 'lucide-react-native';
 
 import {
   insertIntention,
@@ -36,12 +35,7 @@ import {
   type IntentionRow,
 } from '../api/localDb';
 import { syncPendingIntentions } from '../api/syncService';
-import {
-  AllyThoughtBubble,
-  FadeSlideIn,
-  FocusModePicker,
-  NeumorphicCard,
-} from '../components';
+import { AllyThoughtBubble, FocusModePicker, NeumorphicCard } from '../components';
 import type { FocusCapsuleMode } from '../navigation/types';
 import {
   requestAlarmPermissionIfNeeded,
@@ -49,7 +43,10 @@ import {
 } from '../services/alarmManager';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
-import { useUserSpectrum } from '../context/UserSpectrumContext';
+import {
+  useUserSpectrum,
+  type RadarMoodIndex,
+} from '../context/UserSpectrumContext';
 import { useFocusCalendarConflict } from '../hooks/useFocusCalendarConflict';
 import {
   buildTimelineSlots,
@@ -57,105 +54,38 @@ import {
   estimateDurationMinutes,
   inferIsLateNightIntent,
   type BusyInterval,
+  type TimelineSlot,
 } from '../services/agentLogic';
 import { getRadarAllyThoughtI18nKeyWithHabits } from '../services/agentVoice';
 import {
   getQuickCompleteStreak,
   recordQuickCompleteWithoutCapsule,
 } from '../services/focusHabits';
+import { palette } from '../theme/colors';
+import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
 
-type RadarRowProps = {
-  item: IntentionRow;
-  index: number;
-  theme: MD3Theme;
-  t: TFunction;
-  onExitComplete: (item: IntentionRow) => void;
-  onRequestLaunch: (item: IntentionRow) => void;
-};
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
-function RadarIntentionRow({
-  item,
-  index,
-  theme,
-  t,
-  onExitComplete,
-  onRequestLaunch,
-}: RadarRowProps) {
-  const opacity = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
+const MOOD_EMOJIS = ['😫', '😐', '🙂', '😄', '🚀'] as const;
 
-  const runQuickDone = () => {
-    Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateX, {
-        toValue: 28,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onExitComplete(item);
-    });
-  };
-
-  return (
-    <FadeSlideIn index={index}>
-      <Animated.View style={{ opacity, transform: [{ translateX }] }}>
-        <NeumorphicCard style={styles.card}>
-          <Text style={[styles.cardTitle, { color: theme.colors.onSurface }]}>
-            {item.title}
-          </Text>
-          {item.description ? (
-            <Text
-              style={[styles.cardDesc, { color: theme.colors.onSurfaceVariant }]}
-            >
-              {item.description}
-            </Text>
-          ) : null}
-          <Text style={[styles.meta, { color: theme.colors.primary }]}>
-            {t('radar.priority', { value: item.priority })} ·{' '}
-            {t(`radar.status.${item.status}`)}
-          </Text>
-          <View style={styles.rowActions}>
-            <Pressable
-              onPress={runQuickDone}
-              style={({ pressed }) => [
-                styles.doneBtn,
-                { opacity: pressed ? 0.65 : 0.88 },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={t('radar.done')}
-            >
-              <Check
-                size={20}
-                color={theme.colors.onSurfaceVariant}
-                strokeWidth={2.2}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => onRequestLaunch(item)}
-              style={({ pressed }) => [
-                styles.launchBtn,
-                {
-                  backgroundColor: theme.colors.primary,
-                  opacity: pressed ? 0.9 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={t('timeline.launch')}
-            >
-              <Text style={{ color: theme.colors.onPrimary, fontWeight: '600' }}>
-                {t('timeline.launch')}
-              </Text>
-            </Pressable>
-          </View>
-        </NeumorphicCard>
-      </Animated.View>
-    </FadeSlideIn>
-  );
+function getNextTimelineSlot(
+  slots: TimelineSlot[],
+  active: IntentionRow | null,
+): TimelineSlot | null {
+  if (slots.length === 0) return null;
+  if (!active) {
+    return slots.length > 1 ? (slots[1] ?? null) : null;
+  }
+  const i = slots.findIndex((s) => s.intention.id === active.id);
+  if (i >= 0) {
+    return slots[i + 1] ?? null;
+  }
+  return slots.find((s) => s.intention.id !== active.id) ?? null;
 }
 
 export function RadarScreen() {
@@ -163,11 +93,12 @@ export function RadarScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { spectrum } = useUserSpectrum();
+  const { spectrum, setRadarMood } = useUserSpectrum();
   const { connectEnabled, refreshBusy } = useCalendarIntegration();
   const { shouldWarnForLaunch } = useFocusCalendarConflict();
 
   const [rows, setRows] = useState<IntentionRow[]>([]);
+  const [slots, setSlots] = useState<TimelineSlot[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -186,8 +117,33 @@ export function RadarScreen() {
 
   const load = useCallback(async () => {
     const list = await listIntentionsDescending();
-    setRows(list.filter((r) => r.status !== 'done'));
-  }, []);
+    const pending = list.filter((r) => r.status !== 'done');
+    setRows(pending);
+    let busyForAgent: BusyInterval[] = [];
+    if (connectEnabled) {
+      busyForAgent = await refreshBusy();
+    }
+    const now = new Date();
+    const built = buildTimelineSlots(
+      pending,
+      {
+        structure: spectrum.structure,
+        momentum: spectrum.momentum,
+        zen: spectrum.zen,
+        stats: spectrum.stats,
+      },
+      now,
+      { busyIntervals: busyForAgent },
+    );
+    setSlots(built);
+  }, [
+    spectrum.structure,
+    spectrum.momentum,
+    spectrum.zen,
+    spectrum.stats,
+    connectEnabled,
+    refreshBusy,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -220,8 +176,22 @@ export function RadarScreen() {
 
   const allyMessageKey = useMemo(
     () =>
-      getRadarAllyThoughtI18nKeyWithHabits(spectrum, new Date(), quickStreak),
+      getRadarAllyThoughtI18nKeyWithHabits(
+        spectrum,
+        new Date(),
+        quickStreak,
+      ),
     [spectrum, allyTick, quickStreak],
+  );
+
+  const nowSlot = useMemo(() => {
+    if (activeIntention) return null;
+    return slots[0] ?? null;
+  }, [activeIntention, slots]);
+
+  const nextSlot = useMemo(
+    () => getNextTimelineSlot(slots, activeIntention),
+    [slots, activeIntention],
   );
 
   const navigateFocus = useCallback(
@@ -244,8 +214,21 @@ export function RadarScreen() {
     navigateFocus(activeIntention, 'chrono');
   }, [activeIntention, shouldWarnForLaunch, navigateFocus]);
 
-  const onQuickExitComplete = useCallback(
+  const launchFromSlot = useCallback(
+    (intention: IntentionRow) => {
+      if (shouldWarnForLaunch('chrono', intention)) {
+        setPendingFocus({ row: intention, mode: 'chrono' });
+        setCalendarConflictOpen(true);
+        return;
+      }
+      setFocusPickTarget(intention);
+    },
+    [shouldWarnForLaunch],
+  );
+
+  const onQuickExitMain = useCallback(
     async (item: IntentionRow) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       await markIntentionQuickComplete(item.id);
       await recordQuickCompleteWithoutCapsule();
       setQuickStreak(await getQuickCompleteStreak());
@@ -339,109 +322,259 @@ export function RadarScreen() {
     DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
   };
 
-  const renderItem = ({
-    item,
-    index,
-  }: {
-    item: IntentionRow;
-    index: number;
-  }) => (
-    <RadarIntentionRow
-      item={item}
-      index={index}
-      theme={theme}
-      t={t}
-      onExitComplete={onQuickExitComplete}
-      onRequestLaunch={setFocusPickTarget}
-    />
-  );
+  const onPickMood = (idx: number) => {
+    void setRadarMood(idx as RadarMoodIndex);
+  };
 
-  const listHeader = (
-    <>
-      {activeIntention ? (
-        <NeumorphicCard style={styles.activeCard}>
-          <View style={styles.activeRow}>
-            <View style={styles.activeTextCol}>
-              <Text
-                style={[
-                  styles.activeLabel,
-                  { color: theme.colors.primary },
-                ]}
-              >
-                {t('radar.activeSessionTitle')}
-              </Text>
-              <Text
-                style={[styles.activeTitle, { color: theme.colors.onSurface }]}
-                numberOfLines={1}
-              >
-                {activeIntention.title}
-              </Text>
-            </View>
-            <Pressable
-              onPress={openActiveCapsule}
-              style={({ pressed }) => [
-                styles.activeCta,
-                {
-                  backgroundColor: theme.colors.primary,
-                  opacity: pressed ? 0.88 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={t('radar.activeSessionOpen')}
-            >
-              <Text style={{ color: theme.colors.onPrimary, fontWeight: '700' }}>
-                {t('radar.activeSessionOpen')}
-              </Text>
-            </Pressable>
-          </View>
-        </NeumorphicCard>
-      ) : null}
-
-      <NeumorphicCard style={styles.headerCard}>
-        <Text style={[styles.title, { color: theme.colors.onBackground }]}>
-          {t('tabs.radar')}
-        </Text>
-      </NeumorphicCard>
-
-      <AllyThoughtBubble
-        eyebrow={t('radar.allyEyebrow')}
-        message={t(allyMessageKey)}
-      />
-    </>
-  );
+  const inset = neumorphicInset(theme);
+  const raised = neumorphicRaised(theme);
 
   return (
     <View
       style={[styles.flex, { backgroundColor: theme.colors.background }]}
     >
-      <FlatList
-        data={rows}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        extraData={theme.dark}
+      <ScrollView
         contentContainerStyle={[
-          styles.listPad,
+          styles.scrollPad,
           { paddingBottom: 100 + insets.bottom },
         ]}
-        ListHeaderComponent={listHeader}
-        ListEmptyComponent={
-          <NeumorphicCard style={styles.emptyCard}>
-            <Sparkles
-              color={theme.colors.primary}
-              size={32}
-              style={styles.emptyIcon}
-            />
-            <Text style={[styles.emptyTitle, { color: theme.colors.onSurface }]}>
-              {t('radar.emptyTitle')}
-            </Text>
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={[styles.kicker, { color: theme.colors.primary }]}>
+          {t('radar.cockpitKicker')}
+        </Text>
+        <Text style={[styles.heroTitle, { color: theme.colors.onBackground }]}>
+          {t('tabs.radar')}
+        </Text>
+
+        <AllyThoughtBubble
+          eyebrow={t('radar.allyEyebrow')}
+          message={t(allyMessageKey)}
+        />
+
+        <NeumorphicCard style={styles.moodSection}>
+          <Text
+            style={[styles.moodPrompt, { color: theme.colors.onSurfaceVariant }]}
+          >
+            {t('radar.moodTitle')}
+          </Text>
+          <View style={styles.moodRow}>
+            {MOOD_EMOJIS.map((emoji, idx) => {
+              const selected = spectrum.radar_mood === idx;
+              return (
+                <Pressable
+                  key={emoji}
+                  onPress={() => onPickMood(idx)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  hitSlop={6}
+                >
+                  <View
+                    style={[
+                      styles.moodCircle,
+                      selected
+                        ? [
+                            raised,
+                            styles.moodCircleSelected,
+                            { borderColor: palette.teal },
+                          ]
+                        : [inset, styles.moodCircleIdle],
+                    ]}
+                  >
+                    <Text style={styles.moodEmoji}>{emoji}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </NeumorphicCard>
+
+        <Text style={[styles.sectionLabel, { color: theme.colors.primary }]}>
+          {t('radar.sectionNow')}
+        </Text>
+        <NeumorphicCard style={styles.nowCard}>
+          {activeIntention ? (
+            <>
+              <Text
+                style={[styles.nowEyebrow, { color: theme.colors.primary }]}
+              >
+                {t('radar.activeSessionTitle')}
+              </Text>
+              <Text
+                style={[styles.nowTitle, { color: theme.colors.onSurface }]}
+              >
+                {activeIntention.title}
+              </Text>
+              {activeIntention.description ? (
+                <Text
+                  style={[
+                    styles.nowDesc,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                  numberOfLines={3}
+                >
+                  {activeIntention.description}
+                </Text>
+              ) : null}
+              <Pressable
+                onPress={openActiveCapsule}
+                style={({ pressed }) => [
+                  styles.heroCta,
+                  {
+                    backgroundColor: theme.colors.primary,
+                    opacity: pressed ? 0.9 : 1,
+                  },
+                ]}
+              >
+                <Text style={[styles.heroCtaText, { color: theme.colors.onPrimary }]}>
+                  {t('radar.continueCta')}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void onQuickExitMain(activeIntention)}
+                style={styles.doneLinkRow}
+                accessibilityRole="button"
+                accessibilityLabel={t('radar.done')}
+              >
+                <Check
+                  size={22}
+                  color={theme.colors.onSurfaceVariant}
+                  strokeWidth={2.2}
+                />
+                <Text
+                  style={[
+                    styles.doneLinkText,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {t('radar.done')}
+                </Text>
+              </Pressable>
+            </>
+          ) : nowSlot ? (
+            <>
+              <Text
+                style={[styles.nowEyebrow, { color: theme.colors.primary }]}
+              >
+                {t('timeline.suggestedWindow', {
+                  start: nowSlot.startLabel,
+                  end: nowSlot.endLabel,
+                })}
+              </Text>
+              <Text
+                style={[styles.nowTitle, { color: theme.colors.onSurface }]}
+              >
+                {nowSlot.intention.title}
+              </Text>
+              {nowSlot.intention.description ? (
+                <Text
+                  style={[
+                    styles.nowDesc,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                  numberOfLines={3}
+                >
+                  {nowSlot.intention.description}
+                </Text>
+              ) : null}
+              <Pressable
+                onPress={() => launchFromSlot(nowSlot.intention)}
+                style={({ pressed }) => [
+                  styles.heroCta,
+                  {
+                    backgroundColor: theme.colors.primary,
+                    opacity: pressed ? 0.9 : 1,
+                  },
+                ]}
+              >
+                <Text style={[styles.heroCtaText, { color: theme.colors.onPrimary }]}>
+                  {t('radar.launchCta')}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void onQuickExitMain(nowSlot.intention)}
+                style={styles.doneLinkRow}
+                accessibilityRole="button"
+              >
+                <Check
+                  size={22}
+                  color={theme.colors.onSurfaceVariant}
+                  strokeWidth={2.2}
+                />
+                <Text
+                  style={[
+                    styles.doneLinkText,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                >
+                  {t('radar.done')}
+                </Text>
+              </Pressable>
+            </>
+          ) : (
+            <View style={styles.emptyNowBlock}>
+              <Sparkles
+                color={theme.colors.primary}
+                size={36}
+                style={{ marginBottom: 10 }}
+              />
+              <Text
+                style={[styles.nowTitle, { color: theme.colors.onSurface }]}
+              >
+                {t('radar.emptyTitle')}
+              </Text>
+              <Text
+                style={[
+                  styles.nowIdleHint,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                {t('radar.nowIdle')}
+              </Text>
+            </View>
+          )}
+        </NeumorphicCard>
+
+        <Text style={[styles.sectionLabel, { color: theme.colors.primary }]}>
+          {t('radar.sectionNext')}
+        </Text>
+        <NeumorphicCard style={styles.nextCard}>
+          {nextSlot ? (
+            <>
+              <Text
+                style={[styles.nextTime, { color: theme.colors.primary }]}
+              >
+                {t('radar.nextStarts', { time: nextSlot.startLabel })}
+              </Text>
+              <Text
+                style={[styles.nextTitle, { color: theme.colors.onSurface }]}
+              >
+                {nextSlot.intention.title}
+              </Text>
+              {nextSlot.intention.description ? (
+                <Text
+                  style={[
+                    styles.nextDesc,
+                    { color: theme.colors.onSurfaceVariant },
+                  ]}
+                  numberOfLines={2}
+                >
+                  {nextSlot.intention.description}
+                </Text>
+              ) : null}
+            </>
+          ) : (
             <Text
-              style={[styles.emptyBody, { color: theme.colors.onSurfaceVariant }]}
+              style={[styles.nextEmpty, { color: theme.colors.onSurfaceVariant }]}
             >
-              {t('radar.emptyBody')}
+              {rows.length === 0
+                ? t('radar.emptyCockpit')
+                : t('radar.emptyBody')}
             </Text>
-          </NeumorphicCard>
-        }
-      />
+          )}
+        </NeumorphicCard>
+      </ScrollView>
 
       <FAB
         icon="plus"
@@ -608,47 +741,78 @@ export function RadarScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  listPad: { padding: 16, paddingBottom: 8 },
-  activeCard: { marginBottom: 12, paddingVertical: 12 },
-  activeRow: {
+  scrollPad: { padding: 16, paddingTop: 12 },
+  kicker: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginBottom: 4,
+  },
+  heroTitle: { fontSize: 26, fontWeight: '800', marginBottom: 12 },
+  moodSection: { marginBottom: 18, paddingVertical: 14 },
+  moodPrompt: { fontSize: 14, fontWeight: '600', marginBottom: 12 },
+  moodRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
-  },
-  activeTextCol: { flex: 1, minWidth: 0 },
-  activeLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
-  activeTitle: { fontSize: 16, fontWeight: '600' },
-  activeCta: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-  },
-  headerCard: { marginBottom: 14, paddingVertical: 14 },
-  title: { fontSize: 22, fontWeight: '600' },
-  card: { marginBottom: 14 },
-  cardTitle: { fontSize: 17, fontWeight: '600' },
-  cardDesc: { marginTop: 6, fontSize: 14, lineHeight: 20 },
-  meta: { marginTop: 10, fontSize: 12, fontWeight: '600' },
-  rowActions: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    gap: 12,
+    gap: 6,
   },
-  doneBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 12,
+  moodCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  launchBtn: {
-    paddingVertical: 10,
+  moodCircleIdle: { opacity: 0.95 },
+  moodCircleSelected: {
+    borderWidth: 2,
+  },
+  moodEmoji: { fontSize: 22 },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  nowCard: {
+    marginBottom: 20,
+    paddingVertical: 20,
     paddingHorizontal: 18,
-    borderRadius: 14,
-    minWidth: 112,
-    alignItems: 'center',
+    minHeight: 200,
   },
+  nowEyebrow: { fontSize: 13, fontWeight: '700', marginBottom: 8 },
+  nowTitle: { fontSize: 24, fontWeight: '800', lineHeight: 30 },
+  nowDesc: { fontSize: 15, lineHeight: 22, marginTop: 10 },
+  heroCta: {
+    marginTop: 20,
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroCtaText: { fontSize: 20, fontWeight: '800', letterSpacing: 0.5 },
+  doneLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
+    alignSelf: 'center',
+  },
+  doneLinkText: { fontSize: 15, fontWeight: '600' },
+  emptyNowBlock: { alignItems: 'center', paddingVertical: 8 },
+  nowIdleHint: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  nextCard: { paddingVertical: 16, paddingHorizontal: 16, marginBottom: 8 },
+  nextTime: { fontSize: 13, fontWeight: '700', marginBottom: 6 },
+  nextTitle: { fontSize: 18, fontWeight: '700' },
+  nextDesc: { fontSize: 14, marginTop: 6, lineHeight: 20 },
+  nextEmpty: { fontSize: 15, lineHeight: 22 },
   fab: { position: 'absolute', right: 20 },
   input: { marginBottom: 8 },
   urgentRow: {
@@ -658,13 +822,4 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   urgentLabel: { flex: 1, fontSize: 14 },
-  emptyCard: { alignItems: 'center', paddingVertical: 22 },
-  emptyIcon: { marginBottom: 12 },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  emptyBody: { fontSize: 15, lineHeight: 22, textAlign: 'center' },
 });

@@ -87,7 +87,16 @@
       "pending": "Pending",
       "active": "Active",
       "done": "Done"
-    }
+    },
+    "cockpitKicker": "Tell Me To",
+    "sectionNow": "Now",
+    "sectionNext": "Up next",
+    "launchCta": "LAUNCH",
+    "continueCta": "CONTINUE",
+    "moodTitle": "How are you feeling right now?",
+    "nextStarts": "From {{time}}",
+    "emptyCockpit": "Nothing on your rail yet — tap + for an intention.",
+    "nowIdle": "Nothing in progress — pick your next move below or add an intention."
   },
   "timeline": {
     "subtitle": "Today’s rail — suggested slots follow your spectrum (high Momentum → deeper blocks).",
@@ -233,7 +242,14 @@
         "stats": "Dashboards sleep till morning—maybe you should too."
       }
     },
-    "suggestFocusCapsule": "You’re moving fast! For stickier work, a Focus Capsule might help you stay with it."
+    "suggestFocusCapsule": "You’re moving fast! For stickier work, a Focus Capsule might help you stay with it.",
+    "mood": {
+      "0": "Shall we go gently? Here’s one small step for your rail.",
+      "1": "Heavy day — pick one clear block; the rest can wait.",
+      "2": "Let’s find an honest rhythm: one clear intention, then the next.",
+      "3": "Nice energy — let’s land one crisp move on this rail.",
+      "4": "Full power! Let’s own this rail together."
+    }
   },
   "connectors": {
     "whatsapp": "WhatsApp",

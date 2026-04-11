@@ -27,9 +27,14 @@ export type SpectrumWeights = {
   stats: number;
 };
 
+/** Humeur instantanée Radar (0 = très bas → 4 = boost) — persistée avec le spectre. */
+export type RadarMoodIndex = 0 | 1 | 2 | 3 | 4;
+
 export type UserSpectrumState = SpectrumWeights & {
   platform_type: PlatformType;
   platform_user_id: string;
+  /** Sélection « Ton humeur du moment » — `null` si jamais choisi cette session / profil. */
+  radar_mood: RadarMoodIndex | null;
 };
 
 function detectPlatformType(): PlatformType {
@@ -56,6 +61,7 @@ const defaultSpectrum = (): UserSpectrumState => ({
   stats: 0.25,
   platform_type: detectPlatformType(),
   platform_user_id: '',
+  radar_mood: null,
 });
 
 type UserSpectrumContextValue = {
@@ -65,6 +71,8 @@ type UserSpectrumContextValue = {
   /** Applique les poids et persiste immédiatement (évite les courses d’état) */
   applyWeightsAndPersist: (w: SpectrumWeights) => Promise<void>;
   setPlatformUserId: (id: string) => void;
+  /** Humeur du moment (Radar) — persiste avec le spectre */
+  setRadarMood: (m: RadarMoodIndex) => Promise<void>;
   resetSpectrum: () => void;
   persist: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
@@ -95,13 +103,22 @@ export function UserSpectrumProvider({
     }));
   }, []);
 
+  const setRadarMood = useCallback(async (m: RadarMoodIndex) => {
+    const next: UserSpectrumState = { ...spectrumRef.current, radar_mood: m };
+    spectrumRef.current = next;
+    setSpectrum(next);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  }, []);
+
   const applyWeightsAndPersist = useCallback(async (w: SpectrumWeights) => {
+    const cur = spectrumRef.current;
     const next: UserSpectrumState = {
-      ...spectrumRef.current,
+      ...cur,
       structure: clamp01(w.structure),
       momentum: clamp01(w.momentum),
       zen: clamp01(w.zen),
       stats: clamp01(w.stats),
+      radar_mood: cur.radar_mood,
     };
     spectrumRef.current = next;
     setSpectrum(next);
@@ -128,6 +145,9 @@ export function UserSpectrumProvider({
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as Partial<UserSpectrumState>;
+      const rm = parsed.radar_mood;
+      const moodOk =
+        rm === 0 || rm === 1 || rm === 2 || rm === 3 || rm === 4 ? rm : null;
       setSpectrum((prev) => ({
         ...prev,
         ...parsed,
@@ -137,6 +157,7 @@ export function UserSpectrumProvider({
         stats: clamp01(parsed.stats ?? prev.stats),
         platform_type: parsed.platform_type ?? detectPlatformType(),
         platform_user_id: parsed.platform_user_id ?? prev.platform_user_id,
+        radar_mood: moodOk ?? prev.radar_mood ?? null,
       }));
     } catch {
       /* ignore */
@@ -174,6 +195,7 @@ export function UserSpectrumProvider({
       setWeights,
       applyWeightsAndPersist,
       setPlatformUserId,
+      setRadarMood,
       resetSpectrum,
       persist,
       loadFromStorage,
@@ -183,6 +205,7 @@ export function UserSpectrumProvider({
       setWeights,
       applyWeightsAndPersist,
       setPlatformUserId,
+      setRadarMood,
       resetSpectrum,
       persist,
       loadFromStorage,

@@ -87,7 +87,16 @@
       "pending": "In attesa",
       "active": "Attiva",
       "done": "Completata"
-    }
+    },
+    "cockpitKicker": "Tell Me To",
+    "sectionNow": "Adesso",
+    "sectionNext": "Prossima",
+    "launchCta": "AVVIA",
+    "continueCta": "CONTINUA",
+    "moodTitle": "Come ti senti in questo momento?",
+    "nextStarts": "Dalle {{time}}",
+    "emptyCockpit": "Niente sul binario — tocca + per un’intenzione.",
+    "nowIdle": "Niente in corso — scegli sotto o aggiungi un’intenzione."
   },
   "timeline": {
     "subtitle": "Binario della giornata — slot suggeriti in base allo spettro (Momentum alto → blocchi più profondi).",
@@ -233,7 +242,14 @@
         "stats": "I cruscotti dormono fino a domani — anche tu, se puoi."
       }
     },
-    "suggestFocusCapsule": "Stai andando veloce! Per compiti più complessi, una capsula di focus potrebbe aiutarti a restare dentro."
+    "suggestFocusCapsule": "Stai andando veloce! Per compiti più complessi, una capsula di focus potrebbe aiutarti a restare dentro.",
+    "mood": {
+      "0": "Andiamo piano? Un piccolo passo per il tuo binario.",
+      "1": "Giornata pesante — un blocco chiaro; il resto aspetta.",
+      "2": "Ritmo onesto: un’intenzione chiara, poi la prossima.",
+      "3": "Bella energia — un’azione netta sul binario.",
+      "4": "Energia al massimo! Conquistiamo questo binario."
+    }
   },
   "connectors": {
     "whatsapp": "WhatsApp",
