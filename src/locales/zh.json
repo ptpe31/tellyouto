@@ -16,7 +16,10 @@
   },
   "settings": {
     "privateChannelTitle": "私人频道",
-    "privateChannelSubtitle": "包含 Telegram；WhatsApp、Slack、LINE 需 Pro。"
+    "privateChannelSubtitle": "包含 Telegram；WhatsApp、Slack、LINE 需 Pro。",
+    "channelsCatalogTitle": "频道与扩展",
+    "channelsCatalogLead": "同时只能激活一个频道 — 盟友在此向你发送意图。",
+    "channelsPrivacyFootnote": "每个高级频道都是你与本地轨道之间的加密直连。不出售任何数据。"
   },
   "pro": {
     "modalTitle": "解锁全部能力",
@@ -34,6 +37,35 @@
     "devNote": "开发版：按钮模拟订阅，无需付款。",
     "subscribeGold": "订阅 — 9.99€ / 月",
     "back": "关闭"
+  },
+  "channelCatalog": {
+    "proBadge": "PRO",
+    "freeBadge": "免费",
+    "recommendedBadge": "推荐",
+    "names": {
+      "telegram": "Telegram",
+      "whatsapp": "WhatsApp",
+      "slack": "Slack",
+      "discord": "Discord",
+      "teams": "Microsoft Teams",
+      "signal": "Signal",
+      "line": "LINE / 微信"
+    },
+    "taglines": {
+      "telegram": "快速、私密、推荐。",
+      "whatsapp": "简单之选。",
+      "slack": "适合工作。",
+      "discord": "服务社群。",
+      "teams": "企业集成。",
+      "signal": "极致安全。",
+      "line": "面向全球。"
+    }
+  },
+  "channelSwitch": {
+    "title": "切换频道？",
+    "message": "为保护你的专注，盟友只能在一个频道上倾听。切换到 {{channelName}} 吗？",
+    "confirm": "切换",
+    "cancel": "取消"
   },
   "onboarding": {
     "firstName": {

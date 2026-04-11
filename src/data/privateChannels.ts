@@ -1,21 +1,31 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type PrivateChannelId = 'whatsapp' | 'telegram' | 'slack' | 'line';
+export type PrivateChannelId =
+  | 'telegram'
+  | 'whatsapp'
+  | 'slack'
+  | 'discord'
+  | 'teams'
+  | 'signal'
+  | 'line';
 
 /** Canaux réservés à l’abonnement Pro (Telegram reste gratuit). */
 export function isPremiumPrivateChannel(id: PrivateChannelId): boolean {
-  return id === 'whatsapp' || id === 'slack' || id === 'line';
+  return id !== 'telegram';
 }
 
 export const PRIVATE_CHANNEL_CHOICE_KEY = '@tellyouto/private_channel_id';
 export const PRIVATE_CHANNEL_BOT_URL_KEY = '@tellyouto/private_channel_bot_url';
 
-/** Telegram en tête (recommandé) ; WhatsApp secondaire ; LINE / Slack pour pros. */
+/** Ordre catalogue : Telegram d’abord, puis intégrations Pro. */
 const CHANNEL_ORDER: PrivateChannelId[] = [
   'telegram',
   'whatsapp',
-  'line',
   'slack',
+  'discord',
+  'teams',
+  'signal',
+  'line',
 ];
 
 /**
@@ -31,6 +41,12 @@ export function resolvePrivateChannelBotUrl(id: PrivateChannelId): string {
       return process.env.EXPO_PUBLIC_BOT_SLACK_URL ?? '';
     case 'line':
       return process.env.EXPO_PUBLIC_BOT_LINE_URL ?? '';
+    case 'discord':
+      return process.env.EXPO_PUBLIC_BOT_DISCORD_URL ?? '';
+    case 'teams':
+      return process.env.EXPO_PUBLIC_BOT_TEAMS_URL ?? '';
+    case 'signal':
+      return process.env.EXPO_PUBLIC_BOT_SIGNAL_URL ?? '';
     default:
       return '';
   }
@@ -51,15 +67,20 @@ export async function savePrivateChannelChoice(
   ]);
 }
 
+const KNOWN_IDS: PrivateChannelId[] = [
+  'whatsapp',
+  'telegram',
+  'slack',
+  'discord',
+  'teams',
+  'signal',
+  'line',
+];
+
 export async function getStoredPrivateChannelId(): Promise<PrivateChannelId | null> {
   const v = await AsyncStorage.getItem(PRIVATE_CHANNEL_CHOICE_KEY);
-  if (
-    v === 'whatsapp' ||
-    v === 'telegram' ||
-    v === 'slack' ||
-    v === 'line'
-  ) {
-    return v;
+  if (v && (KNOWN_IDS as string[]).includes(v)) {
+    return v as PrivateChannelId;
   }
   return null;
 }

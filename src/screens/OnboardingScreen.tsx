@@ -29,7 +29,9 @@ import {
   savePrivateChannelChoice,
 } from '../data/privateChannels';
 import { NeumorphicCard, NeumorphicSurface } from '../components';
+import { ChannelCatalogCard } from '../components/ChannelCatalogCard';
 import { PassProModal } from '../components/PassProModal';
+import { SingleChannelSwitchModal } from '../components/SingleChannelSwitchModal';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -88,6 +90,9 @@ export function OnboardingScreen({ onComplete }: Props) {
   );
   const [showTelegramReward, setShowTelegramReward] = useState(false);
   const [passProVisible, setPassProVisible] = useState(false);
+  const [channelSwitchVisible, setChannelSwitchVisible] = useState(false);
+  const [pendingChannelId, setPendingChannelId] =
+    useState<PrivateChannelId | null>(null);
   const pendingTelegramInstallReward = useRef(false);
   const waHintOpacity = useRef(new Animated.Value(1)).current;
 
@@ -97,10 +102,26 @@ export function OnboardingScreen({ onComplete }: Props) {
         setPassProVisible(true);
         return;
       }
+      if (selectedChannel !== null && selectedChannel !== id) {
+        setPendingChannelId(id);
+        setChannelSwitchVisible(true);
+        return;
+      }
       setSelectedChannel(id);
     },
-    [spectrum.isProUser],
+    [spectrum.isProUser, selectedChannel],
   );
+
+  const confirmChannelSwitch = useCallback(() => {
+    if (pendingChannelId) setSelectedChannel(pendingChannelId);
+    setChannelSwitchVisible(false);
+    setPendingChannelId(null);
+  }, [pendingChannelId]);
+
+  const dismissChannelSwitch = useCallback(() => {
+    setChannelSwitchVisible(false);
+    setPendingChannelId(null);
+  }, []);
 
   const checkTelegramInstalled = useCallback(async () => {
     try {
@@ -342,94 +363,61 @@ export function OnboardingScreen({ onComplete }: Props) {
           </Button>
 
           {listPrivateChannelIds().map((id) => {
-            const selected = selectedChannel === id;
-            const isTelegram = id === 'telegram';
-            const isWa = id === 'whatsapp';
+            const isPremium = isPremiumPrivateChannel(id);
+            const locked = isPremium && !spectrum.isProUser;
             return (
-              <Pressable
+              <ChannelCatalogCard
                 key={id}
+                title={t(`channelCatalog.names.${id}`)}
+                tagline={t(`channelCatalog.taglines.${id}`)}
+                freeBadgeLabel={
+                  id === 'telegram' ? t('channelCatalog.freeBadge') : undefined
+                }
+                recommendedBadgeLabel={
+                  id === 'telegram'
+                    ? t('channelCatalog.recommendedBadge')
+                    : undefined
+                }
+                proBadgeLabel={t('channelCatalog.proBadge')}
+                isPremiumChannel={isPremium}
+                showProLock={locked}
+                isActive={selectedChannel === id}
                 onPress={() => trySelectChannel(id)}
-                style={({ pressed }) => [
-                  styles.channelRow,
-                  {
-                    borderColor: selected
-                      ? isTelegram
-                        ? TELEGRAM_BRAND_BLUE
-                        : theme.colors.primary
-                      : theme.colors.outline,
-                    borderWidth: selected && isTelegram ? 2 : 1,
-                    backgroundColor:
-                      selected && isTelegram
-                        ? 'rgba(0, 136, 204, 0.08)'
-                        : 'transparent',
-                    opacity: pressed ? 0.92 : 1,
-                  },
-                ]}
-              >
-                <View style={styles.channelTitleRow}>
-                  <Text
-                    style={[styles.channelLabel, { color: theme.colors.onSurface }]}
-                  >
-                    {t(`onboarding.privateChannel.platforms.${id}`)}
-                  </Text>
-                  {isTelegram ? (
-                    <View
-                      style={[
-                        styles.recommendedPill,
-                        { backgroundColor: TELEGRAM_BRAND_BLUE },
-                      ]}
-                    >
-                      <Text style={styles.recommendedPillText}>
-                        {t('onboarding.privateChannel.recommended')}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {isPremiumPrivateChannel(id) && !spectrum.isProUser ? (
-                    <NeumorphicSurface style={styles.lockChip}>
-                      <Text style={styles.lockEmoji}>🔒</Text>
-                    </NeumorphicSurface>
-                  ) : null}
-                </View>
-                {isWa ? (
-                  <Text
-                    style={[styles.channelSecondary, { color: theme.colors.error }]}
-                  >
-                    {t('onboarding.privateChannel.whatsappCostHint')}
-                  </Text>
-                ) : null}
-                {(id === 'line' || id === 'slack') && (
-                  <Text
-                    style={[
-                      styles.channelSecondary,
-                      { color: theme.colors.onSurfaceVariant },
-                    ]}
-                  >
-                    {t('onboarding.privateChannel.proChannelsHint')}
-                  </Text>
-                )}
-                {selected ? (
-                  <Text
-                    style={[
-                      styles.channelHint,
-                      {
-                        color: isTelegram
-                          ? TELEGRAM_BRAND_BLUE
-                          : theme.colors.primary,
-                      },
-                    ]}
-                    numberOfLines={6}
-                  >
-                    {isWa && waLinkPreview
-                      ? waLinkPreview
-                      : isTelegram && telegramStartUrl
-                        ? telegramStartUrl
-                        : resolvePrivateChannelBotUrl(id) ||
-                          t('onboarding.privateChannel.urlPending')}
-                  </Text>
-                ) : null}
-              </Pressable>
+                extraHint={
+                  id === 'whatsapp'
+                    ? t('onboarding.privateChannel.whatsappCostHint')
+                    : undefined
+                }
+                extraHintColor={theme.colors.error}
+              />
             );
           })}
+
+          {selectedChannel ? (
+            <Text
+              style={[
+                styles.channelHint,
+                {
+                  color:
+                    selectedChannel === 'telegram'
+                      ? TELEGRAM_BRAND_BLUE
+                      : theme.colors.primary,
+                },
+              ]}
+              numberOfLines={8}
+            >
+              {selectedChannel === 'whatsapp' && waLinkPreview
+                ? waLinkPreview
+                : selectedChannel === 'telegram' && telegramStartUrl
+                  ? telegramStartUrl
+                  : resolvePrivateChannelBotUrl(selectedChannel) ||
+                    t('onboarding.privateChannel.urlPending')}
+            </Text>
+          ) : null}
+
+          <Text style={[styles.channelFoot, { color: theme.colors.outline }]}>
+            {t('settings.channelsPrivacyFootnote')}
+          </Text>
 
           {telegramInstalled === false ? (
             <Button
@@ -538,6 +526,14 @@ export function OnboardingScreen({ onComplete }: Props) {
             rootNavigationRef.navigate('ProSubscription');
           }
         }}
+      />
+      <SingleChannelSwitchModal
+        visible={channelSwitchVisible}
+        targetChannelName={
+          pendingChannelId ? t(`channelCatalog.names.${pendingChannelId}`) : ''
+        }
+        onDismiss={dismissChannelSwitch}
+        onConfirm={confirmChannelSwitch}
       />
       <Portal>
         {showTelegramReward ? (
@@ -658,34 +654,14 @@ const styles = StyleSheet.create({
   answerSurface: { paddingVertical: 14, paddingHorizontal: 14 },
   answerText: { fontSize: 15, lineHeight: 22 },
   hint: { marginTop: 16, fontSize: 13, lineHeight: 18 },
-  channelRow: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
+  channelHint: { fontSize: 12, marginTop: 10, lineHeight: 17 },
+  channelFoot: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    fontStyle: 'italic',
   },
-  channelTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  channelLabel: { fontSize: 16, fontWeight: '600' },
-  recommendedPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  recommendedPillText: { color: '#ffffff', fontSize: 11, fontWeight: '700' },
-  lockChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  lockEmoji: { fontSize: 14 },
-  channelSecondary: { fontSize: 12, marginTop: 6, lineHeight: 17 },
-  channelHint: { fontSize: 12, marginTop: 6 },
   giftBadge: {
     borderWidth: 1,
     borderRadius: 12,

@@ -16,7 +16,10 @@
   },
   "settings": {
     "privateChannelTitle": "Canale privato",
-    "privateChannelSubtitle": "Telegram è incluso; WhatsApp, Slack e LINE richiedono Pro."
+    "privateChannelSubtitle": "Telegram è incluso; WhatsApp, Slack e LINE richiedono Pro.",
+    "channelsCatalogTitle": "Canali ed estensioni",
+    "channelsCatalogLead": "Un solo canale attivo alla volta — è lì che l’Alleato invia le tue intenzioni.",
+    "channelsPrivacyFootnote": "Ogni canale Premium è una linea diretta crittografata tra te e il tuo rail locale. Nessun dato viene venduto."
   },
   "pro": {
     "modalTitle": "Sblocca la massima potenza",
@@ -34,6 +37,35 @@
     "devNote": "Build dev: il pulsante simula l’abbonamento senza pagamento.",
     "subscribeGold": "Abbonati — 9,99 € / mese",
     "back": "Chiudi"
+  },
+  "channelCatalog": {
+    "proBadge": "PRO",
+    "freeBadge": "Gratuito",
+    "recommendedBadge": "Consigliato",
+    "names": {
+      "telegram": "Telegram",
+      "whatsapp": "WhatsApp",
+      "slack": "Slack",
+      "discord": "Discord",
+      "teams": "Microsoft Teams",
+      "signal": "Signal",
+      "line": "LINE / WeChat"
+    },
+    "taglines": {
+      "telegram": "Veloce, privato e consigliato.",
+      "whatsapp": "La scelta semplice.",
+      "slack": "Ideale per il lavoro.",
+      "discord": "Per la tua community.",
+      "teams": "Integrazione corporate.",
+      "signal": "Sicurezza massima.",
+      "line": "Internazionale."
+    }
+  },
+  "channelSwitch": {
+    "title": "Cambiare canale?",
+    "message": "Il tuo Alleato può ascoltare su un solo canale per proteggere il focus. Passare a {{channelName}}?",
+    "confirm": "Passa",
+    "cancel": "Annulla"
   },
   "onboarding": {
     "firstName": {

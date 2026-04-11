@@ -24,9 +24,10 @@ import { SafeExternalLink } from '../components/SafeExternalLink';
 import {
   CalendarGranularSection,
   NeumorphicCard,
-  NeumorphicSurface,
 } from '../components';
+import { ChannelCatalogCard } from '../components/ChannelCatalogCard';
 import { PassProModal } from '../components/PassProModal';
+import { SingleChannelSwitchModal } from '../components/SingleChannelSwitchModal';
 import { IS_PRODUCTION } from '../config/appConfig';
 import { useDebugUnlock } from '../context/DebugUnlockContext';
 import { useAlly, type AllyTone, type AllyVoice } from '../context/AllyContext';
@@ -80,6 +81,9 @@ export function AgentSettingsScreen() {
   const { voice, tone, setVoice, setTone } = useAlly();
   const { spectrum, applyMessengerReminderPrefs } = useUserSpectrum();
   const [passProVisible, setPassProVisible] = useState(false);
+  const [switchVisible, setSwitchVisible] = useState(false);
+  const [pendingChannelId, setPendingChannelId] =
+    useState<PrivateChannelId | null>(null);
   const [channelChoice, setChannelChoice] = useState<PrivateChannelId | null>(
     null,
   );
@@ -98,12 +102,8 @@ export function AgentSettingsScreen() {
     })();
   }, []);
 
-  const trySelectChannel = (id: PrivateChannelId) => {
-    if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
-      setPassProVisible(true);
-      return;
-    }
-    void (async () => {
+  const applyChannel = useCallback(
+    async (id: PrivateChannelId) => {
       const uid = await getOrCreateDeviceId();
       if (id === 'telegram') {
         await savePrivateChannelChoice(id, buildTelegramStartLink(uid));
@@ -117,7 +117,33 @@ export function AgentSettingsScreen() {
         await savePrivateChannelChoice(id);
       }
       setChannelChoice(id);
-    })();
+    },
+    [spectrum.first_name],
+  );
+
+  const trySelectChannel = (id: PrivateChannelId) => {
+    if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
+      setPassProVisible(true);
+      return;
+    }
+    if (channelChoice !== null && channelChoice === id) return;
+    if (channelChoice !== null && channelChoice !== id) {
+      setPendingChannelId(id);
+      setSwitchVisible(true);
+      return;
+    }
+    void applyChannel(id);
+  };
+
+  const confirmChannelSwitch = () => {
+    if (pendingChannelId) void applyChannel(pendingChannelId);
+    setSwitchVisible(false);
+    setPendingChannelId(null);
+  };
+
+  const dismissChannelSwitch = () => {
+    setSwitchVisible(false);
+    setPendingChannelId(null);
   };
   const voiceOptions: { value: AllyVoice; label: string }[] = [
     { value: 'balanced', label: t('ally.voice.balanced') },
@@ -191,55 +217,54 @@ export function AgentSettingsScreen() {
 
       <NeumorphicCard style={styles.block}>
         <Text style={[styles.section, { color: theme.colors.primary }]}>
-          {t('settings.privateChannelTitle')}
+          {t('settings.channelsCatalogTitle')}
         </Text>
         <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>
-          {t('settings.privateChannelSubtitle')}
+          {t('settings.channelsCatalogLead')}
         </Text>
         {listPrivateChannelIds().map((id) => {
-          const selected = channelChoice === id;
-          const locked = isPremiumPrivateChannel(id) && !spectrum.isProUser;
+          const isPremium = isPremiumPrivateChannel(id);
+          const locked = isPremium && !spectrum.isProUser;
           return (
-            <Pressable
+            <ChannelCatalogCard
               key={id}
+              title={t(`channelCatalog.names.${id}`)}
+              tagline={t(`channelCatalog.taglines.${id}`)}
+              freeBadgeLabel={
+                id === 'telegram' ? t('channelCatalog.freeBadge') : undefined
+              }
+              recommendedBadgeLabel={
+                id === 'telegram' ? t('channelCatalog.recommendedBadge') : undefined
+              }
+              proBadgeLabel={t('channelCatalog.proBadge')}
+              isPremiumChannel={isPremium}
+              showProLock={locked}
+              isActive={channelChoice === id}
               onPress={() => trySelectChannel(id)}
-              style={({ pressed }) => [
-                styles.channelRow,
-                {
-                  borderColor: selected ? theme.colors.primary : theme.colors.outline,
-                  opacity: pressed ? 0.92 : 1,
-                },
-              ]}
-            >
-              <View style={styles.channelRowInner}>
-                <Text style={{ color: theme.colors.onSurface, fontWeight: '600' }}>
-                  {t(`onboarding.privateChannel.platforms.${id}`)}
-                </Text>
-                {locked ? (
-                  <NeumorphicSurface style={styles.lockChip}>
-                    <Text style={styles.lockEmoji}>🔒</Text>
-                  </NeumorphicSurface>
-                ) : null}
-              </View>
-              {id === 'whatsapp' ? (
-                <Text style={[styles.channelHint, { color: theme.colors.error }]}>
-                  {t('onboarding.privateChannel.whatsappCostHint')}
-                </Text>
-              ) : null}
-              {(id === 'line' || id === 'slack') && (
-                <Text
-                  style={[
-                    styles.channelHint,
-                    { color: theme.colors.onSurfaceVariant },
-                  ]}
-                >
-                  {t('onboarding.privateChannel.proChannelsHint')}
-                </Text>
-              )}
-            </Pressable>
+              extraHint={
+                id === 'whatsapp'
+                  ? t('onboarding.privateChannel.whatsappCostHint')
+                  : undefined
+              }
+              extraHintColor={theme.colors.error}
+            />
           );
         })}
+        <Text style={[styles.channelFootnote, { color: theme.colors.outline }]}>
+          {t('settings.channelsPrivacyFootnote')}
+        </Text>
       </NeumorphicCard>
+
+      <SingleChannelSwitchModal
+        visible={switchVisible}
+        targetChannelName={
+          pendingChannelId
+            ? t(`channelCatalog.names.${pendingChannelId}`)
+            : ''
+        }
+        onDismiss={dismissChannelSwitch}
+        onConfirm={confirmChannelSwitch}
+      />
 
       <PassProModal
         visible={passProVisible}
@@ -391,24 +416,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   versionText: { fontSize: 12, letterSpacing: 0.2 },
-  channelRow: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 10,
+  channelFootnote: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 14,
+    fontStyle: 'italic',
   },
-  channelRowInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  channelHint: { fontSize: 12, marginTop: 6, lineHeight: 17 },
-  lockChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  lockEmoji: { fontSize: 14 },
   legalRow: { paddingVertical: 4 },
   legalLink: { fontSize: 15, fontWeight: '600' },
   reminderRow: {

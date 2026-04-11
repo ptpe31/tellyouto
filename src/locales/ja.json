@@ -16,7 +16,10 @@
   },
   "settings": {
     "privateChannelTitle": "プライベートチャネル",
-    "privateChannelSubtitle": "Telegram は含まれます。WhatsApp・Slack・LINE は Pro が必要です。"
+    "privateChannelSubtitle": "Telegram は含まれます。WhatsApp・Slack・LINE は Pro が必要です。",
+    "channelsCatalogTitle": "チャネルと拡張",
+    "channelsCatalogLead": "同時に有効にできるのは1チャネルのみ — アリーが意図を送る先です。",
+    "channelsPrivacyFootnote": "各プレミアムチャネルは、あなたとローカルレール間の暗号化された専用回線です。データは販売されません。"
   },
   "pro": {
     "modalTitle": "最大の力を解放",
@@ -34,6 +37,35 @@
     "devNote": "開発版：ボタンは支払いなしで購読をシミュレートします。",
     "subscribeGold": "購読 — 月額 9,99€",
     "back": "閉じる"
+  },
+  "channelCatalog": {
+    "proBadge": "PRO",
+    "freeBadge": "無料",
+    "recommendedBadge": "おすすめ",
+    "names": {
+      "telegram": "Telegram",
+      "whatsapp": "WhatsApp",
+      "slack": "Slack",
+      "discord": "Discord",
+      "teams": "Microsoft Teams",
+      "signal": "Signal",
+      "line": "LINE / WeChat"
+    },
+    "taglines": {
+      "telegram": "高速・プライバシー重視・おすすめ。",
+      "whatsapp": "手軽さ重視の選択。",
+      "slack": "仕事向け。",
+      "discord": "コミュニティ向け。",
+      "teams": "企業向け連携。",
+      "signal": "最大限のセキュリティ。",
+      "line": "グローバル向け。"
+    }
+  },
+  "channelSwitch": {
+    "title": "チャネルを変更？",
+    "message": "フォーカスを守るため、アリーが聞けるのは1チャネルだけです。{{channelName}} に切り替えますか？",
+    "confirm": "切り替え",
+    "cancel": "キャンセル"
   },
   "onboarding": {
     "firstName": {

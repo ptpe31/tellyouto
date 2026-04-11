@@ -16,7 +16,10 @@
   },
   "settings": {
     "privateChannelTitle": "Private channel",
-    "privateChannelSubtitle": "Telegram is included; WhatsApp, Slack, and LINE require Pro."
+    "privateChannelSubtitle": "Telegram is included; WhatsApp, Slack, and LINE require Pro.",
+    "channelsCatalogTitle": "Channels & extensions",
+    "channelsCatalogLead": "Only one active channel at a time — that’s where your Ally sends your intentions.",
+    "channelsPrivacyFootnote": "Each Premium channel is an encrypted direct line between you and your local rail. No data is sold."
   },
   "pro": {
     "modalTitle": "Unlock maximum power",
@@ -34,6 +37,35 @@
     "devNote": "Dev build: the button simulates subscription without payment.",
     "subscribeGold": "Subscribe — €9.99 / month",
     "back": "Close"
+  },
+  "channelCatalog": {
+    "proBadge": "PRO",
+    "freeBadge": "Free",
+    "recommendedBadge": "Recommended",
+    "names": {
+      "telegram": "Telegram",
+      "whatsapp": "WhatsApp",
+      "slack": "Slack",
+      "discord": "Discord",
+      "teams": "Microsoft Teams",
+      "signal": "Signal",
+      "line": "LINE / WeChat"
+    },
+    "taglines": {
+      "telegram": "Fast, private, and recommended.",
+      "whatsapp": "The simple choice.",
+      "slack": "Built for work.",
+      "discord": "For your community.",
+      "teams": "Corporate integration.",
+      "signal": "Maximum security.",
+      "line": "International."
+    }
+  },
+  "channelSwitch": {
+    "title": "Switch channel?",
+    "message": "Your Ally can only listen on one channel to protect your focus. Switch to {{channelName}}?",
+    "confirm": "Switch",
+    "cancel": "Cancel"
   },
   "onboarding": {
     "firstName": {
