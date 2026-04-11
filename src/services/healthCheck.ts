@@ -1,7 +1,7 @@
-import * as Notifications from 'expo-notifications';
-
 import { getFirebaseApp } from '../api/firebase';
 import { getLocalDatabase } from '../api/localDb';
+
+import { getNotifications } from './notifications';
 
 export type HealthWarningKey =
   | 'health.warnFirebase'
@@ -17,6 +17,7 @@ export type HealthCheckResult = {
 
 /**
  * Vérifications légères au démarrage : config Firebase, SQLite, droits notifications.
+ * Sous Expo Go, les notifications ne sont pas vérifiées (module non chargé — évite erreurs console).
  */
 export async function runStartupHealthCheck(): Promise<HealthCheckResult> {
   const warnings: HealthWarningKey[] = [];
@@ -38,15 +39,19 @@ export async function runStartupHealthCheck(): Promise<HealthCheckResult> {
     warnings.push('health.warnSqlite');
   }
 
-  let notificationsGranted = false;
-  try {
-    const { status } = await Notifications.getPermissionsAsync();
-    notificationsGranted = status === 'granted';
-  } catch {
-    notificationsGranted = false;
-  }
-  if (!notificationsGranted) {
-    warnings.push('health.warnNotifications');
+  let notificationsGranted = true;
+  const n = getNotifications();
+  if (n) {
+    try {
+      const { status } = await n.getPermissionsAsync();
+      notificationsGranted = status === 'granted';
+      if (!notificationsGranted) {
+        warnings.push('health.warnNotifications');
+      }
+    } catch {
+      notificationsGranted = false;
+      warnings.push('health.warnNotifications');
+    }
   }
 
   return {

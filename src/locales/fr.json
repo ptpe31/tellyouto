@@ -139,7 +139,29 @@
     "simLine": "Simuler message LINE",
     "simLineHelp": "Même flux avec le connecteur LINE.",
     "simBusy": "Injection de l’intention…",
-    "simErrorUser": "Identifiant utilisateur incompatible — aligne l’ID plateforme dans ton profil, ou laisse vide pour la sim locale."
+    "simErrorUser": "Identifiant utilisateur incompatible — aligne l’ID plateforme dans ton profil, ou laisse vide pour la sim locale.",
+    "demoDaySectionTitle": "Démo Stats",
+    "demoDayHelp": "Injecte 5 sessions déjà terminées aujourd’hui (Structure, Momentum, Zen) pour remplir l’écran Stats en démonstration.",
+    "demoDayButton": "Générer une journée type",
+    "demoDayBusy": "Injection de la journée type…",
+    "demoIntent1Title": "Cadre & priorités du matin",
+    "demoIntent1Desc": "Bloc structurant : liste courte, une priorité claire.",
+    "demoIntent2Title": "Sprint messagerie",
+    "demoIntent2Desc": "Aller-retours rapides pour débloquer l’équipe.",
+    "demoIntent3Title": "Pause sans écran",
+    "demoIntent3Desc": "Quelques minutes pour respirer et retrouver du recul.",
+    "demoIntent4Title": "Revue des jalons",
+    "demoIntent4Desc": "Alignement mi-journée sur les prochaines étapes.",
+    "demoIntent5Title": "Tableau de suivi",
+    "demoIntent5Desc": "Mise à jour des indicateurs et de la charge."
+  },
+  "legal": {
+    "screenTitle": "À propos",
+    "lead": "Transparence sur tes données et les conditions d’usage de TellYouTo.",
+    "privacyTitle": "Confidentialité",
+    "privacyBody": "TellYouTo privilégie ton espace personnel : la plupart de tes intentions restent sur l’appareil dans une base SQLite locale, protégée comme le reste du stockage système.\n\nSi tu actives une synchronisation cloud avec Firebase, seules les données nécessaires au service sont échangées ; l’accès repose sur l’authentification Firebase et des règles de sécurité côté serveur. Nous ne revendons pas tes contenus à des tiers.\n\nTu peux effacer les données locales en reconstruisant la base depuis les outils pilote (mode avancé). Pour toute question juridique (RGPD, etc.), rapproche-toi d’un conseil adapté à ta situation.",
+    "termsTitle": "Conditions d’utilisation",
+    "termsBody": "En utilisant TellYouTo, tu acceptes une expérience centrée sur la concentration et le bien-être. L’application est fournie « en l’état » ; l’IA et les suggestions peuvent être imparfaites — tu restes responsable de tes décisions.\n\nLes connecteurs et simulations doivent être employés de manière licite et respectueuse des services tiers.\n\nNous pouvons faire évoluer ces textes ou des fonctionnalités pour plus de clarté ou de conformité ; la version affichée dans l’app fait foi."
   },
   "connectors": {
     "whatsapp": "WhatsApp",
@@ -195,6 +217,8 @@
     "versionLabel": "Version {{version}}",
     "debugUnlockTitle": "Outils pilote",
     "debugUnlockBody": "L’onglet Debug est disponible en fin de barre d’onglets.",
+    "sectionLegal": "Informations",
+    "legalNav": "À propos et mentions légales",
     "voice": {
       "balanced": "Équilibrée",
       "warm": "Chaleureuse",

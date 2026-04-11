@@ -1,21 +1,47 @@
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 import i18n from '../locales/i18n';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+/**
+ * Dans Expo Go (SDK 53+), le module notifications est limité et log ERROR/WARN au chargement.
+ * On ne l’importe donc pas en Expo Go — dev build / standalone : require() classique.
+ */
+const isExpoGo = Constants.appOwnership === 'expo';
+
+type NotificationsModule = typeof import('expo-notifications');
+
+let notificationsModule: NotificationsModule | null | undefined;
+
+export function getNotifications(): NotificationsModule | null {
+  if (isExpoGo) return null;
+  if (notificationsModule !== undefined) return notificationsModule;
+  try {
+    notificationsModule = require('expo-notifications') as NotificationsModule;
+  } catch {
+    notificationsModule = null;
+  }
+  return notificationsModule;
+}
+
+const mod = getNotifications();
+if (mod) {
+  mod.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 export async function ensureNotificationPermissions(): Promise<boolean> {
-  const { status: existing } = await Notifications.getPermissionsAsync();
+  const n = getNotifications();
+  if (!n) return false;
+  const { status: existing } = await n.getPermissionsAsync();
   if (existing === 'granted') return true;
-  const { status } = await Notifications.requestPermissionsAsync();
+  const { status } = await n.requestPermissionsAsync();
   return status === 'granted';
 }
 
@@ -23,7 +49,9 @@ export async function ensureNotificationPermissions(): Promise<boolean> {
 export async function notifyExternalIntentionCaptured(
   intentionTitle: string,
 ): Promise<void> {
-  await Notifications.scheduleNotificationAsync({
+  const n = getNotifications();
+  if (!n) return;
+  await n.scheduleNotificationAsync({
     content: {
       title: i18n.t('notifications.externalIntentionTitle'),
       body: i18n.t('notifications.externalIntentionBody', {
@@ -33,3 +61,4 @@ export async function notifyExternalIntentionCaptured(
     trigger: null,
   });
 }
+

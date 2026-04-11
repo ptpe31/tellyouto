@@ -139,7 +139,29 @@
     "simLine": "Simulate LINE message",
     "simLineHelp": "Same flow with the LINE connector.",
     "simBusy": "Injecting intention…",
-    "simErrorUser": "User ID mismatch — clear or align platform user ID in your profile, or use the default local sim when empty."
+    "simErrorUser": "User ID mismatch — clear or align platform user ID in your profile, or use the default local sim when empty.",
+    "demoDaySectionTitle": "Stats demo",
+    "demoDayHelp": "Inserts 5 completed sessions today (Structure, Momentum, Zen mix) so the Stats screen looks full in a demo.",
+    "demoDayButton": "Generate a typical day",
+    "demoDayBusy": "Seeding typical day…",
+    "demoIntent1Title": "Morning frame & priorities",
+    "demoIntent1Desc": "Structured block: short list, one clear priority.",
+    "demoIntent2Title": "Inbox sprint",
+    "demoIntent2Desc": "Fast back-and-forth to unblock the team.",
+    "demoIntent3Title": "Screen-free pause",
+    "demoIntent3Desc": "A few minutes to breathe and regain perspective.",
+    "demoIntent4Title": "Milestone review",
+    "demoIntent4Desc": "Mid-day alignment on next steps.",
+    "demoIntent5Title": "Tracking board",
+    "demoIntent5Desc": "Update metrics and workload."
+  },
+  "legal": {
+    "screenTitle": "About",
+    "lead": "Transparency about your data and how you may use TellYouTo.",
+    "privacyTitle": "Privacy",
+    "privacyBody": "TellYouTo favours your personal space: most of your intentions stay on the device in a local SQLite database, protected like the rest of your system storage.\n\nIf you enable cloud sync with Firebase, only data needed for the service is exchanged; access relies on Firebase authentication and server-side security rules. We do not sell your content to third parties.\n\nYou can wipe local data by rebuilding the database from pilot tools (advanced). For legal questions (GDPR, etc.), seek advice suited to your case.",
+    "termsTitle": "Terms of use",
+    "termsBody": "By using TellYouTo you accept an experience focused on focus and wellbeing. The app is provided “as is”; AI and suggestions may be imperfect — you remain responsible for your decisions.\n\nConnectors and simulations must be used lawfully and respectfully toward third-party services.\n\nWe may update this text or features for clarity or compliance; the version shown in the app prevails."
   },
   "connectors": {
     "whatsapp": "WhatsApp",
@@ -195,6 +217,8 @@
     "versionLabel": "Version {{version}}",
     "debugUnlockTitle": "Pilot tools",
     "debugUnlockBody": "The Debug tab is now available at the end of the tab bar.",
+    "sectionLegal": "Information",
+    "legalNav": "About & legal",
     "voice": {
       "balanced": "Balanced",
       "warm": "Warm",

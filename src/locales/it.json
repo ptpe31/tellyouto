@@ -141,7 +141,29 @@
     "simLine": "Simula messaggio LINE",
     "simLineHelp": "Stesso flusso con il connettore LINE.",
     "simBusy": "Iniezione dell’intenzione…",
-    "simErrorUser": "ID utente non corrispondente — allinea l’ID nel profilo o lascia vuoto per la sim locale."
+    "simErrorUser": "ID utente non corrispondente — allinea l’ID nel profilo o lascia vuoto per la sim locale.",
+    "demoDaySectionTitle": "Demo Statistiche",
+    "demoDayHelp": "Inserisce 5 sessioni già completate oggi (Structure, Momentum, Zen) per riempire Stats in demo.",
+    "demoDayButton": "Genera una giornata tipo",
+    "demoDayBusy": "Generazione giornata tipo…",
+    "demoIntent1Title": "Quadro e priorità del mattino",
+    "demoIntent1Desc": "Blocco strutturato: lista breve, una priorità chiara.",
+    "demoIntent2Title": "Sprint posta",
+    "demoIntent2Desc": "Scambi rapidi per sbloccare il team.",
+    "demoIntent3Title": "Pausa senza schermo",
+    "demoIntent3Desc": "Qualche minuto per respirare e prendere distanza.",
+    "demoIntent4Title": "Revisione milestone",
+    "demoIntent4Desc": "Allineamento a metà giornata sui prossimi passi.",
+    "demoIntent5Title": "Board di monitoraggio",
+    "demoIntent5Desc": "Aggiornare metriche e carico."
+  },
+  "legal": {
+    "screenTitle": "Informazioni",
+    "lead": "Trasparenza sui tuoi dati e sull’uso di TellYouTo.",
+    "privacyTitle": "Privacy",
+    "privacyBody": "TellYouTo privilegia il tuo spazio personale: la maggior parte delle intenzioni resta sul dispositivo in un database SQLite locale, protetto come il resto della memoria di sistema.\n\nSe attivi la sincronizzazione cloud con Firebase, vengono scambiati solo i dati necessari al servizio; l’accesso si basa sull’autenticazione Firebase e su regole di sicurezza lato server. Non vendiamo i tuoi contenuti a terzi.\n\nPuoi cancellare i dati locali ricostruendo il database dagli strumenti pilota (avanzato). Per questioni legali (GDPR, ecc.) rivolgiti a un consulente adeguato.",
+    "termsTitle": "Termini d’uso",
+    "termsBody": "Usando TellYouTo accetti un’esperienza centrata su focus e benessere. L’app è fornita «così com’è»; IA e suggerimenti possono essere imperfetti — resti responsabile delle tue decisioni.\n\nConnettori e simulazioni vanno usati in modo lecito e rispettoso verso servizi terzi.\n\nPossiamo aggiornare testi o funzionalità per chiarezza o conformità; fa fede la versione mostrata nell’app."
   },
   "connectors": {
     "whatsapp": "WhatsApp",
@@ -197,6 +219,8 @@
     "versionLabel": "Versione {{version}}",
     "debugUnlockTitle": "Strumenti pilota",
     "debugUnlockBody": "La scheda Debug è ora disponibile in fondo alla barra.",
+    "sectionLegal": "Informazioni",
+    "legalNav": "Informazioni e note legali",
     "voice": {
       "balanced": "Equilibrata",
       "warm": "Calda",

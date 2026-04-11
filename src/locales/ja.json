@@ -139,7 +139,29 @@
     "simLine": "LINE メッセージをシミュレート",
     "simLineHelp": "LINE コネクタで同じフロー。",
     "simBusy": "意図を注入中…",
-    "simErrorUser": "ユーザーIDが一致しません — プロフィールのIDを合わせるか、空のままローカルシムを使ってください。"
+    "simErrorUser": "ユーザーIDが一致しません — プロフィールのIDを合わせるか、空のままローカルシムを使ってください。",
+    "demoDaySectionTitle": "Stats デモ",
+    "demoDayHelp": "今日完了したセッションを5件（Structure / Momentum / Zen）挿入し、Stats をデモ向けに埋めます。",
+    "demoDayButton": "典型日を生成",
+    "demoDayBusy": "典型日を投入中…",
+    "demoIntent1Title": "午前の枠と優先度",
+    "demoIntent1Desc": "短いリストで一つの明確な優先事項。",
+    "demoIntent2Title": "受信箱スプリント",
+    "demoIntent2Desc": "チームのブロックを外すための素早いやり取り。",
+    "demoIntent3Title": "画面なしの休憩",
+    "demoIntent3Desc": "呼吸と距離感を取り戻す数分。",
+    "demoIntent4Title": "マイルストーン確認",
+    "demoIntent4Desc": "昼過ぎの次の一歩のすり合わせ。",
+    "demoIntent5Title": "トラッキングボード",
+    "demoIntent5Desc": "指標と負荷の更新。"
+  },
+  "legal": {
+    "screenTitle": "について",
+    "lead": "データと TellYouTo の利用について、透明性を持って説明します。",
+    "privacyTitle": "プライバシー",
+    "privacyBody": "TellYouTo は個人の領域を大切にします。ほとんどの意図は端末内の SQLite に残り、システムストレージと同様に保護されます。\n\nFirebase 同期を有効にした場合、サービスに必要なデータのみがやり取りされ、アクセスは Firebase 認証とサーバー側のセキュリティルールに基づきます。コンテンツを第三者に販売しません。\n\n上級者向けのパイロットツールからデータベースを再構築するとローカルデータを消去できます。法的な質問（GDPR 等）は適切な専門家にご相談ください。",
+    "termsTitle": "利用規約",
+    "termsBody": "TellYouTo を利用すると、集中とウェルビーイングを重視する体験に同意したことになります。アプリは現状有姿で提供され、AI や提案は不完全な場合があります — 判断の責任はあなたにあります。\n\nコネクタやシミュレーションは、第三者サービスを尊重する合法的な方法で使用してください。\n\n明確さやコンプライアンスのため、文言や機能を更新することがあります。アプリに表示される版が優先します。"
   },
   "connectors": {
     "whatsapp": "WhatsApp",
@@ -195,6 +217,8 @@
     "versionLabel": "バージョン {{version}}",
     "debugUnlockTitle": "パイロットツール",
     "debugUnlockBody": "デバッグタブがタブバーの末尾に表示されます。",
+    "sectionLegal": "情報",
+    "legalNav": "アプリについて・法的表示",
     "voice": {
       "balanced": "バランス",
       "warm": "あたたかい",

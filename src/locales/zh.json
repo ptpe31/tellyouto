@@ -139,7 +139,29 @@
     "simLine": "模拟 LINE 消息",
     "simLineHelp": "使用 LINE 连接器的相同流程。",
     "simBusy": "正在注入意图…",
-    "simErrorUser": "用户 ID 不匹配 — 请在档案中对齐平台 ID，或留空以使用本地模拟。"
+    "simErrorUser": "用户 ID 不匹配 — 请在档案中对齐平台 ID，或留空以使用本地模拟。",
+    "demoDaySectionTitle": "统计演示",
+    "demoDayHelp": "插入 5 条今日已完成的会话（结构 / 动量 / 禅），让统计页在演示时更饱满。",
+    "demoDayButton": "生成典型一天",
+    "demoDayBusy": "正在写入典型一天…",
+    "demoIntent1Title": "晨间框架与优先级",
+    "demoIntent1Desc": "结构化块：短清单，一个明确重点。",
+    "demoIntent2Title": "收件箱冲刺",
+    "demoIntent2Desc": "快速来回以推进团队。",
+    "demoIntent3Title": "无屏休息",
+    "demoIntent3Desc": "几分钟呼吸与拉开距离。",
+    "demoIntent4Title": "里程碑回顾",
+    "demoIntent4Desc": "午间对齐下一步。",
+    "demoIntent5Title": "跟踪看板",
+    "demoIntent5Desc": "更新指标与负荷。"
+  },
+  "legal": {
+    "screenTitle": "关于",
+    "lead": "关于你的数据与 TellYouTo 使用方式的透明说明。",
+    "privacyTitle": "隐私",
+    "privacyBody": "TellYouTo 重视你的个人空间：大多数意图保留在设备本地的 SQLite 数据库中，与系统其余存储一样受保护。\n\n若启用 Firebase 云同步，仅交换服务所需的数据；访问依赖 Firebase 身份验证与服务器端安全规则。我们不会将你的内容出售给第三方。\n\n可通过高级模式下的工具重建数据库以清除本地数据。涉及 GDPR 等法律问题请咨询合适的专业人士。",
+    "termsTitle": "使用条款",
+    "termsBody": "使用 TellYouTo 即表示你接受以专注与身心健康为核心的体验。应用按「现状」提供；AI 与建议可能不完美 — 你仍对自己的决定负责。\n\n连接器与模拟须合法并尊重第三方服务。\n\n我们可能更新文案或功能以提高清晰度或合规性；以应用内显示版本为准。"
   },
   "connectors": {
     "whatsapp": "WhatsApp",
@@ -195,6 +217,8 @@
     "versionLabel": "版本 {{version}}",
     "debugUnlockTitle": "驾驶舱工具",
     "debugUnlockBody": "调试标签已显示在标签栏末尾。",
+    "sectionLegal": "信息",
+    "legalNav": "关于与法律声明",
     "voice": {
       "balanced": "均衡",
       "warm": "温暖",

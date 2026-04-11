@@ -2,6 +2,7 @@ export { RadarScreen } from './RadarScreen';
 export { TimelineScreen } from './TimelineScreen';
 export { AgentIAScreen } from './AgentIAScreen';
 export { AgentSettingsScreen } from './AgentSettingsScreen';
+export { LegalScreen } from './LegalScreen';
 export { MessagingScreen } from './MessagingScreen';
 export { RechargeScreen } from './RechargeScreen';
 export { StatsScreen } from './StatsScreen';

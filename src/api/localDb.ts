@@ -177,6 +177,43 @@ export async function insertIntention(input: {
   );
 }
 
+/** Session déjà terminée (démo / outils pilote) — conserve durées réelles pour les stats. */
+export async function insertCompletedIntention(input: {
+  id: string;
+  title: string;
+  description: string;
+  priority: number;
+  weights: SpectrumWeights;
+  platform_type: string;
+  platform_user_id: string;
+  created_at: number;
+  estimated_duration: number;
+  actual_duration: number;
+  completed_at: number;
+}): Promise<void> {
+  const database = await getLocalDatabase();
+  await database.runAsync(
+    `INSERT INTO intentions (
+      id, title, description, status, priority, weights,
+      platform_type, platform_user_id, created_at, synced,
+      estimated_duration, actual_duration, completed_at
+    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+    [
+      input.id,
+      input.title,
+      input.description,
+      input.priority,
+      JSON.stringify(input.weights),
+      input.platform_type,
+      input.platform_user_id,
+      input.created_at,
+      input.estimated_duration,
+      input.actual_duration,
+      input.completed_at,
+    ],
+  );
+}
+
 export async function getIntentionById(
   id: string,
 ): Promise<IntentionRow | null> {

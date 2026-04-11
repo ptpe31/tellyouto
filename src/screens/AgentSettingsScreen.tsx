@@ -1,4 +1,6 @@
 import Constants from 'expo-constants';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useRef } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -16,10 +18,13 @@ import { useDebugUnlock } from '../context/DebugUnlockContext';
 import { useAlly, type AllyTone, type AllyVoice } from '../context/AllyContext';
 import type { AppLanguage } from '../context/LanguageContext';
 import { useLanguage } from '../context/LanguageContext';
+import type { AgentStackParamList } from '../navigation/AgentStack';
 
 const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
 
 export function AgentSettingsScreen() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AgentStackParamList>>();
   const { t } = useTranslation();
   const theme = useTheme();
   const { unlock } = useDebugUnlock();
@@ -142,6 +147,22 @@ export function AgentSettingsScreen() {
         </RadioButton.Group>
       </NeumorphicCard>
 
+      <NeumorphicCard style={styles.block}>
+        <Text style={[styles.section, { color: theme.colors.primary }]}>
+          {t('ally.sectionLegal')}
+        </Text>
+        <Pressable
+          onPress={() => navigation.navigate('Legal')}
+          accessibilityRole="button"
+          accessibilityLabel={t('ally.legalNav')}
+          style={styles.legalRow}
+        >
+          <Text style={[styles.legalLink, { color: theme.colors.primary }]}>
+            {t('ally.legalNav')}
+          </Text>
+        </Pressable>
+      </NeumorphicCard>
+
       <View style={styles.linkBox}>
         <SafeExternalLink href="https://example.com/tellyouto-focus">
           <Text style={[styles.linkText, { color: theme.colors.primary }]}>
@@ -180,4 +201,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   versionText: { fontSize: 12, letterSpacing: 0.2 },
+  legalRow: { paddingVertical: 4 },
+  legalLink: { fontSize: 15, fontWeight: '600' },
 });

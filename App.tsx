@@ -10,6 +10,7 @@ import { PowerProvider } from './src/context/PowerContext';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { FocusProtectionProvider } from './src/context/FocusProtectionContext';
 import { IntentionSyncBootstrap } from './src/components/IntentionSyncBootstrap';
+import { StartupPerfBanner } from './src/components/StartupPerfBanner';
 import { SystemHealthBanner } from './src/components/SystemHealthBanner';
 import { DebugUnlockProvider } from './src/context/DebugUnlockContext';
 import { UserSpectrumProvider } from './src/context/UserSpectrumContext';
@@ -39,6 +40,7 @@ export default function App() {
                       <IntentionSyncBootstrap />
                       <SystemHealthBanner />
                       <AppNavigation />
+                      <StartupPerfBanner />
                       <StatusBarRoot />
                     </FocusProtectionProvider>
                   </UserSpectrumProvider>

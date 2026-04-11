@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
@@ -9,6 +10,7 @@ import {
 } from '../context/UserSpectrumContext';
 import { OnboardingScreen } from '../screens';
 import { MainStack } from './MainStack';
+import { markAppInteractive } from '../services/performance';
 
 const ONBOARDING_KEY = '@tellyouto/onboarding_complete';
 
@@ -25,6 +27,12 @@ function RootNavigatorInner() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (done === null) return;
+    void SplashScreen.hideAsync();
+    markAppInteractive();
+  }, [done]);
 
   const handleOnboardingComplete = useCallback(async () => {
     await AsyncStorage.setItem(ONBOARDING_KEY, 'true');

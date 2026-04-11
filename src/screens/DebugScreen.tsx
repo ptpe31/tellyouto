@@ -15,6 +15,7 @@ import { useOnboardingReset } from '../context/OnboardingResetContext';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { ingestExternalRawMessage } from '../services/externalIntentIngest';
+import { seedDemoTypicalDay } from '../services/demoTypicalDay';
 import { palette } from '../theme/colors';
 
 export function DebugScreen() {
@@ -25,7 +26,7 @@ export function DebugScreen() {
   const { resetProfileToOnboarding } = useOnboardingReset();
 
   const [busy, setBusy] = useState<
-    'profile' | 'db' | 'sim' | 'simLine' | null
+    'profile' | 'db' | 'sim' | 'simLine' | 'demoDay' | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -76,6 +77,98 @@ export function DebugScreen() {
     }
   }, [externalSenderId, spectrum, t]);
 
+  const onSeedDemoDay = useCallback(async () => {
+    setLastError(null);
+    setBusy('demoDay');
+    try {
+      await seedDemoTypicalDay(
+        spectrum.platform_type,
+        spectrum.platform_user_id,
+        [
+          {
+            title: t('debug.demoIntent1Title'),
+            description: t('debug.demoIntent1Desc'),
+            weights: {
+              structure: 0.58,
+              momentum: 0.18,
+              zen: 0.14,
+              stats: 0.1,
+            },
+            priority: 92,
+            estimated_duration: 45,
+            actual_duration: 42,
+            completedHour: 9,
+            completedMinute: 15,
+          },
+          {
+            title: t('debug.demoIntent2Title'),
+            description: t('debug.demoIntent2Desc'),
+            weights: {
+              structure: 0.12,
+              momentum: 0.58,
+              zen: 0.18,
+              stats: 0.12,
+            },
+            priority: 88,
+            estimated_duration: 30,
+            actual_duration: 33,
+            completedHour: 10,
+            completedMinute: 45,
+          },
+          {
+            title: t('debug.demoIntent3Title'),
+            description: t('debug.demoIntent3Desc'),
+            weights: {
+              structure: 0.14,
+              momentum: 0.12,
+              zen: 0.56,
+              stats: 0.18,
+            },
+            priority: 84,
+            estimated_duration: 25,
+            actual_duration: 24,
+            completedHour: 12,
+            completedMinute: 30,
+          },
+          {
+            title: t('debug.demoIntent4Title'),
+            description: t('debug.demoIntent4Desc'),
+            weights: {
+              structure: 0.32,
+              momentum: 0.28,
+              zen: 0.22,
+              stats: 0.18,
+            },
+            priority: 80,
+            estimated_duration: 50,
+            actual_duration: 48,
+            completedHour: 15,
+            completedMinute: 20,
+          },
+          {
+            title: t('debug.demoIntent5Title'),
+            description: t('debug.demoIntent5Desc'),
+            weights: {
+              structure: 0.18,
+              momentum: 0.18,
+              zen: 0.18,
+              stats: 0.46,
+            },
+            priority: 76,
+            estimated_duration: 40,
+            actual_duration: 38,
+            completedHour: 17,
+            completedMinute: 5,
+          },
+        ],
+      );
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, [spectrum.platform_type, spectrum.platform_user_id, t]);
+
   const onSimLine = useCallback(async () => {
     setLastError(null);
     setBusy('simLine');
@@ -107,6 +200,24 @@ export function DebugScreen() {
       <Text style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>
         {t('debug.note')}
       </Text>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          {t('debug.demoDaySectionTitle')}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.demoDayHelp')}
+        </Text>
+        <Button
+          mode="contained"
+          onPress={onSeedDemoDay}
+          disabled={busy !== null}
+          style={styles.btn}
+          buttonColor={palette.orange}
+        >
+          {t('debug.demoDayButton')}
+        </Button>
+      </View>
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
@@ -176,7 +287,9 @@ export function DebugScreen() {
               ? t('debug.busyProfile')
               : busy === 'db'
                 ? t('debug.busySqlite')
-                : t('debug.simBusy')}
+                : busy === 'demoDay'
+                  ? t('debug.demoDayBusy')
+                  : t('debug.simBusy')}
           </Text>
         </View>
       )}
