@@ -555,7 +555,9 @@ export function orderIntentionsBySpectrum(
 /**
  * Répartit les intentions : jamais dans le passé ; jour jusqu’à 20h ; fin de nuit après 21h.
  * Les micro-habitudes sont fragmentées en 6–8 créneaux de 2 min dans les creux du rail.
- * `busyIntervals` : blocs indisponibles (ex. calendrier système) — traités **uniquement en local**.
+ * `busyIntervals` : blocs indisponibles (ex. calendrier système **connectés** dans les réglages) —
+ * traités **uniquement en local**. Les calendriers « masqués sur le rail » mais connectés doivent
+ * être inclus ici pour le placement ; l’affichage séparé est géré par l’écran (créneaux visibles).
  */
 export function buildTimelineSlots(
   intentions: IntentionRow[],

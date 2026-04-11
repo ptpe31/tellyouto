@@ -172,7 +172,7 @@ export function StatsScreen() {
   const theme = useTheme();
   const power = usePower();
   const { spectrum } = useUserSpectrum();
-  const { connectEnabled, refreshBusy } = useCalendarIntegration();
+  const { connectEnabled, busyIntervals, refreshBusy } = useCalendarIntegration();
   const [loading, setLoading] = useState(true);
   const [todayRows, setTodayRows] = useState<IntentionRow[]>([]);
   const [historyRows, setHistoryRows] = useState<IntentionRow[]>([]);
@@ -192,10 +192,7 @@ export function StatsScreen() {
     setHistoryRows(recent);
     setWellbeingChecks(checks);
     const pend = pending.filter((r) => r.status !== 'done');
-    let busy: BusyInterval[] = [];
-    if (connectEnabled) {
-      busy = await refreshBusy();
-    }
+    const busy: BusyInterval[] = connectEnabled ? busyIntervals : [];
     const slots = buildTimelineSlots(
       pend,
       {
@@ -211,14 +208,18 @@ export function StatsScreen() {
       slots.filter((s) => s.railVariant === 'micro_pastille').length,
     );
     setLoading(false);
-  }, [spectrum, connectEnabled, refreshBusy]);
+  }, [spectrum, connectEnabled, busyIntervals]);
 
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
-      void load();
-    }, [load]),
+      if (connectEnabled) void refreshBusy();
+    }, [connectEnabled, refreshBusy]),
   );
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {

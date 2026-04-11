@@ -7,11 +7,11 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Button, Switch, useTheme } from 'react-native-paper';
+import { Button, useTheme } from 'react-native-paper';
 
+import { CalendarGranularSection } from '../components';
 import { LineConnector, WhatsAppConnector } from '../api/connectors';
 import { resetLocalDatabaseSchema } from '../api/localDb';
-import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
 import { useOnboardingReset } from '../context/OnboardingResetContext';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -25,14 +25,6 @@ export function DebugScreen() {
   const { spectrum } = useUserSpectrum();
   const power = usePower();
   const { resetProfileToOnboarding } = useOnboardingReset();
-  const {
-    connectEnabled,
-    hideEventsOnRail,
-    setConnectEnabled,
-    setHideEventsOnRail,
-    refreshBusy,
-  } = useCalendarIntegration();
-
   const [busy, setBusy] = useState<
     'profile' | 'db' | 'sim' | 'simLine' | 'demoDay' | null
   >(null);
@@ -213,42 +205,7 @@ export function DebugScreen() {
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
           {t('debug.calendarSection')}
         </Text>
-        <View style={styles.switchRow}>
-          <View style={styles.switchLabelCol}>
-            <Text style={[styles.switchTitle, { color: theme.colors.onSurface }]}>
-              {t('debug.calendarConnect')}
-            </Text>
-            <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-              {t('debug.calendarConnectHelp')}
-            </Text>
-          </View>
-          <Switch
-            value={connectEnabled}
-            onValueChange={(v) => {
-              void (async () => {
-                await setConnectEnabled(v);
-                if (v) await refreshBusy();
-              })();
-            }}
-          />
-        </View>
-        <View style={[styles.switchRow, styles.switchRowSecond]}>
-          <View style={styles.switchLabelCol}>
-            <Text style={[styles.switchTitle, { color: theme.colors.onSurface }]}>
-              {t('debug.calendarHideRail')}
-            </Text>
-            <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-              {t('debug.calendarHideHelp')}
-            </Text>
-          </View>
-          <Switch
-            value={hideEventsOnRail}
-            disabled={!connectEnabled}
-            onValueChange={(v) => {
-              void setHideEventsOnRail(v);
-            }}
-          />
-        </View>
+        <CalendarGranularSection />
       </View>
 
       <View style={styles.section}>

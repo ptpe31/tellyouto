@@ -1,4 +1,5 @@
 import * as Calendar from 'expo-calendar';
+import type { Event } from 'expo-calendar';
 import { Platform } from 'react-native';
 
 /** Intervalle occupé en minutes depuis minuit — aucun titre ni lieu (confidentialité). */
@@ -66,9 +67,74 @@ export function mergeBusyIntervals(
   return out;
 }
 
+function eventToDayInterval(
+  ev: Event,
+  dayStart: Date,
+  dayEnd: Date,
+): BusyIntervalMinutes | null {
+  const sb = new Date(ev.startDate);
+  const eb = new Date(ev.endDate);
+  if (eb <= dayStart || sb >= dayEnd) return null;
+  const s = Math.max(sb.getTime(), dayStart.getTime());
+  const e = Math.min(eb.getTime(), dayEnd.getTime());
+  const sm = minutesSinceMidnight(new Date(s));
+  const em = minutesSinceMidnight(new Date(e));
+  if (em <= sm) return null;
+  return { startMinutes: sm, endMinutes: em };
+}
+
+export type TodayBusySplit = {
+  /** Tous les créneaux des calendriers connectés — placement agent / collisions. */
+  blocking: BusyIntervalMinutes[];
+  /** Sous-ensemble dont le rail est visible — affichage Timeline uniquement. */
+  visible: BusyIntervalMinutes[];
+};
+
 /**
- * Récupère les créneaux occupés pour la journée locale courante.
- * Ne retient que start/end (minutes) — pas de titre, pas d’export vers le cloud.
+ * Créneaux occupés pour aujourd’hui : `blocking` agrège uniquement les calendriers **connectés**.
+ * `visible` = événements des calendriers connectés avec **railVisible** (masqués → bloquent quand même).
+ */
+export async function getTodayBusyIntervalsSplit(
+  connectedCalendarIds: string[],
+  railVisibleByCalendarId: Record<string, boolean>,
+): Promise<TodayBusySplit> {
+  const { status } = await Calendar.getCalendarPermissionsAsync();
+  if (status !== 'granted' || connectedCalendarIds.length === 0) {
+    return { blocking: [], visible: [] };
+  }
+
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart.getTime() + MS_PER_DAY);
+
+  const events = await Calendar.getEventsAsync(
+    connectedCalendarIds,
+    dayStart,
+    dayEnd,
+  );
+
+  const rawBlock: BusyIntervalMinutes[] = [];
+  const rawVis: BusyIntervalMinutes[] = [];
+
+  for (const ev of events) {
+    const interval = eventToDayInterval(ev, dayStart, dayEnd);
+    if (!interval) continue;
+    rawBlock.push(interval);
+    const calId = ev.calendarId;
+    if (railVisibleByCalendarId[calId] === true) {
+      rawVis.push(interval);
+    }
+  }
+
+  return {
+    blocking: mergeBusyIntervals(rawBlock),
+    visible: mergeBusyIntervals(rawVis),
+  };
+}
+
+/**
+ * @deprecated Utiliser `getTodayBusyIntervalsSplit` avec les IDs connectés.
+ * Comportement historique : tous les calendriers de l’appareil.
  */
 export async function getTodayBusyIntervalsMinutes(): Promise<BusyIntervalMinutes[]> {
   const { status } = await Calendar.getCalendarPermissionsAsync();
@@ -77,25 +143,17 @@ export async function getTodayBusyIntervalsMinutes(): Promise<BusyIntervalMinute
   const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
   if (calendars.length === 0) return [];
 
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start.getTime() + MS_PER_DAY);
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart.getTime() + MS_PER_DAY);
 
   const ids = calendars.map((c) => c.id);
-  const events = await Calendar.getEventsAsync(ids, start, end);
+  const events = await Calendar.getEventsAsync(ids, dayStart, dayEnd);
 
   const raw: BusyIntervalMinutes[] = [];
   for (const ev of events) {
-    const sb = new Date(ev.startDate);
-    const eb = new Date(ev.endDate);
-    if (eb <= start || sb >= end) continue;
-    const s = Math.max(sb.getTime(), start.getTime());
-    const e = Math.min(eb.getTime(), end.getTime());
-    const sm = minutesSinceMidnight(new Date(s));
-    const em = minutesSinceMidnight(new Date(e));
-    if (em > sm) {
-      raw.push({ startMinutes: sm, endMinutes: em });
-    }
+    const interval = eventToDayInterval(ev, dayStart, dayEnd);
+    if (interval) raw.push(interval);
   }
 
   return mergeBusyIntervals(raw);

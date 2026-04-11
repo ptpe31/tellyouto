@@ -10,29 +10,60 @@ import { AppState, type AppStateStatus } from 'react-native';
 
 import type { BusyInterval } from '../services/agentLogic';
 import {
-  getTodayBusyIntervalsMinutes,
+  getTodayBusyIntervalsSplit,
+  listDeviceCalendars,
   requestCalendarPermissions,
+  type DeviceCalendarInfo,
 } from '../services/calendarService';
 import {
   getCalendarConnectEnabled,
-  getCalendarHideOnRail,
+  getCalendarDeviceConfigs,
+  mergeConfigsWithDeviceList,
+  patchCalendarDeviceConfig,
   setCalendarConnectEnabled,
-  setCalendarHideOnRail,
+  setCalendarDeviceConfigs,
+  type CalendarDeviceConfig,
 } from '../services/calendarSettings';
 
 type CalendarIntegrationValue = {
   connectEnabled: boolean;
-  hideEventsOnRail: boolean;
+  /** Créneaux indisponibles (calendriers connectés) — agent & collisions. */
   busyIntervals: BusyInterval[];
+  /** Créneaux à afficher sur le rail (calendriers connectés + visibles). */
+  visibleBusyIntervals: BusyInterval[];
   loading: boolean;
+  deviceCalendars: DeviceCalendarInfo[];
+  calendarConfigs: Record<string, CalendarDeviceConfig>;
+  calendarsListLoading: boolean;
   setConnectEnabled: (v: boolean) => Promise<void>;
-  setHideEventsOnRail: (v: boolean) => Promise<void>;
   refreshBusy: () => Promise<BusyInterval[]>;
+  /** Recharge la liste système et fusionne les préférences locales. */
+  refreshDeviceCalendars: () => Promise<void>;
+  setCalendarConnected: (calendarId: string, connected: boolean) => Promise<void>;
+  setCalendarRailVisible: (calendarId: string, railVisible: boolean) => Promise<void>;
 };
 
 const CalendarIntegrationContext = createContext<
   CalendarIntegrationValue | undefined
 >(undefined);
+
+function configsToConnectedIds(
+  configs: Record<string, CalendarDeviceConfig>,
+): string[] {
+  return Object.entries(configs)
+    .filter(([, c]) => c.connected)
+    .map(([id]) => id);
+}
+
+function railVisibleMapFromConfigs(
+  configs: Record<string, CalendarDeviceConfig>,
+): Record<string, boolean> {
+  const m: Record<string, boolean> = {};
+  for (const [id, c] of Object.entries(configs)) {
+    if (c.connected) m[id] = c.railVisible;
+  }
+  return m;
+}
 
 export function CalendarIntegrationProvider({
   children,
@@ -40,50 +71,121 @@ export function CalendarIntegrationProvider({
   children: React.ReactNode;
 }) {
   const [connectEnabled, setConnectState] = useState(false);
-  const [hideEventsOnRail, setHideState] = useState(false);
   const [busyIntervals, setBusyIntervals] = useState<BusyInterval[]>([]);
+  const [visibleBusyIntervals, setVisibleBusyIntervals] = useState<
+    BusyInterval[]
+  >([]);
   const [loading, setLoading] = useState(true);
+  const [deviceCalendars, setDeviceCalendars] = useState<DeviceCalendarInfo[]>(
+    [],
+  );
+  const [calendarConfigs, setCalendarConfigsState] = useState<
+    Record<string, CalendarDeviceConfig>
+  >({});
+  const [calendarsListLoading, setCalendarsListLoading] = useState(false);
+
+  const applyBusyFromConfigs = useCallback(
+    async (configs: Record<string, CalendarDeviceConfig>): Promise<BusyInterval[]> => {
+      const on = await getCalendarConnectEnabled();
+      if (!on) {
+        setBusyIntervals([]);
+        setVisibleBusyIntervals([]);
+        return [];
+      }
+      const ok = await requestCalendarPermissions();
+      if (!ok) {
+        setBusyIntervals([]);
+        setVisibleBusyIntervals([]);
+        return [];
+      }
+      const connected = configsToConnectedIds(configs);
+      const railVis = railVisibleMapFromConfigs(configs);
+      const split = await getTodayBusyIntervalsSplit(connected, railVis);
+      setBusyIntervals(split.blocking);
+      setVisibleBusyIntervals(split.visible);
+      return split.blocking;
+    },
+    [],
+  );
 
   const refreshBusy = useCallback(async (): Promise<BusyInterval[]> => {
+    const configs = await getCalendarDeviceConfigs();
+    return applyBusyFromConfigs(configs);
+  }, [applyBusyFromConfigs]);
+
+  const refreshDeviceCalendars = useCallback(async () => {
     const on = await getCalendarConnectEnabled();
     if (!on) {
-      setBusyIntervals([]);
-      return [];
+      setDeviceCalendars([]);
+      return;
     }
     const ok = await requestCalendarPermissions();
     if (!ok) {
-      setBusyIntervals([]);
-      return [];
+      setDeviceCalendars([]);
+      return;
     }
-    const intervals = await getTodayBusyIntervalsMinutes();
-    setBusyIntervals(intervals);
-    return intervals;
-  }, []);
+    setCalendarsListLoading(true);
+    try {
+      const devices = await listDeviceCalendars();
+      setDeviceCalendars(devices);
+      const existing = await getCalendarDeviceConfigs();
+      const merged = mergeConfigsWithDeviceList(
+        devices.map((d) => d.id),
+        existing,
+      );
+      await setCalendarDeviceConfigs(merged);
+      setCalendarConfigsState(merged);
+      await applyBusyFromConfigs(merged);
+    } finally {
+      setCalendarsListLoading(false);
+    }
+  }, [applyBusyFromConfigs]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [c, h] = await Promise.all([
-        getCalendarConnectEnabled(),
-        getCalendarHideOnRail(),
-      ]);
+      const c = await getCalendarConnectEnabled();
       if (cancelled) return;
       setConnectState(c);
-      setHideState(h);
+      const configs = await getCalendarDeviceConfigs();
+      setCalendarConfigsState(configs);
       setLoading(false);
-      if (c) await refreshBusy();
+      if (c) {
+        const ok = await requestCalendarPermissions();
+        if (cancelled || !ok) return;
+        setCalendarsListLoading(true);
+        try {
+          const devices = await listDeviceCalendars();
+          if (cancelled) return;
+          setDeviceCalendars(devices);
+          const merged = mergeConfigsWithDeviceList(
+            devices.map((d) => d.id),
+            configs,
+          );
+          await setCalendarDeviceConfigs(merged);
+          setCalendarConfigsState(merged);
+          const connected = configsToConnectedIds(merged);
+          const railVis = railVisibleMapFromConfigs(merged);
+          const split = await getTodayBusyIntervalsSplit(connected, railVis);
+          if (cancelled) return;
+          setBusyIntervals(split.blocking);
+          setVisibleBusyIntervals(split.visible);
+        } finally {
+          if (!cancelled) setCalendarsListLoading(false);
+        }
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [refreshBusy]);
+  }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
-      if (s === 'active' && connectEnabled) void refreshBusy();
+      if (s === 'active') void refreshBusy();
     });
     return () => sub.remove();
-  }, [connectEnabled, refreshBusy]);
+  }, [refreshBusy]);
 
   const setConnectEnabled = useCallback(
     async (v: boolean) => {
@@ -91,37 +193,64 @@ export function CalendarIntegrationProvider({
       await setCalendarConnectEnabled(v);
       if (v) {
         await requestCalendarPermissions();
-        await refreshBusy();
+        await refreshDeviceCalendars();
       } else {
+        setDeviceCalendars([]);
         setBusyIntervals([]);
+        setVisibleBusyIntervals([]);
       }
     },
-    [refreshBusy],
+    [refreshDeviceCalendars],
   );
 
-  const setHideEventsOnRail = useCallback(async (v: boolean) => {
-    setHideState(v);
-    await setCalendarHideOnRail(v);
-  }, []);
+  const setCalendarConnected = useCallback(
+    async (calendarId: string, connected: boolean) => {
+      const next = await patchCalendarDeviceConfig(calendarId, { connected });
+      setCalendarConfigsState(next);
+      await applyBusyFromConfigs(next);
+    },
+    [applyBusyFromConfigs],
+  );
+
+  const setCalendarRailVisible = useCallback(
+    async (calendarId: string, railVisible: boolean) => {
+      const next = await patchCalendarDeviceConfig(calendarId, {
+        railVisible,
+      });
+      setCalendarConfigsState(next);
+      await applyBusyFromConfigs(next);
+    },
+    [applyBusyFromConfigs],
+  );
 
   const value = useMemo(
     () => ({
       connectEnabled,
-      hideEventsOnRail,
       busyIntervals,
+      visibleBusyIntervals,
       loading,
+      deviceCalendars,
+      calendarConfigs,
+      calendarsListLoading,
       setConnectEnabled,
-      setHideEventsOnRail,
       refreshBusy,
+      refreshDeviceCalendars,
+      setCalendarConnected,
+      setCalendarRailVisible,
     }),
     [
       connectEnabled,
-      hideEventsOnRail,
       busyIntervals,
+      visibleBusyIntervals,
       loading,
+      deviceCalendars,
+      calendarConfigs,
+      calendarsListLoading,
       setConnectEnabled,
-      setHideEventsOnRail,
       refreshBusy,
+      refreshDeviceCalendars,
+      setCalendarConnected,
+      setCalendarRailVisible,
     ],
   );
 

@@ -55,6 +55,38 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+type RailRow =
+  | { type: 'intention'; slot: TimelineSlot }
+  | {
+      type: 'external';
+      key: string;
+      startMinutes: number;
+      endMinutes: number;
+    };
+
+function mergeRailRows(
+  intentionSlots: TimelineSlot[],
+  visibleExternal: BusyInterval[],
+  connectEnabled: boolean,
+): RailRow[] {
+  const int: RailRow[] = intentionSlots.map((slot) => ({
+    type: 'intention',
+    slot,
+  }));
+  if (!connectEnabled || visibleExternal.length === 0) return int;
+  const ext: RailRow[] = visibleExternal.map((b, i) => ({
+    type: 'external',
+    key: `ext-${b.startMinutes}-${b.endMinutes}-${i}`,
+    startMinutes: b.startMinutes,
+    endMinutes: b.endMinutes,
+  }));
+  return [...int, ...ext].sort((a, b) => {
+    const sa = a.type === 'intention' ? a.slot.startMinutes : a.startMinutes;
+    const sb = b.type === 'intention' ? b.slot.startMinutes : b.startMinutes;
+    return sa - sb;
+  });
+}
+
 type SlotRowProps = {
   item: TimelineSlot;
   theme: MD3Theme;
@@ -201,6 +233,39 @@ function TimelineSlotRow({
   );
 }
 
+function ExternalEventRow({
+  startMinutes,
+  endMinutes,
+  theme,
+  t,
+}: {
+  startMinutes: number;
+  endMinutes: number;
+  theme: MD3Theme;
+  t: TFunction;
+}) {
+  return (
+    <NeumorphicCard
+      style={[
+        styles.externalCard,
+        { backgroundColor: 'rgba(140, 170, 188, 0.22)' },
+      ]}
+    >
+      <Text
+        style={[styles.externalEyebrow, { color: theme.colors.onSurfaceVariant }]}
+      >
+        {t('timeline.externalEventLabel')}
+      </Text>
+      <Text style={[styles.externalTime, { color: theme.colors.onSurface }]}>
+        {t('timeline.calendarBusy', {
+          start: formatMinutesAsClock(startMinutes),
+          end: formatMinutesAsClock(endMinutes),
+        })}
+      </Text>
+    </NeumorphicCard>
+  );
+}
+
 export function TimelineScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -209,8 +274,8 @@ export function TimelineScreen() {
   const navigation = useNavigation();
   const {
     connectEnabled,
-    hideEventsOnRail,
     busyIntervals,
+    visibleBusyIntervals,
     refreshBusy,
   } = useCalendarIntegration();
   const { shouldWarnForLaunch } = useFocusCalendarConflict();
@@ -229,10 +294,7 @@ export function TimelineScreen() {
     const rows = (await listIntentionsDescending()).filter(
       (r) => r.status !== 'done',
     );
-    let busyForAgent: BusyInterval[] = [];
-    if (connectEnabled) {
-      busyForAgent = await refreshBusy();
-    }
+    const busyForAgent: BusyInterval[] = connectEnabled ? busyIntervals : [];
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const now = new Date();
     const built = buildTimelineSlots(
@@ -252,13 +314,17 @@ export function TimelineScreen() {
       slots: built,
       now,
     });
-  }, [spectrum, connectEnabled, refreshBusy]);
+  }, [spectrum, connectEnabled, busyIntervals]);
 
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load]),
+      if (connectEnabled) void refreshBusy();
+    }, [connectEnabled, refreshBusy]),
   );
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
@@ -328,6 +394,11 @@ export function TimelineScreen() {
     [focusPickTarget, shouldWarnForLaunch, navigateFocus],
   );
 
+  const railRows = useMemo(
+    () => mergeRailRows(slots, visibleBusyIntervals, connectEnabled),
+    [slots, visibleBusyIntervals, connectEnabled],
+  );
+
   const listHeader = useMemo(
     () => (
       <View style={styles.header}>
@@ -345,64 +416,47 @@ export function TimelineScreen() {
           label={t('timeline.dayRail')}
           timeCaption={t('timeline.now')}
         />
-        {connectEnabled &&
-        !hideEventsOnRail &&
-        busyIntervals.length > 0 ? (
-          <NeumorphicCard style={styles.calendarCard}>
-            <Text
-              style={[
-                styles.calendarTitle,
-                { color: theme.colors.onSurfaceVariant },
-              ]}
-            >
-              {t('timeline.calendarRailTitle')}
-            </Text>
-            {busyIntervals.map((b, i) => (
-              <Text
-                key={`${b.startMinutes}-${b.endMinutes}-${i}`}
-                style={[styles.calendarLine, { color: theme.colors.onSurface }]}
-              >
-                {t('timeline.calendarBusy', {
-                  start: formatMinutesAsClock(b.startMinutes),
-                  end: formatMinutesAsClock(b.endMinutes),
-                })}
-              </Text>
-            ))}
-          </NeumorphicCard>
-        ) : null}
       </View>
     ),
-    [
-      t,
-      theme.colors.onBackground,
-      theme.colors.onSurface,
-      theme.colors.onSurfaceVariant,
-      connectEnabled,
-      hideEventsOnRail,
-      busyIntervals,
-    ],
+    [t, theme.colors.onBackground, theme.colors.onSurfaceVariant],
   );
 
-  const renderItem = ({ item }: { item: TimelineSlot }) => (
-    <TimelineSlotRow
-      item={item}
-      theme={theme}
-      t={t}
-      onExitComplete={onQuickExitComplete}
-      onRequestLaunch={setFocusPickTarget}
-      onAlarmChange={onAlarmChange}
-    />
-  );
+  const renderItem = ({ item }: { item: RailRow }) => {
+    if (item.type === 'external') {
+      return (
+        <ExternalEventRow
+          startMinutes={item.startMinutes}
+          endMinutes={item.endMinutes}
+          theme={theme}
+          t={t}
+        />
+      );
+    }
+    return (
+      <TimelineSlotRow
+        item={item.slot}
+        theme={theme}
+        t={t}
+        onExitComplete={onQuickExitComplete}
+        onRequestLaunch={setFocusPickTarget}
+        onAlarmChange={onAlarmChange}
+      />
+    );
+  };
 
   return (
     <View
       style={[styles.flex, { backgroundColor: theme.colors.background }]}
     >
       <FlatList
-        data={slots}
-        keyExtractor={(item) => item.intention.id}
+        data={railRows}
+        keyExtractor={(item) =>
+          item.type === 'intention'
+            ? `${item.slot.intention.id}-${item.slot.startMinutes}-${item.slot.microFragmentIndex ?? 0}`
+            : item.key
+        }
         renderItem={renderItem}
-        extraData={`${theme.dark}-${connectEnabled}-${hideEventsOnRail}-${busyIntervals.map((b) => `${b.startMinutes}-${b.endMinutes}`).join('|')}-${slots.map((s) => `${s.intention.id}:${s.intention.alarm_enabled ? 1 : 0}`).join(',')}`}
+        extraData={`${theme.dark}-${connectEnabled}-${busyIntervals.map((b) => `${b.startMinutes}-${b.endMinutes}`).join('|')}-${visibleBusyIntervals.map((b) => `${b.startMinutes}-${b.endMinutes}`).join('|')}-${slots.map((s) => `${s.intention.id}:${s.intention.alarm_enabled ? 1 : 0}`).join(',')}`}
         contentContainerStyle={[
           styles.listPad,
           { paddingBottom: 24 + insets.bottom },
@@ -484,9 +538,19 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   listPad: { padding: 16 },
   header: { marginBottom: 8 },
-  calendarCard: { marginTop: 12, paddingVertical: 12 },
-  calendarTitle: { fontSize: 12, fontWeight: '700', marginBottom: 8 },
-  calendarLine: { fontSize: 14, marginBottom: 4 },
+  externalCard: {
+    marginBottom: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  externalEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  externalTime: { fontSize: 14, fontWeight: '500' },
   title: { fontSize: 22, fontWeight: '600', marginBottom: 6 },
   sub: { fontSize: 14, lineHeight: 20, marginBottom: 12 },
   card: { marginBottom: 14 },

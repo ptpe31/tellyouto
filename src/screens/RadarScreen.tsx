@@ -166,7 +166,7 @@ export function RadarScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { spectrum } = useUserSpectrum();
-  const { connectEnabled, refreshBusy } = useCalendarIntegration();
+  const { connectEnabled, busyIntervals, refreshBusy } = useCalendarIntegration();
   const { shouldWarnForLaunch } = useFocusCalendarConflict();
 
   const [rows, setRows] = useState<IntentionRow[]>([]);
@@ -217,29 +217,24 @@ export function RadarScreen() {
   }, [load]);
 
   useEffect(() => {
-    void (async () => {
-      if (rows.length === 0) {
-        setRailSlots([]);
-        return;
-      }
-      let busyForAgent: BusyInterval[] = [];
-      if (connectEnabled) {
-        busyForAgent = await refreshBusy();
-      }
-      const built = buildTimelineSlots(
-        rows,
-        {
-          structure: spectrum.structure,
-          momentum: spectrum.momentum,
-          zen: spectrum.zen,
-          stats: spectrum.stats,
-        },
-        new Date(),
-        { busyIntervals: busyForAgent },
-      );
-      setRailSlots(built);
-    })();
-  }, [rows, spectrum, connectEnabled, refreshBusy]);
+    if (rows.length === 0) {
+      setRailSlots([]);
+      return;
+    }
+    const busyForAgent: BusyInterval[] = connectEnabled ? busyIntervals : [];
+    const built = buildTimelineSlots(
+      rows,
+      {
+        structure: spectrum.structure,
+        momentum: spectrum.momentum,
+        zen: spectrum.zen,
+        stats: spectrum.stats,
+      },
+      new Date(),
+      { busyIntervals: busyForAgent },
+    );
+    setRailSlots(built);
+  }, [rows, spectrum, connectEnabled, busyIntervals]);
 
   const nowMinutes = useMemo(() => {
     const d = new Date();
