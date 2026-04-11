@@ -19,7 +19,7 @@
     "privateChannelSubtitle": "Telegram は含まれます。WhatsApp・Slack・LINE は Pro が必要です。",
     "channelsCatalogTitle": "チャネルと拡張",
     "channelsCatalogLead": "同時に有効にできるのは1チャネルのみ — アリーが意図を送る先です。",
-    "channelsPrivacyFootnote": "各プレミアムチャネルは、あなたとローカルレール間の暗号化された専用回線です。データは販売されません。"
+    "channelsPrivacyFootnote": "各プレミアムチャネルは、あなたとローカルレール間の暗号化された専用回線です。データは販売されません。安全なトンネルを経由し、スマートフォンに同期された後はクラウドから直ちに削除されます。"
   },
   "pro": {
     "modalTitle": "最大の力を解放",

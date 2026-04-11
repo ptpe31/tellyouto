@@ -19,7 +19,7 @@
     "privateChannelSubtitle": "包含 Telegram；WhatsApp、Slack、LINE 需 Pro。",
     "channelsCatalogTitle": "频道与扩展",
     "channelsCatalogLead": "同时只能激活一个频道 — 盟友在此向你发送意图。",
-    "channelsPrivacyFootnote": "每个高级频道都是你与本地轨道之间的加密直连。不出售任何数据。"
+    "channelsPrivacyFootnote": "每个高级频道都是你与本地轨道之间的加密直连。不出售任何数据：经安全隧道传输，并在同步到你的手机后立即从云端清除。"
   },
   "pro": {
     "modalTitle": "解锁全部能力",

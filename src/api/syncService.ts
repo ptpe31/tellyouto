@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import { doc, setDoc } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc } from 'firebase/firestore';
 
 import { getFirestoreDb } from './firebase';
 import {
@@ -10,6 +10,9 @@ import {
 } from './localDb';
 
 const DEVICE_ID_KEY = '@tellyouto/sync_device_id';
+
+/** Fenêtre alignée sur la purge serveur (24h) si deleteDoc échoue après transit. */
+export const TRANSIT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function getOrCreateDeviceId(): Promise<string> {
   let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
@@ -28,6 +31,7 @@ async function pushIntentionToFirestore(
   if (!firestore) return;
 
   const ref = doc(firestore, 'devices', deviceId, 'intentions', row.id);
+  const now = Date.now();
 
   await setDoc(ref, {
     id: row.id,
@@ -47,7 +51,8 @@ async function pushIntentionToFirestore(
     routine_id: row.routine_id,
     anchor_date_ymd: row.anchor_date_ymd,
     fixed_start_minutes: row.fixed_start_minutes,
-    synced_client_at: Date.now(),
+    synced_client_at: now,
+    transit_expires_at: now + TRANSIT_TTL_MS,
   });
 }
 
@@ -55,7 +60,8 @@ async function pushIntentionToFirestore(
  * Envoie les intentions locales non synchronisées vers Firestore.
  */
 export async function syncPendingIntentions(): Promise<void> {
-  if (!getFirestoreDb()) return;
+  const firestore = getFirestoreDb();
+  if (!firestore) return;
 
   const deviceId = await getOrCreateDeviceId();
   const pending = await listUnsyncedIntentions();
@@ -64,6 +70,12 @@ export async function syncPendingIntentions(): Promise<void> {
     try {
       await pushIntentionToFirestore(deviceId, row);
       await markIntentionSynced(row.id);
+      /** Rétention zéro : le Cloud ne conserve pas la copie après passage local confirmé. */
+      try {
+        await deleteDoc(doc(firestore, 'devices', deviceId, 'intentions', row.id));
+      } catch {
+        /* purge différée via Cloud Function si réseau / règles */
+      }
     } catch {
       /* réseau ou règles Firestore — retry au prochain online */
     }

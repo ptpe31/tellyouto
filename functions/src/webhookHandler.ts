@@ -72,7 +72,9 @@ export function parseBotRequestBody(body: unknown): GenericBotPayload | null {
 
 /**
  * Reçoit les messages des bots, résout l’appareil via `messengerBindings/{channel}_{id}`,
- * pousse une intention dans `devices/{deviceId}/rail_inbox`.
+ * pousse une intention volatile dans `devices/{deviceId}/rail_inbox` (transit uniquement).
+ * La liaison appareil repose sur `deviceId` issu du binding ; le texte n’est pas stocké
+ * durablement côté Cloud une fois l’app ingérée (deleteDoc client + purge planifiée).
  *
  * Sécurité : définir `BOT_WEBHOOK_SECRET` et envoyer l’en-tête `x-webhook-secret`
  * (ou query `?secret=`) pour les tests ; adapter par fournisseur (signature Telegram, etc.).
@@ -193,13 +195,16 @@ export async function handleBotWebhook(
   }
 
   const docRef = deviceRef.collection('rail_inbox').doc();
+  const now = Date.now();
 
   const inboxPayload = {
     title: parsed.text.slice(0, 500),
     description: (parsed.description ?? '').slice(0, 2000),
     platform_type: parsed.channel,
     messenger_user_id: parsed.messengerUserId,
-    created_at: Date.now(),
+    created_at: now,
+    /** Aligné sur purge serveur si le client n’efface pas le doc après ingestion. */
+    transit_expires_at: now + 24 * 60 * 60 * 1000,
   };
 
   const outcome = await firestore.runTransaction(async (txn) => {

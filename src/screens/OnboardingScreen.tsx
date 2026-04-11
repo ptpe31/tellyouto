@@ -45,6 +45,7 @@ import {
 } from '../services/connectorLinks';
 import { pushDeviceProfileToFirestore } from '../api/userProfile';
 import { getOrCreateDeviceId } from '../api/syncService';
+import { ChannelsPrivacyFootnote } from './ChannelsScreen';
 
 type Props = {
   onComplete: () => void;
@@ -415,9 +416,7 @@ export function OnboardingScreen({ onComplete }: Props) {
             </Text>
           ) : null}
 
-          <Text style={[styles.channelFoot, { color: theme.colors.outline }]}>
-            {t('settings.channelsPrivacyFootnote')}
-          </Text>
+          <ChannelsPrivacyFootnote style={styles.channelFoot} />
 
           {telegramInstalled === false ? (
             <Button

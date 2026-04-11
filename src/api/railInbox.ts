@@ -33,8 +33,8 @@ type RailInboxPayload = {
 };
 
 /**
- * Intentions poussées par le webhook (bots) — consommées puis doc supprimé.
- * Aucune donnée calendrier : uniquement titre/description issues du message bot.
+ * Intentions poussées par le webhook (bots) — transit Firestore → SQLite puis
+ * deleteDoc immédiat sur `rail_inbox` (rétention zéro côté Cloud une fois ingérée).
  */
 export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => void {
   const db = getFirestoreDb();
@@ -149,12 +149,17 @@ export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => 
                 is_hard_constraint: false,
               });
             }
-            await deleteDoc(doc(db, 'devices', deviceId, 'rail_inbox', c.id));
-            void syncPendingIntentions();
-            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
           } catch {
-            /* doublon ou règle Firestore — retry au prochain snapshot */
+            /* doublon SQLite / contrainte — retry au prochain snapshot */
+            continue;
           }
+          try {
+            await deleteDoc(doc(db, 'devices', deviceId, 'rail_inbox', c.id));
+          } catch {
+            /* purge planifiée côté serveur si l’effacement immédiat échoue */
+          }
+          void syncPendingIntentions();
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
         }
       },
       () => {

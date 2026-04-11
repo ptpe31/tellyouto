@@ -19,7 +19,7 @@
     "privateChannelSubtitle": "Telegram ist enthalten; WhatsApp, Slack und LINE erfordern Pro.",
     "channelsCatalogTitle": "Kanäle & Erweiterungen",
     "channelsCatalogLead": "Nur ein aktiver Kanal — dorthin sendet dein Ally deine Intentionen.",
-    "channelsPrivacyFootnote": "Jeder Premium-Kanal ist eine verschlüsselte Direktleitung zwischen dir und deinem lokalen Rail. Keine Daten werden verkauft."
+    "channelsPrivacyFootnote": "Jeder Premium-Kanal ist eine verschlüsselte Direktleitung zwischen dir und deinem lokalen Rail. Es werden keine Daten verkauft: Sie passieren einen sicheren Tunnel und werden in der Cloud gelöscht, sobald sie auf deinem Telefon synchronisiert sind."
   },
   "pro": {
     "modalTitle": "Volle Leistung freischalten",

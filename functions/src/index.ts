@@ -3,6 +3,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 import { handleBotWebhook } from './webhookHandler';
+import { purgeStaleTransitDocuments } from './purgeTransitData';
 import { runProactiveReminders } from './scheduleProactiveReminders';
 
 if (!admin.apps.length) {
@@ -27,5 +28,17 @@ export const scheduleProactiveReminders = onSchedule(
   },
   async () => {
     await runProactiveReminders(db);
+  },
+);
+
+/** Rétention zéro : efface les entrées de transit > 24h (file rail_inbox + copies sync). */
+export const purgeStaleTransitData = onSchedule(
+  {
+    schedule: 'every 6 hours',
+    timeZone: 'UTC',
+    memory: '512MiB',
+  },
+  async () => {
+    await purgeStaleTransitDocuments(db);
   },
 );

@@ -48,6 +48,7 @@ import {
   buildWhatsAppRailDeepLink,
 } from '../services/connectorLinks';
 import { getOrCreateDeviceId } from '../api/syncService';
+import { ChannelsPrivacyFootnote } from './ChannelsScreen';
 
 const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
 
@@ -250,9 +251,7 @@ export function AgentSettingsScreen() {
             />
           );
         })}
-        <Text style={[styles.channelFootnote, { color: theme.colors.outline }]}>
-          {t('settings.channelsPrivacyFootnote')}
-        </Text>
+        <ChannelsPrivacyFootnote style={styles.channelFootnote} />
       </NeumorphicCard>
 
       <SingleChannelSwitchModal
