@@ -57,10 +57,15 @@
     "empty": "暂无意图。点按 + 添加。",
     "emptyTitle": "轨道是空的",
     "emptyBody": "很适合轻轻充电或定下新方向 — 准备好时点 +。",
+    "allyEyebrow": "盟友",
+    "activeSessionTitle": "专注进行中",
+    "activeSessionOpen": "进入胶囊",
     "priority": "优先级 {{value}}",
     "quickAddTitle": "快速意图",
     "fieldTitle": "标题",
     "fieldDescription": "详情（可选）",
+    "urgentLabel": "标记为紧急",
+    "done": "完成",
     "cancel": "取消",
     "save": "保存",
     "status": {
@@ -78,7 +83,15 @@
     "emptyBody": "从雷达添加意图；它们会带着建议时段出现在这里。",
     "estimated": "约 {{minutes}} 分钟（估计）",
     "suggestedWindow": "建议时段：{{start}} – {{end}}",
-    "launch": "开始"
+    "launch": "开始",
+    "done": "完成"
+  },
+  "focusMode": {
+    "title": "会话模式",
+    "chrono": "计时模式",
+    "chronoHint": "接近你的预估时长 — 由你掌控计时。",
+    "pomodoro": "番茄模式",
+    "pomodoroHint": "25 / 5 分钟 · 最多四轮专注"
   },
   "focus": {
     "start": "开始",
@@ -87,7 +100,11 @@
     "terminate": "结束",
     "terminateHold": "长按橙色按钮可提前结束 — 避免误触。",
     "feedbackTitle": "清晰",
-    "ok": "好"
+    "ok": "好",
+    "pomodoroWorkLine": "步骤 {{step}} / {{total}}",
+    "pomodoroBreakLine": "休息 · 下一步 {{nextStep}} / {{total}}",
+    "pomodoroConcentration": "专注",
+    "pomodoroBreak": "休息"
   },
   "stats": {
     "screenTitle": "清晰度一览",
@@ -162,6 +179,37 @@
     "privacyBody": "TellYouTo 重视你的个人空间：大多数意图保留在设备本地的 SQLite 数据库中，与系统其余存储一样受保护。\n\n若启用 Firebase 云同步，仅交换服务所需的数据；访问依赖 Firebase 身份验证与服务器端安全规则。我们不会将你的内容出售给第三方。\n\n可通过高级模式下的工具重建数据库以清除本地数据。涉及 GDPR 等法律问题请咨询合适的专业人士。",
     "termsTitle": "使用条款",
     "termsBody": "使用 TellYouTo 即表示你接受以专注与身心健康为核心的体验。应用按「现状」提供；AI 与建议可能不完美 — 你仍对自己的决定负责。\n\n连接器与模拟须合法并尊重第三方服务。\n\n我们可能更新文案或功能以提高清晰度或合规性；以应用内显示版本为准。"
+  },
+  "allyVoice": {
+    "greet": {
+      "morning": {
+        "structure": "先别急着冲：列三条就够框住今天的轨道。",
+        "momentum": "一早能量很足，准备好就推进你的轨道。",
+        "zen": "早安。先用一条温和的意图稳住清晰度。",
+        "stats": "用一个数字或里程碑开场，其余随后跟上。"
+      },
+      "afternoon": {
+        "structure": "午后适合轻轻收束，让下午更顺。",
+        "momentum": "下午要节奏——手里留一条最清晰的意图。",
+        "zen": "深呼吸，为下一段专注挑个安静时段。",
+        "stats": "现在做个快检：离目标还有多远？"
+      }
+    },
+    "farewell": {
+      "evening": {
+        "structure": "收尾了：关掉一个清晰的点，其余明天再说。",
+        "momentum": "今天很拼——让引擎歇歇，轨道明天还在。",
+        "zen": "温柔入夜，你的清醒值得被轻声对待。",
+        "stats": "数字可以等——先肯定今天动过的东西。"
+      },
+      "night": {
+        "structure": "很晚了，明天的清单留给早晨。",
+        "momentum": "把冲劲留到以后，轨道不会跑。",
+        "zen": "夜里宜静：一条轻意图，或干脆休息。",
+        "stats": "仪表盘睡了，你也可以。"
+      }
+    },
+    "suggestFocusCapsule": "你完成得很快！对更棘手的任务，专注胶囊也许能帮你稳住节奏。"
   },
   "connectors": {
     "whatsapp": "WhatsApp",

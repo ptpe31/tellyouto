@@ -57,10 +57,15 @@
     "empty": "意図はまだありません。+ で追加してください。",
     "emptyTitle": "レールは空いています",
     "emptyBody": "リチャージにも、新しい方向を決めるにも、ちょうどいい時間です。準備ができたら + を。",
+    "allyEyebrow": "アリー",
+    "activeSessionTitle": "フォーカス中",
+    "activeSessionOpen": "カプセルを開く",
     "priority": "優先度 {{value}}",
     "quickAddTitle": "クイック意図",
     "fieldTitle": "タイトル",
     "fieldDescription": "詳細（任意）",
+    "urgentLabel": "緊急としてマーク",
+    "done": "完了",
     "cancel": "キャンセル",
     "save": "保存",
     "status": {
@@ -78,7 +83,15 @@
     "emptyBody": "レーダーから意図を追加すると、提案枠つきでここに並びます。",
     "estimated": "約 {{minutes}} 分（見積）",
     "suggestedWindow": "提案枠：{{start}} – {{end}}",
-    "launch": "開始"
+    "launch": "開始",
+    "done": "完了"
+  },
+  "focusMode": {
+    "title": "セッションモード",
+    "chrono": "クロノ",
+    "chronoHint": "見積もりに近い時間 — タイマーはあなたが操作。",
+    "pomodoro": "ポモドーロ",
+    "pomodoroHint": "25 / 5 分 · 最大4フォーカス"
   },
   "focus": {
     "start": "開始",
@@ -87,7 +100,11 @@
     "terminate": "終了",
     "terminateHold": "オレンジのボタンを長押しで早めに終了 — 誤タップを防ぎます。",
     "feedbackTitle": "明瞭さ",
-    "ok": "OK"
+    "ok": "OK",
+    "pomodoroWorkLine": "ステップ {{step}} / {{total}}",
+    "pomodoroBreakLine": "休憩 · 次はステップ {{nextStep}} / {{total}}",
+    "pomodoroConcentration": "集中",
+    "pomodoroBreak": "休憩"
   },
   "stats": {
     "screenTitle": "明瞭さの概要",
@@ -162,6 +179,37 @@
     "privacyBody": "TellYouTo は個人の領域を大切にします。ほとんどの意図は端末内の SQLite に残り、システムストレージと同様に保護されます。\n\nFirebase 同期を有効にした場合、サービスに必要なデータのみがやり取りされ、アクセスは Firebase 認証とサーバー側のセキュリティルールに基づきます。コンテンツを第三者に販売しません。\n\n上級者向けのパイロットツールからデータベースを再構築するとローカルデータを消去できます。法的な質問（GDPR 等）は適切な専門家にご相談ください。",
     "termsTitle": "利用規約",
     "termsBody": "TellYouTo を利用すると、集中とウェルビーイングを重視する体験に同意したことになります。アプリは現状有姿で提供され、AI や提案は不完全な場合があります — 判断の責任はあなたにあります。\n\nコネクタやシミュレーションは、第三者サービスを尊重する合法的な方法で使用してください。\n\n明確さやコンプライアンスのため、文言や機能を更新することがあります。アプリに表示される版が優先します。"
+  },
+  "allyVoice": {
+    "greet": {
+      "morning": {
+        "structure": "走る前に：短いリストだけでレールの枠が決まります。",
+        "momentum": "朝からエネルギー高め。準備ができたらレールを動かそう。",
+        "zen": "おはよう。まずは穏やかな意図で、頭の中を整えよう。",
+        "stats": "一日の始まりに、一つの数字かマイルストーンをはっきり。"
+      },
+      "afternoon": {
+        "structure": "昼過ぎ：小さく立て直すと午後が楽になります。",
+        "momentum": "午後はテンポが大事。次の意図を一つだけはっきり。",
+        "zen": "深呼吸して、次のブロック用に静かな時間を選ぼう。",
+        "stats": "今が振り返りどき。目標に対してどこまで来た？"
+      }
+    },
+    "farewell": {
+      "evening": {
+        "structure": "一日の終わり：一つきれいに閉じて、あとは手放して。",
+        "momentum": "今日はよく動いた。エンジンを冷まして、明日またレールで。",
+        "zen": "穏やかな夜へ。今日の明瞭さには、静かな締めが似合う。",
+        "stats": "数字は明日でいい。進んだことを認めて。"
+      },
+      "night": {
+        "structure": "もう遅い時間。明日のリストは朝で十分。",
+        "momentum": "勢いは取っておこう。レールは逃げない。",
+        "zen": "静かな夜。軽い意図か、ただ休むだけでも。",
+        "stats": "ダッシュボードは眠る。あなたも、できれば。"
+      }
+    },
+    "suggestFocusCapsule": "とても速いペースですね。難しいタスクにはフォーカスカプセルが役立つかもしれません。"
   },
   "connectors": {
     "whatsapp": "WhatsApp",

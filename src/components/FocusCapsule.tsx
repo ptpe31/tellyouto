@@ -23,6 +23,7 @@ import {
   markIntentionActive,
   updateIntentionAfterFocus,
 } from '../api/localDb';
+import { resetQuickCompleteStreak } from '../services/focusHabits';
 import { useLanguage } from '../context/LanguageContext';
 import { useFocusProtection } from '../context/FocusProtectionContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -40,6 +41,11 @@ if (
 }
 
 type Props = NativeStackScreenProps<MainStackParamList, 'FocusCapsule'>;
+
+const POM_WORK_SEC = 25 * 60;
+const POM_BREAK_SEC = 5 * 60;
+/** Segments pairs = travail (0,2,4,6), impairs = pause ; le 6e segment est la 4e plage de travail. */
+const POM_LAST_WORK_SEGMENT = 6;
 
 function formatMmSs(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -79,7 +85,7 @@ function vibrateChronoComplete(): void {
 }
 
 export function FocusCapsuleScreen({ route, navigation }: Props) {
-  const { intentionId } = route.params;
+  const { intentionId, mode: focusMode = 'chrono' } = route.params;
   const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -96,10 +102,14 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
   const [encouragement, setEncouragement] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [pomodoroSegment, setPomodoroSegment] = useState(0);
 
   const finalizedRef = useRef(false);
   const earlyTerminationRef = useRef(false);
   const prevRemainingRef = useRef<number | null>(null);
+  const chronoInitialTotalRef = useRef(0);
+  const pomodoroSegmentRef = useRef(0);
+  const workSecondsAccumulatedRef = useRef(0);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(18)).current;
   const ringPulse = useRef(new Animated.Value(1)).current;
@@ -144,17 +154,28 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
         return;
       }
       setTitle(row.title);
-      const sec = Math.max(60, row.estimated_duration * 60);
-      setTotalSeconds(sec);
-      setRemaining(sec);
-      prevRemainingRef.current = sec;
+      if (focusMode === 'pomodoro') {
+        pomodoroSegmentRef.current = 0;
+        workSecondsAccumulatedRef.current = 0;
+        setPomodoroSegment(0);
+        setTotalSeconds(POM_WORK_SEC);
+        setRemaining(POM_WORK_SEC);
+        prevRemainingRef.current = POM_WORK_SEC;
+      } else {
+        const sec = Math.max(60, row.estimated_duration * 60);
+        chronoInitialTotalRef.current = sec;
+        setTotalSeconds(sec);
+        setRemaining(sec);
+        prevRemainingRef.current = sec;
+      }
       await markIntentionActive(row.id);
+      await resetQuickCompleteStreak();
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [intentionId, navigation]);
+  }, [intentionId, navigation, focusMode]);
 
   useEffect(() => {
     setProtectionActive(true);
@@ -168,10 +189,16 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (loading || paused || remaining <= 0 || sessionEnded || !hasStarted) return;
     const id = setInterval(() => {
-      setRemaining((r) => (r <= 1 ? 0 : r - 1));
+      setRemaining((r) => {
+        if (r <= 1) return 0;
+        if (focusMode === 'pomodoro' && pomodoroSegmentRef.current % 2 === 0) {
+          workSecondsAccumulatedRef.current += 1;
+        }
+        return r - 1;
+      });
     }, 1000);
     return () => clearInterval(id);
-  }, [loading, paused, remaining, sessionEnded, hasStarted]);
+  }, [loading, paused, remaining, sessionEnded, hasStarted, focusMode]);
 
   useEffect(() => {
     const prev = prevRemainingRef.current;
@@ -181,12 +208,13 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
       remaining === 0 &&
       hasStarted &&
       !sessionEnded &&
-      !finalizedRef.current
+      !finalizedRef.current &&
+      focusMode === 'chrono'
     ) {
       vibrateChronoComplete();
     }
     prevRemainingRef.current = remaining;
-  }, [remaining, hasStarted, sessionEnded]);
+  }, [remaining, hasStarted, sessionEnded, focusMode]);
 
   useEffect(() => {
     if (!celebrating) {
@@ -219,6 +247,9 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
   const progress = totalSeconds > 0 ? remaining / totalSeconds : 0;
   const strokeDashoffset = CIRC * (1 - progress);
 
+  const pomodoroWorkStep = Math.min(4, Math.floor(pomodoroSegment / 2) + 1);
+  const isPomodoroWork = pomodoroSegment % 2 === 0;
+
   const finalizeSession = useCallback(async () => {
     if (finalizedRef.current) return;
     finalizedRef.current = true;
@@ -239,9 +270,16 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
       return;
     }
 
-    const elapsedSec = totalSeconds - remaining;
-    const actualMin =
-      elapsedSec <= 0 ? 0 : Math.max(1, Math.round(elapsedSec / 60));
+    let actualMin: number;
+    if (focusMode === 'pomodoro') {
+      const ws = workSecondsAccumulatedRef.current;
+      actualMin =
+        ws <= 0 ? 0 : Math.max(1, Math.round(ws / 60));
+    } else {
+      const elapsedSec = chronoInitialTotalRef.current - remaining;
+      actualMin =
+        elapsedSec <= 0 ? 0 : Math.max(1, Math.round(elapsedSec / 60));
+    }
 
     await updateIntentionAfterFocus({
       id: row.id,
@@ -254,16 +292,46 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setDialogOpen(true);
     void syncPendingIntentions();
+  }, [intentionId, language, navigation, remaining, weights, focusMode]);
+
+  useEffect(() => {
+    if (focusMode !== 'pomodoro') return;
+    if (loading || paused || sessionEnded || !hasStarted) return;
+    if (remaining > 0) return;
+    if (finalizedRef.current) return;
+
+    const seg = pomodoroSegmentRef.current;
+    if (seg % 2 === 0) {
+      if (seg >= POM_LAST_WORK_SEGMENT) {
+        void finalizeSession();
+        return;
+      }
+      vibrateChronoComplete();
+      pomodoroSegmentRef.current = seg + 1;
+      setPomodoroSegment(seg + 1);
+      setTotalSeconds(POM_BREAK_SEC);
+      setRemaining(POM_BREAK_SEC);
+      prevRemainingRef.current = POM_BREAK_SEC;
+      return;
+    }
+    vibrateChronoComplete();
+    pomodoroSegmentRef.current = seg + 1;
+    setPomodoroSegment(seg + 1);
+    setTotalSeconds(POM_WORK_SEC);
+    setRemaining(POM_WORK_SEC);
+    prevRemainingRef.current = POM_WORK_SEC;
   }, [
-    intentionId,
-    language,
-    navigation,
     remaining,
-    totalSeconds,
-    weights,
+    loading,
+    paused,
+    sessionEnded,
+    hasStarted,
+    focusMode,
+    finalizeSession,
   ]);
 
   useEffect(() => {
+    if (focusMode === 'pomodoro') return;
     if (
       loading ||
       remaining > 0 ||
@@ -273,7 +341,7 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
       return;
     }
     void finalizeSession();
-  }, [remaining, loading, finalizeSession, hasStarted]);
+  }, [remaining, loading, finalizeSession, hasStarted, focusMode]);
 
   const onStartOrPause = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -390,6 +458,28 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
             <Text style={[styles.timer, { color: palette.textOnLight }]}>
               {formatMmSs(remaining)}
             </Text>
+            {focusMode === 'pomodoro' ? (
+              <Text style={[styles.pomodoroMeta, { color: palette.textOnLight }]}>
+                {isPomodoroWork
+                  ? t('focus.pomodoroWorkLine', {
+                      step: pomodoroWorkStep,
+                      total: 4,
+                    })
+                  : t('focus.pomodoroBreakLine', {
+                      nextStep: Math.floor((pomodoroSegment + 1) / 2) + 1,
+                      total: 4,
+                    })}
+              </Text>
+            ) : null}
+            {focusMode === 'pomodoro' ? (
+              <Text
+                style={[styles.pomodoroPhase, { color: palette.textOnLight }]}
+              >
+                {isPomodoroWork
+                  ? t('focus.pomodoroConcentration')
+                  : t('focus.pomodoroBreak')}
+              </Text>
+            ) : null}
           </View>
         </Animated.View>
 
@@ -480,6 +570,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   timer: { fontSize: 36, fontVariant: ['tabular-nums'] },
+  pomodoroMeta: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    opacity: 0.88,
+    maxWidth: 200,
+  },
+  pomodoroPhase: {
+    marginTop: 4,
+    fontSize: 12,
+    textAlign: 'center',
+    opacity: 0.72,
+    letterSpacing: 0.3,
+  },
   actions: {
     flexDirection: 'row',
     gap: 16,

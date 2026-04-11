@@ -12,6 +12,7 @@ export {
   computeIntentionPriority,
   estimateDurationMinutes,
   generateEncouragement,
+  inferIsLateNightIntent,
   orderIntentionsBySpectrum,
 } from './agentLogic';
-export type { TimelineSlot } from './agentLogic';
+export type { ComputePriorityOptions, TimelineSlot } from './agentLogic';

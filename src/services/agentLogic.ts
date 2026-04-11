@@ -70,14 +70,103 @@ function scoreDimension(text: string, keys: string[]): number {
   return Math.min(1, hits / 4);
 }
 
+/** Amorce stable 85–90 pour les urgences utilisateur */
+function stableHashForPriority(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h);
+}
+
 /**
- * Priorité 1–100 : Dispatcher aligné sur le spectre actuel (plus haut = plus prioritaire).
+ * Indices d’importance (multilingues) — inférence légère, pas de liste FR figée seule.
+ */
+const HIGH_IMPORTANCE_STEMS = [
+  'exam',
+  'examen',
+  'révis',
+  'revis',
+  'revision',
+  'deadline',
+  'urgent',
+  'interview',
+  'santé',
+  'medical',
+  'présentation',
+  'presentation',
+  'dossier',
+  'impôt',
+  'steuer',
+  'taxes',
+  'contrat',
+  'licenci',
+  'board',
+  'qbr',
+];
+
+const LOW_IMPORTANCE_STEMS = [
+  'arroser',
+  'fleur',
+  'flower',
+  'plante',
+  'plant',
+  'nettoyer',
+  'ménage',
+  'menage',
+  'netflix',
+  'serie',
+  'series',
+  'jeu',
+  'game',
+  'détente',
+  'detente',
+  'promenade',
+  'walk',
+];
+
+function scoreSemanticImportance(textRaw: string, now: Date): number {
+  const text = textRaw.toLowerCase();
+  let high = 0;
+  let low = 0;
+  for (const w of HIGH_IMPORTANCE_STEMS) {
+    if (text.includes(w)) high += 1;
+  }
+  for (const w of LOW_IMPORTANCE_STEMS) {
+    if (text.includes(w)) low += 1;
+  }
+  let score = 0.28 + Math.min(0.42, high * 0.07) - Math.min(0.22, low * 0.09);
+  if (
+    /\b(demain|tomorrow|morgen|mañana|明日|明天)\b/i.test(text) &&
+    /révis|revis|stud|exam|test|examen|presentation|présent/i.test(text)
+  ) {
+    score += 0.18;
+  }
+  const h = now.getHours();
+  if (h >= 11 && h <= 16 && /\b(aujourd|today|heute|hoy|今日|今天)\b/i.test(text)) {
+    if (/révis|revis|exam|deadline|rendu|due/i.test(text)) score += 0.1;
+  }
+  return Math.max(0, Math.min(1, score));
+}
+
+export type ComputePriorityOptions = {
+  userForcedUrgent?: boolean;
+};
+
+/**
+ * Priorité 1–100 : combinaison alignement spectre + importance sémantique contextuelle (heure réelle).
  */
 export function computeIntentionPriority(
   title: string,
   description: string,
   spectrum: SpectrumWeights,
+  now: Date,
+  options?: ComputePriorityOptions,
 ): number {
+  if (options?.userForcedUrgent) {
+    return 85 + (stableHashForPriority(`${title}\n${description}`) % 6);
+  }
   const text = `${title}\n${description}`;
   const dim = {
     structure: scoreDimension(text, STRUCTURE_KEYS),
@@ -90,7 +179,70 @@ export function computeIntentionPriority(
     dim.momentum * spectrum.momentum +
     dim.zen * spectrum.zen +
     dim.stats * spectrum.stats;
-  return Math.max(1, Math.min(100, Math.round(alignment * 100 + 12)));
+  const semantic = scoreSemanticImportance(text, now);
+  const blended = alignment * 0.4 + semantic * 0.6;
+  return Math.max(1, Math.min(100, Math.round(blended * 92 + 4)));
+}
+
+/**
+ * Heures tardives explicites dans le texte (22h–02h, formats variés).
+ */
+const LATE_HOUR_IN_TEXT =
+  /(?:\b(?:2[0-3]|0?[0-2])\s*[:h]\s*[0-5]?\d\b)|(?:\b(?:22|23|24|0|1|2)\s*h\b)|(?:\b1[01]\s*(?:pm|p\.m\.)\b)/i;
+
+/**
+ * Amorce sémantique « fin de journée / sommeil » — grappe multilingue extensible (pas une liste FR unique).
+ */
+const LATE_NIGHT_SEMANTIC_BUNDLES = [
+  'dormir',
+  'sleep',
+  'schlaf',
+  'coucher',
+  'couché',
+  'couche',
+  'soirée',
+  'soiree',
+  'evening',
+  'night',
+  'tonight',
+  'ce soir',
+  'ce-soir',
+  'ton soir',
+  'yoga nidra',
+  'brush teeth',
+  'brosser',
+  'détente',
+  'wind down',
+  'routine du soir',
+  'night routine',
+  'bedtime',
+  '寝る',
+  '睡眠',
+  '睡觉',
+  '就寝',
+];
+
+/**
+ * Détecte une intention typique de la fin de journée / nuit (motifs horaires + sémantique douce).
+ */
+export function inferIsLateNightIntent(
+  title: string,
+  description: string,
+  now: Date,
+): boolean {
+  const text = `${title}\n${description}`.toLowerCase();
+  if (LATE_HOUR_IN_TEXT.test(text)) return true;
+  let hits = 0;
+  for (const stem of LATE_NIGHT_SEMANTIC_BUNDLES) {
+    if (text.includes(stem.toLowerCase())) hits += 1;
+  }
+  if (hits >= 2) return true;
+  if (hits === 1 && /\b(tonight|soir|night|nuit|tonight|今晚|今夜)\b/i.test(text)) {
+    return true;
+  }
+  const nh = now.getHours();
+  if (nh >= 20 && nh <= 23 && hits >= 1) return true;
+  return false;
 }
 
 /**
@@ -129,76 +281,101 @@ function formatMinutesAsClock(totalMinutes: number): string {
   return `${pad2(h)}:${pad2(m)}`;
 }
 
+/** Minutes depuis minuit (heure locale) */
+function minutesSinceMidnight(d: Date): number {
+  return d.getHours() * 60 + d.getMinutes();
+}
+
 const DAY_START_MIN = 8 * 60;
-const DAY_END_MIN = 20 * 60;
+/** Fin des créneaux « journée » (avant le segment fin de soirée). */
+const REGULAR_RAIL_END_MIN = 20 * 60;
+/** Intentions fin de nuit : à partir de 21h (heure locale). */
+const LATE_SEGMENT_START_MIN = 21 * 60;
+const LATE_RAIL_END_MIN = 23 * 60 + 45;
+
+function spectrumEnergyHigh(spectrum: SpectrumWeights): boolean {
+  return spectrum.momentum + spectrum.stats >= spectrum.structure + spectrum.zen;
+}
 
 /**
- * Ordre suggéré par l’agent : alignement intention ↔ spectre actuel, puis priorité.
+ * Ordre rail : priorité décroissante, puis densité (blocs plus lourds en premier si l’énergie
+ * Momentum+Stats domine ; sinon blocs plus légers en premier).
  */
 export function orderIntentionsBySpectrum(
   intentions: IntentionRow[],
   spectrum: SpectrumWeights,
 ): IntentionRow[] {
-  const alignment = (row: IntentionRow) =>
-    row.weights.structure * spectrum.structure +
-    row.weights.momentum * spectrum.momentum +
-    row.weights.zen * spectrum.zen +
-    row.weights.stats * spectrum.stats;
-
+  const heavyFirst = spectrumEnergyHigh(spectrum);
   return [...intentions].sort((a, b) => {
-    const da = alignment(a);
-    const db = alignment(b);
-    const scoreA = da * 100 + a.priority * 0.45;
-    const scoreB = db * 100 + b.priority * 0.45;
-    if (Math.abs(scoreB - scoreA) > 0.01) return scoreB - scoreA;
     if (b.priority !== a.priority) return b.priority - a.priority;
+    const da = a.estimated_duration;
+    const db = b.estimated_duration;
+    if (db !== da) return heavyFirst ? db - da : da - db;
     return b.created_at - a.created_at;
   });
 }
 
 /**
- * Répartit les intentions sur la journée selon le spectre (Momentum élevé → blocs plus longs, Zen → pauses plus larges).
+ * Répartit les intentions : jamais dans le passé ; jour jusqu’à 20h ; fin de nuit après 21h.
+ * Créneaux consécutifs (fin précédent = début suivant).
  */
 export function buildTimelineSlots(
   intentions: IntentionRow[],
   spectrum: SpectrumWeights,
+  now: Date = new Date(),
 ): TimelineSlot[] {
-  const sorted = orderIntentionsBySpectrum(intentions, spectrum);
+  const regular = intentions.filter((i) => !i.is_late_night);
+  const late = intentions.filter((i) => i.is_late_night);
 
-  const gapBase = 6 + spectrum.zen * 18;
+  const orderedRegular = orderIntentionsBySpectrum(regular, spectrum);
+  const orderedLate = orderIntentionsBySpectrum(late, spectrum);
+
   const momentumStretch = spectrum.momentum > 0.52 ? 1.12 : 1;
-  let cursor = DAY_START_MIN + Math.round(spectrum.structure * 15);
+  const railOpenMin = DAY_START_MIN + Math.round(spectrum.structure * 15);
+  const nowMin = minutesSinceMidnight(now);
+  let cursor = Math.max(nowMin, railOpenMin);
+
   const slots: TimelineSlot[] = [];
 
-  for (const intention of sorted) {
-    let dur = intention.estimated_duration;
-    dur = Math.round(dur * momentumStretch);
-    dur = Math.max(10, Math.min(DAY_END_MIN - cursor - 5, dur));
+  const pushList = (list: IntentionRow[], segmentEnd: number) => {
+    for (const intention of list) {
+      if (cursor >= segmentEnd) break;
 
-    const startMinutes = cursor;
-    const endMinutes = cursor + dur;
+      const maxDur = segmentEnd - cursor;
+      if (maxDur < 10) break;
 
-    if (startMinutes >= DAY_END_MIN - 5) break;
+      let dur = Math.round(intention.estimated_duration * momentumStretch);
+      dur = Math.max(10, Math.min(maxDur, dur));
 
-    slots.push({
-      intention,
-      startMinutes,
-      endMinutes,
-      startLabel: formatMinutesAsClock(startMinutes),
-      endLabel: formatMinutesAsClock(Math.min(endMinutes, DAY_END_MIN)),
-    });
+      const startMinutes = cursor;
+      const endMinutes = startMinutes + dur;
 
-    const gap = gapBase + (spectrum.momentum > 0.55 ? 4 : 10);
-    cursor = Math.min(endMinutes + gap, DAY_END_MIN);
+      slots.push({
+        intention,
+        startMinutes,
+        endMinutes,
+        startLabel: formatMinutesAsClock(startMinutes),
+        endLabel: formatMinutesAsClock(endMinutes),
+      });
+
+      cursor = endMinutes;
+    }
+  };
+
+  pushList(orderedRegular, REGULAR_RAIL_END_MIN);
+
+  if (orderedLate.length > 0) {
+    cursor = Math.max(cursor, LATE_SEGMENT_START_MIN, nowMin);
+    pushList(orderedLate, LATE_RAIL_END_MIN);
   }
 
   return slots;
 }
 
-type Axis = 'structure' | 'momentum' | 'zen' | 'stats';
+export type SpectrumAxis = 'structure' | 'momentum' | 'zen' | 'stats';
 
-function dominantAxis(w: SpectrumWeights): Axis {
-  const entries: [Axis, number][] = [
+function dominantAxis(w: SpectrumWeights): SpectrumAxis {
+  const entries: [SpectrumAxis, number][] = [
     ['structure', w.structure],
     ['momentum', w.momentum],
     ['zen', w.zen],
@@ -208,10 +385,15 @@ function dominantAxis(w: SpectrumWeights): Axis {
   return entries[0][0];
 }
 
+/** Axe le plus fort du spectre — pour la voix de l’Allié, stats, etc. */
+export function getDominantSpectrumAxis(w: SpectrumWeights): SpectrumAxis {
+  return dominantAxis(w);
+}
+
 /** Félicitations + tonalité : Zen = plus posé / long ; Momentum = plus court et dynamique */
 const ENCOURAGEMENT: Record<
   AppLanguage,
-  Record<Axis, string>
+  Record<SpectrumAxis, string>
 > = {
   fr: {
     structure:
@@ -293,7 +475,7 @@ export function generateEncouragement(
   spectrum: SpectrumWeights,
   language: AppLanguage,
 ): string {
-  const axis = dominantAxis(spectrum);
+  const axis = getDominantSpectrumAxis(spectrum);
   const pack = ENCOURAGEMENT[language] ?? ENCOURAGEMENT.en;
   return pack[axis] ?? pack.momentum;
 }

@@ -28,7 +28,9 @@ const SCHEMA = `
     synced INTEGER NOT NULL DEFAULT 0,
     estimated_duration INTEGER NOT NULL DEFAULT 25,
     actual_duration INTEGER,
-    completed_at INTEGER
+    completed_at INTEGER,
+    user_forced_urgent INTEGER NOT NULL DEFAULT 0,
+    is_late_night INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE INDEX IF NOT EXISTS idx_intentions_synced ON intentions (synced);
@@ -56,6 +58,16 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
     );
     await database.runAsync(
       `UPDATE intentions SET completed_at = created_at WHERE status = 'done' AND actual_duration IS NOT NULL AND completed_at IS NULL`,
+    );
+  }
+  if (!names.has('user_forced_urgent')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN user_forced_urgent INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  if (!names.has('is_late_night')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN is_late_night INTEGER NOT NULL DEFAULT 0`,
     );
   }
 }
@@ -107,6 +119,10 @@ export type IntentionRow = {
   actual_duration: number | null;
   /** Horodatage fin de session focus (ms), pour stats / historique */
   completed_at: number | null;
+  /** Case « Urgent » cochée à la création (Radar) */
+  user_forced_urgent: boolean;
+  /** Fin de journée / coucher — classé par l’agent (rail après 21h) */
+  is_late_night: boolean;
 };
 
 function rowToIntention(row: Record<string, unknown>): IntentionRow {
@@ -140,6 +156,8 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
     actual_duration: typeof act === 'number' ? act : null,
     completed_at:
       typeof row.completed_at === 'number' ? row.completed_at : null,
+    user_forced_urgent: Number(row.user_forced_urgent) === 1,
+    is_late_night: Number(row.is_late_night) === 1,
   };
 }
 
@@ -154,14 +172,19 @@ export async function insertIntention(input: {
   platform_user_id: string;
   created_at: number;
   estimated_duration: number;
+  user_forced_urgent?: boolean;
+  is_late_night?: boolean;
 }): Promise<void> {
   const database = await getLocalDatabase();
+  const ufu = input.user_forced_urgent ? 1 : 0;
+  const iln = input.is_late_night ? 1 : 0;
   await database.runAsync(
     `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
-      estimated_duration, actual_duration, completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL)`,
+      estimated_duration, actual_duration, completed_at,
+      user_forced_urgent, is_late_night
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
     [
       input.id,
       input.title,
@@ -173,6 +196,8 @@ export async function insertIntention(input: {
       input.platform_user_id,
       input.created_at,
       input.estimated_duration,
+      ufu,
+      iln,
     ],
   );
 }
@@ -190,14 +215,19 @@ export async function insertCompletedIntention(input: {
   estimated_duration: number;
   actual_duration: number;
   completed_at: number;
+  user_forced_urgent?: boolean;
+  is_late_night?: boolean;
 }): Promise<void> {
   const database = await getLocalDatabase();
+  const ufu = input.user_forced_urgent ? 1 : 0;
+  const iln = input.is_late_night ? 1 : 0;
   await database.runAsync(
     `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
-      estimated_duration, actual_duration, completed_at
-    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+      estimated_duration, actual_duration, completed_at,
+      user_forced_urgent, is_late_night
+    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
     [
       input.id,
       input.title,
@@ -210,6 +240,8 @@ export async function insertCompletedIntention(input: {
       input.estimated_duration,
       input.actual_duration,
       input.completed_at,
+      ufu,
+      iln,
     ],
   );
 }
@@ -244,6 +276,18 @@ export async function updateIntentionAfterFocus(input: {
     `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ? WHERE id = ?`,
     [input.actual_duration, input.status, completedAt, input.id],
   );
+}
+
+/** Termine une intention depuis la liste (sans session timer) — durée indicative pour l’historique. */
+export async function markIntentionQuickComplete(id: string): Promise<void> {
+  const row = await getIntentionById(id);
+  if (!row || row.status === 'done') return;
+  const actual = Math.max(1, Math.min(row.estimated_duration, 45));
+  await updateIntentionAfterFocus({
+    id: row.id,
+    actual_duration: actual,
+    status: 'done',
+  });
 }
 
 export async function listIntentionsDescending(): Promise<IntentionRow[]> {

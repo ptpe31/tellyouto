@@ -5,18 +5,24 @@ import { useTheme } from 'react-native-paper';
 
 import { subscribeTimeToInteractive } from '../services/performance';
 
-/** Affiche le TTI approximatif uniquement en build __DEV__. */
+/** Affiche le TTI approximatif uniquement en build __DEV__ (aucun hook en prod). */
 export function StartupPerfBanner() {
+  if (!__DEV__) {
+    return null;
+  }
+  return <StartupPerfBannerInner />;
+}
+
+function StartupPerfBannerInner() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [ms, setMs] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!__DEV__) return undefined;
     return subscribeTimeToInteractive(setMs);
   }, []);
 
-  if (!__DEV__ || ms === null) {
+  if (ms === null) {
     return null;
   }
 

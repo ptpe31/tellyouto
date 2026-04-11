@@ -57,10 +57,15 @@
     "empty": "Noch keine Intentionen. Tippe + zum Hinzufügen.",
     "emptyTitle": "Deine Schiene ist frei",
     "emptyBody": "Ein guter Moment für eine sanfte Pause oder eine neue Richtung — tippe auf +, wenn es passt.",
+    "allyEyebrow": "Ally",
+    "activeSessionTitle": "Fokus aktiv",
+    "activeSessionOpen": "Zur Kapsel",
     "priority": "Priorität {{value}}",
     "quickAddTitle": "Schnelle Intention",
     "fieldTitle": "Titel",
     "fieldDescription": "Detail (optional)",
+    "urgentLabel": "Als dringend markieren",
+    "done": "Erledigt",
     "cancel": "Abbrechen",
     "save": "Speichern",
     "status": {
@@ -78,7 +83,15 @@
     "emptyBody": "Füge Intentionen im Radar hinzu — sie erscheinen hier mit vorgeschlagenen Fenstern.",
     "estimated": "~ {{minutes}} Min. geschätzt",
     "suggestedWindow": "Vorschlag: {{start}} – {{end}}",
-    "launch": "Starten"
+    "launch": "Starten",
+    "done": "Erledigt"
+  },
+  "focusMode": {
+    "title": "Sitzungsmodus",
+    "chrono": "Timer-Modus",
+    "chronoHint": "Nah an deiner Schätzung — du steuerst die Zeit.",
+    "pomodoro": "Pomodoro-Modus",
+    "pomodoroHint": "25 / 5 Min. · bis zu vier Fokusphasen"
   },
   "focus": {
     "start": "Start",
@@ -87,7 +100,11 @@
     "terminate": "Beenden",
     "terminateHold": "Orange Taste gedrückt halten zum frühen Beenden — verhindert versehentliche Tipps.",
     "feedbackTitle": "Klarheit",
-    "ok": "OK"
+    "ok": "OK",
+    "pomodoroWorkLine": "Schritt {{step}} / {{total}}",
+    "pomodoroBreakLine": "Pause · nächster Schritt {{nextStep}} / {{total}}",
+    "pomodoroConcentration": "Konzentration",
+    "pomodoroBreak": "Pause"
   },
   "stats": {
     "screenTitle": "Klarheitsüberblick",
@@ -162,6 +179,37 @@
     "privacyBody": "TellYouTo legt Wert auf deinen persönlichen Raum: Die meisten Intentionen bleiben auf dem Gerät in einer lokalen SQLite-Datenbank, geschützt wie übriger Systemspeicher.\n\nWenn du Cloud-Sync mit Firebase aktivierst, werden nur die für den Dienst nötigen Daten ausgetauscht; der Zugriff basiert auf Firebase-Authentifizierung und serverseitigen Sicherheitsregeln. Wir verkaufen deine Inhalte nicht an Dritte.\n\nLokale Daten kannst du durch Neuaufbau der Datenbank in den Pilot-Tools löschen (fortgeschritten). Für Rechtsfragen (DSGVO usw.) hole dir passende Beratung.",
     "termsTitle": "Nutzungsbedingungen",
     "termsBody": "Mit der Nutzung von TellYouTo akzeptierst du ein Erlebnis rund um Fokus und Wohlbefinden. Die App wird „wie besehen“ bereitgestellt; KI und Vorschläge können unvollkommen sein — du bleibst für deine Entscheidungen verantwortlich.\n\nConnectoren und Simulationen sind rechtmäßig und respektvoll gegenüber Drittanbietern zu nutzen.\n\nWir können Texte oder Funktionen zur Klarheit oder Compliance anpassen; maßgeblich ist die in der App angezeigte Version."
+  },
+  "allyVoice": {
+    "greet": {
+      "morning": {
+        "structure": "Bevor es losgeht: eine kurze Liste reicht, um die Schiene zu rahmen.",
+        "momentum": "Viel Energie heute Morgen — die Schiene wartet, wenn du startklar bist.",
+        "zen": "Guten Morgen. Eine ruhige Intention zuerst — dann der Rest.",
+        "stats": "Starte mit einer klaren Zahl oder einem Meilenstein; der Rest folgt."
+      },
+      "afternoon": {
+        "structure": "Mittags-Reset: ein kleines Neu-Fokussieren rettet den Nachmittag.",
+        "momentum": "Der Nachmittag mag Tempo — halte eine klare Intention griffbereit.",
+        "zen": "Atmen: such dir ein ruhiges Fenster für den nächsten Block.",
+        "stats": "Guter Moment für einen schnellen Check — wo stehst du gegenüber deinem Ziel?"
+      }
+    },
+    "farewell": {
+      "evening": {
+        "structure": "Tagesende: einen Punkt sauber schließen, dann loslassen.",
+        "momentum": "Du warst heute unter Strom — gib der Schiene Ruhe; morgen geht’s weiter.",
+        "zen": "Sanfter Abend: deine Klarheit verdient ein leises Ende.",
+        "stats": "Zahlen können warten — würdige, was sich bewegt hat."
+      },
+      "night": {
+        "structure": "Es ist spät — die Liste für morgen kann warten.",
+        "momentum": "Heb dir die Energie auf; die Schiene bleibt.",
+        "zen": "Ruhige Nacht: eine leichte Intention — oder einfach Schlaf.",
+        "stats": "Dashboards schlafen bis morgen — du auch, wenn’s geht."
+      }
+    },
+    "suggestFocusCapsule": "Du bist schnell unterwegs! Für kniffligere Aufgaben könnte eine Fokus-Kapsel helfen."
   },
   "connectors": {
     "whatsapp": "WhatsApp",

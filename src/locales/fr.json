@@ -57,10 +57,15 @@
     "empty": "Aucune intention pour l’instant. Touche + pour en ajouter une.",
     "emptyTitle": "Ton rail est libre",
     "emptyBody": "C’est le moment idéal pour une recharge douce ou pour tracer une nouvelle direction — touche + quand tu es prêt·e.",
+    "allyEyebrow": "Allié",
+    "activeSessionTitle": "Capsule active",
+    "activeSessionOpen": "Reprendre le focus",
     "priority": "Priorité {{value}}",
     "quickAddTitle": "Intention rapide",
     "fieldTitle": "Titre",
     "fieldDescription": "Détail (optionnel)",
+    "urgentLabel": "Marquer comme urgent",
+    "done": "Fait",
     "cancel": "Annuler",
     "save": "Enregistrer",
     "status": {
@@ -78,7 +83,15 @@
     "emptyBody": "Ajoute des intentions depuis le Radar : elles apparaîtront ici avec des fenêtres suggérées.",
     "estimated": "~ {{minutes}} min estimées",
     "suggestedWindow": "Créneau suggéré : {{start}} – {{end}}",
-    "launch": "Lancer"
+    "launch": "Lancer",
+    "done": "Fait"
+  },
+  "focusMode": {
+    "title": "Mode de session",
+    "chrono": "Mode chrono",
+    "chronoHint": "Durée proche de ton estimation — tu pilotes le timer.",
+    "pomodoro": "Mode Pomodoro",
+    "pomodoroHint": "25 min / 5 min · jusqu’à 4 plages de concentration"
   },
   "focus": {
     "start": "Démarrer",
@@ -87,7 +100,11 @@
     "terminate": "Terminer",
     "terminateHold": "Maintiens le bouton orange pour terminer la capsule tôt — évite les appuis accidentels.",
     "feedbackTitle": "Clarté",
-    "ok": "OK"
+    "ok": "OK",
+    "pomodoroWorkLine": "Étape {{step}} / {{total}}",
+    "pomodoroBreakLine": "Pause · suite étape {{nextStep}} / {{total}}",
+    "pomodoroConcentration": "Concentration",
+    "pomodoroBreak": "Pause"
   },
   "stats": {
     "screenTitle": "Bilan de clarté",
@@ -162,6 +179,37 @@
     "privacyBody": "TellYouTo privilégie ton espace personnel : la plupart de tes intentions restent sur l’appareil dans une base SQLite locale, protégée comme le reste du stockage système.\n\nSi tu actives une synchronisation cloud avec Firebase, seules les données nécessaires au service sont échangées ; l’accès repose sur l’authentification Firebase et des règles de sécurité côté serveur. Nous ne revendons pas tes contenus à des tiers.\n\nTu peux effacer les données locales en reconstruisant la base depuis les outils pilote (mode avancé). Pour toute question juridique (RGPD, etc.), rapproche-toi d’un conseil adapté à ta situation.",
     "termsTitle": "Conditions d’utilisation",
     "termsBody": "En utilisant TellYouTo, tu acceptes une expérience centrée sur la concentration et le bien-être. L’application est fournie « en l’état » ; l’IA et les suggestions peuvent être imparfaites — tu restes responsable de tes décisions.\n\nLes connecteurs et simulations doivent être employés de manière licite et respectueuse des services tiers.\n\nNous pouvons faire évoluer ces textes ou des fonctionnalités pour plus de clarté ou de conformité ; la version affichée dans l’app fait foi."
+  },
+  "allyVoice": {
+    "greet": {
+      "morning": {
+        "structure": "Avant de foncer : une liste courte suffit pour cadrer ton rail.",
+        "momentum": "Énergie haute repérée. Prêt à attaquer ton rail quand tu veux.",
+        "zen": "Bonjour. Une intention calme pour ancrer ta clarté, puis le reste.",
+        "stats": "Un chiffre ou un jalon net pour ouvrir la journée — le reste suivra."
+      },
+      "afternoon": {
+        "structure": "Milieu de journée : un petit recentrage structure l’après-midi.",
+        "momentum": "L’après-midi aime le rythme — garde une intention nette sous la main.",
+        "zen": "Respire : choisis une plage tranquille pour ton prochain bloc.",
+        "stats": "Bon moment pour une mesure rapide : où en es-tu sur ton cap ?"
+      }
+    },
+    "farewell": {
+      "evening": {
+        "structure": "Fin de journée : boucler un point clair, puis lâcher prise.",
+        "momentum": "Belle charge aujourd’hui — pose le pied, le rail sera là demain.",
+        "zen": "Soirée douce : ton espace de clarté mérite une fin tranquille.",
+        "stats": "Les chiffres peuvent attendre demain — félicite-toi pour ce qui a bougé."
+      },
+      "night": {
+        "structure": "Il se fait tard : demain matin listera le reste — pas besoin d’en faire trop.",
+        "momentum": "Garde cette énergie pour plus tard ; ton rail patiente.",
+        "zen": "Nuit calme : une intention légère ou simplement le repos.",
+        "stats": "Les tableaux dormiront jusqu’à demain — fais de même si tu peux."
+      }
+    },
+    "suggestFocusCapsule": "Tu avances vite ! Peut-être qu’une Capsule de Focus t’aiderait sur une tâche plus complexe ?"
   },
   "connectors": {
     "whatsapp": "WhatsApp",

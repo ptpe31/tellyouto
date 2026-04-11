@@ -5,7 +5,11 @@ import type { PlatformConnector } from '../api/connectors';
 import { insertIntention } from '../api/localDb';
 import { syncPendingIntentions } from '../api/syncService';
 import type { UserSpectrumState } from '../context/UserSpectrumContext';
-import { estimateDurationMinutes } from './agentLogic';
+import {
+  computeIntentionPriority,
+  estimateDurationMinutes,
+  inferIsLateNightIntent,
+} from './agentLogic';
 import {
   ensureNotificationPermissions,
   notifyExternalIntentionCaptured,
@@ -48,10 +52,22 @@ export async function ingestExternalRawMessage(options: {
   }
 
   const parsed = connector.parseMessageToIntention(raw, spectrum);
+  const now = new Date();
   const estimated_duration = estimateDurationMinutes(
     parsed.title,
     parsed.description,
     spectrum,
+  );
+  const priority = computeIntentionPriority(
+    parsed.title,
+    parsed.description,
+    spectrum,
+    now,
+  );
+  const isLateNight = inferIsLateNightIntent(
+    parsed.title,
+    parsed.description,
+    now,
   );
 
   const id = randomUUID();
@@ -60,7 +76,7 @@ export async function ingestExternalRawMessage(options: {
     title: parsed.title,
     description: parsed.description,
     status: 'pending',
-    priority: parsed.suggestedPriority,
+    priority,
     weights: {
       structure: spectrum.structure,
       momentum: spectrum.momentum,
@@ -71,6 +87,8 @@ export async function ingestExternalRawMessage(options: {
     platform_user_id: spectrum.platform_user_id || externalUserId,
     created_at: Date.now(),
     estimated_duration,
+    user_forced_urgent: false,
+    is_late_night: isLateNight,
   });
 
   if (notify) {

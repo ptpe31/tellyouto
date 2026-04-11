@@ -57,12 +57,15 @@
     "empty": "Nessuna intenzione. Tocca + per aggiungerne una.",
     "emptyTitle": "Il tuo binario è libero",
     "emptyBody": "Un buon momento per ricaricare con dolcezza o impostare una nuova direzione — tocca + quando vuoi.",
-    "emptyTitle": "Il tuo binario è libero",
-    "emptyBody": "Un buon momento per ricaricare con dolcezza o impostare una nuova direzione — tocca + quando vuoi.",
+    "allyEyebrow": "Alleato",
+    "activeSessionTitle": "Focus attivo",
+    "activeSessionOpen": "Torna alla capsula",
     "priority": "Priorità {{value}}",
     "quickAddTitle": "Intenzione rapida",
     "fieldTitle": "Titolo",
     "fieldDescription": "Dettaglio (opzionale)",
+    "urgentLabel": "Segna come urgente",
+    "done": "Fatto",
     "cancel": "Annulla",
     "save": "Salva",
     "status": {
@@ -80,7 +83,15 @@
     "emptyBody": "Aggiungi intenzioni dal Radar: appariranno qui con finestre suggerite.",
     "estimated": "~ {{minutes}} min stimate",
     "suggestedWindow": "Finestra suggerita: {{start}} – {{end}}",
-    "launch": "Avvia"
+    "launch": "Avvia",
+    "done": "Fatto"
+  },
+  "focusMode": {
+    "title": "Modalità sessione",
+    "chrono": "Modalità timer",
+    "chronoHint": "Vicino alla tua stima — comandi tu il tempo.",
+    "pomodoro": "Modalità Pomodoro",
+    "pomodoroHint": "25 / 5 min · fino a quattro blocchi di focus"
   },
   "focus": {
     "start": "Avvia",
@@ -89,7 +100,11 @@
     "terminate": "Termina",
     "terminateHold": "Tieni premuto il pulsante arancione per chiudere prima — evita tocchi accidentali.",
     "feedbackTitle": "Chiarezza",
-    "ok": "OK"
+    "ok": "OK",
+    "pomodoroWorkLine": "Passo {{step}} / {{total}}",
+    "pomodoroBreakLine": "Pausa · passo successivo {{nextStep}} / {{total}}",
+    "pomodoroConcentration": "Concentrazione",
+    "pomodoroBreak": "Pausa"
   },
   "stats": {
     "screenTitle": "Quadro di chiarezza",
@@ -164,6 +179,37 @@
     "privacyBody": "TellYouTo privilegia il tuo spazio personale: la maggior parte delle intenzioni resta sul dispositivo in un database SQLite locale, protetto come il resto della memoria di sistema.\n\nSe attivi la sincronizzazione cloud con Firebase, vengono scambiati solo i dati necessari al servizio; l’accesso si basa sull’autenticazione Firebase e su regole di sicurezza lato server. Non vendiamo i tuoi contenuti a terzi.\n\nPuoi cancellare i dati locali ricostruendo il database dagli strumenti pilota (avanzato). Per questioni legali (GDPR, ecc.) rivolgiti a un consulente adeguato.",
     "termsTitle": "Termini d’uso",
     "termsBody": "Usando TellYouTo accetti un’esperienza centrata su focus e benessere. L’app è fornita «così com’è»; IA e suggerimenti possono essere imperfetti — resti responsabile delle tue decisioni.\n\nConnettori e simulazioni vanno usati in modo lecito e rispettoso verso servizi terzi.\n\nPossiamo aggiornare testi o funzionalità per chiarezza o conformità; fa fede la versione mostrata nell’app."
+  },
+  "allyVoice": {
+    "greet": {
+      "morning": {
+        "structure": "Prima di partire: una lista corta basta a incorniciare il binario.",
+        "momentum": "Tanta energia in avvio — muovi il binario quando ti senti pronto.",
+        "zen": "Buongiorno. Un’intenzione calma per fissare la chiarezza.",
+        "stats": "Apri la giornata con un numero o una pietra miliare netta."
+      },
+      "afternoon": {
+        "structure": "Metà giornata: un piccolo riallineamento salva il pomeriggio.",
+        "momentum": "Il pomeriggio vuole ritmo — tieni un’intenzione nitida sotto mano.",
+        "zen": "Respira: scegli una finestra tranquilla per il prossimo blocco.",
+        "stats": "Buon momento per un check veloce — dove sei rispetto al traguardo?"
+      }
+    },
+    "farewell": {
+      "evening": {
+        "structure": "Fine giornata: chiudi un punto pulito, poi molla la presa.",
+        "momentum": "Bella spinta oggi — spegni il motore; domani il binario c’è ancora.",
+        "zen": "Sera morbida: la tua chiarezza merita una chiusura tranquilla.",
+        "stats": "I numeri possono aspettare — celebra ciò che è avanzato."
+      },
+      "night": {
+        "structure": "È tardi — la lista di domani può aspettare.",
+        "momentum": "Conserva energia per dopo; il binario resta.",
+        "zen": "Notte calma: un’intenzione leggera o solo riposo.",
+        "stats": "I cruscotti dormono fino a domani — anche tu, se puoi."
+      }
+    },
+    "suggestFocusCapsule": "Stai andando veloce! Per compiti più complessi, una capsula di focus potrebbe aiutarti a restare dentro."
   },
   "connectors": {
     "whatsapp": "WhatsApp",

@@ -57,10 +57,15 @@
     "empty": "No intentions yet. Tap + to add one.",
     "emptyTitle": "Your rail is clear",
     "emptyBody": "A gentle moment to recharge or set a new direction — tap + when you feel ready.",
+    "allyEyebrow": "Ally",
+    "activeSessionTitle": "Focus in progress",
+    "activeSessionOpen": "Back to capsule",
     "priority": "Priority {{value}}",
     "quickAddTitle": "Quick intention",
     "fieldTitle": "Title",
     "fieldDescription": "Detail (optional)",
+    "urgentLabel": "Mark as urgent",
+    "done": "Done",
     "cancel": "Cancel",
     "save": "Save",
     "status": {
@@ -78,7 +83,15 @@
     "emptyBody": "Add intentions from Radar; they’ll appear here with calm suggested windows.",
     "estimated": "~ {{minutes}} min estimated",
     "suggestedWindow": "Suggested window: {{start}} – {{end}}",
-    "launch": "Launch"
+    "launch": "Launch",
+    "done": "Done"
+  },
+  "focusMode": {
+    "title": "Session mode",
+    "chrono": "Timer mode",
+    "chronoHint": "Close to your estimate — you steer the clock.",
+    "pomodoro": "Pomodoro mode",
+    "pomodoroHint": "25 / 5 minutes · up to four focus rounds"
   },
   "focus": {
     "start": "Start",
@@ -87,7 +100,11 @@
     "terminate": "Finish",
     "terminateHold": "Hold the orange button to end this capsule early — avoids accidental taps.",
     "feedbackTitle": "Clarity",
-    "ok": "OK"
+    "ok": "OK",
+    "pomodoroWorkLine": "Step {{step}} / {{total}}",
+    "pomodoroBreakLine": "Break · next step {{nextStep}} / {{total}}",
+    "pomodoroConcentration": "Focus",
+    "pomodoroBreak": "Break"
   },
   "stats": {
     "screenTitle": "Clarity overview",
@@ -162,6 +179,37 @@
     "privacyBody": "TellYouTo favours your personal space: most of your intentions stay on the device in a local SQLite database, protected like the rest of your system storage.\n\nIf you enable cloud sync with Firebase, only data needed for the service is exchanged; access relies on Firebase authentication and server-side security rules. We do not sell your content to third parties.\n\nYou can wipe local data by rebuilding the database from pilot tools (advanced). For legal questions (GDPR, etc.), seek advice suited to your case.",
     "termsTitle": "Terms of use",
     "termsBody": "By using TellYouTo you accept an experience focused on focus and wellbeing. The app is provided “as is”; AI and suggestions may be imperfect — you remain responsible for your decisions.\n\nConnectors and simulations must be used lawfully and respectfully toward third-party services.\n\nWe may update this text or features for clarity or compliance; the version shown in the app prevails."
+  },
+  "allyVoice": {
+    "greet": {
+      "morning": {
+        "structure": "Before you dive in: a short list is enough to frame your rail.",
+        "momentum": "High energy on scan—ready to move your rail when you are.",
+        "zen": "Morning. One calm intention to steady your head—then the rest.",
+        "stats": "Open the day with one clear number or milestone; the rest can follow."
+      },
+      "afternoon": {
+        "structure": "Midday reset: a tiny reframe keeps the afternoon honest.",
+        "momentum": "Afternoons love rhythm—keep one sharp intention within reach.",
+        "zen": "Breathe: pick a quiet pocket for your next block.",
+        "stats": "Good moment for a quick read—where are you against your mark?"
+      }
+    },
+    "farewell": {
+      "evening": {
+        "structure": "Wind down: close one clean loop, then let the rest wait.",
+        "momentum": "You pushed hard today—rest the engine; the rail will be here tomorrow.",
+        "zen": "Soft landing: your clarity deserves a gentle close.",
+        "stats": "The metrics can wait—credit what actually moved."
+      },
+      "night": {
+        "structure": "It’s late—tomorrow’s list can wait; don’t overfill tonight.",
+        "momentum": "Save that spark for later; your rail isn’t going anywhere.",
+        "zen": "Quiet night: one light intention—or simply rest.",
+        "stats": "Dashboards sleep till morning—maybe you should too."
+      }
+    },
+    "suggestFocusCapsule": "You’re moving fast! For stickier work, a Focus Capsule might help you stay with it."
   },
   "connectors": {
     "whatsapp": "WhatsApp",

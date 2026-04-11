@@ -57,10 +57,15 @@
     "empty": "Sin intenciones aún. Pulsa + para añadir una.",
     "emptyTitle": "Tu riel está libre",
     "emptyBody": "Un buen momento para recargar con calma o trazar una nueva dirección — pulsa + cuando quieras.",
+    "allyEyebrow": "Aliado",
+    "activeSessionTitle": "Foco activo",
+    "activeSessionOpen": "Volver a la cápsula",
     "priority": "Prioridad {{value}}",
     "quickAddTitle": "Intención rápida",
     "fieldTitle": "Título",
     "fieldDescription": "Detalle (opcional)",
+    "urgentLabel": "Marcar como urgente",
+    "done": "Hecho",
     "cancel": "Cancelar",
     "save": "Guardar",
     "status": {
@@ -78,7 +83,15 @@
     "emptyBody": "Añade intenciones desde el Radar; aparecerán aquí con ventanas sugeridas.",
     "estimated": "~ {{minutes}} min estimadas",
     "suggestedWindow": "Ventana sugerida: {{start}} – {{end}}",
-    "launch": "Lanzar"
+    "launch": "Lanzar",
+    "done": "Hecho"
+  },
+  "focusMode": {
+    "title": "Modo de sesión",
+    "chrono": "Modo cronómetro",
+    "chronoHint": "Cerca de tu estimación — tú mandas en el tiempo.",
+    "pomodoro": "Modo Pomodoro",
+    "pomodoroHint": "25 / 5 min · hasta cuatro bloques de foco"
   },
   "focus": {
     "start": "Iniciar",
@@ -87,7 +100,11 @@
     "terminate": "Terminar",
     "terminateHold": "Mantén el botón naranja para terminar antes — evita toques accidentales.",
     "feedbackTitle": "Claridad",
-    "ok": "OK"
+    "ok": "OK",
+    "pomodoroWorkLine": "Paso {{step}} / {{total}}",
+    "pomodoroBreakLine": "Pausa · siguiente paso {{nextStep}} / {{total}}",
+    "pomodoroConcentration": "Concentración",
+    "pomodoroBreak": "Pausa"
   },
   "stats": {
     "screenTitle": "Balance de claridad",
@@ -162,6 +179,37 @@
     "privacyBody": "TellYouTo prioriza tu espacio personal: la mayoría de tus intenciones permanecen en el dispositivo en una base SQLite local, protegida como el resto del almacenamiento del sistema.\n\nSi activas la sincronización en la nube con Firebase, solo se intercambian los datos necesarios para el servicio; el acceso se basa en la autenticación de Firebase y reglas de seguridad en el servidor. No vendemos tu contenido a terceros.\n\nPuedes borrar los datos locales reconstruyendo la base desde las herramientas piloto (avanzado). Para cuestiones legales (RGPD, etc.), consulta asesoramiento adecuado.",
     "termsTitle": "Términos de uso",
     "termsBody": "Al usar TellYouTo aceptas una experiencia centrada en el foco y el bienestar. La aplicación se ofrece «tal cual»; la IA y las sugerencias pueden ser imperfectas — sigues siendo responsable de tus decisiones.\n\nLos conectores y simulaciones deben usarse de forma lícita y respetuosa con los servicios de terceros.\n\nPodemos actualizar estos textos o funciones para mayor claridad o cumplimiento; prevalece la versión mostrada en la app."
+  },
+  "allyVoice": {
+    "greet": {
+      "morning": {
+        "structure": "Antes de lanzarte: una lista corta ya ordena tu riel.",
+        "momentum": "Energía alta detectada. ¿Listo para mover el riel cuando quieras?",
+        "zen": "Buenos días. Una intención tranquila para afianzar claridad.",
+        "stats": "Abre el día con un número o hito claro; lo demás puede esperar."
+      },
+      "afternoon": {
+        "structure": "Mitad de día: un pequeño encuadre alivia la tarde.",
+        "momentum": "La tarde pide ritmo — deja una intención nítida a mano.",
+        "zen": "Respira: elige un hueco calmado para el siguiente bloque.",
+        "stats": "Buen momento para mirar cifras: ¿vas en línea con tu rumbo?"
+      }
+    },
+    "farewell": {
+      "evening": {
+        "structure": "Cierra el día con un punto claro y suelta el resto.",
+        "momentum": "Mucha marcha hoy — apaga motores; mañana sigue el riel.",
+        "zen": "Noche suave: tu claridad merece un cierre tranquilo.",
+        "stats": "Los números pueden esperar — celebra lo que sí avanzó."
+      },
+      "night": {
+        "structure": "Ya es tarde: mañana harás la lista; no la llenes ahora.",
+        "momentum": "Guarda energía para después; el riel espera.",
+        "zen": "Noche en calma: una intención ligera o solo descanso.",
+        "stats": "Los paneles duermen hasta mañán — tú también si puedes."
+      }
+    },
+    "suggestFocusCapsule": "¡Vas rápido! Para tareas más densas, una Cápsula de foco podría ayudarte a sostenerlas."
   },
   "connectors": {
     "whatsapp": "WhatsApp",

@@ -1,4 +1,7 @@
+export { AllyThoughtBubble } from './AllyThoughtBubble';
 export { AgentInsight } from './AgentInsight';
+export { FocusModePicker } from './FocusModePicker';
+export { FadeSlideIn } from './FadeSlideIn';
 export { FocusCapsuleScreen } from './FocusCapsule';
 export { NeumorphicCard } from './NeumorphicCard';
 export { NeumorphicSurface } from './NeumorphicSurface';

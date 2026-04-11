@@ -66,10 +66,11 @@ export const WhatsAppConnector: PlatformConnector = {
     const { title, description } = splitTitleBody(raw);
     const safeTitle = title || normalizeWhitespace(raw).slice(0, 80) || 'Intention';
     const desc = description;
+    const now = new Date();
     return {
       title: safeTitle,
       description: desc,
-      suggestedPriority: computeIntentionPriority(safeTitle, desc, spectrum),
+      suggestedPriority: computeIntentionPriority(safeTitle, desc, spectrum, now),
     };
   },
 };
@@ -85,10 +86,11 @@ export const LineConnector: PlatformConnector = {
     const safeTitle =
       title || normalizeWhitespace(raw).slice(0, 80) || 'Intention';
     const desc = description;
+    const now = new Date();
     return {
       title: safeTitle,
       description: desc,
-      suggestedPriority: computeIntentionPriority(safeTitle, desc, spectrum),
+      suggestedPriority: computeIntentionPriority(safeTitle, desc, spectrum, now),
     };
   },
 };

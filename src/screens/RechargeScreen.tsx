@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -76,6 +77,7 @@ export function RechargeScreen() {
   }, [pulseFlash, pulseBreath, pulseImmerse, runPulse]);
 
   const startSequence = (mode: RechargeMode) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setSelectedMode(mode);
     setFlow('ad');
     setTimeout(() => {
