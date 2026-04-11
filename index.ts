@@ -1,4 +1,5 @@
 import 'react-native-gesture-handler';
+import './src/config/telegramEnvGuard';
 import './src/services/performance';
 import './src/locales/i18n';
 import './src/services/backgroundTasks';

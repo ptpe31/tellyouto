@@ -4,6 +4,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 import { handleDisconnectMessenger } from './disconnectMessenger';
 import { handleBotWebhook } from './webhookHandler';
+import { handleTelegramWebhook } from './telegramWebhook';
 import { purgeStaleTransitDocuments } from './purgeTransitData';
 import { runProactiveReminders } from './scheduleProactiveReminders';
 
@@ -17,6 +18,14 @@ export const botWebhook = onRequest(
   { cors: false, invoker: 'public' },
   async (req, res) => {
     await handleBotWebhook(db, req, res);
+  },
+);
+
+/** Webhook natif Telegram Bot API (POST avec en-tête `X-Telegram-Bot-Api-Secret-Token`). */
+export const telegramWebhook = onRequest(
+  { cors: false, invoker: 'public' },
+  async (req, res) => {
+    await handleTelegramWebhook(db, req, res);
   },
 );
 

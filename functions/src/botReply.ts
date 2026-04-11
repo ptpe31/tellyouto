@@ -33,7 +33,7 @@ export async function sendTelegramText(
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token) {
-    console.warn('botReply: TELEGRAM_BOT_TOKEN missing, skip Telegram send');
+    console.error('Erreur : Token Telegram manquant');
     return;
   }
   const disableNotification = options?.disableNotification === true;

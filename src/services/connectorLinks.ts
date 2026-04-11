@@ -11,7 +11,9 @@ const DEFAULT_TELEGRAM_BOT = 'TellYouToBot';
  * Repli explicite si la variable est absente ou vide — le lien `t.me` exige un identifiant valide.
  */
 export function getTelegramBotUsername(): string {
-  const raw = process.env.EXPO_PUBLIC_TELEGRAM_BOT_USERNAME?.trim();
+  const raw =
+    process.env.EXPO_PUBLIC_TELEGRAM_BOT_NAME?.trim() ||
+    process.env.EXPO_PUBLIC_TELEGRAM_BOT_USERNAME?.trim();
   if (!raw) return DEFAULT_TELEGRAM_BOT;
   const u = raw.replace(/^@/, '');
   return u.length > 0 ? u : DEFAULT_TELEGRAM_BOT;
