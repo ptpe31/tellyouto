@@ -26,13 +26,17 @@ export function getNotifications(): NotificationsModule | null {
 const mod = getNotifications();
 if (mod) {
   mod.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
+    handleNotification: async (notification) => {
+      const isRailAlarm =
+        notification.request.content.data?.kind === 'rail_alarm';
+      return {
+        shouldShowAlert: true,
+        shouldPlaySound: isRailAlarm,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      };
+    },
   });
 }
 

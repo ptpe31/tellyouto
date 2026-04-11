@@ -8,12 +8,14 @@ import {
   List,
   RadioButton,
   SegmentedButtons,
+  Switch,
   useTheme,
 } from 'react-native-paper';
 
 import { SafeExternalLink } from '../components/SafeExternalLink';
 import { NeumorphicCard } from '../components';
 import { IS_PRODUCTION } from '../config/appConfig';
+import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
 import { useDebugUnlock } from '../context/DebugUnlockContext';
 import { useAlly, type AllyTone, type AllyVoice } from '../context/AllyContext';
 import type { AppLanguage } from '../context/LanguageContext';
@@ -50,6 +52,13 @@ export function AgentSettingsScreen() {
   const { language, setLanguage, interactionLanguage, setInteractionLanguage } =
     useLanguage();
   const { voice, tone, setVoice, setTone } = useAlly();
+  const {
+    connectEnabled,
+    hideEventsOnRail,
+    setConnectEnabled,
+    setHideEventsOnRail,
+    refreshBusy,
+  } = useCalendarIntegration();
 
   const voiceOptions: { value: AllyVoice; label: string }[] = [
     { value: 'balanced', label: t('ally.voice.balanced') },
@@ -71,6 +80,45 @@ export function AgentSettingsScreen() {
       <Text style={[styles.lead, { color: theme.colors.onSurfaceVariant }]}>
         {t('ally.settingsLead')}
       </Text>
+
+      <NeumorphicCard style={styles.block}>
+        <Text style={[styles.section, { color: theme.colors.primary }]}>
+          {t('debug.calendarSection')}
+        </Text>
+        <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.calendarConnectHelp')}
+        </Text>
+        <List.Item
+          title={t('debug.calendarConnect')}
+          titleStyle={{ color: theme.colors.onSurface }}
+          right={() => (
+            <Switch
+              value={connectEnabled}
+              onValueChange={(v) => {
+                void (async () => {
+                  await setConnectEnabled(v);
+                  if (v) await refreshBusy();
+                })();
+              }}
+            />
+          )}
+        />
+        <List.Item
+          title={t('debug.calendarHideRail')}
+          titleStyle={{ color: theme.colors.onSurface }}
+          description={t('debug.calendarHideHelp')}
+          descriptionStyle={{ color: theme.colors.onSurfaceVariant }}
+          right={() => (
+            <Switch
+              value={hideEventsOnRail}
+              disabled={!connectEnabled}
+              onValueChange={(v) => {
+                void setHideEventsOnRail(v);
+              }}
+            />
+          )}
+        />
+      </NeumorphicCard>
 
       <NeumorphicCard style={styles.block}>
         <Text style={[styles.section, { color: theme.colors.primary }]}>

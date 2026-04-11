@@ -51,6 +51,20 @@
         "a2": "Ruhigen Austausch und stetige Ausrichtung",
         "a3": "Reviews mit messbaren Fakten"
       }
+    },
+    "privateChannel": {
+      "title": "Privaten Kanal aktivieren",
+      "subtitle": "Wähle, wie der Ally dir Intentionen sendet — ein Bot, kein klassischer SMS-Verlauf.",
+      "explainBot": "Du chattest nicht mit einer +33-Nummer: Der Bot ist mit deinem Gerät und der gewählten App verbunden — alles bleibt in deinem TellYouTo-Raum.",
+      "platforms": {
+        "whatsapp": "WhatsApp",
+        "telegram": "Telegram",
+        "slack": "Slack",
+        "line": "LINE"
+      },
+      "cta": "Speichern und Link öffnen",
+      "skip": "Später",
+      "urlPending": "Link konfigurieren (EXPO_PUBLIC_BOT_*_URL)"
     }
   },
   "radar": {
@@ -65,6 +79,7 @@
     "fieldTitle": "Titel",
     "fieldDescription": "Detail (optional)",
     "urgentLabel": "Als dringend markieren",
+    "alarmLabel": "Wecker für den Vorschlagsblock",
     "done": "Erledigt",
     "cancel": "Abbrechen",
     "save": "Speichern",
@@ -84,7 +99,11 @@
     "estimated": "~ {{minutes}} Min. geschätzt",
     "suggestedWindow": "Vorschlag: {{start}} – {{end}}",
     "launch": "Starten",
-    "done": "Erledigt"
+    "done": "Erledigt",
+    "calendarRailTitle": "Blockiert (Kalender)",
+    "calendarBusy": "Belegt · {{start}} – {{end}}",
+    "alarmSwitch": "Alarm zum Start des Blocks",
+    "alarmBellA11y": "Alarm für diesen Block aktiv"
   },
   "focusMode": {
     "title": "Sitzungsmodus",
@@ -139,6 +158,11 @@
   "debug": {
     "pilotTitle": "Steuerungswerkzeuge",
     "note": "Internes Tool — absichtlich schlicht.",
+    "calendarSection": "Systemkalender",
+    "calendarConnect": "Systemkalender verbinden",
+    "calendarConnectHelp": "Nur lokal — keine Ereignistitel zu Firebase.",
+    "calendarHideRail": "Kalenderereignisse auf der Schiene ausblenden",
+    "calendarHideHelp": "Ausgeblendet: keine Anzeige; für den Agenten weiterhin blockiert.",
     "resetProfile": "Profil zurücksetzen",
     "resetProfileHelp": "Löscht onboarding_complete und user_spectrum (AsyncStorage), danach Onboarding der 5 Situationen.",
     "rebuildDb": "Datenbank neu aufbauen",
@@ -252,6 +276,10 @@
     }
   },
   "ally": {
+    "calendarConflictTitle": "Zeitfenster belegt",
+    "calendarConflictBody": "Dein Kalender zeigt hier schon etwas. Du kannst die Kapsel trotzdem starten — oder etwas warten.",
+    "calendarConflictContinue": "Trotzdem starten",
+    "calendarConflictBack": "Abbrechen",
     "settingsTitle": "Co-Pilot",
     "settingsLead": "Lege fest, wie TellYouTo klingt — Stimme, Ton und Sprachen.",
     "sectionVoice": "Stimme",

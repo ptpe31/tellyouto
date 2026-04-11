@@ -7,8 +7,10 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Platform } from 'react-native';
+import { AppState, type AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { checkpointLocalDatabase } from '../api/localDb';
 
 /** Clé AsyncStorage — partagée avec le reset profil (debug / onboarding). */
 export const USER_SPECTRUM_STORAGE_KEY = '@tellyouto/user_spectrum';
@@ -144,6 +146,27 @@ export function UserSpectrumProvider({
   useEffect(() => {
     void loadFromStorage();
   }, [loadFromStorage]);
+
+  /** Sauvegarde automatique du spectre (AsyncStorage) + checkpoint SQLite toutes les 5 min. */
+  useEffect(() => {
+    const id = setInterval(() => {
+      void persist();
+      void checkpointLocalDatabase();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [persist]);
+
+  /** À la mise en arrière-plan : flush spectre + SQLite avant que l’OS ne suspende le process. */
+  useEffect(() => {
+    const onAppState = (next: AppStateStatus) => {
+      if (next === 'background' || next === 'inactive') {
+        void persist();
+        void checkpointLocalDatabase();
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub.remove();
+  }, [persist]);
 
   const value = useMemo(
     () => ({

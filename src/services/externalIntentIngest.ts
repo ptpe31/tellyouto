@@ -89,6 +89,7 @@ export async function ingestExternalRawMessage(options: {
     estimated_duration,
     user_forced_urgent: false,
     is_late_night: isLateNight,
+    alarm_enabled: false,
   });
 
   if (notify) {

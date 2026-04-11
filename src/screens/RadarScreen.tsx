@@ -43,12 +43,20 @@ import {
   NeumorphicCard,
 } from '../components';
 import type { FocusCapsuleMode } from '../navigation/types';
-import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
-import { useUserSpectrum } from '../context/UserSpectrumContext';
 import {
+  requestAlarmPermissionIfNeeded,
+  syncRailAlarmsWithTimeline,
+} from '../services/alarmManager';
+import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
+import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { useFocusCalendarConflict } from '../hooks/useFocusCalendarConflict';
+import {
+  buildTimelineSlots,
   computeIntentionPriority,
   estimateDurationMinutes,
   inferIsLateNightIntent,
+  type BusyInterval,
 } from '../services/agentLogic';
 import { getRadarAllyThoughtI18nKeyWithHabits } from '../services/agentVoice';
 import {
@@ -156,17 +164,25 @@ export function RadarScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { spectrum } = useUserSpectrum();
+  const { connectEnabled, refreshBusy } = useCalendarIntegration();
+  const { shouldWarnForLaunch } = useFocusCalendarConflict();
 
   const [rows, setRows] = useState<IntentionRow[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [urgent, setUrgent] = useState(false);
+  const [alarm, setAlarm] = useState(false);
   const [allyTick, setAllyTick] = useState(0);
   const [quickStreak, setQuickStreak] = useState(0);
   const [focusPickTarget, setFocusPickTarget] = useState<IntentionRow | null>(
     null,
   );
+  const [calendarConflictOpen, setCalendarConflictOpen] = useState(false);
+  const [pendingFocus, setPendingFocus] = useState<{
+    row: IntentionRow;
+    mode: FocusCapsuleMode;
+  } | null>(null);
 
   const load = useCallback(async () => {
     const list = await listIntentionsDescending();
@@ -176,11 +192,12 @@ export function RadarScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
+      if (connectEnabled) void refreshBusy();
       void getQuickCompleteStreak().then(setQuickStreak);
       setAllyTick((n) => n + 1);
       const id = setInterval(() => setAllyTick((n) => n + 1), 60_000);
       return () => clearInterval(id);
-    }, [load]),
+    }, [load, connectEnabled, refreshBusy]),
   );
 
   useEffect(() => {
@@ -207,13 +224,25 @@ export function RadarScreen() {
     [spectrum, allyTick, quickStreak],
   );
 
+  const navigateFocus = useCallback(
+    (row: IntentionRow, mode: FocusCapsuleMode) => {
+      navigation.getParent()?.navigate('FocusCapsule', {
+        intentionId: row.id,
+        mode,
+      });
+    },
+    [navigation],
+  );
+
   const openActiveCapsule = useCallback(() => {
     if (!activeIntention) return;
-    navigation.getParent()?.navigate('FocusCapsule', {
-      intentionId: activeIntention.id,
-      mode: 'chrono',
-    });
-  }, [activeIntention, navigation]);
+    if (shouldWarnForLaunch('chrono', activeIntention)) {
+      setPendingFocus({ row: activeIntention, mode: 'chrono' });
+      setCalendarConflictOpen(true);
+      return;
+    }
+    navigateFocus(activeIntention, 'chrono');
+  }, [activeIntention, shouldWarnForLaunch, navigateFocus]);
 
   const onQuickExitComplete = useCallback(
     async (item: IntentionRow) => {
@@ -232,12 +261,14 @@ export function RadarScreen() {
       const row = focusPickTarget;
       setFocusPickTarget(null);
       if (!row) return;
-      navigation.getParent()?.navigate('FocusCapsule', {
-        intentionId: row.id,
-        mode,
-      });
+      if (shouldWarnForLaunch(mode, row)) {
+        setPendingFocus({ row, mode });
+        setCalendarConflictOpen(true);
+        return;
+      }
+      navigateFocus(row, mode);
     },
-    [focusPickTarget, navigation],
+    [focusPickTarget, shouldWarnForLaunch, navigateFocus],
   );
 
   const onAdd = async () => {
@@ -271,14 +302,41 @@ export function RadarScreen() {
       estimated_duration,
       user_forced_urgent: userForcedUrgent,
       is_late_night,
+      alarm_enabled: alarm,
     });
 
     setTitle('');
     setDescription('');
     setUrgent(false);
+    setAlarm(false);
     setDialogOpen(false);
     await load();
     void syncPendingIntentions();
+
+    const list = await listIntentionsDescending();
+    const pending = list.filter((r) => r.status !== 'done');
+    let busyForAgent: BusyInterval[] = [];
+    if (connectEnabled) {
+      busyForAgent = await refreshBusy();
+    }
+    const railNow = new Date();
+    const built = buildTimelineSlots(
+      pending,
+      {
+        structure: spectrum.structure,
+        momentum: spectrum.momentum,
+        zen: spectrum.zen,
+        stats: spectrum.stats,
+      },
+      railNow,
+      { busyIntervals: busyForAgent },
+    );
+    await syncRailAlarmsWithTimeline({
+      pendingIntentions: pending,
+      slots: built,
+      now: railNow,
+    });
+    DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
   };
 
   const renderItem = ({
@@ -445,6 +503,43 @@ export function RadarScreen() {
                   {t('radar.urgentLabel')}
                 </Text>
               </Pressable>
+              <Pressable
+                style={styles.urgentRow}
+                onPress={() => {
+                  void (async () => {
+                    const next = !alarm;
+                    if (next) {
+                      const ok = await requestAlarmPermissionIfNeeded();
+                      if (!ok) return;
+                    }
+                    setAlarm(next);
+                  })();
+                }}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: alarm }}
+              >
+                <Checkbox.Android
+                  status={alarm ? 'checked' : 'unchecked'}
+                  onPress={() => {
+                    void (async () => {
+                      const next = !alarm;
+                      if (next) {
+                        const ok = await requestAlarmPermissionIfNeeded();
+                        if (!ok) return;
+                      }
+                      setAlarm(next);
+                    })();
+                  }}
+                />
+                <Text
+                  style={[
+                    styles.urgentLabel,
+                    { color: theme.colors.onSurface },
+                  ]}
+                >
+                  {t('radar.alarmLabel')}
+                </Text>
+              </Pressable>
             </KeyboardAvoidingView>
           </Dialog.Content>
           <Dialog.Actions>
@@ -468,6 +563,45 @@ export function RadarScreen() {
         pomodoroLabel={t('focusMode.pomodoro')}
         pomodoroHint={t('focusMode.pomodoroHint')}
       />
+
+      <Portal>
+        <Dialog
+          visible={calendarConflictOpen}
+          onDismiss={() => {
+            setCalendarConflictOpen(false);
+            setPendingFocus(null);
+          }}
+          style={{ backgroundColor: theme.colors.surface }}
+        >
+          <Dialog.Title>{t('ally.calendarConflictTitle')}</Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ color: theme.colors.onSurface }}>
+              {t('ally.calendarConflictBody')}
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              onPress={() => {
+                setCalendarConflictOpen(false);
+                setPendingFocus(null);
+              }}
+            >
+              {t('ally.calendarConflictBack')}
+            </Button>
+            <Button
+              mode="contained"
+              onPress={() => {
+                const p = pendingFocus;
+                setCalendarConflictOpen(false);
+                setPendingFocus(null);
+                if (p) navigateFocus(p.row, p.mode);
+              }}
+            >
+              {t('ally.calendarConflictContinue')}
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }

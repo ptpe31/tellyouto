@@ -1,3 +1,4 @@
+export { ErrorBoundary } from './ErrorBoundary';
 export { AllyThoughtBubble } from './AllyThoughtBubble';
 export { AgentInsight } from './AgentInsight';
 export { FocusModePicker } from './FocusModePicker';

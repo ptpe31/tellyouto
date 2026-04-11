@@ -13,7 +13,9 @@ import { IntentionSyncBootstrap } from './src/components/IntentionSyncBootstrap'
 import { StartupPerfBanner } from './src/components/StartupPerfBanner';
 import { SystemHealthBanner } from './src/components/SystemHealthBanner';
 import { DebugUnlockProvider } from './src/context/DebugUnlockContext';
+import { CalendarIntegrationProvider } from './src/context/CalendarIntegrationContext';
 import { UserSpectrumProvider } from './src/context/UserSpectrumContext';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { navigationThemeFromPaper } from './src/theme/paperTheme';
 
@@ -30,25 +32,29 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider>
-          <LanguageProvider>
-            <DebugUnlockProvider>
-              <AllyProvider>
-                <PowerProvider>
+        <ErrorBoundary>
+          <ThemeProvider>
+            <LanguageProvider>
+              <DebugUnlockProvider>
+                <AllyProvider>
+                  <PowerProvider>
                   <UserSpectrumProvider>
+                    <CalendarIntegrationProvider>
                     <FocusProtectionProvider>
-                      <IntentionSyncBootstrap />
-                      <SystemHealthBanner />
-                      <AppNavigation />
-                      <StartupPerfBanner />
-                      <StatusBarRoot />
+                        <IntentionSyncBootstrap />
+                        <SystemHealthBanner />
+                        <AppNavigation />
+                        <StartupPerfBanner />
+                        <StatusBarRoot />
                     </FocusProtectionProvider>
+                    </CalendarIntegrationProvider>
                   </UserSpectrumProvider>
-                </PowerProvider>
-              </AllyProvider>
-            </DebugUnlockProvider>
-          </LanguageProvider>
-        </ThemeProvider>
+                  </PowerProvider>
+                </AllyProvider>
+              </DebugUnlockProvider>
+            </LanguageProvider>
+          </ThemeProvider>
+        </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -51,6 +51,20 @@
         "a2": "Intercambios calmados y alineación serena",
         "a3": "Revisiones basadas en hechos medibles"
       }
+    },
+    "privateChannel": {
+      "title": "Activa tu canal privado",
+      "subtitle": "Elige cómo el Aliado te envía intenciones — un bot dedicado, no un SMS clásico.",
+      "explainBot": "No hablas con un número tipo +33: el bot está ligado a tu dispositivo y a la app que elijas — todo queda en tu espacio TellYouTo.",
+      "platforms": {
+        "whatsapp": "WhatsApp",
+        "telegram": "Telegram",
+        "slack": "Slack",
+        "line": "LINE"
+      },
+      "cta": "Guardar y abrir enlace",
+      "skip": "Más tarde",
+      "urlPending": "Enlace a configurar (EXPO_PUBLIC_BOT_*_URL)"
     }
   },
   "radar": {
@@ -65,6 +79,7 @@
     "fieldTitle": "Título",
     "fieldDescription": "Detalle (opcional)",
     "urgentLabel": "Marcar como urgente",
+    "alarmLabel": "Poner alarma",
     "done": "Hecho",
     "cancel": "Cancelar",
     "save": "Guardar",
@@ -84,7 +99,11 @@
     "estimated": "~ {{minutes}} min estimadas",
     "suggestedWindow": "Ventana sugerida: {{start}} – {{end}}",
     "launch": "Lanzar",
-    "done": "Hecho"
+    "done": "Hecho",
+    "calendarRailTitle": "No disponible (calendario)",
+    "calendarBusy": "Ocupado · {{start}} – {{end}}",
+    "alarmSwitch": "Alarma al inicio del hueco",
+    "alarmBellA11y": "Alarma activa para este hueco"
   },
   "focusMode": {
     "title": "Modo de sesión",
@@ -139,6 +158,11 @@
   "debug": {
     "pilotTitle": "Herramientas de pilotaje",
     "note": "Herramienta interna — interfaz mínima.",
+    "calendarSection": "Calendario del sistema",
+    "calendarConnect": "Conectar calendarios del sistema",
+    "calendarConnectHelp": "Solo lectura local — ningún título va a Firebase.",
+    "calendarHideRail": "Ocultar eventos del calendario en el riel",
+    "calendarHideHelp": "Ocultos: no se muestran; el agente sigue considerándolos ocupados.",
     "resetProfile": "Restablecer perfil",
     "resetProfileHelp": "Borra onboarding_complete y user_spectrum (AsyncStorage) y vuelve al onboarding de las 5 situaciones.",
     "rebuildDb": "Reconstruir base de datos",
@@ -252,6 +276,10 @@
     }
   },
   "ally": {
+    "calendarConflictTitle": "Franja ocupada",
+    "calendarConflictBody": "Tu calendario ya tiene algo en este tramo. Puedes lanzar la cápsula igual — o esperar un poco.",
+    "calendarConflictContinue": "Lanzar igualmente",
+    "calendarConflictBack": "Cancelar",
     "settingsTitle": "Copiloto",
     "settingsLead": "Define cómo te habla TellYouTo: voz, tono e idiomas.",
     "sectionVoice": "Voz",

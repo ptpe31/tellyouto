@@ -30,7 +30,8 @@ const SCHEMA = `
     actual_duration INTEGER,
     completed_at INTEGER,
     user_forced_urgent INTEGER NOT NULL DEFAULT 0,
-    is_late_night INTEGER NOT NULL DEFAULT 0
+    is_late_night INTEGER NOT NULL DEFAULT 0,
+    alarm_enabled INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE INDEX IF NOT EXISTS idx_intentions_synced ON intentions (synced);
@@ -68,6 +69,11 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
   if (!names.has('is_late_night')) {
     await database.execAsync(
       `ALTER TABLE intentions ADD COLUMN is_late_night INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  if (!names.has('alarm_enabled')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN alarm_enabled INTEGER NOT NULL DEFAULT 0`,
     );
   }
 }
@@ -123,6 +129,8 @@ export type IntentionRow = {
   user_forced_urgent: boolean;
   /** Fin de journée / coucher — classé par l’agent (rail après 21h) */
   is_late_night: boolean;
+  /** Notification à l’heure du créneau suggéré sur le rail */
+  alarm_enabled: boolean;
 };
 
 function rowToIntention(row: Record<string, unknown>): IntentionRow {
@@ -158,6 +166,8 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
       typeof row.completed_at === 'number' ? row.completed_at : null,
     user_forced_urgent: Number(row.user_forced_urgent) === 1,
     is_late_night: Number(row.is_late_night) === 1,
+    alarm_enabled:
+      row.alarm_enabled != null && Number(row.alarm_enabled) === 1,
   };
 }
 
@@ -174,17 +184,19 @@ export async function insertIntention(input: {
   estimated_duration: number;
   user_forced_urgent?: boolean;
   is_late_night?: boolean;
+  alarm_enabled?: boolean;
 }): Promise<void> {
   const database = await getLocalDatabase();
   const ufu = input.user_forced_urgent ? 1 : 0;
   const iln = input.is_late_night ? 1 : 0;
+  const alarm = input.alarm_enabled ? 1 : 0;
   await database.runAsync(
     `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
-      user_forced_urgent, is_late_night
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
+      user_forced_urgent, is_late_night, alarm_enabled
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?)`,
     [
       input.id,
       input.title,
@@ -198,6 +210,7 @@ export async function insertIntention(input: {
       input.estimated_duration,
       ufu,
       iln,
+      alarm,
     ],
   );
 }
@@ -217,17 +230,19 @@ export async function insertCompletedIntention(input: {
   completed_at: number;
   user_forced_urgent?: boolean;
   is_late_night?: boolean;
+  alarm_enabled?: boolean;
 }): Promise<void> {
   const database = await getLocalDatabase();
   const ufu = input.user_forced_urgent ? 1 : 0;
   const iln = input.is_late_night ? 1 : 0;
+  const alarm = input.alarm_enabled ? 1 : 0;
   await database.runAsync(
     `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
-      user_forced_urgent, is_late_night
-    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+      user_forced_urgent, is_late_night, alarm_enabled
+    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
     [
       input.id,
       input.title,
@@ -242,7 +257,19 @@ export async function insertCompletedIntention(input: {
       input.completed_at,
       ufu,
       iln,
+      alarm,
     ],
+  );
+}
+
+export async function updateIntentionAlarmEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<void> {
+  const database = await getLocalDatabase();
+  await database.runAsync(
+    `UPDATE intentions SET alarm_enabled = ?, synced = 0 WHERE id = ?`,
+    [enabled ? 1 : 0, id],
   );
 }
 
@@ -276,6 +303,11 @@ export async function updateIntentionAfterFocus(input: {
     `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ? WHERE id = ?`,
     [input.actual_duration, input.status, completedAt, input.id],
   );
+  if (input.status === 'done') {
+    void import('../services/alarmManager').then(({ cancelIntentionRailAlarm }) => {
+      void cancelIntentionRailAlarm(input.id);
+    });
+  }
 }
 
 /** Termine une intention depuis la liste (sans session timer) — durée indicative pour l’historique. */
@@ -343,4 +375,17 @@ export async function listRecentCompletedFocusSessions(
     [limit],
   );
   return rows.map(rowToIntention);
+}
+
+/**
+ * Pousse le journal SQLite (WAL) vers le disque — à appeler en arrière-plan
+ * avant suspension / fermeture pour limiter la perte de données.
+ */
+export async function checkpointLocalDatabase(): Promise<void> {
+  try {
+    const database = await getLocalDatabase();
+    await database.execAsync('PRAGMA wal_checkpoint(TRUNCATE);');
+  } catch {
+    /* mode journal non-WAL ou indisponible : ignoré */
+  }
 }

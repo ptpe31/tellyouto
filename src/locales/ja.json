@@ -51,6 +51,20 @@
         "a2": "落ち着いた対話と静かな整合",
         "a3": "測定可能な事実に基づくレビュー"
       }
+    },
+    "privateChannel": {
+      "title": "プライベートチャネルを有効にする",
+      "subtitle": "アリーが意図を送る方法を選ぶ — 専用ボットで、普通のSMSではありません。",
+      "explainBot": "+33のような番号ではありません。ボットは端末と選んだアプリに紐づき、TellYouToの空間に留まります。",
+      "platforms": {
+        "whatsapp": "WhatsApp",
+        "telegram": "Telegram",
+        "slack": "Slack",
+        "line": "LINE"
+      },
+      "cta": "保存してリンクを開く",
+      "skip": "あとで",
+      "urlPending": "リンクを設定（EXPO_PUBLIC_BOT_*_URL）"
     }
   },
   "radar": {
@@ -65,6 +79,7 @@
     "fieldTitle": "タイトル",
     "fieldDescription": "詳細（任意）",
     "urgentLabel": "緊急としてマーク",
+    "alarmLabel": "アラームを設定",
     "done": "完了",
     "cancel": "キャンセル",
     "save": "保存",
@@ -84,7 +99,11 @@
     "estimated": "約 {{minutes}} 分（見積）",
     "suggestedWindow": "提案枠：{{start}} – {{end}}",
     "launch": "開始",
-    "done": "完了"
+    "done": "完了",
+    "calendarRailTitle": "予定あり（カレンダー）",
+    "calendarBusy": "予定あり · {{start}} – {{end}}",
+    "alarmSwitch": "枠の開始時にアラーム",
+    "alarmBellA11y": "この枠にアラームあり"
   },
   "focusMode": {
     "title": "セッションモード",
@@ -139,6 +158,11 @@
   "debug": {
     "pilotTitle": "操作用ツール",
     "note": "内部向け — 最低限のUI。",
+    "calendarSection": "システムカレンダー",
+    "calendarConnect": "システムカレンダーを接続",
+    "calendarConnectHelp": "端末内のみ — イベント名は Firebase に送りません。",
+    "calendarHideRail": "カレンダー予定をレールに表示しない",
+    "calendarHideHelp": "非表示でもエージェントはブロックとして扱います。",
     "resetProfile": "プロフィールをリセット",
     "resetProfileHelp": "AsyncStorage の onboarding_complete と user_spectrum を削除し、5 シチュエーションのオンボーディングに戻します。",
     "rebuildDb": "データベースを再構築",
@@ -252,6 +276,10 @@
     }
   },
   "ally": {
+    "calendarConflictTitle": "時間が重なっています",
+    "calendarConflictBody": "カレンダーに予定があります。カプセルを開始してもよいですし、少しずらしてもよいです。",
+    "calendarConflictContinue": "それでも開始",
+    "calendarConflictBack": "キャンセル",
     "settingsTitle": "コパイロット",
     "settingsLead": "TellYouToの声・トーン・言語を選びます。",
     "sectionVoice": "声",

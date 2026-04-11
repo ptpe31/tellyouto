@@ -51,6 +51,20 @@
         "a2": "从容交流与稳态对齐",
         "a3": "基于可衡量事实的复盘"
       }
+    },
+    "privateChannel": {
+      "title": "启用你的私人通道",
+      "subtitle": "选择盟友如何发送意图 — 使用专用机器人，而非普通短信。",
+      "explainBot": "你不是在拨打 +33 这类号码：机器人绑定你的设备与所选应用 — 一切留在 TellYouTo 空间内。",
+      "platforms": {
+        "whatsapp": "WhatsApp",
+        "telegram": "Telegram",
+        "slack": "Slack",
+        "line": "LINE"
+      },
+      "cta": "保存并打开链接",
+      "skip": "稍后",
+      "urlPending": "链接待配置（EXPO_PUBLIC_BOT_*_URL）"
     }
   },
   "radar": {
@@ -65,6 +79,7 @@
     "fieldTitle": "标题",
     "fieldDescription": "详情（可选）",
     "urgentLabel": "标记为紧急",
+    "alarmLabel": "设置闹钟",
     "done": "完成",
     "cancel": "取消",
     "save": "保存",
@@ -84,7 +99,11 @@
     "estimated": "约 {{minutes}} 分钟（估计）",
     "suggestedWindow": "建议时段：{{start}} – {{end}}",
     "launch": "开始",
-    "done": "完成"
+    "done": "完成",
+    "calendarRailTitle": "不可用（日历）",
+    "calendarBusy": "占用 · {{start}} – {{end}}",
+    "alarmSwitch": "时段开始时提醒",
+    "alarmBellA11y": "此时段已设提醒"
   },
   "focusMode": {
     "title": "会话模式",
@@ -139,6 +158,11 @@
   "debug": {
     "pilotTitle": "驾驶舱工具",
     "note": "内部工具 — 界面从简。",
+    "calendarSection": "系统日历",
+    "calendarConnect": "连接系统日历",
+    "calendarConnectHelp": "仅本地读取 — 不向 Firebase 发送事件标题。",
+    "calendarHideRail": "在轨道上隐藏日历事件",
+    "calendarHideHelp": "隐藏后仍作为占用块参与智能排期。",
     "resetProfile": "重置档案",
     "resetProfileHelp": "清除 AsyncStorage 中的 onboarding_complete 与 user_spectrum，并返回 5 情境引导流程。",
     "rebuildDb": "重建数据库",
@@ -252,6 +276,10 @@
     }
   },
   "ally": {
+    "calendarConflictTitle": "时段已有安排",
+    "calendarConflictBody": "日历显示这段时间已有事项。你仍可开始胶囊 — 或稍后再试。",
+    "calendarConflictContinue": "仍要开始",
+    "calendarConflictBack": "取消",
     "settingsTitle": "副驾驶",
     "settingsLead": "设置 TellYouTo 的声音、语气与语言。",
     "sectionVoice": "声音",

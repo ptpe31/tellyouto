@@ -3,12 +3,15 @@
     "name": "TellYouTo",
     "slug": "tellyouto",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/adaptive-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#F5F5F0"
     },
@@ -32,10 +35,16 @@
       "expo-localization",
       "expo-notifications",
       [
+        "expo-calendar",
+        {
+          "calendarPermission": "TellYouTo lit tes créneaux occupés sur l’appareil pour le rail — aucun titre d’événement n’est envoyé au nuage."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#F5F5F0",
-          "image": "./assets/splash-icon.png",
+          "image": "./assets/adaptive-icon.png",
           "resizeMode": "contain"
         }
       ]

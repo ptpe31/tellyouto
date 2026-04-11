@@ -41,6 +41,7 @@ async function pushIntentionToFirestore(
     created_at: row.created_at,
     estimated_duration: row.estimated_duration,
     actual_duration: row.actual_duration,
+    alarm_enabled: row.alarm_enabled,
     synced_client_at: Date.now(),
   });
 }

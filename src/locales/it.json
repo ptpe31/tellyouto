@@ -51,6 +51,20 @@
         "a2": "Scambi calmi e allineamento sereno",
         "a3": "Revisioni basate su fatti misurabili"
       }
+    },
+    "privateChannel": {
+      "title": "Attiva il canale privato",
+      "subtitle": "Scegli come l’Alleato invia le intenzioni — un bot dedicato, non un SMS classico.",
+      "explainBot": "Non parli con un numero tipo +33: il bot è legato al dispositivo e all’app scelta — tutto resta nel tuo spazio TellYouTo.",
+      "platforms": {
+        "whatsapp": "WhatsApp",
+        "telegram": "Telegram",
+        "slack": "Slack",
+        "line": "LINE"
+      },
+      "cta": "Salva e apri il link",
+      "skip": "Più tardi",
+      "urlPending": "Link da configurare (EXPO_PUBLIC_BOT_*_URL)"
     }
   },
   "radar": {
@@ -65,6 +79,7 @@
     "fieldTitle": "Titolo",
     "fieldDescription": "Dettaglio (opzionale)",
     "urgentLabel": "Segna come urgente",
+    "alarmLabel": "Imposta una sveglia",
     "done": "Fatto",
     "cancel": "Annulla",
     "save": "Salva",
@@ -84,7 +99,11 @@
     "estimated": "~ {{minutes}} min stimate",
     "suggestedWindow": "Finestra suggerita: {{start}} – {{end}}",
     "launch": "Avvia",
-    "done": "Fatto"
+    "done": "Fatto",
+    "calendarRailTitle": "Non disponibile (calendario)",
+    "calendarBusy": "Occupato · {{start}} – {{end}}",
+    "alarmSwitch": "Sveglia all’inizio della finestra",
+    "alarmBellA11y": "Sveglia attiva per questa finestra"
   },
   "focusMode": {
     "title": "Modalità sessione",
@@ -139,6 +158,11 @@
   "debug": {
     "pilotTitle": "Strumenti di pilotaggio",
     "note": "Strumento interno — interfaccia essenziale.",
+    "calendarSection": "Calendario di sistema",
+    "calendarConnect": "Collega i calendari di sistema",
+    "calendarConnectHelp": "Solo lettura locale — nessun titolo evento su Firebase.",
+    "calendarHideRail": "Nascondi eventi calendario sul binario",
+    "calendarHideHelp": "Nascosti: non mostrati; l’agente li considera ancora occupati.",
     "resetProfile": "Reimposta profilo",
     "resetProfileHelp": "Cancella onboarding_complete e user_spectrum (AsyncStorage), poi torna all’onboarding delle 5 situazioni.",
     "rebuildDb": "Ricostruisci database",
@@ -252,6 +276,10 @@
     }
   },
   "ally": {
+    "calendarConflictTitle": "Finestra occupata",
+    "calendarConflictBody": "Il calendario segna già qualcosa in questa fascia. Puoi avviare la capsula comunque — o aspettare.",
+    "calendarConflictContinue": "Avvia comunque",
+    "calendarConflictBack": "Annulla",
     "settingsTitle": "Copilota",
     "settingsLead": "Definisci come TellYouTo ti parla — voce, tono e lingue.",
     "sectionVoice": "Voce",

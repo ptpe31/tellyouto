@@ -271,11 +271,66 @@ export type TimelineSlot = {
   endLabel: string;
 };
 
+/** Créneaux indisponibles (calendrier externe, etc.) — minutes depuis minuit, sans données sensibles. */
+export type BusyInterval = {
+  startMinutes: number;
+  endMinutes: number;
+};
+
+function mergeBusyIntervalsForRail(
+  intervals: BusyInterval[],
+): BusyInterval[] {
+  if (intervals.length === 0) return [];
+  const sorted = [...intervals].sort((a, b) => a.startMinutes - b.startMinutes);
+  const out: BusyInterval[] = [];
+  let cur = { ...sorted[0]! };
+  for (let i = 1; i < sorted.length; i++) {
+    const n = sorted[i]!;
+    if (n.startMinutes <= cur.endMinutes) {
+      cur.endMinutes = Math.max(cur.endMinutes, n.endMinutes);
+    } else {
+      out.push(cur);
+      cur = { ...n };
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * Trouve un placement [start, start+dur] dans [segmentStart, segmentEnd) en évitant les busy.
+ */
+function placeBlockAvoidingBusy(
+  cursor: number,
+  duration: number,
+  busy: BusyInterval[],
+  segmentEnd: number,
+): { start: number; end: number } | null {
+  let start = cursor;
+  let end = start + duration;
+  let guard = 0;
+  while (guard++ < 64) {
+    let moved = false;
+    for (const b of busy) {
+      if (start < b.endMinutes && end > b.startMinutes) {
+        start = b.endMinutes;
+        end = start + duration;
+        moved = true;
+        if (start >= segmentEnd) return null;
+        if (end > segmentEnd) return null;
+      }
+    }
+    if (!moved) break;
+  }
+  if (end > segmentEnd || start >= segmentEnd) return null;
+  return { start, end };
+}
+
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
 
-function formatMinutesAsClock(totalMinutes: number): string {
+export function formatMinutesAsClock(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60) % 24;
   const m = Math.floor(totalMinutes % 60);
   return `${pad2(h)}:${pad2(m)}`;
@@ -318,12 +373,16 @@ export function orderIntentionsBySpectrum(
 /**
  * Répartit les intentions : jamais dans le passé ; jour jusqu’à 20h ; fin de nuit après 21h.
  * Créneaux consécutifs (fin précédent = début suivant).
+ * `busyIntervals` : blocs indisponibles (ex. calendrier système) — traités **uniquement en local**.
  */
 export function buildTimelineSlots(
   intentions: IntentionRow[],
   spectrum: SpectrumWeights,
   now: Date = new Date(),
+  options?: { busyIntervals?: BusyInterval[] },
 ): TimelineSlot[] {
+  const busy = mergeBusyIntervalsForRail(options?.busyIntervals ?? []);
+
   const regular = intentions.filter((i) => !i.is_late_night);
   const late = intentions.filter((i) => i.is_late_night);
 
@@ -347,8 +406,11 @@ export function buildTimelineSlots(
       let dur = Math.round(intention.estimated_duration * momentumStretch);
       dur = Math.max(10, Math.min(maxDur, dur));
 
-      const startMinutes = cursor;
-      const endMinutes = startMinutes + dur;
+      const placed = placeBlockAvoidingBusy(cursor, dur, busy, segmentEnd);
+      if (!placed) break;
+
+      const startMinutes = placed.start;
+      const endMinutes = placed.end;
 
       slots.push({
         intention,
@@ -370,6 +432,18 @@ export function buildTimelineSlots(
   }
 
   return slots;
+}
+
+/** Indique si un créneau [startMin, endMin] chevauche un intervalle occupé. */
+export function slotOverlapsBusyIntervals(
+  startMin: number,
+  endMin: number,
+  busy: BusyInterval[],
+): boolean {
+  for (const b of busy) {
+    if (startMin < b.endMinutes && endMin > b.startMinutes) return true;
+  }
+  return false;
 }
 
 export type SpectrumAxis = 'structure' | 'momentum' | 'zen' | 'stats';

@@ -51,6 +51,20 @@
         "a2": "Calm exchanges and steady alignment",
         "a3": "Reviews grounded in measurable facts"
       }
+    },
+    "privateChannel": {
+      "title": "Turn on your private channel",
+      "subtitle": "Choose how your Ally sends intentions — a dedicated bot, not a classic SMS thread.",
+      "explainBot": "You are not chatting with a +33-style number: the bot is tied to your device and the app you pick — everything stays in your TellYouTo space.",
+      "platforms": {
+        "whatsapp": "WhatsApp",
+        "telegram": "Telegram",
+        "slack": "Slack",
+        "line": "LINE"
+      },
+      "cta": "Save and open link",
+      "skip": "Not now",
+      "urlPending": "Link to configure (EXPO_PUBLIC_BOT_*_URL)"
     }
   },
   "radar": {
@@ -65,6 +79,7 @@
     "fieldTitle": "Title",
     "fieldDescription": "Detail (optional)",
     "urgentLabel": "Mark as urgent",
+    "alarmLabel": "Set an alarm",
     "done": "Done",
     "cancel": "Cancel",
     "save": "Save",
@@ -84,7 +99,11 @@
     "estimated": "~ {{minutes}} min estimated",
     "suggestedWindow": "Suggested window: {{start}} – {{end}}",
     "launch": "Launch",
-    "done": "Done"
+    "done": "Done",
+    "calendarRailTitle": "Unavailable (calendar)",
+    "calendarBusy": "Busy · {{start}} – {{end}}",
+    "alarmSwitch": "Alarm at slot start",
+    "alarmBellA11y": "Alarm enabled for this slot"
   },
   "focusMode": {
     "title": "Session mode",
@@ -139,6 +158,11 @@
   "debug": {
     "pilotTitle": "Piloting tools",
     "note": "Internal tool — minimal UI polish.",
+    "calendarSection": "System calendar",
+    "calendarConnect": "Connect system calendars",
+    "calendarConnectHelp": "Local read only — no event titles are sent to Firebase.",
+    "calendarHideRail": "Hide calendar events on the Rail",
+    "calendarHideHelp": "When hidden: no visual blocks; they still count as busy for the agent.",
     "resetProfile": "Reset profile",
     "resetProfileHelp": "Clears onboarding_complete and user_spectrum in AsyncStorage, then returns to the 5-situation onboarding.",
     "rebuildDb": "Rebuild database",
@@ -252,6 +276,10 @@
     }
   },
   "ally": {
+    "calendarConflictTitle": "Busy window",
+    "calendarConflictBody": "Your calendar already has something on this stretch. You can still start the capsule — or wait a bit.",
+    "calendarConflictContinue": "Start anyway",
+    "calendarConflictBack": "Cancel",
     "settingsTitle": "Co-pilot",
     "settingsLead": "Shape how TellYouTo sounds to you — voice, tone, and languages.",
     "sectionVoice": "Voice",

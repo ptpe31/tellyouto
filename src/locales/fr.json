@@ -51,6 +51,20 @@
         "a2": "Des échanges posés et des alignements sereins",
         "a3": "Des revues basées sur des faits mesurables"
       }
+    },
+    "privateChannel": {
+      "title": "Active ton canal privé",
+      "subtitle": "Choisis comment l’Allié t’envoie des intentions — échange avec un bot dédié, pas un simple SMS.",
+      "explainBot": "Tu ne parles pas à un numéro type +33 : le bot est lié à ton appareil et à la messagerie choisie — tout reste dans ton espace TellYouTo.",
+      "platforms": {
+        "whatsapp": "WhatsApp",
+        "telegram": "Telegram",
+        "slack": "Slack",
+        "line": "LINE"
+      },
+      "cta": "Enregistrer et ouvrir le lien",
+      "skip": "Plus tard",
+      "urlPending": "Lien à définir (EXPO_PUBLIC_BOT_*_URL)"
     }
   },
   "radar": {
@@ -65,6 +79,7 @@
     "fieldTitle": "Titre",
     "fieldDescription": "Détail (optionnel)",
     "urgentLabel": "Marquer comme urgent",
+    "alarmLabel": "Régler une alarme",
     "done": "Fait",
     "cancel": "Annuler",
     "save": "Enregistrer",
@@ -84,7 +99,11 @@
     "estimated": "~ {{minutes}} min estimées",
     "suggestedWindow": "Créneau suggéré : {{start}} – {{end}}",
     "launch": "Lancer",
-    "done": "Fait"
+    "done": "Fait",
+    "calendarRailTitle": "Indisponibilités (calendrier)",
+    "calendarBusy": "Occupé · {{start}} – {{end}}",
+    "alarmSwitch": "Alarme au début du créneau",
+    "alarmBellA11y": "Alarme activée pour ce créneau"
   },
   "focusMode": {
     "title": "Mode de session",
@@ -139,6 +158,11 @@
   "debug": {
     "pilotTitle": "Outils de Pilotage",
     "note": "Outil interne — interface volontairement brute.",
+    "calendarSection": "Calendrier système",
+    "calendarConnect": "Connecter les calendriers système",
+    "calendarConnectHelp": "Lecture locale uniquement — aucun titre d’événement n’est envoyé sur Firebase.",
+    "calendarHideRail": "Masquer les événements du calendrier sur le Rail",
+    "calendarHideHelp": "Si masqué : pas d’affichage des plages ; elles restent des blocs indisponibles pour l’agent.",
     "resetProfile": "Réinitialiser le profil",
     "resetProfileHelp": "Efface onboarding_complete et user_spectrum (AsyncStorage), puis renvoie à l’onboarding des 5 situations.",
     "rebuildDb": "Reconstruire la base de données",
@@ -252,6 +276,10 @@
     }
   },
   "ally": {
+    "calendarConflictTitle": "Créneau chargé",
+    "calendarConflictBody": "Ton calendrier indique déjà quelque chose sur cette plage. Tu peux quand même lancer la capsule — ou repousser un peu.",
+    "calendarConflictContinue": "Lancer quand même",
+    "calendarConflictBack": "Annuler",
     "settingsTitle": "Co-pilote",
     "settingsLead": "Choisis comment TellYouTo te parle — voix, tonalité et langues.",
     "sectionVoice": "Voix",

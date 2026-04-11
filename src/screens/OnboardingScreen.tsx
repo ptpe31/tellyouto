@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,12 +15,23 @@ import {
   normalizeSpectrumWeights,
   ONBOARDING_SITUATIONS,
 } from '../data/onboardingSituations';
+import {
+  listPrivateChannelIds,
+  type PrivateChannelId,
+  resolvePrivateChannelBotUrl,
+  savePrivateChannelChoice,
+} from '../data/privateChannels';
 import { NeumorphicCard, NeumorphicSurface } from '../components';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 
 type Props = {
   onComplete: () => void;
 };
+
+const SITUATION_COUNT = ONBOARDING_SITUATIONS.length;
+/** Étapes 0..SITUATION_COUNT-1 = situations, étape SITUATION_COUNT = canal privé */
+const PRIVATE_CHANNEL_STEP = SITUATION_COUNT;
+const TOTAL_STEPS = SITUATION_COUNT + 1;
 
 export function OnboardingScreen({ onComplete }: Props) {
   const { t } = useTranslation();
@@ -28,10 +40,92 @@ export function OnboardingScreen({ onComplete }: Props) {
 
   const [step, setStep] = useState(0);
   const [weights, setWeights] = useState(initialOnboardingWeights);
+  const [selectedChannel, setSelectedChannel] =
+    useState<PrivateChannelId | null>(null);
+
+  const finishOnboarding = async (finalWeights = weights) => {
+    await applyWeightsAndPersist(finalWeights);
+    onComplete();
+  };
+
+  if (step === PRIVATE_CHANNEL_STEP) {
+    return (
+      <ScrollView
+        style={[styles.flex, { backgroundColor: theme.colors.background }]}
+        contentContainerStyle={styles.pad}
+      >
+        <Text style={[styles.kicker, { color: theme.colors.primary }]}>
+          {t('onboarding.progress', { current: TOTAL_STEPS, total: TOTAL_STEPS })}
+        </Text>
+        <Text style={[styles.title, { color: theme.colors.onBackground }]}>
+          {t('onboarding.privateChannel.title')}
+        </Text>
+        <Text style={[styles.sub, { color: theme.colors.onSurfaceVariant }]}>
+          {t('onboarding.privateChannel.subtitle')}
+        </Text>
+        <Text style={[styles.explain, { color: theme.colors.onSurfaceVariant }]}>
+          {t('onboarding.privateChannel.explainBot')}
+        </Text>
+
+        <NeumorphicCard style={styles.card}>
+          {listPrivateChannelIds().map((id) => {
+            const selected = selectedChannel === id;
+            return (
+              <Pressable
+                key={id}
+                onPress={() => setSelectedChannel(id)}
+                style={({ pressed }) => [
+                  styles.channelRow,
+                  {
+                    borderColor: selected
+                      ? theme.colors.primary
+                      : theme.colors.outline,
+                    opacity: pressed ? 0.92 : 1,
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.channelLabel, { color: theme.colors.onSurface }]}
+                >
+                  {t(`onboarding.privateChannel.platforms.${id}`)}
+                </Text>
+                {selected ? (
+                  <Text
+                    style={[styles.channelHint, { color: theme.colors.primary }]}
+                    numberOfLines={2}
+                  >
+                    {resolvePrivateChannelBotUrl(id) || t('onboarding.privateChannel.urlPending')}
+                  </Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+
+          <Button
+            mode="contained"
+            style={styles.channelCta}
+            disabled={selectedChannel === null}
+            onPress={async () => {
+              if (selectedChannel) {
+                await savePrivateChannelChoice(selectedChannel);
+                const url = resolvePrivateChannelBotUrl(selectedChannel);
+                if (url) void Linking.openURL(url);
+              }
+              void finishOnboarding();
+            }}
+          >
+            {t('onboarding.privateChannel.cta')}
+          </Button>
+
+          <Button mode="text" compact onPress={() => void finishOnboarding()}>
+            {t('onboarding.privateChannel.skip')}
+          </Button>
+        </NeumorphicCard>
+      </ScrollView>
+    );
+  }
 
   const situation = ONBOARDING_SITUATIONS[step];
-  const total = ONBOARDING_SITUATIONS.length;
-
   const titleKey = `onboarding.situations.${situation.id}.title`;
   const answerKeys = [0, 1, 2, 3].map(
     (i) => `onboarding.situations.${situation.id}.a${i}`,
@@ -42,10 +136,10 @@ export function OnboardingScreen({ onComplete }: Props) {
     const next = normalizeSpectrumWeights(applyDelta(weights, delta));
     setWeights(next);
 
-    if (step < total - 1) {
+    if (step < SITUATION_COUNT - 1) {
       setStep((s) => s + 1);
     } else {
-      void applyWeightsAndPersist(next).then(() => onComplete());
+      setStep(PRIVATE_CHANNEL_STEP);
     }
   };
 
@@ -55,7 +149,7 @@ export function OnboardingScreen({ onComplete }: Props) {
       contentContainerStyle={styles.pad}
     >
       <Text style={[styles.kicker, { color: theme.colors.primary }]}>
-        {t('onboarding.progress', { current: step + 1, total })}
+        {t('onboarding.progress', { current: step + 1, total: TOTAL_STEPS })}
       </Text>
       <Text style={[styles.title, { color: theme.colors.onBackground }]}>
         {t('onboarding.title')}
@@ -94,9 +188,7 @@ export function OnboardingScreen({ onComplete }: Props) {
         <Button
           mode="text"
           compact
-          onPress={() => {
-            void applyWeightsAndPersist(weights).then(() => onComplete());
-          }}
+          onPress={() => void finishOnboarding()}
         >
           {t('onboarding.skip')}
         </Button>
@@ -111,10 +203,20 @@ const styles = StyleSheet.create({
   kicker: { fontSize: 13, fontWeight: '600', letterSpacing: 0.5, marginBottom: 6 },
   title: { fontSize: 24, fontWeight: '700' },
   sub: { marginTop: 8, fontSize: 15, lineHeight: 22 },
+  explain: { marginTop: 10, fontSize: 14, lineHeight: 21 },
   card: { marginTop: 16 },
   situationTitle: { fontSize: 18, fontWeight: '600', lineHeight: 26, marginBottom: 16 },
   answers: { gap: 12 },
   answerSurface: { paddingVertical: 14, paddingHorizontal: 14 },
   answerText: { fontSize: 15, lineHeight: 22 },
   hint: { marginTop: 16, fontSize: 13, lineHeight: 18 },
+  channelRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+  },
+  channelLabel: { fontSize: 16, fontWeight: '600' },
+  channelHint: { fontSize: 12, marginTop: 6 },
+  channelCta: { marginTop: 8, alignSelf: 'flex-start' },
 });
