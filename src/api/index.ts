@@ -10,6 +10,7 @@ export {
   markIntentionSynced,
 } from './localDb';
 export type { IntentionRow, IntentionStatus } from './localDb';
+export { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';
 export {
   getOrCreateDeviceId,
   startConnectivitySyncListener,

@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 
 import { DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS } from '../config/transitPurgeKeys';
-import { getFirestoreDb } from './firebase';
+import { ensureFirebaseAnonymousAuth, getFirestoreDb } from './firebase';
 import {
   listUnsyncedIntentions,
   markIntentionSynced,
@@ -37,6 +37,7 @@ async function pushIntentionToFirestore(
 ): Promise<void> {
   const firestore = getFirestoreDb();
   if (!firestore) return;
+  await ensureFirebaseAnonymousAuth();
 
   const ref = doc(firestore, 'devices', deviceId, 'intentions', row.id);
   const now = Date.now();
@@ -60,6 +61,7 @@ async function pushIntentionToFirestore(
     routine_id: row.routine_id,
     anchor_date_ymd: row.anchor_date_ymd,
     fixed_start_minutes: row.fixed_start_minutes,
+    recurrence_rrule: row.recurrence_rrule ?? null,
     synced_client_at: now,
     transit_expires_at: ttlAt,
     /** Champ Timestamp pour politique TTL Firestore (24h) — configurer dans la console GCP. */

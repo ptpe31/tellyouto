@@ -202,6 +202,8 @@
     "done": "Hecho",
     "cancel": "Cancelar",
     "save": "Guardar",
+    "saveErrorTitle": "No se pudo guardar",
+    "saveErrorBody": "Algo salió mal. Inténtalo de nuevo.",
     "status": {
       "pending": "Pendiente",
       "active": "Activa",

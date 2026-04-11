@@ -5,8 +5,8 @@
  * Prérequis (variables d’environnement ou fichier .env chargé manuellement) :
  *   TELEGRAM_BOT_TOKEN       — jeton du bot (@BotFather)
  *   TELEGRAM_WEBHOOK_SECRET  — même valeur que côté Functions (en-tête secret Telegram)
- *   TELEGRAM_WEBHOOK_URL     — URL complète, ex.
- *     https://europe-west1-PROJECT.cloudfunctions.net/telegramWebhook
+ *   TELEGRAM_WEBHOOK_URL     — URL complète (Gen2, région europe-west9), ex.
+ *     https://europe-west9-tellmeto-4f3c7.cloudfunctions.net/telegramWebhook
  *
  * Usage :
  *   cd functions && TELEGRAM_BOT_TOKEN=... TELEGRAM_WEBHOOK_SECRET=... TELEGRAM_WEBHOOK_URL=... node scripts/setTelegramWebhook.mjs

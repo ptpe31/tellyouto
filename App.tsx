@@ -16,6 +16,7 @@ import { DebugUnlockProvider } from './src/context/DebugUnlockContext';
 import { CalendarIntegrationProvider } from './src/context/CalendarIntegrationContext';
 import { UserSpectrumProvider } from './src/context/UserSpectrumContext';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { FirebaseProjectIdDebugAlert } from './src/components/FirebaseProjectIdDebugAlert';
 import { appLinking } from './src/navigation/linking';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { rootNavigationRef } from './src/navigation/rootNavigationRef';
@@ -47,6 +48,7 @@ export default function App() {
                   <UserSpectrumProvider>
                     <CalendarIntegrationProvider>
                     <FocusProtectionProvider>
+                        <FirebaseProjectIdDebugAlert />
                         <IntentionSyncBootstrap />
                         <SystemHealthBanner />
                         <AppNavigation />

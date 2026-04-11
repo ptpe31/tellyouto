@@ -1,7 +1,7 @@
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useEffect } from 'react';
 
-import { getFirestoreDb } from '../api/firebase';
+import { ensureFirebaseAnonymousAuth, getFirestoreDb } from '../api/firebase';
 import { getOrCreateDeviceId } from '../api/syncService';
 import { fetchDeviceProfileFromFirestore } from '../api/userProfile';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -15,6 +15,7 @@ export function ProfileSyncBootstrap() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      await ensureFirebaseAnonymousAuth();
       const remote = await fetchDeviceProfileFromFirestore();
       if (cancelled || !remote) return;
       mergeRemoteProfile(remote);
@@ -29,7 +30,9 @@ export function ProfileSyncBootstrap() {
     const db = getFirestoreDb();
     if (!db) return;
     let unsub: (() => void) | undefined;
-    void getOrCreateDeviceId().then((deviceId) => {
+    void (async () => {
+      await ensureFirebaseAnonymousAuth();
+      const deviceId = await getOrCreateDeviceId();
       const ref = doc(db, 'devices', deviceId);
       unsub = onSnapshot(ref, (snap) => {
         if (!snap.exists()) return;
@@ -49,7 +52,7 @@ export function ProfileSyncBootstrap() {
                 : undefined,
         });
       });
-    });
+    })();
     return () => {
       unsub?.();
     };

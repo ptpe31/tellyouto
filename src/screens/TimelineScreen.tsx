@@ -359,7 +359,11 @@ export function TimelineScreen() {
     async (intention: IntentionRow, enabled: boolean) => {
       if (enabled) {
         const ok = await requestAlarmPermissionIfNeeded();
-        if (!ok) return;
+        if (!ok && __DEV__) {
+          console.warn(
+            '[TellYouTo] Permission notifications refusée — préférence alarme enregistrée quand même (Réglages système pour activer).',
+          );
+        }
       } else {
         await cancelIntentionRailAlarm(intention.id);
       }

@@ -202,6 +202,8 @@
     "done": "完了",
     "cancel": "キャンセル",
     "save": "保存",
+    "saveErrorTitle": "保存できませんでした",
+    "saveErrorBody": "エラーが発生しました。もう一度お試しください。",
     "status": {
       "pending": "保留",
       "active": "進行中",

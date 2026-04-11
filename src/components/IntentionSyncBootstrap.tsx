@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 
 import { startConnectivitySyncListener } from '../api/syncService';
 
+import { NativeAlarmBootstrap } from './NativeAlarmBootstrap';
 import { ProfileSyncBootstrap } from './ProfileSyncBootstrap';
 import { RailInboxBootstrap } from './RailInboxBootstrap';
 
@@ -14,6 +15,7 @@ export function IntentionSyncBootstrap() {
   }, []);
   return (
     <>
+      <NativeAlarmBootstrap />
       <ProfileSyncBootstrap />
       <RailInboxBootstrap />
     </>

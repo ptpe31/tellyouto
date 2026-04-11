@@ -202,6 +202,8 @@
     "done": "完成",
     "cancel": "取消",
     "save": "保存",
+    "saveErrorTitle": "无法保存",
+    "saveErrorBody": "出错了，请重试。",
     "status": {
       "pending": "待处理",
       "active": "进行中",

@@ -202,6 +202,8 @@
     "done": "Fatto",
     "cancel": "Annulla",
     "save": "Salva",
+    "saveErrorTitle": "Impossibile salvare",
+    "saveErrorBody": "Si è verificato un errore. Riprova.",
     "status": {
       "pending": "In attesa",
       "active": "Attiva",

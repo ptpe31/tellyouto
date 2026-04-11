@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
-import { getFirestoreDb } from './firebase';
+import { ensureFirebaseAnonymousAuth, getFirestoreDb } from './firebase';
 import { getOrCreateDeviceId } from './syncService';
 
 /** Quota d’intentions via bots — valeur par défaut côté app et Cloud Function. */
@@ -42,8 +42,21 @@ export async function pushDeviceProfileToFirestore(
   fields: DeviceProfileFields,
 ): Promise<void> {
   const db = getFirestoreDb();
-  if (!db) return;
+  if (!db) {
+    if (__DEV__) {
+      console.warn(
+        '[TellYouTo] pushDeviceProfileToFirestore : Firestore indisponible (getFirestoreDb null) — config Firebase ou .env',
+      );
+    }
+    return;
+  }
+  await ensureFirebaseAnonymousAuth();
   const deviceId = await getOrCreateDeviceId();
+  if (__DEV__) {
+    console.log(
+      `[TellYouTo] pushDeviceProfileToFirestore → devices/${deviceId} (merge profil)`,
+    );
+  }
   const ref = doc(db, 'devices', deviceId);
   await setDoc(
     ref,
@@ -58,6 +71,7 @@ export async function pushDeviceProfileToFirestore(
 export async function fetchDeviceProfileFromFirestore(): Promise<DeviceProfileFields | null> {
   const db = getFirestoreDb();
   if (!db) return null;
+  await ensureFirebaseAnonymousAuth();
   const deviceId = await getOrCreateDeviceId();
   const ref = doc(db, 'devices', deviceId);
   const snap = await getDoc(ref);
@@ -110,6 +124,7 @@ export async function pushRailReminderWindowsToFirestore(payload: {
 }): Promise<void> {
   const db = getFirestoreDb();
   if (!db) return;
+  await ensureFirebaseAnonymousAuth();
   const deviceId = await getOrCreateDeviceId();
   const ref = doc(db, 'devices', deviceId);
   await setDoc(

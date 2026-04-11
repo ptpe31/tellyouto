@@ -6,6 +6,7 @@ import { DeviceEventEmitter } from 'react-native';
 import { Platform } from '../utils/rnPlatform';
 
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
+import { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -49,7 +50,9 @@ const SCHEMA = `
     anchor_date_ymd TEXT,
     fixed_start_minutes INTEGER,
     raw_transcript TEXT,
-    energy_score REAL
+    energy_score REAL,
+    local_notification_id TEXT,
+    recurrence_rrule TEXT
   );
 
   CREATE TABLE IF NOT EXISTS routines (
@@ -135,6 +138,14 @@ export async function dangerouslyResetDatabase(): Promise<void> {
   }
 
   await getLocalDatabase();
+  try {
+    const { cancelAllScheduledRailAlarms } = await import(
+      '../services/alarmManager'
+    );
+    await cancelAllScheduledRailAlarms();
+  } catch {
+    /* Expo Go / module indisponible */
+  }
   DeviceEventEmitter.emit(LOCAL_DB_RESET_EVENT);
 }
 
@@ -203,6 +214,14 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
   if (!names.has('energy_score')) {
     await database.execAsync(`ALTER TABLE intentions ADD COLUMN energy_score REAL`);
   }
+  if (!names.has('local_notification_id')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN local_notification_id TEXT`,
+    );
+  }
+  if (!names.has('recurrence_rrule')) {
+    await database.execAsync(`ALTER TABLE intentions ADD COLUMN recurrence_rrule TEXT`);
+  }
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS routines (
       id TEXT PRIMARY KEY NOT NULL,
@@ -234,13 +253,15 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
 
 /**
  * SQLite local — offline-first (intentions + file de sync).
+ * Les migrations tournent **à chaque accès** : après une mise à jour JS (Metro) le singleton `db`
+ * peut rester ouvert sans repasser par le bloc d’ouverture — sinon des colonnes manquent (ex. `is_hard_constraint`).
  */
 export async function getLocalDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!db) {
     db = await SQLite.openDatabaseAsync(DB_FILE_NAME);
-    await db.execAsync(SCHEMA);
-    await migrateIntentionsColumns(db);
   }
+  await db.execAsync(SCHEMA);
+  await migrateIntentionsColumns(db);
   return db;
 }
 
@@ -290,6 +311,10 @@ export type IntentionRow = {
   raw_transcript: string | null;
   /** Score énergie / charge (0–1), optionnel */
   energy_score: number | null;
+  /** Identifiant expo-notifications (poignée matérielle pour annulation / remplacement) */
+  local_notification_id: string | null;
+  /** Partie RRULE seule (ex. FREQ=WEEKLY;BYDAY=MO) — DTSTART = anchor_date_ymd + fixed_start_minutes */
+  recurrence_rrule: string | null;
 };
 
 export type RoutineRow = {
@@ -359,6 +384,15 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
       typeof row.energy_score === 'number' && Number.isFinite(row.energy_score)
         ? row.energy_score
         : null,
+    local_notification_id:
+      typeof row.local_notification_id === 'string' &&
+      row.local_notification_id.trim()
+        ? row.local_notification_id.trim()
+        : null,
+    recurrence_rrule:
+      typeof row.recurrence_rrule === 'string' && row.recurrence_rrule.trim()
+        ? row.recurrence_rrule.trim()
+        : null,
   };
 }
 
@@ -383,6 +417,7 @@ export async function insertIntention(input: {
   fixed_start_minutes?: number | null;
   raw_transcript?: string | null;
   energy_score?: number | null;
+  recurrence_rrule?: string | null;
 }): Promise<void> {
   const database = await getLocalDatabase();
   const ufu = input.user_forced_urgent ? 1 : 0;
@@ -397,8 +432,8 @@ export async function insertIntention(input: {
       estimated_duration, actual_duration, completed_at,
       user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
-      raw_transcript, energy_score
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      raw_transcript, energy_score, local_notification_id, recurrence_rrule
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
     [
       input.id,
       input.title,
@@ -420,8 +455,14 @@ export async function insertIntention(input: {
       input.fixed_start_minutes ?? null,
       input.raw_transcript ?? null,
       input.energy_score ?? null,
+      input.recurrence_rrule?.trim() ?? null,
     ],
   );
+  if (input.alarm_enabled) {
+    const alarmMod = await import('../services/alarmManager');
+    await alarmMod.requestAlarmPermissionIfNeeded();
+  }
+  await syncNativeRailAlarmsAfterIntentionWrite('insertIntention');
 }
 
 /** Session déjà terminée (démo / outils pilote) — conserve durées réelles pour les stats. */
@@ -454,8 +495,8 @@ export async function insertCompletedIntention(input: {
       estimated_duration, actual_duration, completed_at,
       user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
-      raw_transcript, energy_score
-    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL)`,
+      raw_transcript, energy_score, local_notification_id, recurrence_rrule
+    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
     [
       input.id,
       input.title,
@@ -474,6 +515,7 @@ export async function insertCompletedIntention(input: {
       micro,
     ],
   );
+  await syncNativeRailAlarmsAfterIntentionWrite('insertCompletedIntention');
 }
 
 export async function recordMicroHabitFragmentCheck(input: {
@@ -511,9 +553,16 @@ export async function updateIntentionAlarmEnabled(
 ): Promise<void> {
   const database = await getLocalDatabase();
   await database.runAsync(
-    `UPDATE intentions SET alarm_enabled = ?, synced = 0 WHERE id = ?`,
+    enabled
+      ? `UPDATE intentions SET alarm_enabled = ?, synced = 0 WHERE id = ?`
+      : `UPDATE intentions SET alarm_enabled = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
     [enabled ? 1 : 0, id],
   );
+  const alarm = await import('../services/alarmManager');
+  if (enabled) {
+    await alarm.requestAlarmPermissionIfNeeded();
+  }
+  await syncNativeRailAlarmsAfterIntentionWrite('updateIntentionAlarmEnabled');
 }
 
 export async function getIntentionById(
@@ -533,6 +582,97 @@ export async function markIntentionActive(id: string): Promise<void> {
     `UPDATE intentions SET status = 'active', synced = 0 WHERE id = ?`,
     [id],
   );
+  await syncNativeRailAlarmsAfterIntentionWrite('markIntentionActive');
+}
+
+export async function setIntentionLocalNotificationId(
+  id: string,
+  notificationId: string | null,
+): Promise<void> {
+  const database = await getLocalDatabase();
+  await database.runAsync(
+    `UPDATE intentions SET local_notification_id = ?, synced = 0 WHERE id = ?`,
+    [notificationId, id],
+  );
+}
+
+/**
+ * Remet à NULL toutes les poignées `local_notification_id` (ex. après `cancelAllScheduledRailAlarms`).
+ */
+export async function clearAllIntentionLocalNotificationHandles(): Promise<void> {
+  const database = await getLocalDatabase();
+  await database.runAsync(
+    `UPDATE intentions SET local_notification_id = NULL WHERE local_notification_id IS NOT NULL`,
+  );
+}
+
+/**
+ * Supprime une intention locale et annule immédiatement son alarme native (OS).
+ */
+export async function deleteIntentionById(id: string): Promise<void> {
+  const { cancelIntentionRailAlarm } = await import('../services/alarmManager');
+  await cancelIntentionRailAlarm(id);
+  const database = await getLocalDatabase();
+  await database.runAsync(`DELETE FROM intentions WHERE id = ?`, [id]);
+  await syncNativeRailAlarmsAfterIntentionWrite('deleteIntentionById');
+}
+
+/**
+ * Avance l’ancrage local à l’occurrence RRULE suivante (une seule alarme native à la fois).
+ */
+export async function advanceIntentionToNextRecurrenceSlot(
+  id: string,
+): Promise<boolean> {
+  const row = await getIntentionById(id);
+  if (!row?.recurrence_rrule?.trim()) return false;
+  const { nextOccurrenceAfter } = await import('../services/recurrenceRrule');
+  const next = nextOccurrenceAfter(row, new Date());
+  if (!next) return false;
+  logIaAlarmNextOccurrence(row.title, next);
+  const { cancelIntentionRailAlarm } = await import('../services/alarmManager');
+  await cancelIntentionRailAlarm(id);
+  const ymd = formatLocalDateYmd(next);
+  const mins = next.getHours() * 60 + next.getMinutes();
+  const database = await getLocalDatabase();
+  await database.runAsync(
+    `UPDATE intentions SET anchor_date_ymd = ?, fixed_start_minutes = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
+    [ymd, mins, id],
+  );
+  await syncNativeRailAlarmsAfterIntentionWrite(
+    'advanceIntentionToNextRecurrenceSlot',
+  );
+  return true;
+}
+
+/**
+ * Mise à jour date/heure/RRULE par l’agent — annule l’alarme matérielle existante puis replanifie si besoin.
+ */
+export async function updateIntentionScheduleFields(input: {
+  id: string;
+  anchor_date_ymd?: string | null;
+  fixed_start_minutes?: number | null;
+  recurrence_rrule?: string | null;
+}): Promise<void> {
+  const row = await getIntentionById(input.id);
+  if (!row) return;
+  const { cancelIntentionRailAlarm } = await import('../services/alarmManager');
+  await cancelIntentionRailAlarm(input.id);
+  const ymd =
+    input.anchor_date_ymd !== undefined ? input.anchor_date_ymd : row.anchor_date_ymd;
+  const mins =
+    input.fixed_start_minutes !== undefined
+      ? input.fixed_start_minutes
+      : row.fixed_start_minutes;
+  const rrule =
+    input.recurrence_rrule !== undefined
+      ? input.recurrence_rrule?.trim() ?? null
+      : row.recurrence_rrule;
+  const database = await getLocalDatabase();
+  await database.runAsync(
+    `UPDATE intentions SET anchor_date_ymd = ?, fixed_start_minutes = ?, recurrence_rrule = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
+    [ymd, mins, rrule, input.id],
+  );
+  await syncNativeRailAlarmsAfterIntentionWrite('updateIntentionScheduleFields');
 }
 
 export async function updateIntentionAfterFocus(input: {
@@ -541,16 +681,45 @@ export async function updateIntentionAfterFocus(input: {
   status: IntentionStatus;
 }): Promise<void> {
   const database = await getLocalDatabase();
-  const completedAt = input.status === 'done' ? Date.now() : null;
-  await database.runAsync(
-    `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ? WHERE id = ?`,
-    [input.actual_duration, input.status, completedAt, input.id],
-  );
-  if (input.status === 'done') {
-    void import('../services/alarmManager').then(({ cancelIntentionRailAlarm }) => {
-      void cancelIntentionRailAlarm(input.id);
-    });
+  const row = await getIntentionById(input.id);
+
+  if (input.status === 'done' && row?.recurrence_rrule?.trim()) {
+    const { nextOccurrenceAfter } = await import('../services/recurrenceRrule');
+    const next = nextOccurrenceAfter(row, new Date());
+    if (next) {
+      logIaAlarmNextOccurrence(row.title, next);
+      const am = await import('../services/alarmManager');
+      await am.cancelIntentionRailAlarm(input.id);
+      const ymd = formatLocalDateYmd(next);
+      const mins = next.getHours() * 60 + next.getMinutes();
+      await database.runAsync(
+        `UPDATE intentions SET actual_duration = NULL, status = 'pending', completed_at = NULL, anchor_date_ymd = ?, fixed_start_minutes = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
+        [ymd, mins, input.id],
+      );
+      await syncNativeRailAlarmsAfterIntentionWrite(
+        'updateIntentionAfterFocus/recurrence',
+      );
+      return;
+    }
   }
+
+  const completedAt = input.status === 'done' ? Date.now() : null;
+  if (input.status === 'done') {
+    await database.runAsync(
+      `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ?, local_notification_id = NULL WHERE id = ?`,
+      [input.actual_duration, input.status, completedAt, input.id],
+    );
+  } else {
+    await database.runAsync(
+      `UPDATE intentions SET actual_duration = ?, status = ?, synced = 0, completed_at = ? WHERE id = ?`,
+      [input.actual_duration, input.status, completedAt, input.id],
+    );
+  }
+  if (input.status === 'done') {
+    const am = await import('../services/alarmManager');
+    await am.cancelIntentionRailAlarm(input.id);
+  }
+  await syncNativeRailAlarmsAfterIntentionWrite('updateIntentionAfterFocus');
 }
 
 /** Termine une intention depuis la liste (sans session timer) — durée indicative pour l’historique. */
@@ -620,6 +789,22 @@ export async function listRecentCompletedFocusSessions(
   return rows.map(rowToIntention);
 }
 
+function logIaAlarmNextOccurrence(title: string, next: Date): void {
+  if (!__DEV__) return;
+  const nextDate = next.toLocaleString('fr-FR', {
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  console.log(
+    `[IA-Alarm] Prochaine occurrence calculée pour '${title}' : ${nextDate}.`,
+  );
+}
+
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
@@ -685,6 +870,7 @@ export async function ensureRoutineIntentionInstancesForHorizon(
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  let inserted = 0;
   for (let delta = 0; delta < horizonDays; delta++) {
     const d = new Date(today);
     d.setDate(d.getDate() + delta);
@@ -706,8 +892,8 @@ export async function ensureRoutineIntentionInstancesForHorizon(
         estimated_duration, actual_duration, completed_at,
         user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
         is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
-        raw_transcript, energy_score
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 0, 1, ?, ?, ?, ?, NULL, NULL)`,
+        raw_transcript, energy_score, local_notification_id, recurrence_rrule
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 0, 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
       [
         intentionId,
         routine.title,
@@ -722,6 +908,12 @@ export async function ensureRoutineIntentionInstancesForHorizon(
         ymd,
         routine.start_minutes,
       ],
+    );
+    inserted += 1;
+  }
+  if (inserted > 0) {
+    await syncNativeRailAlarmsAfterIntentionWrite(
+      'ensureRoutineIntentionInstancesForHorizon',
     );
   }
 }
@@ -749,6 +941,9 @@ export async function deleteAllIntentions(): Promise<void> {
   const database = await getLocalDatabase();
   await database.runAsync(`DELETE FROM micro_habit_checks`);
   await database.runAsync(`DELETE FROM intentions`);
+  const { cancelAllScheduledRailAlarms } = await import('../services/alarmManager');
+  await cancelAllScheduledRailAlarms();
+  await syncNativeRailAlarmsAfterIntentionWrite('deleteAllIntentions');
   DeviceEventEmitter.emit(INTENTIONS_CHANGED_DEBUG);
 }
 

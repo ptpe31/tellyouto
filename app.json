@@ -29,7 +29,13 @@
         "backgroundColor": "#F5F5F0"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,7 +43,12 @@
     "plugins": [
       "expo-sqlite",
       "expo-localization",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "sounds": ["./assets/sounds/rail_alarm.wav"]
+        }
+      ],
       [
         "expo-calendar",
         {

@@ -5,9 +5,11 @@ import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   DeviceEventEmitter,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Pressable,
   StyleSheet,
@@ -362,8 +364,11 @@ export function RadarScreen() {
   const onAdd = async () => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) return;
+    Keyboard.dismiss();
 
     const desc = description.trim();
+    const userForcedUrgent = urgent;
+    const alarmPref = alarm;
     const now = new Date();
     const uid = spectrum.platform_user_id?.trim() || '';
 
@@ -381,46 +386,79 @@ export function RadarScreen() {
       uid,
     );
     if (overlap.overlaps) {
+      setDialogOpen(false);
       setHardBlockingRoutineName(overlap.blockingTitle ?? '—');
       setHardRoutineConflictOpen(true);
       return;
     }
 
-    const userForcedUrgent = urgent;
-    const { priority, isMicroHabit, isLateNight: is_late_night, isHardConstraint } =
-      analyzeNewIntentionSemantics(trimmedTitle, desc, spectrum, now, {
+    try {
+      const {
+        priority,
+        isMicroHabit,
+        isLateNight: is_late_night,
+        isHardConstraint,
+      } = analyzeNewIntentionSemantics(trimmedTitle, desc, spectrum, now, {
         userForcedUrgent,
       });
-    const estimated_duration = estimateDurationMinutes(trimmedTitle, desc, spectrum);
-
-    if (isHardConstraint) {
-      const plan = inferStructuralRoutinePlan(
+      const estimated_duration = estimateDurationMinutes(
         trimmedTitle,
         desc,
         spectrum,
-        now,
       );
-      if (plan) {
-        const routineId = randomUUID();
-        await insertRoutine({
-          id: routineId,
-          title: trimmedTitle,
-          description: desc,
-          weekday: plan.weekday,
-          start_minutes: plan.startMinutes,
-          duration_min: plan.durationMin,
-          weights: {
-            structure: spectrum.structure,
-            momentum: spectrum.momentum,
-            zen: spectrum.zen,
-            stats: spectrum.stats,
-          },
-          priority,
-          platform_type: 'none',
-          platform_user_id: uid,
-          created_at: Date.now(),
-        });
-        await ensureRoutineIntentionInstancesForHorizon(routineId, uid);
+
+      if (isHardConstraint) {
+        const plan = inferStructuralRoutinePlan(
+          trimmedTitle,
+          desc,
+          spectrum,
+          now,
+        );
+        if (plan) {
+          const routineId = randomUUID();
+          await insertRoutine({
+            id: routineId,
+            title: trimmedTitle,
+            description: desc,
+            weekday: plan.weekday,
+            start_minutes: plan.startMinutes,
+            duration_min: plan.durationMin,
+            weights: {
+              structure: spectrum.structure,
+              momentum: spectrum.momentum,
+              zen: spectrum.zen,
+              stats: spectrum.stats,
+            },
+            priority,
+            platform_type: 'none',
+            platform_user_id: uid,
+            created_at: Date.now(),
+          });
+          await ensureRoutineIntentionInstancesForHorizon(routineId, uid);
+        } else {
+          await insertIntention({
+            id: randomUUID(),
+            title: trimmedTitle,
+            description: desc,
+            status: 'pending',
+            priority,
+            weights: {
+              structure: spectrum.structure,
+              momentum: spectrum.momentum,
+              zen: spectrum.zen,
+              stats: spectrum.stats,
+            },
+            platform_type: 'none',
+            platform_user_id: uid,
+            created_at: Date.now(),
+            estimated_duration,
+            user_forced_urgent: userForcedUrgent,
+            is_late_night,
+            alarm_enabled: alarmPref,
+            is_micro_habit: isMicroHabit,
+            is_hard_constraint: false,
+          });
+        }
       } else {
         await insertIntention({
           id: randomUUID(),
@@ -440,34 +478,20 @@ export function RadarScreen() {
           estimated_duration,
           user_forced_urgent: userForcedUrgent,
           is_late_night,
-          alarm_enabled: alarm,
+          alarm_enabled: alarmPref,
           is_micro_habit: isMicroHabit,
           is_hard_constraint: false,
         });
       }
-    } else {
-      await insertIntention({
-        id: randomUUID(),
-        title: trimmedTitle,
-        description: desc,
-        status: 'pending',
-        priority,
-        weights: {
-          structure: spectrum.structure,
-          momentum: spectrum.momentum,
-          zen: spectrum.zen,
-          stats: spectrum.stats,
-        },
-        platform_type: 'none',
-        platform_user_id: uid,
-        created_at: Date.now(),
-        estimated_duration,
-        user_forced_urgent: userForcedUrgent,
-        is_late_night,
-        alarm_enabled: alarm,
-        is_micro_habit: isMicroHabit,
-        is_hard_constraint: false,
-      });
+    } catch (e) {
+      if (__DEV__) {
+        console.error('[Radar] onAdd', e);
+      }
+      Alert.alert(
+        t('radar.saveErrorTitle'),
+        t('radar.saveErrorBody'),
+      );
+      return;
     }
 
     setTitle('');
@@ -831,8 +855,7 @@ export function RadarScreen() {
                   void (async () => {
                     const next = !alarm;
                     if (next) {
-                      const ok = await requestAlarmPermissionIfNeeded();
-                      if (!ok) return;
+                      void requestAlarmPermissionIfNeeded();
                     }
                     setAlarm(next);
                   })();
@@ -846,8 +869,7 @@ export function RadarScreen() {
                     void (async () => {
                       const next = !alarm;
                       if (next) {
-                        const ok = await requestAlarmPermissionIfNeeded();
-                        if (!ok) return;
+                        void requestAlarmPermissionIfNeeded();
                       }
                       setAlarm(next);
                     })();
@@ -868,7 +890,13 @@ export function RadarScreen() {
             <Button onPress={() => setDialogOpen(false)}>
               {t('radar.cancel')}
             </Button>
-            <Button mode="contained" onPress={() => void onAdd()}>
+            <Button
+              mode="contained"
+              onPress={() => {
+                Keyboard.dismiss();
+                void onAdd();
+              }}
+            >
               {t('radar.save')}
             </Button>
           </Dialog.Actions>

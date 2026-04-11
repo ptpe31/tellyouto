@@ -4,13 +4,15 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
+    "start:clean": "expo start -c",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:android": "eas build --platform android --profile production",
     "build:android:preview": "eas build --platform android --profile preview",
     "build:ios": "eas build --platform ios --profile production",
-    "build:ios:preview": "eas build --platform ios --profile preview"
+    "build:ios:preview": "eas build --platform ios --profile preview",
+    "deploy:functions": "firebase deploy --only functions --project tellmeto-4f3c7"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -43,7 +45,8 @@
     "react-native-paper": "^5.15.0",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
-    "react-native-svg": "15.12.1"
+    "react-native-svg": "15.12.1",
+    "rrule": "^2.8.1"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",

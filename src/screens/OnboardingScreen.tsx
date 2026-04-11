@@ -99,15 +99,32 @@ export function OnboardingScreen({ onComplete }: Props) {
       await applyWeightsAndPersist(w);
       setLocale(language);
       await persist();
-      await pushDeviceProfileToFirestore({
-        first_name: (firstNameInput.trim() || spectrum.first_name).trim(),
-        intentions_quota: spectrum.intentions_quota,
-        locale: language,
-        messenger_reminders_enabled: true,
-        messenger_reminder_lead_minutes: 5,
-        ad_free_until_ms: spectrum.ad_free_until_ms ?? undefined,
-        is_pro_user: spectrum.isProUser || undefined,
-      });
+      try {
+        await pushDeviceProfileToFirestore({
+          first_name: (firstNameInput.trim() || spectrum.first_name).trim(),
+          intentions_quota: spectrum.intentions_quota,
+          locale: language,
+          messenger_reminders_enabled: true,
+          messenger_reminder_lead_minutes: 5,
+          ad_free_until_ms: spectrum.ad_free_until_ms ?? undefined,
+          is_pro_user: spectrum.isProUser || undefined,
+        });
+      } catch (e: unknown) {
+        if (__DEV__) {
+          const code =
+            typeof e === 'object' &&
+            e !== null &&
+            'code' in e &&
+            typeof (e as { code: unknown }).code === 'string'
+              ? (e as { code: string }).code
+              : '';
+          const message = e instanceof Error ? e.message : String(e);
+          Alert.alert(
+            'Firestore (debug)',
+            [code, message].filter(Boolean).join('\n'),
+          );
+        }
+      }
       onComplete();
     },
     [applyWeightsAndPersist, setLocale, persist, language, firstNameInput, spectrum, onComplete],

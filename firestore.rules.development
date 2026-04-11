@@ -1,0 +1,36 @@
+rules_version = '2';
+
+// ⚠️ DÉVELOPPEMENT / TESTS UNIQUEMENT — tout le monde peut lire/écrire.
+// Ne jamais déployer en production. À fusionner avec des règles restrictives ensuite.
+//
+// Modèle TellYouTo : transit sous `devices/{deviceId}` (doc profil + sous-collections
+// `rail_inbox`, `intentions`). Activez aussi « Anonymous » dans Firebase Console → Authentication.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Témoin diagnostic app (collection racine)
+    match /CONNECTION_TESTS/{docId} {
+      allow read, write: if true;
+    }
+
+    // Profil appareil + tout le sous-arbre (transit rail_inbox / intentions)
+    match /devices/{deviceId} {
+      allow read, write: if true;
+      match /rail_inbox/{docId} {
+        allow read, write: if true;
+      }
+      match /intentions/{docId} {
+        allow read, write: if true;
+      }
+    }
+
+    // Si vous utilisez une collection racine `transit` ou `intentions` (autre schéma) :
+    match /transit/{docId} {
+      allow read, write: if true;
+    }
+    match /intentions/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

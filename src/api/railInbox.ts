@@ -20,7 +20,7 @@ import {
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 
 import { DEBUG_LAST_RAIL_INBOX_PURGE_MS } from '../config/transitPurgeKeys';
-import { getFirestoreDb } from './firebase';
+import { ensureFirebaseAnonymousAuth, getFirestoreDb } from './firebase';
 import {
   ensureRoutineIntentionInstancesForHorizon,
   insertIntention,
@@ -47,6 +47,7 @@ export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => 
   let colUnsub: Unsubscribe | null = null;
 
   void (async () => {
+    await ensureFirebaseAnonymousAuth();
     const deviceId = await getOrCreateDeviceId();
     const col = collection(db, 'devices', deviceId, 'rail_inbox');
     colUnsub = onSnapshot(

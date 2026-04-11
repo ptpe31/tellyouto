@@ -21,14 +21,20 @@ async function deleteIfProcessed(
 }
 
 export const onRailInboxMarkedProcessed = onDocumentUpdated(
-  'devices/{deviceId}/rail_inbox/{docId}',
+  {
+    document: 'devices/{deviceId}/rail_inbox/{docId}',
+    region: 'europe-west9',
+  },
   async (event) => {
     await deleteIfProcessed(event.data);
   },
 );
 
 export const onDeviceIntentionTransitProcessed = onDocumentUpdated(
-  'devices/{deviceId}/intentions/{docId}',
+  {
+    document: 'devices/{deviceId}/intentions/{docId}',
+    region: 'europe-west9',
+  },
   async (event) => {
     await deleteIfProcessed(event.data);
   },

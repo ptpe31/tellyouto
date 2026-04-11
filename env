@@ -1,13 +1,15 @@
 # EXPO_PUBLIC_* = exposé au client (Expo). Ne pas versionner ce fichier (.gitignore).
+# Expo charge automatiquement `.env` à la racine — copie ce fichier : cp env .env
+# Projet GCP / Firebase : tellmeto-4f3c7 (slug app Expo : tellyouto — ne pas confondre).
+# EXPO_PUBLIC_CLOUD_FUNCTIONS_BASE=https://europe-west9-tellmeto-4f3c7.cloudfunctions.net
 EXPO_PUBLIC_FIREBASE_API_KEY="AIzaSyCCUGa8bfiGMUvGWktOtkwF9MEvL6CCRJU"
 EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN="tellmeto-4f3c7.firebaseapp.com"
 EXPO_PUBLIC_FIREBASE_PROJECT_ID="tellmeto-4f3c7"
-EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET= "tellmeto-4f3c7.firebasestorage.app"
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET="tellmeto-4f3c7.firebasestorage.app"
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="814759010315"
 EXPO_PUBLIC_FIREBASE_APP_ID="1:814759010315:web:e7eab3fe071945231f270e"
 # Optionnel : Google Maps (Directions / Geocoding)
-EXPO_PUBLIC_GOOGLE_MAPS_API_KEY="AIzaSyAd8RENDgCfqQ0PntsQRWJOi0tz4nt8X9Y"
 
 
-TELEGRAM_BOT_TOKEN=8758236730:AAFuzjORR7hkviv8EN-mVYxYdDMxVhBvt3Q
+
 

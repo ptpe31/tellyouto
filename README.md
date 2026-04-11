@@ -24,6 +24,13 @@ npm install
 npx expo start
 ```
 
+### Firebase (projet Google Cloud)
+
+- **ID projet** : `tellmeto-4f3c7` — c’est celui de la console Firebase / GCP et de `EXPO_PUBLIC_FIREBASE_PROJECT_ID`. Le **slug Expo** (`tellyouto` dans `app.json`) est le nom d’app ; ne pas le confondre avec l’ID projet.
+- **Variables** : copier `env.example` vers `.env` et renseigner les clés ; ou utiliser le fichier `env` puis `cp env .env` (Expo ne charge que `.env` à la racine).
+- **CLI** : à la racine, `firebase use tellmeto-4f3c7` (voir `.firebaserc`). Déploiement des fonctions : `npm run deploy:functions`.
+- **Cloud Functions (2ᵉ gen)** : région **`europe-west9`** (`functions/src/region.ts`). URL typique : `https://europe-west9-tellmeto-4f3c7.cloudfunctions.net/<functionName>`.
+
 ## Mode production
 
 - `IS_PRODUCTION` est à `true` dans `src/config/appConfig.ts` : l’onglet **Debug** est masqué.

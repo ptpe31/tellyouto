@@ -202,6 +202,8 @@
     "done": "Fait",
     "cancel": "Annuler",
     "save": "Enregistrer",
+    "saveErrorTitle": "Enregistrement impossible",
+    "saveErrorBody": "Une erreur s’est produite. Réessaie.",
     "status": {
       "pending": "En attente",
       "active": "En cours",

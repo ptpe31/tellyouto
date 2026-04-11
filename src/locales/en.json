@@ -202,6 +202,8 @@
     "done": "Done",
     "cancel": "Cancel",
     "save": "Save",
+    "saveErrorTitle": "Could not save",
+    "saveErrorBody": "Something went wrong. Please try again.",
     "status": {
       "pending": "Pending",
       "active": "Active",

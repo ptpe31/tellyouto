@@ -23,7 +23,7 @@ import {
   listIntentionsDescending,
   LOCAL_DB_RESET_EVENT,
 } from '../api/localDb';
-import { getFirestoreDb } from '../api/firebase';
+import { ensureFirebaseAnonymousAuth, getFirestoreDb } from '../api/firebase';
 import { getOrCreateDeviceId, syncPendingIntentions } from '../api/syncService';
 import {
   DEBUG_LAST_RAIL_INBOX_PURGE_MS,
@@ -77,6 +77,7 @@ export function DebugScreen() {
         setSyncPurgeTransitCloud(null);
         return;
       }
+      await ensureFirebaseAnonymousAuth();
       const deviceId = await getOrCreateDeviceId();
       const railQ = query(
         collection(db, 'devices', deviceId, 'rail_inbox'),

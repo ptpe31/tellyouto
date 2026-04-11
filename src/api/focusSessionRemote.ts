@@ -1,6 +1,6 @@
 import { doc, setDoc } from 'firebase/firestore';
 
-import { getFirestoreDb } from './firebase';
+import { ensureFirebaseAnonymousAuth, getFirestoreDb } from './firebase';
 import { getOrCreateDeviceId } from './syncService';
 
 /**
@@ -12,6 +12,7 @@ export async function setRemoteFocusSessionActive(
 ): Promise<void> {
   const db = getFirestoreDb();
   if (!db) return;
+  await ensureFirebaseAnonymousAuth();
   const deviceId = await getOrCreateDeviceId();
   await setDoc(
     doc(db, 'devices', deviceId),

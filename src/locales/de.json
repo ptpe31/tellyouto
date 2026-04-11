@@ -202,6 +202,8 @@
     "done": "Erledigt",
     "cancel": "Abbrechen",
     "save": "Speichern",
+    "saveErrorTitle": "Speichern fehlgeschlagen",
+    "saveErrorBody": "Etwas ist schiefgelaufen. Bitte erneut versuchen.",
     "status": {
       "pending": "Ausstehend",
       "active": "Aktiv",
