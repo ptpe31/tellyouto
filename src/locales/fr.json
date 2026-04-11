@@ -9,7 +9,18 @@
     "stats": "Stats",
     "debug": "Debug"
   },
+  "messaging": {
+    "lead": "Liens profonds TellYouTo — ouvre l’app directement sur Radar, Timeline ou Recharge.",
+    "copyLink": "Copier le lien",
+    "copyAll": "Copier tous les liens"
+  },
   "onboarding": {
+    "firstName": {
+      "title": "Comment t’appelles-tu ?",
+      "subtitle": "Ton prénom personnalise l’Allié et le message d’accueil de ton canal privé.",
+      "placeholder": "Prénom",
+      "continue": "Continuer"
+    },
     "title": "Diagnostic situationnel",
     "subtitle": "Choisis ce qui te ressemble — le co-pilote calibre ton spectre de performance.",
     "progress": "Carte {{current}} / {{total}}",
@@ -64,7 +75,10 @@
       },
       "cta": "Enregistrer et ouvrir le lien",
       "skip": "Plus tard",
-      "urlPending": "Lien à définir (EXPO_PUBLIC_BOT_*_URL)"
+      "urlPending": "Lien à définir (EXPO_PUBLIC_BOT_*_URL)",
+      "initMessageLabel": "Message d’accueil (copie pour le bot)",
+      "copyInit": "Copier le message",
+      "copied": "Copié !"
     }
   },
   "radar": {
@@ -232,6 +246,7 @@
     "termsBody": "En utilisant TellYouTo, tu acceptes une expérience centrée sur la concentration et le bien-être. L’application est fournie « en l’état » ; l’IA et les suggestions peuvent être imparfaites — tu restes responsable de tes décisions.\n\nLes connecteurs et simulations doivent être employés de manière licite et respectueuse des services tiers.\n\nNous pouvons faire évoluer ces textes ou des fonctionnalités pour plus de clarté ou de conformité ; la version affichée dans l’app fait foi."
   },
   "allyVoice": {
+    "personalGreeting": "Bonjour {{name}}, ",
     "greet": {
       "morning": {
         "structure": "Avant de foncer : une liste courte suffit pour cadrer ton rail.",
@@ -265,6 +280,16 @@
   "connectors": {
     "whatsapp": "WhatsApp",
     "line": "LINE"
+  },
+  "connector": {
+    "defaultFirstName": "toi",
+    "botWelcomeMessage": "Bonjour {{firstName}}, ici c'est ton espace privé pour créer tes intentions (texte ou vocal). Tout reste strictement confidentiel et synchronisé sur ton téléphone. {{appLink}}",
+    "botRailAck": "C'est sur ton Rail ! 🚀 Visualise-le ici : {{url}}",
+    "botRechargeRedirect": "Ton quota messagerie est à zéro — ouvre la Station de Recharge : {{url}}",
+    "copyLinkHint": "Si l’app de messagerie n’est pas installée, copie ce lien.",
+    "deepLinkRadar": "Ouvrir le Radar",
+    "deepLinkTimeline": "Ouvrir la Timeline",
+    "deepLinkRecharge": "Station de Recharge"
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",

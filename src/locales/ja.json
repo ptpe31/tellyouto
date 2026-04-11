@@ -9,7 +9,18 @@
     "stats": "統計",
     "debug": "Debug"
   },
+  "messaging": {
+    "lead": "TellYouToのディープリンク — Radar・Timeline・チャージを直接開きます。",
+    "copyLink": "リンクをコピー",
+    "copyAll": "すべてコピー"
+  },
   "onboarding": {
+    "firstName": {
+      "title": "お名前は？",
+      "subtitle": "お名前はアライとプライベートチャンネルのあいさつ文に使われます。",
+      "placeholder": "名前",
+      "continue": "次へ"
+    },
     "title": "状況診断",
     "subtitle": "自分に合うものを選ぶ — コパイロットがパフォーマンスのスペクトルを調整します。",
     "progress": "カード {{current}} / {{total}}",
@@ -64,7 +75,10 @@
       },
       "cta": "保存してリンクを開く",
       "skip": "あとで",
-      "urlPending": "リンクを設定（EXPO_PUBLIC_BOT_*_URL）"
+      "urlPending": "リンクを設定（EXPO_PUBLIC_BOT_*_URL）",
+      "initMessageLabel": "ウェルカムメッセージ（ボット用にコピー）",
+      "copyInit": "コピー",
+      "copied": "コピーしました"
     }
   },
   "radar": {
@@ -232,6 +246,7 @@
     "termsBody": "TellYouTo を利用すると、集中とウェルビーイングを重視する体験に同意したことになります。アプリは現状有姿で提供され、AI や提案は不完全な場合があります — 判断の責任はあなたにあります。\n\nコネクタやシミュレーションは、第三者サービスを尊重する合法的な方法で使用してください。\n\n明確さやコンプライアンスのため、文言や機能を更新することがあります。アプリに表示される版が優先します。"
   },
   "allyVoice": {
+    "personalGreeting": "{{name}}さん、",
     "greet": {
       "morning": {
         "structure": "走る前に：短いリストだけでレールの枠が決まります。",
@@ -265,6 +280,16 @@
   "connectors": {
     "whatsapp": "WhatsApp",
     "line": "LINE"
+  },
+  "connector": {
+    "defaultFirstName": "あなた",
+    "botWelcomeMessage": "こんにちは{{firstName}}さん。ここは意図を作るプライベート空間です（テキストまたは音声）。内容は厳密に機密で、スマホと同期します。{{appLink}}",
+    "botRailAck": "レールに載せました 🚀 こちら：{{url}}",
+    "botRechargeRedirect": "メッセンジャー枠がゼロです。チャージはこちら：{{url}}",
+    "copyLinkHint": "チャットアプリがない場合はリンクをコピーしてください。",
+    "deepLinkRadar": "レーダーを開く",
+    "deepLinkTimeline": "タイムラインを開く",
+    "deepLinkRecharge": "チャージステーション"
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",

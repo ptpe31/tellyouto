@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 
 import { startConnectivitySyncListener } from '../api/syncService';
 
+import { ProfileSyncBootstrap } from './ProfileSyncBootstrap';
 import { RailInboxBootstrap } from './RailInboxBootstrap';
 
 /**
@@ -11,5 +12,10 @@ export function IntentionSyncBootstrap() {
   useEffect(() => {
     return startConnectivitySyncListener();
   }, []);
-  return <RailInboxBootstrap />;
+  return (
+    <>
+      <ProfileSyncBootstrap />
+      <RailInboxBootstrap />
+    </>
+  );
 }

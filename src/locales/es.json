@@ -9,7 +9,18 @@
     "stats": "Stats",
     "debug": "Debug"
   },
+  "messaging": {
+    "lead": "Enlaces profundos de TellYouTo — abre la app en Radar, Timeline o recarga.",
+    "copyLink": "Copiar enlace",
+    "copyAll": "Copiar todos los enlaces"
+  },
   "onboarding": {
+    "firstName": {
+      "title": "¿Cómo te llamas?",
+      "subtitle": "Tu nombre personaliza al Aliado y el mensaje de bienvenida del canal privado.",
+      "placeholder": "Nombre",
+      "continue": "Continuar"
+    },
     "title": "Diagnóstico situacional",
     "subtitle": "Elige lo que te representa — el co-piloto calibra tu espectro de rendimiento.",
     "progress": "Carta {{current}} / {{total}}",
@@ -64,7 +75,10 @@
       },
       "cta": "Guardar y abrir enlace",
       "skip": "Más tarde",
-      "urlPending": "Enlace a configurar (EXPO_PUBLIC_BOT_*_URL)"
+      "urlPending": "Enlace a configurar (EXPO_PUBLIC_BOT_*_URL)",
+      "initMessageLabel": "Mensaje de bienvenida (copiar para el bot)",
+      "copyInit": "Copiar mensaje",
+      "copied": "¡Copiado!"
     }
   },
   "radar": {
@@ -232,6 +246,7 @@
     "termsBody": "Al usar TellYouTo aceptas una experiencia centrada en el foco y el bienestar. La aplicación se ofrece «tal cual»; la IA y las sugerencias pueden ser imperfectas — sigues siendo responsable de tus decisiones.\n\nLos conectores y simulaciones deben usarse de forma lícita y respetuosa con los servicios de terceros.\n\nPodemos actualizar estos textos o funciones para mayor claridad o cumplimiento; prevalece la versión mostrada en la app."
   },
   "allyVoice": {
+    "personalGreeting": "Hola {{name}}, ",
     "greet": {
       "morning": {
         "structure": "Antes de lanzarte: una lista corta ya ordena tu riel.",
@@ -265,6 +280,16 @@
   "connectors": {
     "whatsapp": "WhatsApp",
     "line": "LINE"
+  },
+  "connector": {
+    "defaultFirstName": "tú",
+    "botWelcomeMessage": "Hola {{firstName}}, aquí tienes tu espacio privado para crear intenciones (texto o voz). Todo es confidencial y se sincroniza con tu móvil. {{appLink}}",
+    "botRailAck": "¡Está en tu Rail! 🚀 Ábrelo aquí: {{url}}",
+    "botRechargeRedirect": "Tu cupo de mensajería está a cero — abre la estación de recarga: {{url}}",
+    "copyLinkHint": "Si no tienes la app de chat, copia este enlace.",
+    "deepLinkRadar": "Abrir Radar",
+    "deepLinkTimeline": "Abrir Timeline",
+    "deepLinkRecharge": "Estación de recarga"
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",

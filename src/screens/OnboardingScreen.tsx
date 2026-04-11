@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import React, { useState } from 'react';
 import {
   Linking,
@@ -8,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Button, useTheme } from 'react-native-paper';
+import { Button, TextInput, useTheme } from 'react-native-paper';
 import {
   applyDelta,
   initialOnboardingWeights,
@@ -22,33 +23,110 @@ import {
   savePrivateChannelChoice,
 } from '../data/privateChannels';
 import { NeumorphicCard, NeumorphicSurface } from '../components';
+import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import {
+  getBotInitializationMessage,
+  getAppLinkForConnector,
+} from '../services/connectorLinks';
+import { pushDeviceProfileToFirestore } from '../api/userProfile';
 
 type Props = {
   onComplete: () => void;
 };
 
 const SITUATION_COUNT = ONBOARDING_SITUATIONS.length;
-/** Étapes 0..SITUATION_COUNT-1 = situations, étape SITUATION_COUNT = canal privé */
-const PRIVATE_CHANNEL_STEP = SITUATION_COUNT;
-const TOTAL_STEPS = SITUATION_COUNT + 1;
+/** 0 = prénom, 1..SITUATION_COUNT = situations, puis canal privé */
+const FIRST_NAME_STEP = 0;
+const PRIVATE_CHANNEL_STEP = 1 + SITUATION_COUNT;
+const TOTAL_STEPS = 1 + SITUATION_COUNT + 1;
 
 export function OnboardingScreen({ onComplete }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { applyWeightsAndPersist } = useUserSpectrum();
+  const { language } = useLanguage();
+  const {
+    applyWeightsAndPersist,
+    setFirstName,
+    setLocale,
+    persist,
+    spectrum,
+  } = useUserSpectrum();
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(FIRST_NAME_STEP);
+  const [firstNameInput, setFirstNameInput] = useState('');
   const [weights, setWeights] = useState(initialOnboardingWeights);
   const [selectedChannel, setSelectedChannel] =
     useState<PrivateChannelId | null>(null);
+  const [initCopied, setInitCopied] = useState(false);
 
   const finishOnboarding = async (finalWeights = weights) => {
     await applyWeightsAndPersist(finalWeights);
+    setLocale(language);
+    await persist();
+    await pushDeviceProfileToFirestore({
+      first_name: (firstNameInput.trim() || spectrum.first_name).trim(),
+      intentions_quota: spectrum.intentions_quota,
+      locale: language,
+    });
     onComplete();
   };
 
+  const onContinueFirstName = async () => {
+    const trimmed = firstNameInput.trim();
+    if (!trimmed) return;
+    setFirstName(trimmed);
+    await persist();
+    setStep(1);
+  };
+
+  if (step === FIRST_NAME_STEP) {
+    return (
+      <ScrollView
+        style={[styles.flex, { backgroundColor: theme.colors.background }]}
+        contentContainerStyle={styles.pad}
+      >
+        <Text style={[styles.kicker, { color: theme.colors.primary }]}>
+          {t('onboarding.progress', { current: 1, total: TOTAL_STEPS })}
+        </Text>
+        <Text style={[styles.title, { color: theme.colors.onBackground }]}>
+          {t('onboarding.firstName.title')}
+        </Text>
+        <Text style={[styles.sub, { color: theme.colors.onSurfaceVariant }]}>
+          {t('onboarding.firstName.subtitle')}
+        </Text>
+
+        <NeumorphicCard style={styles.card}>
+          <TextInput
+            mode="outlined"
+            label={t('onboarding.firstName.placeholder')}
+            value={firstNameInput}
+            onChangeText={setFirstNameInput}
+            autoCapitalize="words"
+            autoCorrect={false}
+            style={{ backgroundColor: theme.colors.surface }}
+          />
+          <Button
+            mode="contained"
+            style={styles.channelCta}
+            disabled={!firstNameInput.trim()}
+            onPress={() => void onContinueFirstName()}
+          >
+            {t('onboarding.firstName.continue')}
+          </Button>
+        </NeumorphicCard>
+      </ScrollView>
+    );
+  }
+
   if (step === PRIVATE_CHANNEL_STEP) {
+    const appLink = getAppLinkForConnector('radar');
+    const initMsg = getBotInitializationMessage(
+      language,
+      spectrum.first_name || firstNameInput.trim(),
+      appLink,
+    );
+
     return (
       <ScrollView
         style={[styles.flex, { backgroundColor: theme.colors.background }]}
@@ -68,6 +146,31 @@ export function OnboardingScreen({ onComplete }: Props) {
         </Text>
 
         <NeumorphicCard style={styles.card}>
+          <Text
+            style={[styles.initLabel, { color: theme.colors.onSurfaceVariant }]}
+          >
+            {t('onboarding.privateChannel.initMessageLabel')}
+          </Text>
+          <Text
+            style={[styles.initBody, { color: theme.colors.onSurface }]}
+            selectable
+          >
+            {initMsg}
+          </Text>
+          <Button
+            mode="outlined"
+            style={styles.channelCta}
+            onPress={async () => {
+              await Clipboard.setStringAsync(initMsg);
+              setInitCopied(true);
+              setTimeout(() => setInitCopied(false), 2500);
+            }}
+          >
+            {initCopied
+              ? t('onboarding.privateChannel.copied')
+              : t('onboarding.privateChannel.copyInit')}
+          </Button>
+
           {listPrivateChannelIds().map((id) => {
             const selected = selectedChannel === id;
             return (
@@ -125,7 +228,7 @@ export function OnboardingScreen({ onComplete }: Props) {
     );
   }
 
-  const situation = ONBOARDING_SITUATIONS[step];
+  const situation = ONBOARDING_SITUATIONS[step - 1];
   const titleKey = `onboarding.situations.${situation.id}.title`;
   const answerKeys = [0, 1, 2, 3].map(
     (i) => `onboarding.situations.${situation.id}.a${i}`,
@@ -136,7 +239,7 @@ export function OnboardingScreen({ onComplete }: Props) {
     const next = normalizeSpectrumWeights(applyDelta(weights, delta));
     setWeights(next);
 
-    if (step < SITUATION_COUNT - 1) {
+    if (step < SITUATION_COUNT) {
       setStep((s) => s + 1);
     } else {
       setStep(PRIVATE_CHANNEL_STEP);
@@ -149,7 +252,10 @@ export function OnboardingScreen({ onComplete }: Props) {
       contentContainerStyle={styles.pad}
     >
       <Text style={[styles.kicker, { color: theme.colors.primary }]}>
-        {t('onboarding.progress', { current: step + 1, total: TOTAL_STEPS })}
+        {t('onboarding.progress', {
+          current: step + 1,
+          total: TOTAL_STEPS,
+        })}
       </Text>
       <Text style={[styles.title, { color: theme.colors.onBackground }]}>
         {t('onboarding.title')}
@@ -218,5 +324,7 @@ const styles = StyleSheet.create({
   },
   channelLabel: { fontSize: 16, fontWeight: '600' },
   channelHint: { fontSize: 12, marginTop: 6 },
-  channelCta: { marginTop: 8, alignSelf: 'flex-start' },
+  channelCta: { marginTop: 8, alignSelf: 'stretch' },
+  initLabel: { fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  initBody: { fontSize: 14, lineHeight: 21, marginBottom: 12 },
 });

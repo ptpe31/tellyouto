@@ -14,6 +14,10 @@ import {
   checkpointLocalDatabase,
   DATABASE_RESET_COMPLETE_EVENT,
 } from '../api/localDb';
+import {
+  DEFAULT_INTENTIONS_QUOTA,
+  type DeviceProfileFields,
+} from '../api/userProfile';
 
 /** Clé AsyncStorage — partagée avec le reset profil (debug / onboarding). */
 export const USER_SPECTRUM_STORAGE_KEY = '@tellyouto/user_spectrum';
@@ -33,6 +37,12 @@ export type SpectrumWeights = {
 export type UserSpectrumState = SpectrumWeights & {
   platform_type: PlatformType;
   platform_user_id: string;
+  /** Prénom affiché (Allié, messages bots) */
+  first_name: string;
+  /** Quota d’intentions reçues via messagerie (miroir Firestore `devices/{id}`) */
+  intentions_quota: number;
+  /** Langue pour les messages bot / alignement profil */
+  locale: string;
 };
 
 function detectPlatformType(): PlatformType {
@@ -59,6 +69,9 @@ const defaultSpectrum = (): UserSpectrumState => ({
   stats: 0.25,
   platform_type: detectPlatformType(),
   platform_user_id: '',
+  first_name: '',
+  intentions_quota: DEFAULT_INTENTIONS_QUOTA,
+  locale: 'fr',
 });
 
 type UserSpectrumContextValue = {
@@ -68,6 +81,9 @@ type UserSpectrumContextValue = {
   /** Applique les poids et persiste immédiatement (évite les courses d’état) */
   applyWeightsAndPersist: (w: SpectrumWeights) => Promise<void>;
   setPlatformUserId: (id: string) => void;
+  setFirstName: (name: string) => void;
+  setLocale: (locale: string) => void;
+  mergeRemoteProfile: (remote: DeviceProfileFields) => void;
   resetSpectrum: () => void;
   persist: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
@@ -115,6 +131,47 @@ export function UserSpectrumProvider({
     setSpectrum((prev) => ({ ...prev, platform_user_id }));
   }, []);
 
+  const setFirstName = useCallback((first_name: string) => {
+    setSpectrum((prev) => {
+      const merged = { ...prev, first_name: first_name.trim() };
+      spectrumRef.current = merged;
+      return merged;
+    });
+  }, []);
+
+  const setLocale = useCallback((locale: string) => {
+    const next = locale.trim();
+    if (!next) return;
+    setSpectrum((prev) => {
+      const merged = { ...prev, locale: next };
+      spectrumRef.current = merged;
+      return merged;
+    });
+  }, []);
+
+  const mergeRemoteProfile = useCallback((remote: DeviceProfileFields) => {
+    setSpectrum((prev) => {
+      const merged = {
+        ...prev,
+        first_name:
+          typeof remote.first_name === 'string' && remote.first_name.trim()
+            ? remote.first_name.trim()
+            : prev.first_name,
+        intentions_quota:
+          typeof remote.intentions_quota === 'number' &&
+          Number.isFinite(remote.intentions_quota)
+            ? Math.max(0, Math.floor(remote.intentions_quota))
+            : prev.intentions_quota,
+        locale:
+          typeof remote.locale === 'string' && remote.locale.trim()
+            ? remote.locale.trim()
+            : prev.locale,
+      };
+      spectrumRef.current = merged;
+      return merged;
+    });
+  }, []);
+
   const resetSpectrum = useCallback(() => {
     setSpectrum(defaultSpectrum());
   }, []);
@@ -140,6 +197,19 @@ export function UserSpectrumProvider({
         stats: clamp01(parsed.stats ?? prev.stats),
         platform_type: parsed.platform_type ?? detectPlatformType(),
         platform_user_id: parsed.platform_user_id ?? prev.platform_user_id,
+        first_name:
+          typeof parsed.first_name === 'string'
+            ? parsed.first_name.trim()
+            : prev.first_name,
+        intentions_quota:
+          typeof parsed.intentions_quota === 'number' &&
+          Number.isFinite(parsed.intentions_quota)
+            ? Math.max(0, Math.floor(parsed.intentions_quota))
+            : prev.intentions_quota,
+        locale:
+          typeof parsed.locale === 'string' && parsed.locale.trim()
+            ? parsed.locale.trim()
+            : prev.locale,
       }));
     } catch {
       /* ignore */
@@ -187,6 +257,9 @@ export function UserSpectrumProvider({
       setWeights,
       applyWeightsAndPersist,
       setPlatformUserId,
+      setFirstName,
+      setLocale,
+      mergeRemoteProfile,
       resetSpectrum,
       persist,
       loadFromStorage,
@@ -196,6 +269,9 @@ export function UserSpectrumProvider({
       setWeights,
       applyWeightsAndPersist,
       setPlatformUserId,
+      setFirstName,
+      setLocale,
+      mergeRemoteProfile,
       resetSpectrum,
       persist,
       loadFromStorage,

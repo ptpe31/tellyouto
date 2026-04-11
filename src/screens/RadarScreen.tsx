@@ -281,6 +281,13 @@ export function RadarScreen() {
     [spectrum, allyTick, quickStreak],
   );
 
+  const allyBubbleText = useMemo(() => {
+    const name = spectrum.first_name?.trim();
+    const base = t(allyMessageKey);
+    if (!name) return base;
+    return `${t('allyVoice.personalGreeting', { name })}${base}`;
+  }, [allyMessageKey, spectrum.first_name, t]);
+
   const navigateFocus = useCallback(
     (row: IntentionRow, mode: FocusCapsuleMode) => {
       navigation.getParent()?.navigate('FocusCapsule', {
@@ -569,14 +576,14 @@ export function RadarScreen() {
 
       <AllyThoughtBubble
         eyebrow={t('radar.allyEyebrow')}
-        message={t(allyMessageKey)}
+        message={allyBubbleText}
       />
       </>
     ),
     [
       activeIntention,
       dueMicroSlot,
-      allyMessageKey,
+      allyBubbleText,
       openActiveCapsule,
       onVerifyMicro,
       t,

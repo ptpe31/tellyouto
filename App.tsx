@@ -16,13 +16,19 @@ import { DebugUnlockProvider } from './src/context/DebugUnlockContext';
 import { CalendarIntegrationProvider } from './src/context/CalendarIntegrationContext';
 import { UserSpectrumProvider } from './src/context/UserSpectrumContext';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { appLinking } from './src/navigation/linking';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { rootNavigationRef } from './src/navigation/rootNavigationRef';
 import { navigationThemeFromPaper } from './src/theme/paperTheme';
 
 function AppNavigation() {
   const theme = useTheme();
   return (
-    <NavigationContainer theme={navigationThemeFromPaper(theme)}>
+    <NavigationContainer
+      ref={rootNavigationRef}
+      theme={navigationThemeFromPaper(theme)}
+      linking={appLinking}
+    >
       <RootNavigator />
     </NavigationContainer>
   );

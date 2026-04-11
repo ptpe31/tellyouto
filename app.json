@@ -10,6 +10,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "scheme": "tellyouto",
     "splash": {
       "image": "./assets/adaptive-icon.png",
       "resizeMode": "contain",

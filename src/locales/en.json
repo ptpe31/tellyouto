@@ -9,7 +9,18 @@
     "stats": "Stats",
     "debug": "Debug"
   },
+  "messaging": {
+    "lead": "TellYouTo deep links — open the app on Radar, Timeline, or Recharge.",
+    "copyLink": "Copy link",
+    "copyAll": "Copy all links"
+  },
   "onboarding": {
+    "firstName": {
+      "title": "What should we call you?",
+      "subtitle": "Your first name personalizes the Ally and your private channel welcome text.",
+      "placeholder": "First name",
+      "continue": "Continue"
+    },
     "title": "Situational diagnostic",
     "subtitle": "Pick what fits you — the co-pilot calibrates your performance spectrum.",
     "progress": "Card {{current}} / {{total}}",
@@ -64,7 +75,10 @@
       },
       "cta": "Save and open link",
       "skip": "Not now",
-      "urlPending": "Link to configure (EXPO_PUBLIC_BOT_*_URL)"
+      "urlPending": "Link to configure (EXPO_PUBLIC_BOT_*_URL)",
+      "initMessageLabel": "Welcome message (copy for the bot)",
+      "copyInit": "Copy message",
+      "copied": "Copied!"
     }
   },
   "radar": {
@@ -232,6 +246,7 @@
     "termsBody": "By using TellYouTo you accept an experience focused on focus and wellbeing. The app is provided “as is”; AI and suggestions may be imperfect — you remain responsible for your decisions.\n\nConnectors and simulations must be used lawfully and respectfully toward third-party services.\n\nWe may update this text or features for clarity or compliance; the version shown in the app prevails."
   },
   "allyVoice": {
+    "personalGreeting": "Hi {{name}}, ",
     "greet": {
       "morning": {
         "structure": "Before you dive in: a short list is enough to frame your rail.",
@@ -265,6 +280,16 @@
   "connectors": {
     "whatsapp": "WhatsApp",
     "line": "LINE"
+  },
+  "connector": {
+    "defaultFirstName": "there",
+    "botWelcomeMessage": "Hello {{firstName}}, this is your private space to create intentions (text or voice). Everything stays strictly confidential and synced to your phone. {{appLink}}",
+    "botRailAck": "It's on your Rail! 🚀 Open it here: {{url}}",
+    "botRechargeRedirect": "Your messenger quota is empty — open the Recharge Station: {{url}}",
+    "copyLinkHint": "If your chat app isn't installed, copy this link.",
+    "deepLinkRadar": "Open Radar",
+    "deepLinkTimeline": "Open Timeline",
+    "deepLinkRecharge": "Recharge Station"
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",

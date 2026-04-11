@@ -1,6 +1,14 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 
+import { formatBotRailAck, formatBotRechargeAck } from './botLocales';
+import { buildDeepLink, sendTelegramText } from './botReply';
+
+const DEFAULT_INTENTIONS_QUOTA = (() => {
+  const n = parseInt(process.env.DEFAULT_INTENTIONS_QUOTA ?? '50', 10);
+  return Number.isFinite(n) && n >= 0 ? n : 50;
+})();
+
 export type BotChannel = 'whatsapp' | 'telegram' | 'slack' | 'line';
 
 export type GenericBotPayload = {
@@ -107,18 +115,57 @@ export async function handleBotWebhook(
     return;
   }
 
-  const inbox = firestore
-    .collection('devices')
-    .doc(deviceId.trim())
-    .collection('rail_inbox');
-  const docRef = inbox.doc();
-  await docRef.set({
+  const deviceRef = firestore.collection('devices').doc(deviceId.trim());
+  const docRef = deviceRef.collection('rail_inbox').doc();
+
+  const inboxPayload = {
     title: parsed.text.slice(0, 500),
     description: (parsed.description ?? '').slice(0, 2000),
     platform_type: parsed.channel,
     messenger_user_id: parsed.messengerUserId,
     created_at: Date.now(),
+  };
+
+  const outcome = await firestore.runTransaction(async (txn) => {
+    const snap = await txn.get(deviceRef);
+    const d = snap.data() ?? {};
+    const loc =
+      typeof d.locale === 'string' && d.locale.trim()
+        ? d.locale.trim()
+        : 'fr';
+    const qRaw = d.intentions_quota;
+    const q =
+      typeof qRaw === 'number' && Number.isFinite(qRaw)
+        ? Math.max(0, Math.floor(qRaw))
+        : DEFAULT_INTENTIONS_QUOTA;
+    if (q <= 0) {
+      return { kind: 'blocked' as const, locale: loc };
+    }
+    txn.set(deviceRef, { intentions_quota: q - 1 }, { merge: true });
+    txn.set(docRef, inboxPayload);
+    return { kind: 'ok' as const, locale: loc };
   });
+
+  if (outcome.kind === 'blocked') {
+    const msg = formatBotRechargeAck(
+      outcome.locale,
+      buildDeepLink('recharge'),
+    );
+    if (parsed.channel === 'telegram') {
+      await sendTelegramText(parsed.messengerUserId, msg);
+    }
+    res.status(200).json({
+      ok: true,
+      inboxSkipped: true,
+      reason: 'quota_exhausted',
+    });
+    return;
+  }
+
+  const ack = formatBotRailAck(outcome.locale, buildDeepLink('radar'));
+  if (parsed.channel === 'telegram') {
+    await sendTelegramText(parsed.messengerUserId, ack);
+  }
 
   res.status(200).json({ ok: true, inboxId: docRef.id });
 }

@@ -9,7 +9,18 @@
     "stats": "统计",
     "debug": "调试"
   },
+  "messaging": {
+    "lead": "TellYouTo 深层链接 — 直接打开雷达、时间线或充电站。",
+    "copyLink": "复制链接",
+    "copyAll": "复制全部链接"
+  },
   "onboarding": {
+    "firstName": {
+      "title": "怎么称呼你？",
+      "subtitle": "名字会用于副驾驶与私人频道的欢迎语。",
+      "placeholder": "名字",
+      "continue": "继续"
+    },
     "title": "情境诊断",
     "subtitle": "选择最贴近你的方式 — 副驾驶会校准你的表现光谱。",
     "progress": "卡片 {{current}} / {{total}}",
@@ -64,7 +75,10 @@
       },
       "cta": "保存并打开链接",
       "skip": "稍后",
-      "urlPending": "链接待配置（EXPO_PUBLIC_BOT_*_URL）"
+      "urlPending": "链接待配置（EXPO_PUBLIC_BOT_*_URL）",
+      "initMessageLabel": "欢迎消息（复制给机器人）",
+      "copyInit": "复制消息",
+      "copied": "已复制"
     }
   },
   "radar": {
@@ -232,6 +246,7 @@
     "termsBody": "使用 TellYouTo 即表示你接受以专注与身心健康为核心的体验。应用按「现状」提供；AI 与建议可能不完美 — 你仍对自己的决定负责。\n\n连接器与模拟须合法并尊重第三方服务。\n\n我们可能更新文案或功能以提高清晰度或合规性；以应用内显示版本为准。"
   },
   "allyVoice": {
+    "personalGreeting": "{{name}}，",
     "greet": {
       "morning": {
         "structure": "先别急着冲：列三条就够框住今天的轨道。",
@@ -265,6 +280,16 @@
   "connectors": {
     "whatsapp": "WhatsApp",
     "line": "LINE"
+  },
+  "connector": {
+    "defaultFirstName": "朋友",
+    "botWelcomeMessage": "你好{{firstName}}，这是创建意图的私人空间（文字或语音）。内容严格保密，并与手机同步。{{appLink}}",
+    "botRailAck": "已放到你的时间轨 🚀 在此查看：{{url}}",
+    "botRechargeRedirect": "消息配额已用完 — 打开充电站：{{url}}",
+    "copyLinkHint": "若没有聊天应用，可复制此链接。",
+    "deepLinkRadar": "打开雷达",
+    "deepLinkTimeline": "打开时间线",
+    "deepLinkRecharge": "充电站"
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",

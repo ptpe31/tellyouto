@@ -1,4 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  createNativeStackNavigator,
+  type NativeStackNavigationProp,
+} from '@react-navigation/native-stack';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
@@ -10,46 +14,51 @@ import {
 } from '../context/UserSpectrumContext';
 import { OnboardingScreen } from '../screens';
 import { MainStack } from './MainStack';
+import { rootNavigationRef } from './rootNavigationRef';
+import type { RootStackParamList } from './types';
 import { markAppInteractive } from '../services/performance';
 
 const ONBOARDING_KEY = '@tellyouto/onboarding_complete';
 
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
 function RootNavigatorInner() {
   const theme = useTheme();
   const { resetSpectrum } = useUserSpectrum();
-  const [done, setDone] = useState<boolean | null>(null);
+  const [ready, setReady] = useState(false);
+  const [initialRoute, setInitialRoute] = useState<
+    keyof RootStackParamList | null
+  >(null);
 
-  const refresh = useCallback(async () => {
+  const refreshRoute = useCallback(async () => {
     const v = await AsyncStorage.getItem(ONBOARDING_KEY);
-    setDone(v === 'true');
+    setInitialRoute(v === 'true' ? 'App' : 'Onboarding');
+    setReady(true);
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void refreshRoute();
+  }, [refreshRoute]);
 
   useEffect(() => {
-    if (done === null) return;
+    if (!ready || initialRoute === null) return;
     void SplashScreen.hideAsync();
     markAppInteractive();
-  }, [done]);
-
-  const handleOnboardingComplete = useCallback(async () => {
-    await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
-    setDone(true);
-  }, []);
+  }, [ready, initialRoute]);
 
   const resetProfileToOnboarding = useCallback(async () => {
-    await AsyncStorage.multiRemove([
-      ONBOARDING_KEY,
-      USER_SPECTRUM_STORAGE_KEY,
-    ]);
+    await AsyncStorage.multiRemove([ONBOARDING_KEY, USER_SPECTRUM_STORAGE_KEY]);
     resetSpectrum();
-    setDone(false);
+    if (rootNavigationRef.isReady()) {
+      rootNavigationRef.reset({
+        index: 0,
+        routes: [{ name: 'Onboarding' }],
+      });
+    }
   }, [resetSpectrum]);
 
-  const body =
-    done === null ? (
+  if (!ready || initialRoute === null) {
+    return (
       <View
         style={{
           flex: 1,
@@ -60,17 +69,31 @@ function RootNavigatorInner() {
       >
         <ActivityIndicator color={theme.colors.primary} size="large" />
       </View>
-    ) : !done ? (
-      <OnboardingScreen onComplete={handleOnboardingComplete} />
-    ) : (
-      <MainStack />
     );
+  }
 
   return (
-    <OnboardingResetProvider
-      resetProfileToOnboarding={resetProfileToOnboarding}
-    >
-      {body}
+    <OnboardingResetProvider resetProfileToOnboarding={resetProfileToOnboarding}>
+      <Stack.Navigator
+        initialRouteName={initialRoute}
+        screenOptions={{ headerShown: false }}
+      >
+        <Stack.Screen name="Onboarding">
+          {({
+            navigation,
+          }: {
+            navigation: NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
+          }) => (
+            <OnboardingScreen
+              onComplete={async () => {
+                await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
+                navigation.reset({ index: 0, routes: [{ name: 'App' }] });
+              }}
+            />
+          )}
+        </Stack.Screen>
+        <Stack.Screen name="App" component={MainStack} />
+      </Stack.Navigator>
     </OnboardingResetProvider>
   );
 }
