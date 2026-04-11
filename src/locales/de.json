@@ -108,6 +108,7 @@
     "calendarBusy": "Belegt · {{start}} – {{end}}",
     "alarmSwitch": "Alarm zum Start des Blocks",
     "alarmBellA11y": "Alarm für diesen Block aktiv",
+    "hardRoutineLockA11y": "Strukturroutine — gesperrter Slot",
     "microFragment": "Fragment {{current}} / {{total}}",
     "microDuration": "~ 2 Min · Mikro-Gewohnheit"
   },
@@ -306,6 +307,9 @@
     "calendarConflictBody": "Dein Kalender zeigt hier schon etwas. Du kannst die Kapsel trotzdem starten — oder etwas warten.",
     "calendarConflictContinue": "Trotzdem starten",
     "calendarConflictBack": "Abbrechen",
+    "hardRoutineConflictTitle": "Slot reserviert",
+    "hardRoutineConflictBody": "Dieser Slot ist für deine Routine {{name}} reserviert. Einen anderen Zeitpunkt suchen?",
+    "hardRoutineConflictDismiss": "OK",
     "settingsTitle": "Co-Pilot",
     "settingsLead": "Lege fest, wie TellYouTo klingt — Stimme, Ton und Sprachen.",
     "sectionVoice": "Stimme",

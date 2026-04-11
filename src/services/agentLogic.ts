@@ -1,6 +1,7 @@
+import type { IntentionRow } from '../api/localDb';
+import { formatLocalDateYmd } from '../api/localDb';
 import type { AppLanguage } from '../context/LanguageContext';
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
-import type { IntentionRow } from '../api/localDb';
 
 /** Mots-clés multilingues (FR/EN + racines communes) pour estimer l’alignement par dimension */
 const STRUCTURE_KEYS = [
@@ -201,6 +202,116 @@ function cosineSim(a: number[], b: number[]): number {
   return s;
 }
 
+function normalizedVec(v: number[]): number[] {
+  const mag = Math.sqrt(v.reduce((acc, x) => acc + x * x, 0)) || 1;
+  return v.map((x) => x / mag);
+}
+
+/** Ancre « récurrence / cycle » — vecteur analytique, sans lexique calendaire figé. */
+function recurrenceStructureAnchor(): number[] {
+  const v = new Array(SEM_DIM).fill(0);
+  for (let d = 0; d < SEM_DIM; d++) {
+    v[d] = Math.sin((d + 2.2) * 1.17) + Math.cos(d * 0.41) * 0.48;
+  }
+  return normalizedVec(v);
+}
+
+/** Sept prototypes orthogonaux (projection sémantique du jour de période, sans noms de jours). */
+const WEEKDAY_PROTOTYPE_EMBEDDINGS: number[][] = (() => {
+  const out: number[][] = [];
+  for (let k = 0; k < 7; k++) {
+    const v = new Array(SEM_DIM).fill(0);
+    for (let d = 0; d < SEM_DIM; d++) {
+      v[d] = Math.sin((k + 1) * (d + 1) * 0.31);
+    }
+    out.push(normalizedVec(v));
+  }
+  return out;
+})();
+
+/**
+ * Extrait une heure d’horloge depuis le texte (motifs numériques, pas de table d’heures).
+ */
+export function extractClockMinutesFromText(raw: string): number | null {
+  const text = raw
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+  const hm = text.match(/\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/);
+  if (hm) {
+    const h = parseInt(hm[1]!, 10);
+    const m = parseInt(hm[2]!, 10);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
+  }
+  const ho = text.match(/\b([01]?\d|2[0-3])\s*h\b/);
+  if (ho) return parseInt(ho[1]!, 10) * 60;
+  return null;
+}
+
+/** Score 0–1 : alignement texte ↔ concept de récurrence (embedding vs ancre analytique). */
+export function inferRecurrenceStrength(
+  title: string,
+  description: string,
+): number {
+  const full = `${title}\n${description}`;
+  const emb = textEmbeddingVector(full);
+  const anchor = recurrenceStructureAnchor();
+  return (cosineSim(emb, anchor) + 1) / 2;
+}
+
+function inferWeekdayIndexFromEmbedding(title: string, description: string): number {
+  const emb = textEmbeddingVector(`${title}\n${description}`);
+  let best = 0;
+  let bestDot = -2;
+  for (let k = 0; k < 7; k++) {
+    const dot = cosineSim(emb, WEEKDAY_PROTOTYPE_EMBEDDINGS[k]!);
+    if (dot > bestDot) {
+      bestDot = dot;
+      best = k;
+    }
+  }
+  return best;
+}
+
+/**
+ * Routine structurelle : récurrence sémantique + heure extraite du texte — ancre rail.
+ * Exclut les micro-habitudes.
+ */
+export function inferIsHardConstraint(
+  title: string,
+  description: string,
+  spectrum: SpectrumWeights,
+  now: Date,
+): boolean {
+  if (inferIsMicroHabit(title, description, spectrum, now)) return false;
+  const rec = inferRecurrenceStrength(title, description);
+  const clock = extractClockMinutesFromText(`${title}\n${description}`);
+  const structured = spectrum.structure >= 0.28;
+  return structured && rec > 0.42 && clock != null;
+}
+
+export type StructuralRoutinePlan = {
+  weekday: number;
+  startMinutes: number;
+  durationMin: number;
+};
+
+export function inferStructuralRoutinePlan(
+  title: string,
+  description: string,
+  spectrum: SpectrumWeights,
+  now: Date,
+): StructuralRoutinePlan | null {
+  if (!inferIsHardConstraint(title, description, spectrum, now)) return null;
+  const start = extractClockMinutesFromText(`${title}\n${description}`);
+  if (start == null) return null;
+  return {
+    weekday: inferWeekdayIndexFromEmbedding(title, description),
+    startMinutes: start,
+    durationMin: estimateDurationMinutes(title, description, spectrum),
+  };
+}
+
 /**
  * Détecte une micro-habitude (soin répété, léger) par alignement texte ↔ ancre spectrale,
  * brièveté et absence de jalons « projet » — pas de liste de mots-clés en dur.
@@ -335,8 +446,13 @@ export function analyzeNewIntentionSemantics(
   spectrum: SpectrumWeights,
   now: Date,
   options?: ComputePriorityOptions,
-): { priority: number; isMicroHabit: boolean; isLateNight: boolean } {
-  const priority = computeIntentionPriority(
+): {
+  priority: number;
+  isMicroHabit: boolean;
+  isLateNight: boolean;
+  isHardConstraint: boolean;
+} {
+  let priority = computeIntentionPriority(
     title,
     description,
     spectrum,
@@ -346,7 +462,96 @@ export function analyzeNewIntentionSemantics(
   const isMicroHabit = inferIsMicroHabit(title, description, spectrum, now);
   let isLateNight = inferIsLateNightIntent(title, description, now);
   if (isMicroHabit) isLateNight = false;
-  return { priority, isMicroHabit, isLateNight };
+  const isHardConstraint = inferIsHardConstraint(
+    title,
+    description,
+    spectrum,
+    now,
+  );
+  if (isHardConstraint) {
+    isLateNight = false;
+    priority = Math.max(priority, 93);
+  }
+  return { priority, isMicroHabit, isLateNight, isHardConstraint };
+}
+
+/**
+ * Détecte si une nouvelle intention manuelle chevaucherait une ancre structurelle du jour.
+ */
+export function previewManualIntentionOverlapsHardRoutine(
+  pending: IntentionRow[],
+  candidateTitle: string,
+  candidateDesc: string,
+  spectrum: SpectrumWeights,
+  now: Date,
+  busyIntervals: BusyInterval[],
+  platformUserId: string,
+): { overlaps: boolean; blockingTitle?: string } {
+  const sem = analyzeNewIntentionSemantics(
+    candidateTitle,
+    candidateDesc,
+    spectrum,
+    now,
+  );
+  const mock: IntentionRow = {
+    id: '__candidate__',
+    title: candidateTitle,
+    description: candidateDesc,
+    status: 'pending',
+    priority: sem.priority,
+    weights: {
+      structure: spectrum.structure,
+      momentum: spectrum.momentum,
+      zen: spectrum.zen,
+      stats: spectrum.stats,
+    },
+    platform_type: 'none',
+    platform_user_id: platformUserId,
+    created_at: Date.now(),
+    synced: 0,
+    estimated_duration: estimateDurationMinutes(
+      candidateTitle,
+      candidateDesc,
+      spectrum,
+    ),
+    actual_duration: null,
+    completed_at: null,
+    user_forced_urgent: false,
+    is_late_night: sem.isLateNight,
+    alarm_enabled: false,
+    is_micro_habit: sem.isMicroHabit,
+    is_hard_constraint: false,
+    routine_id: null,
+    anchor_date_ymd: null,
+    fixed_start_minutes: null,
+  };
+
+  const pool = pending.filter((r) => r.status !== 'done');
+  const slots = buildTimelineSlots(
+    [...pool, mock],
+    spectrum,
+    now,
+    { busyIntervals },
+  );
+  const mine = slots.find((s) => s.intention.id === '__candidate__');
+  if (!mine) return { overlaps: false };
+
+  const todayYmd = formatLocalDateYmd(now);
+  const hardToday = pool.filter(
+    (i) =>
+      i.is_hard_constraint &&
+      i.fixed_start_minutes != null &&
+      (!i.anchor_date_ymd || i.anchor_date_ymd === todayYmd),
+  );
+
+  for (const h of hardToday) {
+    const hs = h.fixed_start_minutes!;
+    const he = hs + h.estimated_duration;
+    if (mine.startMinutes < he && mine.endMinutes > hs) {
+      return { overlaps: true, blockingTitle: h.title };
+    }
+  }
+  return { overlaps: false };
 }
 
 /**
@@ -566,11 +771,26 @@ export function buildTimelineSlots(
   options?: { busyIntervals?: BusyInterval[] },
 ): TimelineSlot[] {
   const busy = mergeBusyIntervalsForRail(options?.busyIntervals ?? []);
+  const todayYmd = formatLocalDateYmd(now);
 
-  const regular = intentions.filter((i) => !i.is_late_night && !i.is_micro_habit);
-  const microList = intentions.filter((i) => i.is_micro_habit && !i.is_late_night);
-  const late = intentions.filter((i) => i.is_late_night && !i.is_micro_habit);
+  const pool = intentions.filter(
+    (i) => i.anchor_date_ymd == null || i.anchor_date_ymd === todayYmd,
+  );
 
+  const hardPool = pool.filter(
+    (i) =>
+      i.is_hard_constraint &&
+      i.fixed_start_minutes != null &&
+      !i.is_micro_habit &&
+      !i.is_late_night,
+  );
+  const regular = pool.filter(
+    (i) => !i.is_hard_constraint && !i.is_late_night && !i.is_micro_habit,
+  );
+  const microList = pool.filter((i) => i.is_micro_habit && !i.is_late_night);
+  const late = pool.filter((i) => i.is_late_night && !i.is_micro_habit);
+
+  const orderedHard = orderIntentionsBySpectrum(hardPool, spectrum);
   const orderedRegular = orderIntentionsBySpectrum(regular, spectrum);
   const orderedMicro = orderIntentionsBySpectrum(microList, spectrum);
   const orderedLate = orderIntentionsBySpectrum(late, spectrum);
@@ -580,7 +800,31 @@ export function buildTimelineSlots(
   const nowMin = minutesSinceMidnight(now);
   let cursor = Math.max(nowMin, railOpenMin);
 
-  const slots: TimelineSlot[] = [];
+  const hardSlots: TimelineSlot[] = [];
+  for (const intention of orderedHard) {
+    const fs = intention.fixed_start_minutes!;
+    const startMinutes = Math.max(fs, railOpenMin, nowMin);
+    const rawEnd = startMinutes + intention.estimated_duration;
+    const endMinutes = Math.min(rawEnd, REGULAR_RAIL_END_MIN);
+    if (endMinutes - startMinutes < 10) continue;
+    hardSlots.push({
+      intention,
+      startMinutes,
+      endMinutes,
+      startLabel: formatMinutesAsClock(startMinutes),
+      endLabel: formatMinutesAsClock(endMinutes),
+    });
+  }
+
+  const busyWithHard = mergeBusyIntervalsForRail([
+    ...busy,
+    ...hardSlots.map((s) => ({
+      startMinutes: s.startMinutes,
+      endMinutes: s.endMinutes,
+    })),
+  ]);
+
+  const slots: TimelineSlot[] = [...hardSlots];
 
   const pushList = (
     list: IntentionRow[],
@@ -614,18 +858,16 @@ export function buildTimelineSlots(
     }
   };
 
-  pushList(orderedRegular, REGULAR_RAIL_END_MIN, busy);
+  pushList(orderedRegular, REGULAR_RAIL_END_MIN, busyWithHard);
 
-  const occupiedForMicro: BusyInterval[] = [
-    ...busy,
+  const microSlots: TimelineSlot[] = [];
+  let occMicro = mergeBusyIntervalsForRail([
+    ...busyWithHard,
     ...slots.map((s) => ({
       startMinutes: s.startMinutes,
       endMinutes: s.endMinutes,
     })),
-  ];
-
-  const microSlots: TimelineSlot[] = [];
-  let occMicro = mergeBusyIntervalsForRail(occupiedForMicro);
+  ]);
 
   for (const mInt of orderedMicro) {
     const nFrag = microFragmentCountForIntention(mInt.id);

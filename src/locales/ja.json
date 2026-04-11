@@ -108,6 +108,7 @@
     "calendarBusy": "予定あり · {{start}} – {{end}}",
     "alarmSwitch": "枠の開始時にアラーム",
     "alarmBellA11y": "この枠にアラームあり",
+    "hardRoutineLockA11y": "構造的ルーティン — 固定枠",
     "microFragment": "フラグメント {{current}} / {{total}}",
     "microDuration": "約2分 · マイクロ習慣"
   },
@@ -306,6 +307,9 @@
     "calendarConflictBody": "カレンダーに予定があります。カプセルを開始してもよいですし、少しずらしてもよいです。",
     "calendarConflictContinue": "それでも開始",
     "calendarConflictBack": "キャンセル",
+    "hardRoutineConflictTitle": "予約済みの枠",
+    "hardRoutineConflictBody": "この枠はルーティン「{{name}}」用に取ってあります。別の時間を探しますか？",
+    "hardRoutineConflictDismiss": "OK",
     "settingsTitle": "コパイロット",
     "settingsLead": "TellYouToの声・トーン・言語を選びます。",
     "sectionVoice": "声",

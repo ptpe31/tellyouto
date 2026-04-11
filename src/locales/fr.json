@@ -108,6 +108,7 @@
     "calendarBusy": "Occupé · {{start}} – {{end}}",
     "alarmSwitch": "Alarme au début du créneau",
     "alarmBellA11y": "Alarme activée pour ce créneau",
+    "hardRoutineLockA11y": "Routine structurelle — créneau verrouillé",
     "microFragment": "Fragment {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-habitude"
   },
@@ -306,6 +307,9 @@
     "calendarConflictBody": "Ton calendrier indique déjà quelque chose sur cette plage. Tu peux quand même lancer la capsule — ou repousser un peu.",
     "calendarConflictContinue": "Lancer quand même",
     "calendarConflictBack": "Annuler",
+    "hardRoutineConflictTitle": "Créneau réservé",
+    "hardRoutineConflictBody": "Attention, ce créneau est réservé pour ta routine {{name}}. On cherche un autre moment ?",
+    "hardRoutineConflictDismiss": "D'accord",
     "settingsTitle": "Co-pilote",
     "settingsLead": "Choisis comment TellYouTo te parle — voix, tonalité et langues.",
     "sectionVoice": "Voix",

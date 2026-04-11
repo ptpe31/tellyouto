@@ -108,6 +108,7 @@
     "calendarBusy": "占用 · {{start}} – {{end}}",
     "alarmSwitch": "时段开始时提醒",
     "alarmBellA11y": "此时段已设提醒",
+    "hardRoutineLockA11y": "结构性例行 — 时段已锁定",
     "microFragment": "片段 {{current}} / {{total}}",
     "microDuration": "约 2 分钟 · 微习惯"
   },
@@ -306,6 +307,9 @@
     "calendarConflictBody": "日历显示这段时间已有事项。你仍可开始胶囊 — 或稍后再试。",
     "calendarConflictContinue": "仍要开始",
     "calendarConflictBack": "取消",
+    "hardRoutineConflictTitle": "时段已保留",
+    "hardRoutineConflictBody": "此时段已为例行「{{name}}」保留。要换个时间吗？",
+    "hardRoutineConflictDismiss": "好的",
     "settingsTitle": "副驾驶",
     "settingsLead": "设置 TellYouTo 的声音、语气与语言。",
     "sectionVoice": "声音",

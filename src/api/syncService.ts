@@ -43,6 +43,10 @@ async function pushIntentionToFirestore(
     actual_duration: row.actual_duration,
     alarm_enabled: row.alarm_enabled,
     is_micro_habit: row.is_micro_habit,
+    is_hard_constraint: row.is_hard_constraint,
+    routine_id: row.routine_id,
+    anchor_date_ymd: row.anchor_date_ymd,
+    fixed_start_minutes: row.fixed_start_minutes,
     synced_client_at: Date.now(),
   });
 }

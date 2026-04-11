@@ -142,6 +142,14 @@ function TimelineSlotRow({
               🔔
             </Text>
           ) : null}
+          {item.intention.is_hard_constraint && !isMicro ? (
+            <Text
+              style={styles.lockGlyph}
+              accessibilityLabel={t('timeline.hardRoutineLockA11y')}
+            >
+              🔒
+            </Text>
+          ) : null}
           <Text
             style={[
               isMicro ? styles.pastilleTitle : styles.cardTitle,
@@ -567,6 +575,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   bellGlyph: { fontSize: 17, lineHeight: 22 },
+  lockGlyph: { fontSize: 17, lineHeight: 22 },
   cardTitle: { fontSize: 17, fontWeight: '600' },
   alarmRow: {
     flexDirection: 'row',

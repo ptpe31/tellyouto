@@ -108,6 +108,7 @@
     "calendarBusy": "Occupato · {{start}} – {{end}}",
     "alarmSwitch": "Sveglia all’inizio della finestra",
     "alarmBellA11y": "Sveglia attiva per questa finestra",
+    "hardRoutineLockA11y": "Routine strutturale — slot bloccato",
     "microFragment": "Frammento {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-abitudine"
   },
@@ -306,6 +307,9 @@
     "calendarConflictBody": "Il calendario segna già qualcosa in questa fascia. Puoi avviare la capsula comunque — o aspettare.",
     "calendarConflictContinue": "Avvia comunque",
     "calendarConflictBack": "Annulla",
+    "hardRoutineConflictTitle": "Slot riservato",
+    "hardRoutineConflictBody": "Questo slot è riservato alla tua routine {{name}}. Cerchiamo un altro momento?",
+    "hardRoutineConflictDismiss": "OK",
     "settingsTitle": "Copilota",
     "settingsLead": "Definisci come TellYouTo ti parla — voce, tono e lingue.",
     "sectionVoice": "Voce",

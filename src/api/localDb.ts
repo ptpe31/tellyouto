@@ -41,8 +41,29 @@ const SCHEMA = `
     user_forced_urgent INTEGER NOT NULL DEFAULT 0,
     is_late_night INTEGER NOT NULL DEFAULT 0,
     alarm_enabled INTEGER NOT NULL DEFAULT 0,
-    is_micro_habit INTEGER NOT NULL DEFAULT 0
+    is_micro_habit INTEGER NOT NULL DEFAULT 0,
+    is_hard_constraint INTEGER NOT NULL DEFAULT 0,
+    routine_id TEXT,
+    anchor_date_ymd TEXT,
+    fixed_start_minutes INTEGER
   );
+
+  CREATE TABLE IF NOT EXISTS routines (
+    id TEXT PRIMARY KEY NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    weekday INTEGER NOT NULL,
+    start_minutes INTEGER NOT NULL,
+    duration_min INTEGER NOT NULL,
+    weights TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    platform_type TEXT NOT NULL,
+    platform_user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_intentions_anchor ON intentions (anchor_date_ymd);
+  CREATE INDEX IF NOT EXISTS idx_intentions_routine ON intentions (routine_id);
 
   CREATE TABLE IF NOT EXISTS micro_habit_checks (
     id TEXT PRIMARY KEY NOT NULL,
@@ -96,6 +117,7 @@ export async function dangerouslyResetDatabase(): Promise<void> {
     await database.execAsync(`
       DROP TABLE IF EXISTS micro_habit_checks;
       DROP TABLE IF EXISTS intentions;
+      DROP TABLE IF EXISTS routines;
       DROP TABLE IF EXISTS sync_queue;
     `);
     try {
@@ -155,6 +177,39 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
       `ALTER TABLE intentions ADD COLUMN is_micro_habit INTEGER NOT NULL DEFAULT 0`,
     );
   }
+  if (!names.has('is_hard_constraint')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN is_hard_constraint INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  if (!names.has('routine_id')) {
+    await database.execAsync(`ALTER TABLE intentions ADD COLUMN routine_id TEXT`);
+  }
+  if (!names.has('anchor_date_ymd')) {
+    await database.execAsync(`ALTER TABLE intentions ADD COLUMN anchor_date_ymd TEXT`);
+  }
+  if (!names.has('fixed_start_minutes')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN fixed_start_minutes INTEGER`,
+    );
+  }
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS routines (
+      id TEXT PRIMARY KEY NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      weekday INTEGER NOT NULL,
+      start_minutes INTEGER NOT NULL,
+      duration_min INTEGER NOT NULL,
+      weights TEXT NOT NULL,
+      priority INTEGER NOT NULL,
+      platform_type TEXT NOT NULL,
+      platform_user_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_intentions_anchor ON intentions (anchor_date_ymd);
+    CREATE INDEX IF NOT EXISTS idx_intentions_routine ON intentions (routine_id);
+  `);
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS micro_habit_checks (
       id TEXT PRIMARY KEY NOT NULL,
@@ -214,6 +269,27 @@ export type IntentionRow = {
   alarm_enabled: boolean;
   /** Micro-habitude (soin répété) — fragmentée sur le rail */
   is_micro_habit: boolean;
+  /** Ancre structurelle (routine récurrente + heure) — créneau sanctuarisé */
+  is_hard_constraint: boolean;
+  routine_id: string | null;
+  /** Jour calendaire de cette instance (AAAA-MM-JJ local), null = flottant */
+  anchor_date_ymd: string | null;
+  /** Début d’ancrage rail (minutes depuis minuit), null = placement libre */
+  fixed_start_minutes: number | null;
+};
+
+export type RoutineRow = {
+  id: string;
+  title: string;
+  description: string;
+  weekday: number;
+  start_minutes: number;
+  duration_min: number;
+  weights: SpectrumWeights;
+  priority: number;
+  platform_type: string;
+  platform_user_id: string;
+  created_at: number;
 };
 
 function rowToIntention(row: Record<string, unknown>): IntentionRow {
@@ -253,6 +329,14 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
       row.alarm_enabled != null && Number(row.alarm_enabled) === 1,
     is_micro_habit:
       row.is_micro_habit != null && Number(row.is_micro_habit) === 1,
+    is_hard_constraint:
+      row.is_hard_constraint != null && Number(row.is_hard_constraint) === 1,
+    routine_id: (row.routine_id as string) ?? null,
+    anchor_date_ymd: (row.anchor_date_ymd as string) ?? null,
+    fixed_start_minutes:
+      typeof row.fixed_start_minutes === 'number'
+        ? row.fixed_start_minutes
+        : null,
   };
 }
 
@@ -271,19 +355,25 @@ export async function insertIntention(input: {
   is_late_night?: boolean;
   alarm_enabled?: boolean;
   is_micro_habit?: boolean;
+  is_hard_constraint?: boolean;
+  routine_id?: string | null;
+  anchor_date_ymd?: string | null;
+  fixed_start_minutes?: number | null;
 }): Promise<void> {
   const database = await getLocalDatabase();
   const ufu = input.user_forced_urgent ? 1 : 0;
   const iln = input.is_late_night ? 1 : 0;
   const alarm = input.alarm_enabled ? 1 : 0;
   const micro = input.is_micro_habit ? 1 : 0;
+  const hard = input.is_hard_constraint ? 1 : 0;
   await database.runAsync(
     `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
-      user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?)`,
+      user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
+      is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.id,
       input.title,
@@ -299,6 +389,10 @@ export async function insertIntention(input: {
       iln,
       alarm,
       micro,
+      hard,
+      input.routine_id ?? null,
+      input.anchor_date_ymd ?? null,
+      input.fixed_start_minutes ?? null,
     ],
   );
 }
@@ -331,8 +425,9 @@ export async function insertCompletedIntention(input: {
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
-      user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit
-    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+      user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
+      is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes
+    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)`,
     [
       input.id,
       input.title,
@@ -495,6 +590,111 @@ export async function listRecentCompletedFocusSessions(
     [limit],
   );
   return rows.map(rowToIntention);
+}
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+/** Date locale AAAA-MM-JJ */
+export function formatLocalDateYmd(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+export async function insertRoutine(input: RoutineRow): Promise<void> {
+  const database = await getLocalDatabase();
+  await database.runAsync(
+    `INSERT INTO routines (
+      id, title, description, weekday, start_minutes, duration_min, weights,
+      priority, platform_type, platform_user_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      input.id,
+      input.title,
+      input.description,
+      input.weekday,
+      input.start_minutes,
+      input.duration_min,
+      JSON.stringify(input.weights),
+      input.priority,
+      input.platform_type,
+      input.platform_user_id,
+      input.created_at,
+    ],
+  );
+}
+
+/**
+ * Génère une instance d’intention par jour calendaire correspondant au motif (horizon glissant).
+ */
+export async function ensureRoutineIntentionInstancesForHorizon(
+  routineId: string,
+  platformUserId: string,
+  horizonDays = 14,
+): Promise<void> {
+  const database = await getLocalDatabase();
+  const row = await database.getFirstAsync<Record<string, unknown>>(
+    `SELECT * FROM routines WHERE id = ?`,
+    [routineId],
+  );
+  if (!row) return;
+
+  const routine: RoutineRow = {
+    id: row.id as string,
+    title: row.title as string,
+    description: row.description as string,
+    weekday: row.weekday as number,
+    start_minutes: row.start_minutes as number,
+    duration_min: row.duration_min as number,
+    weights: JSON.parse(row.weights as string) as SpectrumWeights,
+    priority: row.priority as number,
+    platform_type: row.platform_type as string,
+    platform_user_id: row.platform_user_id as string,
+    created_at: row.created_at as number,
+  };
+
+  const uid = platformUserId.trim() || routine.platform_user_id;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (let delta = 0; delta < horizonDays; delta++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + delta);
+    if (d.getDay() !== routine.weekday) continue;
+
+    const ymd = formatLocalDateYmd(d);
+    const intentionId = `${routineId}_${ymd}`;
+
+    const existing = await database.getFirstAsync<{ id: string }>(
+      `SELECT id FROM intentions WHERE id = ?`,
+      [intentionId],
+    );
+    if (existing) continue;
+
+    await database.runAsync(
+      `INSERT INTO intentions (
+        id, title, description, status, priority, weights,
+        platform_type, platform_user_id, created_at, synced,
+        estimated_duration, actual_duration, completed_at,
+        user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
+        is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 0, 1, ?, ?, ?, ?)`,
+      [
+        intentionId,
+        routine.title,
+        routine.description,
+        routine.priority,
+        JSON.stringify(routine.weights),
+        routine.platform_type,
+        uid,
+        Date.now(),
+        routine.duration_min,
+        routineId,
+        ymd,
+        routine.start_minutes,
+      ],
+    );
+  }
 }
 
 /**

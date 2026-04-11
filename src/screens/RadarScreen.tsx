@@ -30,7 +30,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  ensureRoutineIntentionInstancesForHorizon,
   insertIntention,
+  insertRoutine,
   listIntentionsDescending,
   markIntentionQuickComplete,
   recordMicroHabitFragmentCheck,
@@ -57,6 +59,8 @@ import {
   analyzeNewIntentionSemantics,
   buildTimelineSlots,
   estimateDurationMinutes,
+  inferStructuralRoutinePlan,
+  previewManualIntentionOverlapsHardRoutine,
   type BusyInterval,
   type TimelineSlot,
 } from '../services/agentLogic';
@@ -185,6 +189,8 @@ export function RadarScreen() {
     row: IntentionRow;
     mode: FocusCapsuleMode;
   } | null>(null);
+  const [hardRoutineConflictOpen, setHardRoutineConflictOpen] = useState(false);
+  const [hardBlockingRoutineName, setHardBlockingRoutineName] = useState('');
   const [railSlots, setRailSlots] = useState<TimelineSlot[]>([]);
 
   const load = useCallback(async () => {
@@ -328,34 +334,110 @@ export function RadarScreen() {
 
     const desc = description.trim();
     const now = new Date();
+    const uid = spectrum.platform_user_id?.trim() || '';
+
+    const pending = (await listIntentionsDescending()).filter(
+      (r) => r.status !== 'done',
+    );
+    let busyForAgent: BusyInterval[] = connectEnabled ? busyIntervals : [];
+    const overlap = previewManualIntentionOverlapsHardRoutine(
+      pending,
+      trimmedTitle,
+      desc,
+      spectrum,
+      now,
+      busyForAgent,
+      uid,
+    );
+    if (overlap.overlaps) {
+      setHardBlockingRoutineName(overlap.blockingTitle ?? '—');
+      setHardRoutineConflictOpen(true);
+      return;
+    }
+
     const userForcedUrgent = urgent;
-    const { priority, isMicroHabit, isLateNight: is_late_night } =
+    const { priority, isMicroHabit, isLateNight: is_late_night, isHardConstraint } =
       analyzeNewIntentionSemantics(trimmedTitle, desc, spectrum, now, {
         userForcedUrgent,
       });
     const estimated_duration = estimateDurationMinutes(trimmedTitle, desc, spectrum);
 
-    await insertIntention({
-      id: randomUUID(),
-      title: trimmedTitle,
-      description: desc,
-      status: 'pending',
-      priority,
-      weights: {
-        structure: spectrum.structure,
-        momentum: spectrum.momentum,
-        zen: spectrum.zen,
-        stats: spectrum.stats,
-      },
-      platform_type: 'none',
-      platform_user_id: spectrum.platform_user_id,
-      created_at: Date.now(),
-      estimated_duration,
-      user_forced_urgent: userForcedUrgent,
-      is_late_night,
-      alarm_enabled: alarm,
-      is_micro_habit: isMicroHabit,
-    });
+    if (isHardConstraint) {
+      const plan = inferStructuralRoutinePlan(
+        trimmedTitle,
+        desc,
+        spectrum,
+        now,
+      );
+      if (plan) {
+        const routineId = randomUUID();
+        await insertRoutine({
+          id: routineId,
+          title: trimmedTitle,
+          description: desc,
+          weekday: plan.weekday,
+          start_minutes: plan.startMinutes,
+          duration_min: plan.durationMin,
+          weights: {
+            structure: spectrum.structure,
+            momentum: spectrum.momentum,
+            zen: spectrum.zen,
+            stats: spectrum.stats,
+          },
+          priority,
+          platform_type: 'none',
+          platform_user_id: uid,
+          created_at: Date.now(),
+        });
+        await ensureRoutineIntentionInstancesForHorizon(routineId, uid);
+      } else {
+        await insertIntention({
+          id: randomUUID(),
+          title: trimmedTitle,
+          description: desc,
+          status: 'pending',
+          priority,
+          weights: {
+            structure: spectrum.structure,
+            momentum: spectrum.momentum,
+            zen: spectrum.zen,
+            stats: spectrum.stats,
+          },
+          platform_type: 'none',
+          platform_user_id: uid,
+          created_at: Date.now(),
+          estimated_duration,
+          user_forced_urgent: userForcedUrgent,
+          is_late_night,
+          alarm_enabled: alarm,
+          is_micro_habit: isMicroHabit,
+          is_hard_constraint: false,
+        });
+      }
+    } else {
+      await insertIntention({
+        id: randomUUID(),
+        title: trimmedTitle,
+        description: desc,
+        status: 'pending',
+        priority,
+        weights: {
+          structure: spectrum.structure,
+          momentum: spectrum.momentum,
+          zen: spectrum.zen,
+          stats: spectrum.stats,
+        },
+        platform_type: 'none',
+        platform_user_id: uid,
+        created_at: Date.now(),
+        estimated_duration,
+        user_forced_urgent: userForcedUrgent,
+        is_late_night,
+        alarm_enabled: alarm,
+        is_micro_habit: isMicroHabit,
+        is_hard_constraint: false,
+      });
+    }
 
     setTitle('');
     setDescription('');
@@ -366,14 +448,14 @@ export function RadarScreen() {
     void syncPendingIntentions();
 
     const list = await listIntentionsDescending();
-    const pending = list.filter((r) => r.status !== 'done');
-    let busyForAgent: BusyInterval[] = [];
+    const pendingAfter = list.filter((r) => r.status !== 'done');
+    let busyAfter: BusyInterval[] = [];
     if (connectEnabled) {
-      busyForAgent = await refreshBusy();
+      busyAfter = await refreshBusy();
     }
     const railNow = new Date();
     const built = buildTimelineSlots(
-      pending,
+      pendingAfter,
       {
         structure: spectrum.structure,
         momentum: spectrum.momentum,
@@ -381,10 +463,10 @@ export function RadarScreen() {
         stats: spectrum.stats,
       },
       railNow,
-      { busyIntervals: busyForAgent },
+      { busyIntervals: busyAfter },
     );
     await syncRailAlarmsWithTimeline({
-      pendingIntentions: pending,
+      pendingIntentions: pendingAfter,
       slots: built,
       now: railNow,
     });
@@ -640,6 +722,31 @@ export function RadarScreen() {
             </Button>
             <Button mode="contained" onPress={() => void onAdd()}>
               {t('radar.save')}
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
+      <Portal>
+        <Dialog
+          visible={hardRoutineConflictOpen}
+          onDismiss={() => setHardRoutineConflictOpen(false)}
+          style={{ backgroundColor: theme.colors.surface }}
+        >
+          <Dialog.Title>{t('ally.hardRoutineConflictTitle')}</Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ color: theme.colors.onSurface }}>
+              {t('ally.hardRoutineConflictBody', {
+                name: hardBlockingRoutineName,
+              })}
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              mode="contained"
+              onPress={() => setHardRoutineConflictOpen(false)}
+            >
+              {t('ally.hardRoutineConflictDismiss')}
             </Button>
           </Dialog.Actions>
         </Dialog>

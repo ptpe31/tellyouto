@@ -108,6 +108,7 @@
     "calendarBusy": "Busy · {{start}} – {{end}}",
     "alarmSwitch": "Alarm at slot start",
     "alarmBellA11y": "Alarm enabled for this slot",
+    "hardRoutineLockA11y": "Structural routine — locked slot",
     "microFragment": "Fragment {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-habit"
   },
@@ -306,6 +307,9 @@
     "calendarConflictBody": "Your calendar already has something on this stretch. You can still start the capsule — or wait a bit.",
     "calendarConflictContinue": "Start anyway",
     "calendarConflictBack": "Cancel",
+    "hardRoutineConflictTitle": "Slot reserved",
+    "hardRoutineConflictBody": "This slot is reserved for your routine {{name}}. Want to find another time?",
+    "hardRoutineConflictDismiss": "OK",
     "settingsTitle": "Co-pilot",
     "settingsLead": "Shape how TellYouTo sounds to you — voice, tone, and languages.",
     "sectionVoice": "Voice",

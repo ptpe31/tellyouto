@@ -108,6 +108,7 @@
     "calendarBusy": "Ocupado · {{start}} – {{end}}",
     "alarmSwitch": "Alarma al inicio del hueco",
     "alarmBellA11y": "Alarma activa para este hueco",
+    "hardRoutineLockA11y": "Rutina estructural — franja bloqueada",
     "microFragment": "Fragmento {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-hábito"
   },
@@ -306,6 +307,9 @@
     "calendarConflictBody": "Tu calendario ya tiene algo en este tramo. Puedes lanzar la cápsula igual — o esperar un poco.",
     "calendarConflictContinue": "Lanzar igualmente",
     "calendarConflictBack": "Cancelar",
+    "hardRoutineConflictTitle": "Franja reservada",
+    "hardRoutineConflictBody": "Este hueco está reservado para tu rutina {{name}}. ¿Buscamos otro momento?",
+    "hardRoutineConflictDismiss": "Vale",
     "settingsTitle": "Copiloto",
     "settingsLead": "Define cómo te habla TellYouTo: voz, tono e idiomas.",
     "sectionVoice": "Voz",
