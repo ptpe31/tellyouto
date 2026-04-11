@@ -10,7 +10,10 @@ import React, {
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_KEY = '@tellyouto/user_spectrum';
+/** Clé AsyncStorage — partagée avec le reset profil (debug / onboarding). */
+export const USER_SPECTRUM_STORAGE_KEY = '@tellyouto/user_spectrum';
+
+const STORAGE_KEY = USER_SPECTRUM_STORAGE_KEY;
 
 export type PlatformType = 'ios' | 'android' | 'web' | 'unknown';
 

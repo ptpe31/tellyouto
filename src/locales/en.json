@@ -4,6 +4,7 @@
     "radar": "Radar",
     "timeline": "Timeline",
     "agent": "AI Agent",
+    "recharge": "Recharge",
     "messaging": "Messaging",
     "stats": "Stats"
   },
@@ -81,5 +82,81 @@
     "terminate": "Finish",
     "feedbackTitle": "Clarity",
     "ok": "OK"
+  },
+  "recharge": {
+    "eyebrow": "SENSORY STATION",
+    "title": "Recharge",
+    "subtitle": "Pick a rhythm. We simulate a calm ad handoff, then a 30s coherence breath — your co-pilot gains energy.",
+    "modes": {
+      "flash": {
+        "title": "Flash",
+        "desc": "A quick reset — light touch, fast return."
+      },
+      "breath": {
+        "title": "Breath",
+        "desc": "Cardiac coherence pace — smooth bubble, softer nervous system."
+      },
+      "immersion": {
+        "title": "Immersion",
+        "desc": "Deeper pause — more credit for your ally."
+      }
+    },
+    "adSim": {
+      "title": "Dopamine pause",
+      "sub": "Ethical slot — sponsor simulation. Next: heart coherence."
+    },
+    "dopamine": {
+      "title": "Breathe with the bubble",
+      "hint": "Inhale as it rises, exhale as it falls — about 10s per wave."
+    },
+    "done": {
+      "title": "Recharge complete",
+      "sub": "Energy added for your co-pilot. Come back anytime.",
+      "cta": "Continue"
+    }
+  },
+  "ally": {
+    "settingsTitle": "Co-pilot",
+    "settingsLead": "Shape how TellYouTo sounds to you — voice, tone, and languages.",
+    "sectionVoice": "Voice",
+    "sectionTone": "Tone",
+    "sectionUiLang": "Interface language",
+    "sectionAiLang": "AI interaction language",
+    "uiLangHint": "Menus and labels in the app.",
+    "aiLangHint": "Language the co-pilot will prefer for reasoning and replies (can differ from the UI).",
+    "openSettings": "Settings",
+    "externalHelp": "Learn about focus & calm (web)",
+    "voice": {
+      "balanced": "Balanced",
+      "warm": "Warm",
+      "crisp": "Crisp"
+    },
+    "tone": {
+      "clear": "Clear",
+      "calm": "Calm",
+      "dynamic": "Dynamic"
+    },
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文"
+    }
+  },
+  "safeExternal": {
+    "title": "Leave TellYouTo?",
+    "message": "You’re in your focus zone. Do you really want to open an external link?",
+    "stay": "Stay",
+    "leave": "Leave"
+  },
+  "agent": {
+    "energyLine": "Energy: {{pct}}% · Low power: {{low}}",
+    "yes": "yes",
+    "no": "no",
+    "agentPool": "Co-pilot time reserve: {{seconds}} s",
+    "allyPreview": "Voice: {{voice}} · Tone: {{tone}} · AI language: {{lang}}"
   }
 }

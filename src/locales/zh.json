@@ -4,6 +4,7 @@
     "radar": "雷达",
     "timeline": "时间线",
     "agent": "智能体",
+    "recharge": "充能",
     "messaging": "消息",
     "stats": "统计"
   },
@@ -81,5 +82,81 @@
     "terminate": "结束",
     "feedbackTitle": "清晰",
     "ok": "好"
+  },
+  "recharge": {
+    "eyebrow": "感官站",
+    "title": "充能",
+    "subtitle": "选择节奏。模拟温和广告位，然后 30 秒心率相干呼吸 — 为副驾驶补充能量。",
+    "modes": {
+      "flash": {
+        "title": "闪充",
+        "desc": "快速重置 — 轻量、迅速回归。"
+      },
+      "breath": {
+        "title": "呼吸",
+        "desc": "相干节奏 — 柔和气泡，更稳的神经状态。"
+      },
+      "immersion": {
+        "title": "沉浸",
+        "desc": "更深暂停 — 盟友获得更多额度。"
+      }
+    },
+    "adSim": {
+      "title": "多巴胺暂停",
+      "sub": "伦理广告位 — 赞助模拟。随后：心率相干。"
+    },
+    "dopamine": {
+      "title": "随气泡呼吸",
+      "hint": "上升吸气，下降呼气 — 每波约 10 秒。"
+    },
+    "done": {
+      "title": "充能完成",
+      "sub": "已为副驾驶添加能量。随时再来。",
+      "cta": "继续"
+    }
+  },
+  "ally": {
+    "settingsTitle": "副驾驶",
+    "settingsLead": "设置 TellYouTo 的声音、语气与语言。",
+    "sectionVoice": "声音",
+    "sectionTone": "语气",
+    "sectionUiLang": "界面语言",
+    "sectionAiLang": "AI 交互语言",
+    "uiLangHint": "应用菜单与文案。",
+    "aiLangHint": "副驾驶推理与回复优先使用的语言（可与界面不同）。",
+    "openSettings": "设置",
+    "externalHelp": "了解专注（网页）",
+    "voice": {
+      "balanced": "均衡",
+      "warm": "温暖",
+      "crisp": "清晰"
+    },
+    "tone": {
+      "clear": "明朗",
+      "calm": "平静",
+      "dynamic": "动感"
+    },
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文"
+    }
+  },
+  "safeExternal": {
+    "title": "离开 TellYouTo？",
+    "message": "你正处于专注区。确定要打开外部链接吗？",
+    "stay": "留下",
+    "leave": "离开"
+  },
+  "agent": {
+    "energyLine": "能量：{{pct}}% · 低功耗：{{low}}",
+    "yes": "是",
+    "no": "否",
+    "agentPool": "副驾驶时间储备：{{seconds}} 秒",
+    "allyPreview": "声音：{{voice}} · 语气：{{tone}} · AI 语言：{{lang}}"
   }
 }

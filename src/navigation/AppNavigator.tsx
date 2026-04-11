@@ -5,17 +5,19 @@ import {
   Clock,
   MessageCircle,
   Radar,
+  Sparkles,
 } from 'lucide-react-native';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
 import {
-  AgentIAScreen,
   MessagingScreen,
   RadarScreen,
+  RechargeScreen,
   StatsScreen,
   TimelineScreen,
 } from '../screens';
+import { AgentStack } from './AgentStack';
 
 const Tab = createBottomTabNavigator();
 
@@ -57,10 +59,21 @@ export function AppNavigator() {
       />
       <Tab.Screen
         name="AgentIA"
-        component={AgentIAScreen}
+        component={AgentStack}
         options={{
           title: t('tabs.agent'),
+          headerShown: false,
           tabBarIcon: ({ color, size }) => <Bot color={color} size={size} />,
+        }}
+      />
+      <Tab.Screen
+        name="Recharge"
+        component={RechargeScreen}
+        options={{
+          title: t('tabs.recharge'),
+          tabBarIcon: ({ color, size }) => (
+            <Sparkles color={color} size={size} />
+          ),
         }}
       />
       <Tab.Screen

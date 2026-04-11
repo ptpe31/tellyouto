@@ -2,13 +2,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
+import { OnboardingResetProvider } from '../context/OnboardingResetContext';
+import {
+  USER_SPECTRUM_STORAGE_KEY,
+  useUserSpectrum,
+} from '../context/UserSpectrumContext';
 import { OnboardingScreen } from '../screens';
 import { MainStack } from './MainStack';
 
 const ONBOARDING_KEY = '@tellyouto/onboarding_complete';
 
-export function RootNavigator() {
+function RootNavigatorInner() {
   const theme = useTheme();
+  const { resetSpectrum } = useUserSpectrum();
   const [done, setDone] = useState<boolean | null>(null);
 
   const refresh = useCallback(async () => {
@@ -25,8 +31,17 @@ export function RootNavigator() {
     setDone(true);
   }, []);
 
-  if (done === null) {
-    return (
+  const resetProfileToOnboarding = useCallback(async () => {
+    await AsyncStorage.multiRemove([
+      ONBOARDING_KEY,
+      USER_SPECTRUM_STORAGE_KEY,
+    ]);
+    resetSpectrum();
+    setDone(false);
+  }, [resetSpectrum]);
+
+  const body =
+    done === null ? (
       <View
         style={{
           flex: 1,
@@ -37,12 +52,21 @@ export function RootNavigator() {
       >
         <ActivityIndicator color={theme.colors.primary} size="large" />
       </View>
+    ) : !done ? (
+      <OnboardingScreen onComplete={handleOnboardingComplete} />
+    ) : (
+      <MainStack />
     );
-  }
 
-  if (!done) {
-    return <OnboardingScreen onComplete={handleOnboardingComplete} />;
-  }
+  return (
+    <OnboardingResetProvider
+      resetProfileToOnboarding={resetProfileToOnboarding}
+    >
+      {body}
+    </OnboardingResetProvider>
+  );
+}
 
-  return <MainStack />;
+export function RootNavigator() {
+  return <RootNavigatorInner />;
 }

@@ -1,6 +1,7 @@
 import { useNavigation } from '@react-navigation/native';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  DeviceEventEmitter,
   FlatList,
   LayoutAnimation,
   Platform,
@@ -17,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   listIntentionsDescending,
+  LOCAL_DB_RESET_EVENT,
   type IntentionRow,
 } from '../api/localDb';
 import { NeumorphicCard } from '../components';
@@ -62,6 +64,13 @@ export function TimelineScreen() {
       void load();
     }, [load]),
   );
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
+      void load();
+    });
+    return () => sub.remove();
+  }, [load]);
 
   const launch = (intention: IntentionRow) => {
     navigation.getParent()?.navigate('FocusCapsule', {

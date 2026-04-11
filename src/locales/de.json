@@ -4,6 +4,7 @@
     "radar": "Radar",
     "timeline": "Zeit",
     "agent": "KI-Agent",
+    "recharge": "Aufladen",
     "messaging": "Nachrichten",
     "stats": "Stats"
   },
@@ -81,5 +82,81 @@
     "terminate": "Beenden",
     "feedbackTitle": "Klarheit",
     "ok": "OK"
+  },
+  "recharge": {
+    "eyebrow": "SENSORISCHE STATION",
+    "title": "Aufladen",
+    "subtitle": "Wähle einen Rhythmus. Wir simulieren eine ruhige Werbefläche, dann 30 s Herz-Kohärenz — dein Co-Pilot gewinnt Energie.",
+    "modes": {
+      "flash": {
+        "title": "Flash",
+        "desc": "Schneller Reset — leicht, schnell zurück."
+      },
+      "breath": {
+        "title": "Atmung",
+        "desc": "Kohärenz-Tempo — sanfte Blase, ruhigeres System."
+      },
+      "immersion": {
+        "title": "Immersion",
+        "desc": "Tiefere Pause — mehr Guthaben für den Ally."
+      }
+    },
+    "adSim": {
+      "title": "Dopamin-Pause",
+      "sub": "Ethischer Slot — Sponsor-Simulation. Danach: Herz-Kohärenz."
+    },
+    "dopamine": {
+      "title": "Atme mit der Blase",
+      "hint": "Einatmen beim Steigen, ausatmen beim Fallen — ca. 10 s pro Welle."
+    },
+    "done": {
+      "title": "Aufladen abgeschlossen",
+      "sub": "Energie für deinen Co-Piloten hinzugefügt. Komm jederzeit wieder.",
+      "cta": "Weiter"
+    }
+  },
+  "ally": {
+    "settingsTitle": "Co-Pilot",
+    "settingsLead": "Lege fest, wie TellYouTo klingt — Stimme, Ton und Sprachen.",
+    "sectionVoice": "Stimme",
+    "sectionTone": "Ton",
+    "sectionUiLang": "Oberflächensprache",
+    "sectionAiLang": "KI-Interaktionssprache",
+    "uiLangHint": "Menüs und Beschriftungen der App.",
+    "aiLangHint": "Sprache, die der Co-Pilot für Antworten bevorzugt (kann von der Oberfläche abweichen).",
+    "openSettings": "Einstellungen",
+    "externalHelp": "Mehr zum Fokus (Web)",
+    "voice": {
+      "balanced": "Ausgewogen",
+      "warm": "Warm",
+      "crisp": "Klar"
+    },
+    "tone": {
+      "clear": "Klar",
+      "calm": "Ruhig",
+      "dynamic": "Dynamisch"
+    },
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文"
+    }
+  },
+  "safeExternal": {
+    "title": "TellYouTo verlassen?",
+    "message": "Du bist in deiner Fokuszone. Externen Link wirklich öffnen?",
+    "stay": "Bleiben",
+    "leave": "Verlassen"
+  },
+  "agent": {
+    "energyLine": "Energie: {{pct}} % · Energiesparmodus: {{low}}",
+    "yes": "ja",
+    "no": "nein",
+    "agentPool": "Co-Pilot-Zeitreserve: {{seconds}} s",
+    "allyPreview": "Stimme: {{voice}} · Ton: {{tone}} · KI-Sprache: {{lang}}"
   }
 }

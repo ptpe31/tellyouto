@@ -4,6 +4,7 @@ import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTheme } from 'react-native-paper';
+import { AllyProvider } from './src/context/AllyContext';
 import { LanguageProvider } from './src/context/LanguageContext';
 import { PowerProvider } from './src/context/PowerContext';
 import { ThemeProvider } from './src/context/ThemeContext';
@@ -28,15 +29,17 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider>
           <LanguageProvider>
-            <PowerProvider>
-              <UserSpectrumProvider>
-                <FocusProtectionProvider>
-                  <IntentionSyncBootstrap />
-                  <AppNavigation />
-                  <StatusBarRoot />
-                </FocusProtectionProvider>
-              </UserSpectrumProvider>
-            </PowerProvider>
+            <AllyProvider>
+              <PowerProvider>
+                <UserSpectrumProvider>
+                  <FocusProtectionProvider>
+                    <IntentionSyncBootstrap />
+                    <AppNavigation />
+                    <StatusBarRoot />
+                  </FocusProtectionProvider>
+                </UserSpectrumProvider>
+              </PowerProvider>
+            </AllyProvider>
           </LanguageProvider>
         </ThemeProvider>
       </SafeAreaProvider>

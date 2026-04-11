@@ -4,6 +4,7 @@
     "radar": "Radar",
     "timeline": "Tempo",
     "agent": "Agente IA",
+    "recharge": "Ricarica",
     "messaging": "Messaggi",
     "stats": "Stats"
   },
@@ -81,5 +82,81 @@
     "terminate": "Termina",
     "feedbackTitle": "Chiarezza",
     "ok": "OK"
+  },
+  "recharge": {
+    "eyebrow": "STAZIONE SENSORIALE",
+    "title": "Ricarica",
+    "subtitle": "Scegli un ritmo. Simuliamo uno spazio pubblicitario calmo, poi 30 s di coerenza cardiaca — il copilota guadagna energia.",
+    "modes": {
+      "flash": {
+        "title": "Flash",
+        "desc": "Reset veloce — leggero, ritorno rapido."
+      },
+      "breath": {
+        "title": "Respiro",
+        "desc": "Ritmo di coerenza — bolla morbida, sistema più calmo."
+      },
+      "immersion": {
+        "title": "Immersione",
+        "desc": "Pausa più profonda — più credito per l’alleato."
+      }
+    },
+    "adSim": {
+      "title": "Pausa dopamina",
+      "sub": "Slot etico — simulazione sponsor. Poi: coerenza cardiaca."
+    },
+    "dopamine": {
+      "title": "Respira con la bolla",
+      "hint": "Inspira quando sale, espira quando scende — circa 10 s per onda."
+    },
+    "done": {
+      "title": "Ricarica completata",
+      "sub": "Energia aggiunta per il copilota. Torna quando vuoi.",
+      "cta": "Continua"
+    }
+  },
+  "ally": {
+    "settingsTitle": "Copilota",
+    "settingsLead": "Definisci come TellYouTo ti parla — voce, tono e lingue.",
+    "sectionVoice": "Voce",
+    "sectionTone": "Tonalità",
+    "sectionUiLang": "Lingua dell’interfaccia",
+    "sectionAiLang": "Lingua di interazione IA",
+    "uiLangHint": "Menu ed etichette dell’app.",
+    "aiLangHint": "Lingua che il copilota preferirà per ragionare e rispondere (può differire dall’interfaccia).",
+    "openSettings": "Impostazioni",
+    "externalHelp": "Scopri di più sul focus (web)",
+    "voice": {
+      "balanced": "Equilibrata",
+      "warm": "Calda",
+      "crisp": "Netta"
+    },
+    "tone": {
+      "clear": "Chiaro",
+      "calm": "Calmo",
+      "dynamic": "Dinamico"
+    },
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文"
+    }
+  },
+  "safeExternal": {
+    "title": "Uscire da TellYouTo?",
+    "message": "Sei nella tua zona di focus. Aprire davvero un link esterno?",
+    "stay": "Resta",
+    "leave": "Esci"
+  },
+  "agent": {
+    "energyLine": "Energia: {{pct}} % · Modalità risparmio: {{low}}",
+    "yes": "sì",
+    "no": "no",
+    "agentPool": "Riserva tempo copilota: {{seconds}} s",
+    "allyPreview": "Voce: {{voice}} · Tono: {{tone}} · Lingua IA: {{lang}}"
   }
 }

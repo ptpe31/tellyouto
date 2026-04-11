@@ -1,6 +1,7 @@
 import { randomUUID } from 'expo-crypto';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  DeviceEventEmitter,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -23,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   insertIntention,
   listIntentionsDescending,
+  LOCAL_DB_RESET_EVENT,
   type IntentionRow,
 } from '../api/localDb';
 import { syncPendingIntentions } from '../api/syncService';
@@ -54,6 +56,13 @@ export function RadarScreen() {
       void load();
     }, [load]),
   );
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
+      void load();
+    });
+    return () => sub.remove();
+  }, [load]);
 
   const onAdd = async () => {
     const trimmedTitle = title.trim();

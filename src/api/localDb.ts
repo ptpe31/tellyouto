@@ -1,8 +1,12 @@
 import * as SQLite from 'expo-sqlite';
+import { DeviceEventEmitter } from 'react-native';
 
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
 
 let db: SQLite.SQLiteDatabase | null = null;
+
+/** Émis après DROP + recréation du schéma — ex. Radar recharge la liste. */
+export const LOCAL_DB_RESET_EVENT = 'tellyouto/local_db_reset';
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sync_queue (
@@ -57,6 +61,22 @@ export async function getLocalDatabase(): Promise<SQLite.SQLiteDatabase> {
     await migrateIntentionsColumns(db);
   }
   return db;
+}
+
+/**
+ * DROP des tables puis recréation du schéma (comme au premier lancement).
+ * Réinitialise le cache module `db` pour éviter un état incohérent.
+ */
+export async function resetLocalDatabaseSchema(): Promise<void> {
+  const database =
+    db ?? (await SQLite.openDatabaseAsync('tellyouto.db'));
+  await database.execAsync(`
+    DROP TABLE IF EXISTS intentions;
+    DROP TABLE IF EXISTS sync_queue;
+  `);
+  db = null;
+  await getLocalDatabase();
+  DeviceEventEmitter.emit(LOCAL_DB_RESET_EVENT);
 }
 
 export type IntentionStatus = 'pending' | 'active' | 'done';

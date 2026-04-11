@@ -4,6 +4,7 @@
     "radar": "レーダー",
     "timeline": "タイムライン",
     "agent": "AIエージェント",
+    "recharge": "リチャージ",
     "messaging": "メッセージ",
     "stats": "統計"
   },
@@ -81,5 +82,81 @@
     "terminate": "終了",
     "feedbackTitle": "明瞭さ",
     "ok": "OK"
+  },
+  "recharge": {
+    "eyebrow": "感覚ステーション",
+    "title": "リチャージ",
+    "subtitle": "リズムを選ぶ。落ち着いた広告枠をシミュレートし、30秒の心のコヒーレンスへ — コパイロットにエネルギーが入ります。",
+    "modes": {
+      "flash": {
+        "title": "フラッシュ",
+        "desc": "クイックリセット — 軽く、すぐ戻る。"
+      },
+      "breath": {
+        "title": "呼吸",
+        "desc": "コヒーレンスのペース — やわらかい泡、落ち着いた神経系。"
+      },
+      "immersion": {
+        "title": "没入",
+        "desc": "より深い休憩 — アリーにより多くのクレジット。"
+      }
+    },
+    "adSim": {
+      "title": "ドーパミン・ポーズ",
+      "sub": "倫理的枠 — スポンサー演出。次は心のコヒーレンス。"
+    },
+    "dopamine": {
+      "title": "泡と一緒に呼吸",
+      "hint": "上がるときに吸い、下がるときに吐く — 波は約10秒。"
+    },
+    "done": {
+      "title": "リチャージ完了",
+      "sub": "コパイロットにエネルギーを追加しました。またいつでもどうぞ。",
+      "cta": "続ける"
+    }
+  },
+  "ally": {
+    "settingsTitle": "コパイロット",
+    "settingsLead": "TellYouToの声・トーン・言語を選びます。",
+    "sectionVoice": "声",
+    "sectionTone": "トーン",
+    "sectionUiLang": "インターフェース言語",
+    "sectionAiLang": "AI対話言語",
+    "uiLangHint": "アプリのメニューとラベル。",
+    "aiLangHint": "コパイロットが思考・返答に使う言語（UIと別でも可）。",
+    "openSettings": "設定",
+    "externalHelp": "フォーカスについて（Web）",
+    "voice": {
+      "balanced": "バランス",
+      "warm": "あたたかい",
+      "crisp": "シャープ"
+    },
+    "tone": {
+      "clear": "クリア",
+      "calm": "カーム",
+      "dynamic": "ダイナミック"
+    },
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文"
+    }
+  },
+  "safeExternal": {
+    "title": "TellYouToを離れますか？",
+    "message": "フォーカスゾーンにいます。外部リンクを開きますか？",
+    "stay": "とどまる",
+    "leave": "離れる"
+  },
+  "agent": {
+    "energyLine": "エネルギー: {{pct}} % · 省電力: {{low}}",
+    "yes": "はい",
+    "no": "いいえ",
+    "agentPool": "コパイロット時間: {{seconds}} 秒",
+    "allyPreview": "声: {{voice}} · トーン: {{tone}} · AI言語: {{lang}}"
   }
 }
