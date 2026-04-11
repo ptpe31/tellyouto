@@ -1,0 +1,68 @@
+{
+  "app": { "name": "TellYouTo" },
+  "tabs": {
+    "radar": "Radar",
+    "timeline": "Tempo",
+    "agent": "Agente IA",
+    "messaging": "Messaggi",
+    "stats": "Stats"
+  },
+  "onboarding": {
+    "title": "Diagnosi situazionale",
+    "subtitle": "Scegli ciò che ti rappresenta — il co-pilota calibra il tuo spettro di performance.",
+    "progress": "Carta {{current}} / {{total}}",
+    "cardsHint": "Ogni risposta aggiorna Struttura, Momentum, Zen e Stats in base a come navighi ora.",
+    "skip": "Mantieni lo spettro attuale",
+    "situations": {
+      "s1": {
+        "title": "Come inizi la giornata?",
+        "a0": "Chiarisco priorità e blocchi di tempo",
+        "a1": "Entro subito in azione",
+        "a2": "Mi prendo un momento calmo per ritrovare chiarezza",
+        "a3": "Guardo prima numeri o indicatori"
+      },
+      "s2": {
+        "title": "Ti interrompono — cosa fai?",
+        "a0": "Riconto e pianifico la ripresa",
+        "a1": "Mi sposto velocemente sulla nuova urgenza",
+        "a2": "Faccio una micro-pausa per ritrovare chiarezza",
+        "a3": "Annoto e stimo l’impatto (tempo, carico)"
+      },
+      "s3": {
+        "title": "A fine giornata, cosa conta di più?",
+        "a0": "Aver fatto avanzare un piano chiaro",
+        "a1": "Aver tenuto il ritmo e chiuso azioni",
+        "a2": "Aver preservato spazio e chiarezza mentale",
+        "a3": "Avere metriche o risultati visibili"
+      },
+      "s4": {
+        "title": "Si avvicina una scadenza importante",
+        "a0": "Strutturo passi e traguardi intermedi",
+        "a1": "Accelero e taglio il superfluo",
+        "a2": "Cerco chiarezza prima della spinta finale",
+        "a3": "Mi affido a numeri e monitoraggio"
+      },
+      "s5": {
+        "title": "Coordinando con altri, privilegi…",
+        "a0": "Quadri chiari e decisioni esplicite",
+        "a1": "Scambi rapidi e decisioni brevi",
+        "a2": "Scambi calmi e allineamento sereno",
+        "a3": "Revisioni basate su fatti misurabili"
+      }
+    }
+  },
+  "radar": {
+    "empty": "Nessuna intenzione. Tocca + per aggiungerne una.",
+    "priority": "Priorità {{value}}",
+    "quickAddTitle": "Intenzione rapida",
+    "fieldTitle": "Titolo",
+    "fieldDescription": "Dettaglio (opzionale)",
+    "cancel": "Annulla",
+    "save": "Salva",
+    "status": {
+      "pending": "In attesa",
+      "active": "Attiva",
+      "done": "Completata"
+    }
+  }
+}

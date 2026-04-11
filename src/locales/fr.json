@@ -1,0 +1,68 @@
+{
+  "app": { "name": "TellYouTo" },
+  "tabs": {
+    "radar": "Radar",
+    "timeline": "Temps",
+    "agent": "Agent IA",
+    "messaging": "Messages",
+    "stats": "Stats"
+  },
+  "onboarding": {
+    "title": "Diagnostic situationnel",
+    "subtitle": "Choisis ce qui te ressemble — le co-pilote calibre ton spectre de performance.",
+    "progress": "Carte {{current}} / {{total}}",
+    "cardsHint": "Chaque réponse ajuste Structure, Momentum, Zen et Stats pour refléter ta navigation du moment.",
+    "skip": "Utiliser le spectre actuel",
+    "situations": {
+      "s1": {
+        "title": "Comment entres-tu dans la journée ?",
+        "a0": "Je clarifie priorités et blocs avant d’agir",
+        "a1": "Je me lance tout de suite dans l’action",
+        "a2": "Je prends un moment calme pour retrouver de la clarté",
+        "a3": "Je regarde d’abord chiffres ou indicateurs"
+      },
+      "s2": {
+        "title": "Une interruption arrive — ta réaction ?",
+        "a0": "Je recadre et je planifie la reprise",
+        "a1": "Je pivote vite vers la nouvelle urgence",
+        "a2": "Je fais une mini-pause pour reprendre le fil avec clarté",
+        "a3": "Je note et j’estime l’impact (temps, charge)"
+      },
+      "s3": {
+        "title": "En fin de journée, qu’est-ce qui compte le plus ?",
+        "a0": "Avoir avancé sur un plan clair",
+        "a1": "Avoir gardé le rythme et bouclé des actions",
+        "a2": "Avoir préservé de l’espace et de la clarté mentale",
+        "a3": "Avoir des résultats ou métriques visibles"
+      },
+      "s4": {
+        "title": "Une échéance importante se rapproche",
+        "a0": "Je structure les étapes et les jalons",
+        "a1": "J’accélère et je coupe le superflu",
+        "a2": "Je cherche d’abord la clarté avant le sprint final",
+        "a3": "Je m’appuie sur les chiffres et le suivi"
+      },
+      "s5": {
+        "title": "Tu coordonnes avec d’autres — tu privilégies ?",
+        "a0": "Des cadres et des décisions claires",
+        "a1": "Des allers-retours rapides et des décisions courtes",
+        "a2": "Des échanges posés et des alignements sereins",
+        "a3": "Des revues basées sur des faits mesurables"
+      }
+    }
+  },
+  "radar": {
+    "empty": "Aucune intention pour l’instant. Touche + pour en ajouter une.",
+    "priority": "Priorité {{value}}",
+    "quickAddTitle": "Intention rapide",
+    "fieldTitle": "Titre",
+    "fieldDescription": "Détail (optionnel)",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "status": {
+      "pending": "En attente",
+      "active": "En cours",
+      "done": "Terminé"
+    }
+  }
+}

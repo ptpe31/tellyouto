@@ -1,0 +1,20 @@
+# Nom du Projet : TellYouTo
+# Identité : Co-pilote d'action par IA (High-Performance & Lifestyle)
+
+# --- DIRECTIVES DE DESIGN ---
+- Style : Soft Neumorphism (calme, épuré, zéro distraction).
+- Couleurs : Teal (#008080) pour l'action, Orange (#FF8C00) pour l'énergie, Fond Off-white (#F5F5F0).
+- Vocabulaire : NE JAMAIS utiliser de termes médicaux (santé mentale, trouble, prothèse, TDAH).
+- Utiliser : "Co-pilote", "Clarté", "Navigation", "Intentions", "Focus", "Performance".
+
+# --- ARCHITECTURE TECHNIQUE ---
+- Framework : React Native (Expo) + TypeScript.
+- Base de données : Hybride (SQLite local pour l'instantanéité + Firebase Firestore pour la synchro).
+- Localisation : i18next (7 langues : FR, EN, ES, DE, IT, JA, ZH).
+- Modèle de Profil : "Spectre de Performance" dynamique (Structure, Momentum, Zen, Stats) au lieu de profils fixes.
+- Multi-Platform : Prise en charge de 'platform_type' (WhatsApp, LINE, Slack) pour l'envoi des messages IA.
+
+# --- COMPORTEMENT DE L'AGENT ---
+- L'IA agit comme un "Dispatcher" (Répartiteur). Elle analyse le Spectre de l'utilisateur pour prioriser les intentions.
+- Offline-First : L'application doit fonctionner sans réseau (SQLite), la synchro Firebase se fait en arrière-plan.
+- Compliance : Respecter les politiques Play Store (Explications de permissions, pas de clics forcés pour la recharge).

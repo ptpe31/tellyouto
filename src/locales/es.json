@@ -1,0 +1,68 @@
+{
+  "app": { "name": "TellYouTo" },
+  "tabs": {
+    "radar": "Radar",
+    "timeline": "Línea",
+    "agent": "Agente IA",
+    "messaging": "Mensajes",
+    "stats": "Stats"
+  },
+  "onboarding": {
+    "title": "Diagnóstico situacional",
+    "subtitle": "Elige lo que te representa — el co-piloto calibra tu espectro de rendimiento.",
+    "progress": "Carta {{current}} / {{total}}",
+    "cardsHint": "Cada opción ajusta Estructura, Momentum, Zen y Stats según cómo navegas ahora.",
+    "skip": "Usar el espectro actual",
+    "situations": {
+      "s1": {
+        "title": "¿Cómo empiezas el día?",
+        "a0": "Aclaro prioridades y bloques de tiempo",
+        "a1": "Entro directo en la acción",
+        "a2": "Tomo un momento tranquilo para ganar claridad",
+        "a3": "Miro primero números o indicadores"
+      },
+      "s2": {
+        "title": "Te interrumpen — ¿qué haces?",
+        "a0": "Reencuadro y planifico la vuelta",
+        "a1": "Giro rápido a la nueva urgencia",
+        "a2": "Hago una pausa breve para recuperar claridad",
+        "a3": "Lo anoto y estimo el impacto (tiempo, carga)"
+      },
+      "s3": {
+        "title": "Al final del día, ¿qué importa más?",
+        "a0": "Haber avanzado un plan claro",
+        "a1": "Mantener el ritmo y cerrar acciones",
+        "a2": "Preservar espacio mental y claridad",
+        "a3": "Tener métricas o resultados visibles"
+      },
+      "s4": {
+        "title": "Se acerca una fecha importante",
+        "a0": "Estructuro pasos e hitos",
+        "a1": "Acelero y recorto lo accesorio",
+        "a2": "Busco claridad antes del empuje final",
+        "a3": "Me apoyo en números y seguimiento"
+      },
+      "s5": {
+        "title": "Al coordinar con otros, priorizas…",
+        "a0": "Marcos claros y decisiones explícitas",
+        "a1": "Ida y vuelta rápida y decisiones cortas",
+        "a2": "Intercambios calmados y alineación serena",
+        "a3": "Revisiones basadas en hechos medibles"
+      }
+    }
+  },
+  "radar": {
+    "empty": "Sin intenciones aún. Pulsa + para añadir una.",
+    "priority": "Prioridad {{value}}",
+    "quickAddTitle": "Intención rápida",
+    "fieldTitle": "Título",
+    "fieldDescription": "Detalle (opcional)",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "status": {
+      "pending": "Pendiente",
+      "active": "Activa",
+      "done": "Hecha"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "app": { "name": "TellYouTo" },
+  "tabs": {
+    "radar": "Radar",
+    "timeline": "Timeline",
+    "agent": "AI Agent",
+    "messaging": "Messaging",
+    "stats": "Stats"
+  },
+  "onboarding": {
+    "title": "Situational diagnostic",
+    "subtitle": "Pick what fits you — the co-pilot calibrates your performance spectrum.",
+    "progress": "Card {{current}} / {{total}}",
+    "cardsHint": "Each choice adjusts Structure, Momentum, Zen, and Stats to match how you navigate right now.",
+    "skip": "Keep current spectrum",
+    "situations": {
+      "s1": {
+        "title": "How do you start your day?",
+        "a0": "I clarify priorities and time blocks first",
+        "a1": "I jump straight into action",
+        "a2": "I take a calm moment to regain clarity",
+        "a3": "I check numbers or indicators first"
+      },
+      "s2": {
+        "title": "Something interrupts you — what do you do?",
+        "a0": "I reframe and plan how to resume",
+        "a1": "I pivot fast to the new urgency",
+        "a2": "I take a short pause to regain clarity",
+        "a3": "I log it and estimate impact (time, load)"
+      },
+      "s3": {
+        "title": "At the end of the day, what matters most?",
+        "a0": "Moving a clear plan forward",
+        "a1": "Keeping pace and closing loops",
+        "a2": "Protecting mental space and clarity",
+        "a3": "Having visible metrics or outcomes"
+      },
+      "s4": {
+        "title": "An important deadline is approaching",
+        "a0": "I structure steps and milestones",
+        "a1": "I speed up and cut the non-essential",
+        "a2": "I seek clarity before the final push",
+        "a3": "I lean on numbers and tracking"
+      },
+      "s5": {
+        "title": "When coordinating with others, you favor…",
+        "a0": "Clear frames and explicit decisions",
+        "a1": "Fast back-and-forth and short decisions",
+        "a2": "Calm exchanges and steady alignment",
+        "a3": "Reviews grounded in measurable facts"
+      }
+    }
+  },
+  "radar": {
+    "empty": "No intentions yet. Tap + to add one.",
+    "priority": "Priority {{value}}",
+    "quickAddTitle": "Quick intention",
+    "fieldTitle": "Title",
+    "fieldDescription": "Detail (optional)",
+    "cancel": "Cancel",
+    "save": "Save",
+    "status": {
+      "pending": "Pending",
+      "active": "Active",
+      "done": "Done"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "app": { "name": "TellYouTo" },
+  "tabs": {
+    "radar": "Radar",
+    "timeline": "Zeit",
+    "agent": "KI-Agent",
+    "messaging": "Nachrichten",
+    "stats": "Stats"
+  },
+  "onboarding": {
+    "title": "Situationsdiagnose",
+    "subtitle": "Wähle, was passt — der Co-Pilot kalibriert dein Performance-Spektrum.",
+    "progress": "Karte {{current}} / {{total}}",
+    "cardsHint": "Jede Antwort passt Struktur, Momentum, Zen und Stats an deine aktuelle Navigation an.",
+    "skip": "Aktuelles Spektrum behalten",
+    "situations": {
+      "s1": {
+        "title": "Wie startest du in den Tag?",
+        "a0": "Ich kläre Prioritäten und Zeitblöcke",
+        "a1": "Ich steige sofort in die Aktion ein",
+        "a2": "Ich nehme mir eine ruhige Minute für Klarheit",
+        "a3": "Ich schaue zuerst auf Zahlen oder Indikatoren"
+      },
+      "s2": {
+        "title": "Du wirst unterbrochen — was tust du?",
+        "a0": "Ich rahme neu und plane die Fortsetzung",
+        "a1": "Ich wechsle schnell zur neuen Dringlichkeit",
+        "a2": "Ich mache eine kurze Pause für Klarheit",
+        "a3": "Ich notiere und schätze die Auswirkung"
+      },
+      "s3": {
+        "title": "Am Ende des Tages zählt für dich am meisten…",
+        "a0": "Ein klarer Plan ist vorangekommen",
+        "a1": "Tempo gehalten und Aufgaben abgeschlossen",
+        "a2": "Mentaler Raum und Klarheit bewahrt",
+        "a3": "Sichtbare Kennzahlen oder Ergebnisse"
+      },
+      "s4": {
+        "title": "Eine wichtige Frist rückt näher",
+        "a0": "Ich strukturiere Schritte und Meilensteine",
+        "a1": "Ich beschleunige und streiche Nebensächliches",
+        "a2": "Ich suche zuerst Klarheit vor dem Endspurt",
+        "a3": "Ich stütze mich auf Zahlen und Tracking"
+      },
+      "s5": {
+        "title": "Bei der Koordination mit anderen bevorzugst du…",
+        "a0": "Klare Rahmen und explizite Entscheidungen",
+        "a1": "Schnelle Rückfragen und kurze Entscheidungen",
+        "a2": "Ruhigen Austausch und stetige Ausrichtung",
+        "a3": "Reviews mit messbaren Fakten"
+      }
+    }
+  },
+  "radar": {
+    "empty": "Noch keine Intentionen. Tippe + zum Hinzufügen.",
+    "priority": "Priorität {{value}}",
+    "quickAddTitle": "Schnelle Intention",
+    "fieldTitle": "Titel",
+    "fieldDescription": "Detail (optional)",
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "status": {
+      "pending": "Ausstehend",
+      "active": "Aktiv",
+      "done": "Erledigt"
+    }
+  }
+}
