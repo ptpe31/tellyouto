@@ -31,6 +31,22 @@
     "connect": "连接",
     "disconnect": "断开",
     "linkingWait": "等待你的消息...",
+    "action": {
+      "create_private_conv": "👉 点这里创建私人对话"
+    },
+    "status": {
+      "linking": "正在关联…",
+      "connected": "已连接"
+    },
+    "modal": {
+      "title": "打开 {{channelName}}",
+      "step1": "1. 将打开对应应用。",
+      "step2": "2. 点击「开始」或发送一条消息。",
+      "step3": "3. 返回此处即可看到轨道同步。"
+    },
+    "feedback": {
+      "success": "✅ 频道已成功关联！"
+    },
     "hints": {
       "pro_account_required": "* 需要在此手机上拥有有效的 Pro 账户"
     }

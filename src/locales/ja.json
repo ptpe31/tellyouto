@@ -31,6 +31,22 @@
     "connect": "接続",
     "disconnect": "切断",
     "linkingWait": "メッセージを待っています...",
+    "action": {
+      "create_private_conv": "👉 タップしてプライベート会話を作成"
+    },
+    "status": {
+      "linking": "接続中...",
+      "connected": "接続済み"
+    },
+    "modal": {
+      "title": "{{channelName}} を開く",
+      "step1": "1. アプリが開きます。",
+      "step2": "2. 「開始」をタップするかメッセージを送信してください。",
+      "step3": "3. ここに戻るとレールが同期されます。"
+    },
+    "feedback": {
+      "success": "✅ チャネルを接続しました！"
+    },
     "hints": {
       "pro_account_required": "* この端末で有効な Pro アカウントが必要です"
     }

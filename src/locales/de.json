@@ -31,6 +31,22 @@
     "connect": "Verbinden",
     "disconnect": "Trennen",
     "linkingWait": "Warte auf deine Nachricht...",
+    "action": {
+      "create_private_conv": "👉 Tippe hier, um den privaten Chat zu starten"
+    },
+    "status": {
+      "linking": "Verknüpfung läuft...",
+      "connected": "Verbunden"
+    },
+    "modal": {
+      "title": "{{channelName}} öffnen",
+      "step1": "1. Die App öffnet sich.",
+      "step2": "2. Tippe auf START oder sende eine Nachricht.",
+      "step3": "3. Komm zurück, um deinen Rail zu synchronisieren."
+    },
+    "feedback": {
+      "success": "✅ Kanal erfolgreich verknüpft!"
+    },
     "hints": {
       "pro_account_required": "* Erfordert ein aktives Pro-Konto auf diesem Telefon"
     }

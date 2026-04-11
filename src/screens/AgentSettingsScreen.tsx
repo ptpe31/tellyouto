@@ -17,6 +17,7 @@ import {
   List,
   RadioButton,
   SegmentedButtons,
+  Snackbar,
   Switch,
   TextInput,
   useTheme,
@@ -30,6 +31,7 @@ import {
 import { ChannelCatalogCard } from '../components/ChannelCatalogCard';
 import { TelegramMissingDialog } from '../components/TelegramMissingDialog';
 import { PassProModal } from '../components/PassProModal';
+import { ChannelLinkingModal } from '../components/ChannelLinkingModal';
 import { SingleChannelSwitchModal } from '../components/SingleChannelSwitchModal';
 import { IS_PRODUCTION } from '../config/appConfig';
 import { useDebugUnlock } from '../context/DebugUnlockContext';
@@ -50,7 +52,7 @@ import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import type { AgentStackParamList } from '../navigation/AgentStack';
 import {
   buildTelegramStartLink,
-  buildWhatsAppRailDeepLink,
+  buildWhatsAppStartLink,
 } from '../services/connectorLinks';
 import { disconnectChannelRemote } from '../services/channelsService';
 import { getOrCreateDeviceId } from '../api/syncService';
@@ -108,6 +110,12 @@ export function AgentSettingsScreen() {
   );
   const [telegramMissingVisible, setTelegramMissingVisible] = useState(false);
   const pendingTelegramStoreReturn = useRef(false);
+  const [linkingModalVisible, setLinkingModalVisible] = useState(false);
+  const [linkingModalChannelId, setLinkingModalChannelId] =
+    useState<PrivateChannelId | null>(null);
+  const [channelLinkedSnackbar, setChannelLinkedSnackbar] = useState(false);
+  const prevMessengerUidRef = useRef<string | null>(null);
+  const handshakeMountRef = useRef(false);
 
   useEffect(() => {
     setLeadDraft(String(spectrum.messenger_reminder_lead_minutes));
@@ -120,24 +128,27 @@ export function AgentSettingsScreen() {
     })();
   }, []);
 
-  const applyChannel = useCallback(
-    async (id: PrivateChannelId) => {
-      const uid = await getOrCreateDeviceId();
-      if (id === 'telegram') {
-        await savePrivateChannelChoice(id, buildTelegramStartLink(uid));
-      } else if (id === 'whatsapp') {
-        const name = spectrum.first_name?.trim() || 'toi';
-        await savePrivateChannelChoice(
-          id,
-          buildWhatsAppRailDeepLink(name, uid),
-        );
-      } else {
-        await savePrivateChannelChoice(id);
-      }
-      setChannelChoice(id);
-    },
-    [spectrum.first_name],
-  );
+  const applyChannel = useCallback(async (id: PrivateChannelId) => {
+    const uid = await getOrCreateDeviceId();
+    if (id === 'telegram') {
+      await savePrivateChannelChoice(id, buildTelegramStartLink(uid));
+    } else if (id === 'whatsapp') {
+      await savePrivateChannelChoice(id, buildWhatsAppStartLink(uid));
+    } else {
+      await savePrivateChannelChoice(id);
+    }
+    setChannelChoice(id);
+  }, []);
+
+  const openLinkingModal = useCallback((id: PrivateChannelId) => {
+    setLinkingModalChannelId(id);
+    setLinkingModalVisible(true);
+  }, []);
+
+  const dismissLinkingModal = useCallback(() => {
+    setLinkingModalVisible(false);
+    setLinkingModalChannelId(null);
+  }, []);
 
   const connectChannel = useCallback(
     async (
@@ -167,6 +178,26 @@ export function AgentSettingsScreen() {
     },
     [applyChannel, spectrum.isProUser],
   );
+
+  const onLinkingModalContinue = useCallback(() => {
+    const id = linkingModalChannelId;
+    setLinkingModalVisible(false);
+    setLinkingModalChannelId(null);
+    if (id) void connectChannel(id);
+  }, [linkingModalChannelId, connectChannel]);
+
+  useEffect(() => {
+    const uid = spectrum.lastMessengerUserId ?? null;
+    if (!handshakeMountRef.current) {
+      handshakeMountRef.current = true;
+      prevMessengerUidRef.current = uid;
+      return;
+    }
+    if (uid && !prevMessengerUidRef.current) {
+      setChannelLinkedSnackbar(true);
+    }
+    prevMessengerUidRef.current = uid;
+  }, [spectrum.lastMessengerUserId]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -225,14 +256,14 @@ export function AgentSettingsScreen() {
           spectrum.lastMessengerChannel === id &&
           !!spectrum.lastMessengerUserId;
         if (live) return;
-        void connectChannel(id);
+        openLinkingModal(id);
         return;
       }
-      void connectChannel(id);
+      openLinkingModal(id);
     },
     [
       channelChoice,
-      connectChannel,
+      openLinkingModal,
       spectrum.isProUser,
       spectrum.lastMessengerChannel,
       spectrum.lastMessengerUserId,
@@ -256,12 +287,12 @@ export function AgentSettingsScreen() {
       setChannelChoice(null);
       await persist();
     }
-    await connectChannel(target);
+    openLinkingModal(target);
   }, [
     pendingChannelId,
     spectrum.lastMessengerChannel,
     spectrum.lastMessengerUserId,
-    connectChannel,
+    openLinkingModal,
     mergeRemoteProfile,
     persist,
   ]);
@@ -283,10 +314,10 @@ export function AgentSettingsScreen() {
   ];
 
   return (
-    <ScrollView
-      style={[styles.flex, { backgroundColor: theme.colors.background }]}
-      contentContainerStyle={styles.pad}
+    <View
+      style={[styles.screen, { backgroundColor: theme.colors.background }]}
     >
+    <ScrollView style={styles.flex} contentContainerStyle={styles.pad}>
       <Text style={[styles.lead, { color: theme.colors.onSurfaceVariant }]}>
         {t('ally.settingsLead')}
       </Text>
@@ -371,9 +402,9 @@ export function AgentSettingsScreen() {
               isPremiumChannel={isPremium}
               showProLock={locked}
               connectionStatus={connectionStatus}
-              connectLabel={t('channels.connect')}
+              connectLabel={t('channels.action.create_private_conv')}
               disconnectLabel={t('channels.disconnect')}
-              linkingLabel={t('channels.linkingWait')}
+              linkingLabel={t('channels.status.linking')}
               onConnect={() => trySelectChannel(id)}
               onDisconnect={() => void disconnectActiveChannel(id)}
               footerHint={
@@ -396,6 +427,17 @@ export function AgentSettingsScreen() {
         }
         onDismiss={dismissChannelSwitch}
         onConfirm={() => void confirmChannelSwitch()}
+      />
+
+      <ChannelLinkingModal
+        visible={linkingModalVisible}
+        channelName={
+          linkingModalChannelId
+            ? t(`channelCatalog.names.${linkingModalChannelId}`)
+            : ''
+        }
+        onDismiss={dismissLinkingModal}
+        onContinue={onLinkingModalContinue}
       />
 
       <PassProModal
@@ -538,11 +580,21 @@ export function AgentSettingsScreen() {
           {t('ally.versionLabel', { version })}
         </Text>
       </Pressable>
+
     </ScrollView>
+      <Snackbar
+        visible={channelLinkedSnackbar}
+        onDismiss={() => setChannelLinkedSnackbar(false)}
+        duration={4000}
+      >
+        {t('channels.feedback.success')}
+      </Snackbar>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   flex: { flex: 1 },
   pad: { padding: 16, paddingBottom: 32 },
   lead: { fontSize: 15, lineHeight: 22, marginBottom: 16 },

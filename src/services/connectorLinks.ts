@@ -1,5 +1,6 @@
 import * as Linking from 'expo-linking';
 
+import type { AppLanguage } from '../context/LanguageContext';
 import { DEBUG_BOT_NUMBER } from '../config/debugConfig';
 import i18n from '../locales/i18n';
 
@@ -10,15 +11,44 @@ export function getTelegramBotUsername(): string {
 }
 
 /**
- * Lien Telegram avec `start` = identifiant appareil (liaison instantanée, sans copier-coller).
+ * Lien Telegram natif (`tg://`) avec `start` = identifiant appareil.
  * @see https://core.telegram.org/bots#deep-linking
  */
 export function buildTelegramStartLink(userId: string): string {
   const bot = getTelegramBotUsername();
   const start = encodeURIComponent(userId.trim());
-  return `https://t.me/${bot}?start=${start}`;
+  return `tg://resolve?domain=${bot}&start=${start}`;
 }
-import type { AppLanguage } from '../context/LanguageContext';
+
+/** Numéro WhatsApp du bot (sans +) — EXPO_PUBLIC_WHATSAPP_BOT_NUMBER ou repli debug. */
+export function getWhatsAppBotNumber(): string {
+  const raw = process.env.EXPO_PUBLIC_WHATSAPP_BOT_NUMBER?.replace(/\D/g, '') ?? '';
+  if (raw.length > 0) return raw;
+  return DEBUG_BOT_NUMBER.replace(/\D/g, '');
+}
+
+/**
+ * Lien WhatsApp de liaison : message court `Start-{deviceId}` (aligné webhook `railHandshake`).
+ */
+export function buildWhatsAppStartLink(userId: string): string {
+  const num = getWhatsAppBotNumber();
+  const text = `Start-${userId.trim()}`;
+  return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
+}
+
+/**
+ * Lien WhatsApp (dev) avec message de liaison au Rail (prénom + identifiant appareil).
+ * @deprecated Préférer `buildWhatsAppStartLink` pour la liaison catalogue ; conservé pour compat.
+ */
+export function buildWhatsAppRailDeepLink(
+  firstName: string,
+  userUid: string,
+): string {
+  const safeName = firstName.trim() || 'toi';
+  const safeUid = userUid.trim();
+  const message = `Hello ! C'est ${safeName}. Connecte-moi à mon Rail ID: ${safeUid}.`;
+  return `https://wa.me/${getWhatsAppBotNumber()}?text=${encodeURIComponent(message)}`;
+}
 
 /** Doit correspondre à `scheme` dans app.json */
 export const APP_SCHEME = 'tellyouto';
@@ -53,19 +83,6 @@ export function parseTellyoutoDeepLink(
   } catch {
     return null;
   }
-}
-
-/**
- * Lien WhatsApp (dev) avec message de liaison au Rail (prénom + identifiant appareil).
- */
-export function buildWhatsAppRailDeepLink(
-  firstName: string,
-  userUid: string,
-): string {
-  const safeName = firstName.trim() || 'toi';
-  const safeUid = userUid.trim();
-  const message = `Hello ! C'est ${safeName}. Connecte-moi à mon Rail ID: ${safeUid}.`;
-  return `https://wa.me/${DEBUG_BOT_NUMBER}?text=${encodeURIComponent(message)}`;
 }
 
 /**

@@ -8,6 +8,7 @@ export { CalendarGranularSection } from './CalendarGranularSection';
 export { NeumorphicCard } from './NeumorphicCard';
 export { NeumorphicSurface } from './NeumorphicSurface';
 export { ChannelCatalogCard } from './ChannelCatalogCard';
+export { ChannelLinkingModal } from './ChannelLinkingModal';
 export { SingleChannelSwitchModal } from './SingleChannelSwitchModal';
 export { TelegramMissingDialog } from './TelegramMissingDialog';
 export { SafeExternalLink } from './SafeExternalLink';

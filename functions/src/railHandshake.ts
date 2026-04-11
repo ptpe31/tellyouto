@@ -1,11 +1,13 @@
 /**
- * Premier message de liaison Rail (aligné sur `buildWhatsAppRailDeepLink` côté app).
+ * Premier message de liaison Rail (anciens messages longs + format court `Start-{deviceId}` WhatsApp).
  * Ne doit pas créer d’intention — déclenche l’accueil Allié instantané.
  */
 export function isRailConnectionHandshake(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
-  return /connecte[- ]moi à mon rail id\s*:/i.test(t);
+  if (/connecte[- ]moi à mon rail id\s*:/i.test(t)) return true;
+  if (/^start-\S+$/i.test(t)) return true;
+  return false;
 }
 
 /** Extrait un prénom du message « C'est X. » si présent. */

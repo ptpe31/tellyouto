@@ -1,11 +1,5 @@
 import React from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
 
 import { NeumorphicSurface } from './NeumorphicSurface';
@@ -62,6 +56,9 @@ export function ChannelCatalogCard({
     {
       borderWidth: isActive ? 2 : 1,
       borderColor: isActive ? TEAL_ACTIVE : theme.colors.outline,
+      ...(connectionStatus === 'linking'
+        ? { borderStyle: 'dashed' as const }
+        : {}),
     },
   ];
 
@@ -130,9 +127,11 @@ export function ChannelCatalogCard({
 
       {connectionStatus === 'linking' ? (
         <View style={styles.linkingRow}>
-          <ActivityIndicator size="small" color={TEAL_ACTIVE} />
           <Text
-            style={[styles.linkingText, { color: theme.colors.onSurfaceVariant }]}
+            style={[
+              styles.linkingText,
+              { color: theme.colors.onSurfaceVariant, opacity: 0.65 },
+            ]}
           >
             {linkingLabel}
           </Text>

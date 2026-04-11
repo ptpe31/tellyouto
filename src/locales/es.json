@@ -31,6 +31,22 @@
     "connect": "Conectar",
     "disconnect": "Desconectar",
     "linkingWait": "Esperando tu mensaje...",
+    "action": {
+      "create_private_conv": "👉 Toca aquí para crear la conversación privada"
+    },
+    "status": {
+      "linking": "Vinculando...",
+      "connected": "Conectado"
+    },
+    "modal": {
+      "title": "Abrir {{channelName}}",
+      "step1": "1. Se abrirá la aplicación.",
+      "step2": "2. Pulsa INICIAR o envía un mensaje.",
+      "step3": "3. Vuelve aquí para ver sincronizarse tu Rail."
+    },
+    "feedback": {
+      "success": "✅ ¡Canal vinculado correctamente!"
+    },
     "hints": {
       "pro_account_required": "* Requiere una cuenta Pro activa en este teléfono"
     }

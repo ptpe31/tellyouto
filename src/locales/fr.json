@@ -31,6 +31,22 @@
     "connect": "Connexion",
     "disconnect": "Se déconnecter",
     "linkingWait": "En attente de ton message...",
+    "action": {
+      "create_private_conv": "👉 Appuie ici pour créer la conversation privée"
+    },
+    "status": {
+      "linking": "Liaison en cours...",
+      "connected": "Connecté"
+    },
+    "modal": {
+      "title": "Direction {{channelName}}",
+      "step1": "1. L'application va s'ouvrir.",
+      "step2": "2. Appuie sur DÉMARRER ou envoie un message.",
+      "step3": "3. Reviens ici pour voir ton Rail se synchroniser."
+    },
+    "feedback": {
+      "success": "✅ Canal lié avec succès !"
+    },
     "hints": {
       "pro_account_required": "* Nécessite un compte pro actif sur ce téléphone"
     }
