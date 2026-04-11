@@ -8,6 +8,9 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Localization from 'expo-localization';
+import { DeviceEventEmitter } from 'react-native';
+
+import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
 import i18n from '../locales/i18n';
 
 const STORAGE_KEY = '@tellyouto/language';
@@ -49,10 +52,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        const storedUi = await AsyncStorage.getItem(STORAGE_KEY);
         const nextUi =
-          stored && supported.includes(stored as AppLanguage)
-            ? (stored as AppLanguage)
+          storedUi && supported.includes(storedUi as AppLanguage)
+            ? (storedUi as AppLanguage)
             : normalizeLocale(Localization.getLocales()[0]?.languageTag);
 
         const storedAi = await AsyncStorage.getItem(INTERACTION_KEY);
@@ -73,6 +76,23 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      DATABASE_RESET_COMPLETE_EVENT,
+      () => {
+        const next = normalizeLocale(
+          Localization.getLocales()[0]?.languageTag,
+        );
+        void (async () => {
+          await i18n.changeLanguage(next);
+          setLanguageState(next);
+          setInteractionLanguageState(next);
+        })();
+      },
+    );
+    return () => sub.remove();
   }, []);
 
   const setLanguage = useCallback(async (lang: AppLanguage) => {

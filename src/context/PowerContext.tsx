@@ -6,7 +6,9 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { DeviceEventEmitter } from 'react-native';
 
+import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
 import {
   loadPowerState,
   savePowerState,
@@ -61,6 +63,19 @@ export function PowerProvider({ children }: { children: React.ReactNode }) {
       isLowPower,
     });
   }, [energyScore, agentEnergySeconds, isLowPower, hydrated]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      DATABASE_RESET_COMPLETE_EVENT,
+      () => {
+        setEnergyScoreState(1);
+        setAgentEnergySeconds(0);
+        setLowPower(false);
+        setHydrated(true);
+      },
+    );
+    return () => sub.remove();
+  }, []);
 
   const setEnergyScore = useCallback((n: number) => {
     setEnergyScoreState(Math.min(1, Math.max(0, n)));

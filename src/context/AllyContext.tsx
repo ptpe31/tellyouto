@@ -7,6 +7,9 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { DeviceEventEmitter } from 'react-native';
+
+import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
 
 const VOICE_KEY = '@tellyouto/ally_voice';
 const TONE_KEY = '@tellyouto/ally_tone';
@@ -53,6 +56,17 @@ export function AllyProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      DATABASE_RESET_COMPLETE_EVENT,
+      () => {
+        setVoiceState('balanced');
+        setToneState('clear');
+      },
+    );
+    return () => sub.remove();
   }, []);
 
   const setVoice = useCallback(async (v: AllyVoice) => {

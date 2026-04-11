@@ -7,6 +7,9 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { DeviceEventEmitter } from 'react-native';
+
+import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
 
 const KEY = '@tellyouto/debug_unlocked';
 
@@ -35,6 +38,16 @@ export function DebugUnlockProvider({
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      DATABASE_RESET_COMPLETE_EVENT,
+      () => {
+        setUnlocked(false);
+      },
+    );
+    return () => sub.remove();
+  }, []);
 
   const unlock = useCallback(async () => {
     await AsyncStorage.setItem(KEY, 'true');

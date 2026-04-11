@@ -6,8 +6,9 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, type AppStateStatus, DeviceEventEmitter } from 'react-native';
 
+import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
 import type { BusyInterval } from '../services/agentLogic';
 import {
   getTodayBusyIntervalsSplit,
@@ -186,6 +187,21 @@ export function CalendarIntegrationProvider({
     });
     return () => sub.remove();
   }, [refreshBusy]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      DATABASE_RESET_COMPLETE_EVENT,
+      () => {
+        setConnectState(false);
+        setBusyIntervals([]);
+        setVisibleBusyIntervals([]);
+        setDeviceCalendars([]);
+        setCalendarConfigsState({});
+        setCalendarsListLoading(false);
+      },
+    );
+    return () => sub.remove();
+  }, []);
 
   const setConnectEnabled = useCallback(
     async (v: boolean) => {

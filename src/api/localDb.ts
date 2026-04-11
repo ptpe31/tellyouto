@@ -1,12 +1,21 @@
 import * as SQLite from 'expo-sqlite';
-import { DeviceEventEmitter } from 'react-native';
+import { deleteAsync } from 'expo-file-system/legacy';
+import { defaultDatabaseDirectory } from 'expo-sqlite';
+import { DeviceEventEmitter, Platform } from 'react-native';
 
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
+export const DB_FILE_NAME = 'tellyouto.db';
+
 /** Émis après DROP + recréation du schéma — ex. Radar recharge la liste. */
 export const LOCAL_DB_RESET_EVENT = 'tellyouto/local_db_reset';
+
+/**
+ * Émis après un reset usine complet (DB + AsyncStorage nettoyés) — réinitialise les contextes en mémoire.
+ */
+export const DATABASE_RESET_COMPLETE_EVENT = 'tellyouto/database_reset_complete';
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sync_queue (
@@ -47,6 +56,61 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_intentions_synced ON intentions (synced);
   CREATE INDEX IF NOT EXISTS idx_intentions_created ON intentions (created_at DESC);
 `;
+
+function getPhysicalDatabasePaths(): string[] {
+  if (!defaultDatabaseDirectory) return [];
+  const dir = defaultDatabaseDirectory.replace(/\/*$/, '');
+  return [
+    `${dir}/${DB_FILE_NAME}`,
+    `${dir}/${DB_FILE_NAME}-wal`,
+    `${dir}/${DB_FILE_NAME}-shm`,
+  ];
+}
+
+async function deletePhysicalDatabaseFiles(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  for (const uri of getPhysicalDatabasePaths()) {
+    try {
+      await deleteAsync(uri, { idempotent: true });
+    } catch {
+      /* fichier absent ou verrou : on poursuit */
+    }
+  }
+}
+
+/**
+ * Ferme la connexion SQLite, supprime les fichiers sur disque (hors web), recrée la base et les migrations.
+ */
+export async function dangerouslyResetDatabase(): Promise<void> {
+  if (db) {
+    try {
+      await db.closeAsync();
+    } catch {
+      /* déjà fermée */
+    }
+    db = null;
+  }
+
+  if (Platform.OS === 'web') {
+    const database = await SQLite.openDatabaseAsync(DB_FILE_NAME);
+    await database.execAsync(`
+      DROP TABLE IF EXISTS micro_habit_checks;
+      DROP TABLE IF EXISTS intentions;
+      DROP TABLE IF EXISTS sync_queue;
+    `);
+    try {
+      await database.closeAsync();
+    } catch {
+      /* */
+    }
+    db = null;
+  } else {
+    await deletePhysicalDatabaseFiles();
+  }
+
+  await getLocalDatabase();
+  DeviceEventEmitter.emit(LOCAL_DB_RESET_EVENT);
+}
 
 async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promise<void> {
   const rows = await database.getAllAsync<{ name: string }>(
@@ -108,7 +172,7 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
  */
 export async function getLocalDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!db) {
-    db = await SQLite.openDatabaseAsync('tellyouto.db');
+    db = await SQLite.openDatabaseAsync(DB_FILE_NAME);
     await db.execAsync(SCHEMA);
     await migrateIntentionsColumns(db);
   }
@@ -116,20 +180,11 @@ export async function getLocalDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 /**
- * DROP des tables puis recréation du schéma (comme au premier lancement).
- * Réinitialise le cache module `db` pour éviter un état incohérent.
+ * Réinitialisation SQLite complète (fichiers supprimés sur mobile ; DROP sur web).
+ * Préférer `performFullFactoryReset` depuis Debug pour reset usine + onboarding.
  */
 export async function resetLocalDatabaseSchema(): Promise<void> {
-  const database =
-    db ?? (await SQLite.openDatabaseAsync('tellyouto.db'));
-  await database.execAsync(`
-    DROP TABLE IF EXISTS micro_habit_checks;
-    DROP TABLE IF EXISTS intentions;
-    DROP TABLE IF EXISTS sync_queue;
-  `);
-  db = null;
-  await getLocalDatabase();
-  DeviceEventEmitter.emit(LOCAL_DB_RESET_EVENT);
+  await dangerouslyResetDatabase();
 }
 
 export type IntentionStatus = 'pending' | 'active' | 'done';

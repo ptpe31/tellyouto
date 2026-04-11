@@ -40,6 +40,17 @@ if (mod) {
   });
 }
 
+/** Annule toutes les notifications planifiées locales (rail, rappels). */
+export async function cancelAllLocalScheduledNotifications(): Promise<void> {
+  const n = getNotifications();
+  if (!n) return;
+  try {
+    await n.cancelAllScheduledNotificationsAsync();
+  } catch {
+    /* module indisponible */
+  }
+}
+
 export async function ensureNotificationPermissions(): Promise<boolean> {
   const n = getNotifications();
   if (!n) return false;

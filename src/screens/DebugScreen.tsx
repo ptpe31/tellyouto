@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +12,7 @@ import { Button, useTheme } from 'react-native-paper';
 
 import { CalendarGranularSection } from '../components';
 import { LineConnector, WhatsAppConnector } from '../api/connectors';
-import { resetLocalDatabaseSchema } from '../api/localDb';
+import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { useOnboardingReset } from '../context/OnboardingResetContext';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -42,17 +43,57 @@ export function DebugScreen() {
     }
   }, [resetProfileToOnboarding]);
 
-  const onRebuildDb = useCallback(async () => {
+  const runFactoryReset = useCallback(async () => {
     setLastError(null);
     setBusy('db');
     try {
-      await resetLocalDatabaseSchema();
+      const { health } = await executeFactoryResetDataPlane();
+      await resetProfileToOnboarding();
+      if (!health.sqliteOk) {
+        setLastError(t('debug.factoryResetHealthWarn'));
+      }
+      setTimeout(() => {
+        Alert.alert(
+          t('debug.factoryResetSuccessTitle'),
+          t('debug.factoryResetSuccessBody'),
+        );
+      }, 500);
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [resetProfileToOnboarding, t]);
+
+  const onRebuildDb = useCallback(() => {
+    Alert.alert(
+      t('debug.factoryResetConfirmTitle'),
+      t('debug.factoryResetConfirmBody'),
+      [
+        { text: t('debug.factoryResetCancel'), style: 'cancel' },
+        {
+          text: t('debug.factoryResetContinue'),
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              t('debug.factoryResetSecondTitle'),
+              t('debug.factoryResetSecondBody'),
+              [
+                { text: t('debug.factoryResetCancel'), style: 'cancel' },
+                {
+                  text: t('debug.factoryResetDestructive'),
+                  style: 'destructive',
+                  onPress: () => {
+                    void runFactoryReset();
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  }, [runFactoryReset, t]);
 
   const externalSenderId =
     spectrum.platform_user_id?.trim() || 'tellyouto_local_sim';
