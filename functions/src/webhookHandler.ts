@@ -146,6 +146,12 @@ export async function handleBotWebhook(
     return { kind: 'ok' as const, locale: loc };
   });
 
+  const messengerMeta = {
+    last_messenger_channel: parsed.channel,
+    last_messenger_user_id: parsed.messengerUserId,
+    last_messenger_updated_at: Date.now(),
+  };
+
   if (outcome.kind === 'blocked') {
     const msg = formatBotRechargeAck(
       outcome.locale,
@@ -154,6 +160,7 @@ export async function handleBotWebhook(
     if (parsed.channel === 'telegram') {
       await sendTelegramText(parsed.messengerUserId, msg);
     }
+    await deviceRef.set(messengerMeta, { merge: true });
     res.status(200).json({
       ok: true,
       inboxSkipped: true,
@@ -166,6 +173,8 @@ export async function handleBotWebhook(
   if (parsed.channel === 'telegram') {
     await sendTelegramText(parsed.messengerUserId, ack);
   }
+
+  await deviceRef.set(messengerMeta, { merge: true });
 
   res.status(200).json({ ok: true, inboxId: docRef.id });
 }

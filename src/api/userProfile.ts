@@ -11,7 +11,20 @@ export type DeviceProfileFields = {
   intentions_quota?: number;
   /** Langue préférée pour les réponses bot (ex. fr, en) */
   locale?: string;
+  /** Rappels proactifs messagerie (montre / téléphone) */
+  messenger_reminders_enabled?: boolean;
+  messenger_reminder_lead_minutes?: number;
   profile_updated_at?: number;
+};
+
+/** Fenêtre calculée côté app pour la Cloud Function `scheduleProactiveReminders`. */
+export type RailReminderWindowPayload = {
+  intentionId: string;
+  title: string;
+  urgent: boolean;
+  slotStartUtcMs: number;
+  remindAtUtcMs: number;
+  leadMin: number;
 };
 
 /**
@@ -48,5 +61,39 @@ export async function fetchDeviceProfileFromFirestore(): Promise<DeviceProfileFi
     intentions_quota:
       typeof d.intentions_quota === 'number' ? d.intentions_quota : undefined,
     locale: typeof d.locale === 'string' ? d.locale : undefined,
+    messenger_reminders_enabled:
+      typeof d.messenger_reminders_enabled === 'boolean'
+        ? d.messenger_reminders_enabled
+        : undefined,
+    messenger_reminder_lead_minutes:
+      typeof d.messenger_reminder_lead_minutes === 'number'
+        ? d.messenger_reminder_lead_minutes
+        : undefined,
   };
+}
+
+/**
+ * Pousse les créneaux de rappel (UTC) + métadonnées pour le scheduler Firebase.
+ */
+export async function pushRailReminderWindowsToFirestore(payload: {
+  windows: RailReminderWindowPayload[];
+  reminder_timezone: string;
+  messenger_reminders_enabled: boolean;
+  messenger_reminder_lead_minutes: number;
+}): Promise<void> {
+  const db = getFirestoreDb();
+  if (!db) return;
+  const deviceId = await getOrCreateDeviceId();
+  const ref = doc(db, 'devices', deviceId);
+  await setDoc(
+    ref,
+    {
+      rail_reminder_windows: payload.windows,
+      rail_reminders_updated_at: Date.now(),
+      reminder_timezone: payload.reminder_timezone,
+      messenger_reminders_enabled: payload.messenger_reminders_enabled,
+      messenger_reminder_lead_minutes: payload.messenger_reminder_lead_minutes,
+    },
+    { merge: true },
+  );
 }

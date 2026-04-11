@@ -42,6 +42,7 @@ import {
 } from '../services/agentLogic';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { recordQuickCompleteWithoutCapsule } from '../services/focusHabits';
+import { syncRailReminderScheduleFromSlots } from '../services/railReminderSchedule';
 import {
   cancelIntentionRailAlarm,
   requestAlarmPermissionIfNeeded,
@@ -322,6 +323,7 @@ export function TimelineScreen() {
       slots: built,
       now,
     });
+    void syncRailReminderScheduleFromSlots(built, now, spectrum);
   }, [spectrum, connectEnabled, busyIntervals]);
 
   useFocusEffect(

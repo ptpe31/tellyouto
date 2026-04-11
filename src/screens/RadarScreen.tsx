@@ -65,6 +65,7 @@ import {
   type TimelineSlot,
 } from '../services/agentLogic';
 import { getRadarAllyThoughtI18nKeyWithHabits } from '../services/agentVoice';
+import { syncRailReminderScheduleFromSlots } from '../services/railReminderSchedule';
 import {
   getQuickCompleteStreak,
   recordQuickCompleteWithoutCapsule,
@@ -240,6 +241,7 @@ export function RadarScreen() {
       { busyIntervals: busyForAgent },
     );
     setRailSlots(built);
+    void syncRailReminderScheduleFromSlots(built, new Date(), spectrum);
   }, [rows, spectrum, connectEnabled, busyIntervals]);
 
   const nowMinutes = useMemo(() => {

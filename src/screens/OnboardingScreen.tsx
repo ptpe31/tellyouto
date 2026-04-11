@@ -68,6 +68,8 @@ export function OnboardingScreen({ onComplete }: Props) {
       first_name: (firstNameInput.trim() || spectrum.first_name).trim(),
       intentions_quota: spectrum.intentions_quota,
       locale: language,
+      messenger_reminders_enabled: true,
+      messenger_reminder_lead_minutes: 5,
     });
     onComplete();
   };

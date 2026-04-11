@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Dialog, Portal, useTheme } from 'react-native-paper';
 
 import { syncPendingIntentions } from '../api/syncService';
+import { setRemoteFocusSessionActive } from '../api/focusSessionRemote';
 import {
   getIntentionById,
   markIntentionActive,
@@ -185,6 +186,14 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
       simulatedSetNotificationSuppression(false);
     };
   }, [setProtectionActive]);
+
+  useEffect(() => {
+    const active = hasStarted && !sessionEnded;
+    void setRemoteFocusSessionActive(active, intentionId);
+    return () => {
+      void setRemoteFocusSessionActive(false);
+    };
+  }, [hasStarted, sessionEnded, intentionId]);
 
   useEffect(() => {
     if (loading || paused || remaining <= 0 || sessionEnded || !hasStarted) return;

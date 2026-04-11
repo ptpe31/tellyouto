@@ -1,7 +1,9 @@
 import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 import { handleBotWebhook } from './webhookHandler';
+import { runProactiveReminders } from './scheduleProactiveReminders';
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -13,5 +15,17 @@ export const botWebhook = onRequest(
   { cors: false, invoker: 'public' },
   async (req, res) => {
     await handleBotWebhook(db, req, res);
+  },
+);
+
+/** Rappels messagerie ~5 min avant créneau rail (montre / téléphone). */
+export const scheduleProactiveReminders = onSchedule(
+  {
+    schedule: 'every 1 minutes',
+    timeZone: 'UTC',
+    memory: '256MiB',
+  },
+  async () => {
+    await runProactiveReminders(db);
   },
 );

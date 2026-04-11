@@ -16,6 +16,7 @@ import {
 } from '../api/localDb';
 import {
   DEFAULT_INTENTIONS_QUOTA,
+  pushDeviceProfileToFirestore,
   type DeviceProfileFields,
 } from '../api/userProfile';
 
@@ -43,6 +44,9 @@ export type UserSpectrumState = SpectrumWeights & {
   intentions_quota: number;
   /** Langue pour les messages bot / alignement profil */
   locale: string;
+  /** Rappels messagerie avant créneau (montre / téléphone) */
+  messenger_reminders_enabled: boolean;
+  messenger_reminder_lead_minutes: number;
 };
 
 function detectPlatformType(): PlatformType {
@@ -72,6 +76,8 @@ const defaultSpectrum = (): UserSpectrumState => ({
   first_name: '',
   intentions_quota: DEFAULT_INTENTIONS_QUOTA,
   locale: 'fr',
+  messenger_reminders_enabled: true,
+  messenger_reminder_lead_minutes: 5,
 });
 
 type UserSpectrumContextValue = {
@@ -83,6 +89,12 @@ type UserSpectrumContextValue = {
   setPlatformUserId: (id: string) => void;
   setFirstName: (name: string) => void;
   setLocale: (locale: string) => void;
+  setMessengerRemindersEnabled: (enabled: boolean) => void;
+  setMessengerReminderLeadMinutes: (minutes: number) => void;
+  applyMessengerReminderPrefs: (
+    enabled: boolean,
+    leadMinutes: number,
+  ) => Promise<void>;
   mergeRemoteProfile: (remote: DeviceProfileFields) => void;
   resetSpectrum: () => void;
   persist: () => Promise<void>;
@@ -149,6 +161,23 @@ export function UserSpectrumProvider({
     });
   }, []);
 
+  const setMessengerRemindersEnabled = useCallback((enabled: boolean) => {
+    setSpectrum((prev) => {
+      const merged = { ...prev, messenger_reminders_enabled: enabled };
+      spectrumRef.current = merged;
+      return merged;
+    });
+  }, []);
+
+  const setMessengerReminderLeadMinutes = useCallback((minutes: number) => {
+    const n = Math.min(60, Math.max(1, Math.round(minutes)));
+    setSpectrum((prev) => {
+      const merged = { ...prev, messenger_reminder_lead_minutes: n };
+      spectrumRef.current = merged;
+      return merged;
+    });
+  }, []);
+
   const mergeRemoteProfile = useCallback((remote: DeviceProfileFields) => {
     setSpectrum((prev) => {
       const merged = {
@@ -166,6 +195,18 @@ export function UserSpectrumProvider({
           typeof remote.locale === 'string' && remote.locale.trim()
             ? remote.locale.trim()
             : prev.locale,
+        messenger_reminders_enabled:
+          typeof remote.messenger_reminders_enabled === 'boolean'
+            ? remote.messenger_reminders_enabled
+            : prev.messenger_reminders_enabled,
+        messenger_reminder_lead_minutes:
+          typeof remote.messenger_reminder_lead_minutes === 'number' &&
+          Number.isFinite(remote.messenger_reminder_lead_minutes)
+            ? Math.min(
+                60,
+                Math.max(1, Math.round(remote.messenger_reminder_lead_minutes)),
+              )
+            : prev.messenger_reminder_lead_minutes,
       };
       spectrumRef.current = merged;
       return merged;
@@ -182,6 +223,27 @@ export function UserSpectrumProvider({
       JSON.stringify(spectrumRef.current),
     );
   }, []);
+
+  const applyMessengerReminderPrefs = useCallback(
+    async (enabled: boolean, leadMinutes: number) => {
+      const n = Math.min(60, Math.max(1, Math.round(leadMinutes)));
+      setSpectrum((prev) => {
+        const merged = {
+          ...prev,
+          messenger_reminders_enabled: enabled,
+          messenger_reminder_lead_minutes: n,
+        };
+        spectrumRef.current = merged;
+        return merged;
+      });
+      await persist();
+      await pushDeviceProfileToFirestore({
+        messenger_reminders_enabled: enabled,
+        messenger_reminder_lead_minutes: n,
+      });
+    },
+    [persist],
+  );
 
   const loadFromStorage = useCallback(async () => {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -210,6 +272,18 @@ export function UserSpectrumProvider({
           typeof parsed.locale === 'string' && parsed.locale.trim()
             ? parsed.locale.trim()
             : prev.locale,
+        messenger_reminders_enabled:
+          typeof parsed.messenger_reminders_enabled === 'boolean'
+            ? parsed.messenger_reminders_enabled
+            : prev.messenger_reminders_enabled,
+        messenger_reminder_lead_minutes:
+          typeof parsed.messenger_reminder_lead_minutes === 'number' &&
+          Number.isFinite(parsed.messenger_reminder_lead_minutes)
+            ? Math.min(
+                60,
+                Math.max(1, Math.round(parsed.messenger_reminder_lead_minutes)),
+              )
+            : prev.messenger_reminder_lead_minutes,
       }));
     } catch {
       /* ignore */
@@ -259,6 +333,9 @@ export function UserSpectrumProvider({
       setPlatformUserId,
       setFirstName,
       setLocale,
+      setMessengerRemindersEnabled,
+      setMessengerReminderLeadMinutes,
+      applyMessengerReminderPrefs,
       mergeRemoteProfile,
       resetSpectrum,
       persist,
@@ -271,6 +348,9 @@ export function UserSpectrumProvider({
       setPlatformUserId,
       setFirstName,
       setLocale,
+      setMessengerRemindersEnabled,
+      setMessengerReminderLeadMinutes,
+      applyMessengerReminderPrefs,
       mergeRemoteProfile,
       resetSpectrum,
       persist,
