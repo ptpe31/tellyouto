@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { Button, useTheme } from 'react-native-paper';
 
 import { resetLocalDatabaseSchema } from '../api/localDb';
@@ -14,6 +15,7 @@ import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 
 export function DebugScreen() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const { spectrum } = useUserSpectrum();
   const power = usePower();
@@ -51,11 +53,11 @@ export function DebugScreen() {
       style={[styles.flex, { backgroundColor: theme.colors.background }]}
       contentContainerStyle={styles.pad}
     >
-      <Text style={[styles.title, { color: theme.colors.onBackground }]}>
-        Debug
+      <Text style={[styles.heroTitle, { color: theme.colors.onBackground }]}>
+        {t('debug.pilotTitle')}
       </Text>
       <Text style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>
-        Outil interne — pas de polish UI.
+        {t('debug.note')}
       </Text>
 
       <View style={styles.section}>
@@ -137,7 +139,7 @@ export function DebugScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   pad: { padding: 16, paddingBottom: 40 },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 4 },
+  heroTitle: { fontSize: 24, fontWeight: '800', marginBottom: 4 },
   note: { fontSize: 13, marginBottom: 20 },
   section: { marginBottom: 20 },
   btn: { alignSelf: 'flex-start' },

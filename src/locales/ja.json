@@ -6,7 +6,8 @@
     "agent": "AIエージェント",
     "recharge": "リチャージ",
     "messaging": "メッセージ",
-    "stats": "統計"
+    "stats": "統計",
+    "debug": "Debug"
   },
   "onboarding": {
     "title": "状況診断",
@@ -82,6 +83,10 @@
     "terminate": "終了",
     "feedbackTitle": "明瞭さ",
     "ok": "OK"
+  },
+  "debug": {
+    "pilotTitle": "操作用ツール",
+    "note": "内部向け — 最低限のUI。"
   },
   "recharge": {
     "eyebrow": "感覚ステーション",

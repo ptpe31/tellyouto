@@ -6,7 +6,8 @@
     "agent": "Agente IA",
     "recharge": "Ricarica",
     "messaging": "Messaggi",
-    "stats": "Stats"
+    "stats": "Stats",
+    "debug": "Debug"
   },
   "onboarding": {
     "title": "Diagnosi situazionale",
@@ -82,6 +83,10 @@
     "terminate": "Termina",
     "feedbackTitle": "Chiarezza",
     "ok": "OK"
+  },
+  "debug": {
+    "pilotTitle": "Strumenti di pilotaggio",
+    "note": "Strumento interno — interfaccia essenziale."
   },
   "recharge": {
     "eyebrow": "STAZIONE SENSORIALE",

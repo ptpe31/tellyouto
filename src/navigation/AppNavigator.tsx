@@ -2,6 +2,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
   BarChart3,
   Bot,
+  Bug,
   Clock,
   MessageCircle,
   Radar,
@@ -11,6 +12,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
 import {
+  DebugScreen,
   MessagingScreen,
   RadarScreen,
   RechargeScreen,
@@ -94,6 +96,15 @@ export function AppNavigator() {
           tabBarIcon: ({ color, size }) => (
             <BarChart3 color={color} size={size} />
           ),
+        }}
+      />
+      <Tab.Screen
+        name="Debug"
+        component={DebugScreen}
+        options={{
+          tabBarLabel: t('tabs.debug'),
+          headerTitle: t('debug.pilotTitle'),
+          tabBarIcon: ({ color, size }) => <Bug color={color} size={size} />,
         }}
       />
     </Tab.Navigator>

@@ -1,7 +1,5 @@
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import {
   List,
@@ -12,7 +10,6 @@ import {
 
 import { SafeExternalLink } from '../components/SafeExternalLink';
 import { NeumorphicCard } from '../components';
-import type { AgentStackParamList } from '../navigation/AgentStack';
 import { useAlly, type AllyTone, type AllyVoice } from '../context/AllyContext';
 import type { AppLanguage } from '../context/LanguageContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -20,8 +17,6 @@ import { useLanguage } from '../context/LanguageContext';
 const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
 
 export function AgentSettingsScreen() {
-  const navigation =
-    useNavigation<NativeStackNavigationProp<AgentStackParamList>>();
   const { t } = useTranslation();
   const theme = useTheme();
   const { language, setLanguage, interactionLanguage, setInteractionLanguage } =
@@ -131,16 +126,6 @@ export function AgentSettingsScreen() {
           </Text>
         </SafeExternalLink>
       </View>
-
-      <Pressable
-        onPress={() => navigation.navigate('Debug')}
-        style={({ pressed }) => [styles.debugTap, { opacity: pressed ? 0.5 : 0.35 }]}
-        hitSlop={12}
-      >
-        <Text style={[styles.debugLabel, { color: theme.colors.outline }]}>
-          ·
-        </Text>
-      </Pressable>
     </ScrollView>
   );
 }
@@ -155,11 +140,4 @@ const styles = StyleSheet.create({
   segment: { marginTop: 4 },
   linkBox: { paddingVertical: 12, alignItems: 'center' },
   linkText: { fontSize: 15, textDecorationLine: 'underline' },
-  debugTap: {
-    marginTop: 24,
-    alignSelf: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  debugLabel: { fontSize: 11, letterSpacing: 2 },
 });

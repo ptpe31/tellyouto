@@ -6,7 +6,8 @@
     "agent": "智能体",
     "recharge": "充能",
     "messaging": "消息",
-    "stats": "统计"
+    "stats": "统计",
+    "debug": "调试"
   },
   "onboarding": {
     "title": "情境诊断",
@@ -82,6 +83,10 @@
     "terminate": "结束",
     "feedbackTitle": "清晰",
     "ok": "好"
+  },
+  "debug": {
+    "pilotTitle": "驾驶舱工具",
+    "note": "内部工具 — 界面从简。"
   },
   "recharge": {
     "eyebrow": "感官站",

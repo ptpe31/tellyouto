@@ -6,7 +6,8 @@
     "agent": "AI Agent",
     "recharge": "Recharge",
     "messaging": "Messaging",
-    "stats": "Stats"
+    "stats": "Stats",
+    "debug": "Debug"
   },
   "onboarding": {
     "title": "Situational diagnostic",
@@ -82,6 +83,10 @@
     "terminate": "Finish",
     "feedbackTitle": "Clarity",
     "ok": "OK"
+  },
+  "debug": {
+    "pilotTitle": "Piloting tools",
+    "note": "Internal tool — minimal UI polish."
   },
   "recharge": {
     "eyebrow": "SENSORY STATION",

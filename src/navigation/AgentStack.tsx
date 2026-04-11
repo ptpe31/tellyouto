@@ -4,12 +4,10 @@ import { useTranslation } from 'react-i18next';
 
 import { AgentIAScreen } from '../screens/AgentIAScreen';
 import { AgentSettingsScreen } from '../screens/AgentSettingsScreen';
-import { DebugScreen } from '../screens/DebugScreen';
 
 export type AgentStackParamList = {
   AgentMain: undefined;
   AgentSettings: undefined;
-  Debug: undefined;
 };
 
 const Stack = createNativeStackNavigator<AgentStackParamList>();
@@ -32,11 +30,6 @@ export function AgentStack() {
         name="AgentSettings"
         component={AgentSettingsScreen}
         options={{ title: t('ally.settingsTitle') }}
-      />
-      <Stack.Screen
-        name="Debug"
-        component={DebugScreen}
-        options={{ title: 'Debug' }}
       />
     </Stack.Navigator>
   );
