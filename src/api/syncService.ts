@@ -1,7 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import { deleteDoc, doc, setDoc } from 'firebase/firestore';
+import {
+  deleteDoc,
+  doc,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore';
 
+import { DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS } from '../config/transitPurgeKeys';
 import { getFirestoreDb } from './firebase';
 import {
   listUnsyncedIntentions,
@@ -33,6 +41,7 @@ async function pushIntentionToFirestore(
   const ref = doc(firestore, 'devices', deviceId, 'intentions', row.id);
   const now = Date.now();
 
+  const ttlAt = now + TRANSIT_TTL_MS;
   await setDoc(ref, {
     id: row.id,
     title: row.title,
@@ -52,7 +61,9 @@ async function pushIntentionToFirestore(
     anchor_date_ymd: row.anchor_date_ymd,
     fixed_start_minutes: row.fixed_start_minutes,
     synced_client_at: now,
-    transit_expires_at: now + TRANSIT_TTL_MS,
+    transit_expires_at: ttlAt,
+    /** Champ Timestamp pour politique TTL Firestore (24h) — configurer dans la console GCP. */
+    ttl_expires_at: Timestamp.fromMillis(ttlAt),
   });
 }
 
@@ -70,11 +81,30 @@ export async function syncPendingIntentions(): Promise<void> {
     try {
       await pushIntentionToFirestore(deviceId, row);
       await markIntentionSynced(row.id);
-      /** Rétention zéro : le Cloud ne conserve pas la copie après passage local confirmé. */
+      /** Rétention zéro : marquer comme traité puis supprimer la copie de transit sur Firestore. */
+      const transitRef = doc(
+        firestore,
+        'devices',
+        deviceId,
+        'intentions',
+        row.id,
+      );
       try {
-        await deleteDoc(doc(firestore, 'devices', deviceId, 'intentions', row.id));
+        await updateDoc(transitRef, {
+          processed: true,
+          processed_at: serverTimestamp(),
+        });
       } catch {
-        /* purge différée via Cloud Function si réseau / règles */
+        /* règles Firestore : on tente quand même deleteDoc */
+      }
+      try {
+        await deleteDoc(transitRef);
+        await AsyncStorage.setItem(
+          DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS,
+          String(Date.now()),
+        );
+      } catch {
+        /* purge différée via Cloud Function / TTL si réseau ou règles */
       }
     } catch {
       /* réseau ou règles Firestore — retry au prochain online */

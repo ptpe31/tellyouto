@@ -60,3 +60,8 @@ export const purgeStaleTransitData = onSchedule(
     await purgeStaleTransitDocuments(db);
   },
 );
+
+export {
+  onDeviceIntentionTransitProcessed,
+  onRailInboxMarkedProcessed,
+} from './transitPurgeTriggers';

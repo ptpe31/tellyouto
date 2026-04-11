@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import { DeviceEventEmitter } from 'react-native';
 import {
@@ -5,6 +6,8 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  serverTimestamp,
+  updateDoc,
   type Unsubscribe,
 } from 'firebase/firestore';
 
@@ -16,6 +19,7 @@ import {
 } from '../services/agentLogic';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 
+import { DEBUG_LAST_RAIL_INBOX_PURGE_MS } from '../config/transitPurgeKeys';
 import { getFirestoreDb } from './firebase';
 import {
   ensureRoutineIntentionInstancesForHorizon,
@@ -161,8 +165,21 @@ export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => 
             /* doublon SQLite / contrainte — retry au prochain snapshot */
             continue;
           }
+          const inboxRef = doc(db, 'devices', deviceId, 'rail_inbox', c.id);
           try {
-            await deleteDoc(doc(db, 'devices', deviceId, 'rail_inbox', c.id));
+            await updateDoc(inboxRef, {
+              processed: true,
+              processed_at: serverTimestamp(),
+            });
+          } catch {
+            /* règles Firestore : deleteDoc peut suffire */
+          }
+          try {
+            await deleteDoc(inboxRef);
+            await AsyncStorage.setItem(
+              DEBUG_LAST_RAIL_INBOX_PURGE_MS,
+              String(Date.now()),
+            );
           } catch {
             /* purge planifiée côté serveur si l’effacement immédiat échoue */
           }

@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Button, Switch, useTheme } from 'react-native-paper';
+import { collection, getDocs, limit, query } from 'firebase/firestore';
 
 import { CalendarGranularSection } from '../components';
 import { LineConnector, WhatsAppConnector } from '../api/connectors';
@@ -21,7 +23,12 @@ import {
   listIntentionsDescending,
   LOCAL_DB_RESET_EVENT,
 } from '../api/localDb';
-import { syncPendingIntentions } from '../api/syncService';
+import { getFirestoreDb } from '../api/firebase';
+import { getOrCreateDeviceId, syncPendingIntentions } from '../api/syncService';
+import {
+  DEBUG_LAST_RAIL_INBOX_PURGE_MS,
+  DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS,
+} from '../config/transitPurgeKeys';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { useOnboardingReset } from '../context/OnboardingResetContext';
 import { usePower } from '../context/PowerContext';
@@ -49,6 +56,50 @@ export function DebugScreen() {
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [rawIntentionsJson, setRawIntentionsJson] = useState<string>('[]');
+  const [syncPurgeRailCloud, setSyncPurgeRailCloud] = useState<number | null>(
+    null,
+  );
+  const [syncPurgeTransitCloud, setSyncPurgeTransitCloud] = useState<
+    number | null
+  >(null);
+  const [lastRailPurgeMs, setLastRailPurgeMs] = useState<number | null>(null);
+  const [lastTransitPurgeMs, setLastTransitPurgeMs] = useState<number | null>(
+    null,
+  );
+  const [syncPurgeBusy, setSyncPurgeBusy] = useState(false);
+
+  const refreshSyncPurge = useCallback(async () => {
+    setSyncPurgeBusy(true);
+    try {
+      const db = getFirestoreDb();
+      if (!db) {
+        setSyncPurgeRailCloud(null);
+        setSyncPurgeTransitCloud(null);
+        return;
+      }
+      const deviceId = await getOrCreateDeviceId();
+      const railQ = query(
+        collection(db, 'devices', deviceId, 'rail_inbox'),
+        limit(50),
+      );
+      const transitQ = query(
+        collection(db, 'devices', deviceId, 'intentions'),
+        limit(50),
+      );
+      const [railSnap, transitSnap] = await Promise.all([
+        getDocs(railQ),
+        getDocs(transitQ),
+      ]);
+      setSyncPurgeRailCloud(railSnap.size);
+      setSyncPurgeTransitCloud(transitSnap.size);
+      const lr = await AsyncStorage.getItem(DEBUG_LAST_RAIL_INBOX_PURGE_MS);
+      const lt = await AsyncStorage.getItem(DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS);
+      setLastRailPurgeMs(lr ? parseInt(lr, 10) : null);
+      setLastTransitPurgeMs(lt ? parseInt(lt, 10) : null);
+    } finally {
+      setSyncPurgeBusy(false);
+    }
+  }, []);
 
   const refreshRawIntentions = useCallback(async () => {
     try {
@@ -68,9 +119,13 @@ export function DebugScreen() {
 
   useEffect(() => {
     void refreshRawIntentions();
+    void refreshSyncPurge();
     const subIntentions = DeviceEventEmitter.addListener(
       INTENTIONS_CHANGED_EVENT,
-      () => void refreshRawIntentions(),
+      () => {
+        void refreshRawIntentions();
+        void refreshSyncPurge();
+      },
     );
     const subReset = DeviceEventEmitter.addListener(
       LOCAL_DB_RESET_EVENT,
@@ -80,7 +135,7 @@ export function DebugScreen() {
       subIntentions.remove();
       subReset.remove();
     };
-  }, [refreshRawIntentions]);
+  }, [refreshRawIntentions, refreshSyncPurge]);
 
   const onResetProfile = useCallback(async () => {
     setLastError(null);
@@ -537,6 +592,32 @@ export function DebugScreen() {
         selectable
       >
         {rawIntentionsJson}
+      </Text>
+
+      <Text style={[styles.blockTitle, { color: theme.colors.primary }]}>
+        {t('debug.sectionSyncPurge')}
+      </Text>
+      <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+        {t('debug.syncPurgeHelp')}
+      </Text>
+      <Button
+        mode="outlined"
+        onPress={() => void refreshSyncPurge()}
+        disabled={syncPurgeBusy}
+        loading={syncPurgeBusy}
+        style={[styles.btn, styles.btnSecond]}
+      >
+        {t('debug.syncPurgeRefresh')}
+      </Button>
+      <Text style={[styles.mono, { color: theme.colors.onSurface, marginTop: 10 }]}>
+        {getFirestoreDb() === null
+          ? t('debug.syncPurgeNoDb')
+          : [
+              `${t('debug.syncPurgeRailInboxCloud')}: ${syncPurgeRailCloud === null ? '—' : syncPurgeRailCloud}`,
+              `${t('debug.syncPurgeTransitCloud')}: ${syncPurgeTransitCloud === null ? '—' : syncPurgeTransitCloud}`,
+              `${t('debug.syncPurgeLastRail')}: ${lastRailPurgeMs != null ? new Date(lastRailPurgeMs).toISOString() : t('debug.syncPurgeNever')}`,
+              `${t('debug.syncPurgeLastTransit')}: ${lastTransitPurgeMs != null ? new Date(lastTransitPurgeMs).toISOString() : t('debug.syncPurgeNever')}`,
+            ].join('\n')}
       </Text>
     </ScrollView>
   );

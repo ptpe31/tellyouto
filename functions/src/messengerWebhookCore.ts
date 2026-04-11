@@ -1,4 +1,4 @@
-import type { Firestore } from 'firebase-admin/firestore';
+import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 
 import {
   formatBotPremiumChannelDenied,
@@ -122,6 +122,7 @@ export async function runMessengerWebhookCore(
 
   const docRef = deviceRef.collection('rail_inbox').doc();
   const now = Date.now();
+  const ttlMs = now + 24 * 60 * 60 * 1000;
 
   const inboxPayload = {
     title: parsed.text.slice(0, 500),
@@ -129,7 +130,9 @@ export async function runMessengerWebhookCore(
     platform_type: parsed.channel,
     messenger_user_id: parsed.messengerUserId,
     created_at: now,
-    transit_expires_at: now + 24 * 60 * 60 * 1000,
+    transit_expires_at: ttlMs,
+    /** Timestamp pour politique TTL Firestore (24h) — à activer dans la console GCP. */
+    ttl_expires_at: Timestamp.fromMillis(ttlMs),
   };
 
   const outcome = await firestore.runTransaction(async (txn) => {
