@@ -80,6 +80,9 @@
     "fieldDescription": "Dettaglio (opzionale)",
     "urgentLabel": "Segna come urgente",
     "alarmLabel": "Imposta una sveglia",
+    "microNowTitle": "Adesso",
+    "microVerifyQuestion": "Hai già fatto questo piccolo gesto?",
+    "microVerifyCta": "Conferma",
     "done": "Fatto",
     "cancel": "Annulla",
     "save": "Salva",
@@ -87,16 +90,7 @@
       "pending": "In attesa",
       "active": "Attiva",
       "done": "Completata"
-    },
-    "cockpitKicker": "Tell Me To",
-    "sectionNow": "Adesso",
-    "sectionNext": "Prossima",
-    "launchCta": "AVVIA",
-    "continueCta": "CONTINUA",
-    "moodTitle": "Come ti senti in questo momento?",
-    "nextStarts": "Dalle {{time}}",
-    "emptyCockpit": "Niente sul binario — tocca + per un’intenzione.",
-    "nowIdle": "Niente in corso — scegli sotto o aggiungi un’intenzione."
+    }
   },
   "timeline": {
     "subtitle": "Binario della giornata — slot suggeriti in base allo spettro (Momentum alto → blocchi più profondi).",
@@ -112,7 +106,9 @@
     "calendarRailTitle": "Non disponibile (calendario)",
     "calendarBusy": "Occupato · {{start}} – {{end}}",
     "alarmSwitch": "Sveglia all’inizio della finestra",
-    "alarmBellA11y": "Sveglia attiva per questa finestra"
+    "alarmBellA11y": "Sveglia attiva per questa finestra",
+    "microFragment": "Frammento {{current}} / {{total}}",
+    "microDuration": "~ 2 min · micro-abitudine"
   },
   "focusMode": {
     "title": "Modalità sessione",
@@ -138,6 +134,10 @@
     "screenTitle": "Quadro di chiarezza",
     "screenSubtitle": "Sguardi del co-pilota — osservazione, non giudizio.",
     "loading": "Caricamento…",
+    "wellbeingTitle": "Costanza benessere",
+    "wellbeingHint": "Quota di micro-fasce confermate oggi (rispetto alle pastiglie sul binario).",
+    "wellbeingEmpty": "Nessuna micro-abitudine pianificata oggi sul binario.",
+    "wellbeingMeta": "{{done}} / {{total}} micro-fasce confermate",
     "clarityTitle": "Chiarezza di oggi",
     "clarityHint": "Lettura morbida: quanto il tempo reale è stato vicino a quanto avevi stimato (solo focus completati).",
     "noSessionsToday": "Nessun focus completato oggi. Chiudi una capsula e comparirà qui.",
@@ -242,14 +242,7 @@
         "stats": "I cruscotti dormono fino a domani — anche tu, se puoi."
       }
     },
-    "suggestFocusCapsule": "Stai andando veloce! Per compiti più complessi, una capsula di focus potrebbe aiutarti a restare dentro.",
-    "mood": {
-      "0": "Andiamo piano? Un piccolo passo per il tuo binario.",
-      "1": "Giornata pesante — un blocco chiaro; il resto aspetta.",
-      "2": "Ritmo onesto: un’intenzione chiara, poi la prossima.",
-      "3": "Bella energia — un’azione netta sul binario.",
-      "4": "Energia al massimo! Conquistiamo questo binario."
-    }
+    "suggestFocusCapsule": "Stai andando veloce! Per compiti più complessi, una capsula di focus potrebbe aiutarti a restare dentro."
   },
   "connectors": {
     "whatsapp": "WhatsApp",

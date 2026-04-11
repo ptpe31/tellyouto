@@ -80,6 +80,9 @@
     "fieldDescription": "Detail (optional)",
     "urgentLabel": "Als dringend markieren",
     "alarmLabel": "Wecker für den Vorschlagsblock",
+    "microNowTitle": "Jetzt",
+    "microVerifyQuestion": "Kleine Handlung erledigt?",
+    "microVerifyCta": "Bestätigen",
     "done": "Erledigt",
     "cancel": "Abbrechen",
     "save": "Speichern",
@@ -87,16 +90,7 @@
       "pending": "Ausstehend",
       "active": "Aktiv",
       "done": "Erledigt"
-    },
-    "cockpitKicker": "Tell Me To",
-    "sectionNow": "Jetzt",
-    "sectionNext": "Als Nächstes",
-    "launchCta": "STARTEN",
-    "continueCta": "WEITER",
-    "moodTitle": "Wie fühlst du dich gerade?",
-    "nextStarts": "Ab {{time}}",
-    "emptyCockpit": "Noch nichts auf der Schiene — tippe + für eine Intention.",
-    "nowIdle": "Nichts aktiv — wähle unten oder füge eine Intention hinzu."
+    }
   },
   "timeline": {
     "subtitle": "Tages-Schiene — vorgeschlagene Fenster nach Spektrum (hohes Momentum → tiefere Blöcke).",
@@ -112,7 +106,9 @@
     "calendarRailTitle": "Blockiert (Kalender)",
     "calendarBusy": "Belegt · {{start}} – {{end}}",
     "alarmSwitch": "Alarm zum Start des Blocks",
-    "alarmBellA11y": "Alarm für diesen Block aktiv"
+    "alarmBellA11y": "Alarm für diesen Block aktiv",
+    "microFragment": "Fragment {{current}} / {{total}}",
+    "microDuration": "~ 2 Min · Mikro-Gewohnheit"
   },
   "focusMode": {
     "title": "Sitzungsmodus",
@@ -138,6 +134,10 @@
     "screenTitle": "Klarheitsüberblick",
     "screenSubtitle": "Blicke vom Co-Piloten — Beobachtung, kein Urteil.",
     "loading": "Laden…",
+    "wellbeingTitle": "Wohlfühl-Konstanz",
+    "wellbeingHint": "Anteil der heute bestätigten Mini-Slots (gegen geplante Pastillen auf der Schiene).",
+    "wellbeingEmpty": "Heute keine Mikro-Gewohnheiten auf der Schiene.",
+    "wellbeingMeta": "{{done}} / {{total}} Mini-Slots bestätigt",
     "clarityTitle": "Heutige Klarheit",
     "clarityHint": "Sanfte Lesart: wie nah die reale Zeit an deinen Schätzungen war (nur abgeschlossene Fokus-Sessions).",
     "noSessionsToday": "Heute noch kein abgeschlossener Fokus. Schließe eine Kapsel — dann erscheint es hier.",
@@ -242,14 +242,7 @@
         "stats": "Dashboards schlafen bis morgen — du auch, wenn’s geht."
       }
     },
-    "suggestFocusCapsule": "Du bist schnell unterwegs! Für kniffligere Aufgaben könnte eine Fokus-Kapsel helfen.",
-    "mood": {
-      "0": "Ganz ruhig? Ein kleiner Schritt für deine Schiene reicht.",
-      "1": "Voller Tag — ein klarer Block, der Rest wartet.",
-      "2": "Ehrliches Tempo: eine klare Intention, dann weiter.",
-      "3": "Schöne Energie — eine präzise Aktion auf der Schiene.",
-      "4": "Volle Power! Diese Schiene gehört uns."
-    }
+    "suggestFocusCapsule": "Du bist schnell unterwegs! Für kniffligere Aufgaben könnte eine Fokus-Kapsel helfen."
   },
   "connectors": {
     "whatsapp": "WhatsApp",

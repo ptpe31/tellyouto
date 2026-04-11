@@ -31,9 +31,19 @@ const SCHEMA = `
     completed_at INTEGER,
     user_forced_urgent INTEGER NOT NULL DEFAULT 0,
     is_late_night INTEGER NOT NULL DEFAULT 0,
-    alarm_enabled INTEGER NOT NULL DEFAULT 0
+    alarm_enabled INTEGER NOT NULL DEFAULT 0,
+    is_micro_habit INTEGER NOT NULL DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS micro_habit_checks (
+    id TEXT PRIMARY KEY NOT NULL,
+    intention_id TEXT NOT NULL,
+    day_ymd TEXT NOT NULL,
+    fragment_index INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_micro_habit_day ON micro_habit_checks (day_ymd);
   CREATE INDEX IF NOT EXISTS idx_intentions_synced ON intentions (synced);
   CREATE INDEX IF NOT EXISTS idx_intentions_created ON intentions (created_at DESC);
 `;
@@ -76,6 +86,21 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
       `ALTER TABLE intentions ADD COLUMN alarm_enabled INTEGER NOT NULL DEFAULT 0`,
     );
   }
+  if (!names.has('is_micro_habit')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN is_micro_habit INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS micro_habit_checks (
+      id TEXT PRIMARY KEY NOT NULL,
+      intention_id TEXT NOT NULL,
+      day_ymd TEXT NOT NULL,
+      fragment_index INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_micro_habit_day ON micro_habit_checks (day_ymd);
+  `);
 }
 
 /**
@@ -98,6 +123,7 @@ export async function resetLocalDatabaseSchema(): Promise<void> {
   const database =
     db ?? (await SQLite.openDatabaseAsync('tellyouto.db'));
   await database.execAsync(`
+    DROP TABLE IF EXISTS micro_habit_checks;
     DROP TABLE IF EXISTS intentions;
     DROP TABLE IF EXISTS sync_queue;
   `);
@@ -131,6 +157,8 @@ export type IntentionRow = {
   is_late_night: boolean;
   /** Notification à l’heure du créneau suggéré sur le rail */
   alarm_enabled: boolean;
+  /** Micro-habitude (soin répété) — fragmentée sur le rail */
+  is_micro_habit: boolean;
 };
 
 function rowToIntention(row: Record<string, unknown>): IntentionRow {
@@ -168,6 +196,8 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
     is_late_night: Number(row.is_late_night) === 1,
     alarm_enabled:
       row.alarm_enabled != null && Number(row.alarm_enabled) === 1,
+    is_micro_habit:
+      row.is_micro_habit != null && Number(row.is_micro_habit) === 1,
   };
 }
 
@@ -185,18 +215,20 @@ export async function insertIntention(input: {
   user_forced_urgent?: boolean;
   is_late_night?: boolean;
   alarm_enabled?: boolean;
+  is_micro_habit?: boolean;
 }): Promise<void> {
   const database = await getLocalDatabase();
   const ufu = input.user_forced_urgent ? 1 : 0;
   const iln = input.is_late_night ? 1 : 0;
   const alarm = input.alarm_enabled ? 1 : 0;
+  const micro = input.is_micro_habit ? 1 : 0;
   await database.runAsync(
     `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
-      user_forced_urgent, is_late_night, alarm_enabled
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?)`,
+      user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?)`,
     [
       input.id,
       input.title,
@@ -211,6 +243,7 @@ export async function insertIntention(input: {
       ufu,
       iln,
       alarm,
+      micro,
     ],
   );
 }
@@ -231,18 +264,20 @@ export async function insertCompletedIntention(input: {
   user_forced_urgent?: boolean;
   is_late_night?: boolean;
   alarm_enabled?: boolean;
+  is_micro_habit?: boolean;
 }): Promise<void> {
   const database = await getLocalDatabase();
   const ufu = input.user_forced_urgent ? 1 : 0;
   const iln = input.is_late_night ? 1 : 0;
   const alarm = input.alarm_enabled ? 1 : 0;
+  const micro = input.is_micro_habit ? 1 : 0;
   await database.runAsync(
     `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
-      user_forced_urgent, is_late_night, alarm_enabled
-    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+      user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit
+    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.id,
       input.title,
@@ -258,8 +293,38 @@ export async function insertCompletedIntention(input: {
       ufu,
       iln,
       alarm,
+      micro,
     ],
   );
+}
+
+export async function recordMicroHabitFragmentCheck(input: {
+  id: string;
+  intention_id: string;
+  day_ymd: string;
+  fragment_index: number;
+}): Promise<void> {
+  const database = await getLocalDatabase();
+  await database.runAsync(
+    `INSERT OR REPLACE INTO micro_habit_checks (id, intention_id, day_ymd, fragment_index, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      input.id,
+      input.intention_id,
+      input.day_ymd,
+      input.fragment_index,
+      Date.now(),
+    ],
+  );
+}
+
+export async function countMicroHabitChecksOnDay(dayYmd: string): Promise<number> {
+  const database = await getLocalDatabase();
+  const row = await database.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM micro_habit_checks WHERE day_ymd = ?`,
+    [dayYmd],
+  );
+  return row?.c ?? 0;
 }
 
 export async function updateIntentionAlarmEnabled(

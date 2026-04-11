@@ -110,7 +110,13 @@ export async function syncRailAlarmsWithTimeline(args: {
   if (!n) return;
 
   const { pendingIntentions, slots, now } = args;
-  const slotById = new Map(slots.map((s) => [s.intention.id, s]));
+  const slotById = new Map<string, TimelineSlot>();
+  for (const s of slots) {
+    const prev = slotById.get(s.intention.id);
+    if (!prev || s.startMinutes < prev.startMinutes) {
+      slotById.set(s.intention.id, s);
+    }
+  }
 
   for (const row of pendingIntentions) {
     if (!row.alarm_enabled) {

@@ -80,6 +80,9 @@
     "fieldDescription": "详情（可选）",
     "urgentLabel": "标记为紧急",
     "alarmLabel": "设置闹钟",
+    "microNowTitle": "此刻",
+    "microVerifyQuestion": "这个小动作完成了吗？",
+    "microVerifyCta": "确认",
     "done": "完成",
     "cancel": "取消",
     "save": "保存",
@@ -87,16 +90,7 @@
       "pending": "待处理",
       "active": "进行中",
       "done": "已完成"
-    },
-    "cockpitKicker": "Tell Me To",
-    "sectionNow": "现在",
-    "sectionNext": "接下来",
-    "launchCta": "开始",
-    "continueCta": "继续",
-    "moodTitle": "此刻你的感受？",
-    "nextStarts": "{{time}} 起",
-    "emptyCockpit": "轨道上还没有内容 — 点 + 添加意图。",
-    "nowIdle": "暂无进行中的任务 — 在下方选择或添加意图。"
+    }
   },
   "timeline": {
     "subtitle": "今日轨道 — 按光谱建议时段（动能高 → 更深的工作块）。",
@@ -112,7 +106,9 @@
     "calendarRailTitle": "不可用（日历）",
     "calendarBusy": "占用 · {{start}} – {{end}}",
     "alarmSwitch": "时段开始时提醒",
-    "alarmBellA11y": "此时段已设提醒"
+    "alarmBellA11y": "此时段已设提醒",
+    "microFragment": "片段 {{current}} / {{total}}",
+    "microDuration": "约 2 分钟 · 微习惯"
   },
   "focusMode": {
     "title": "会话模式",
@@ -138,6 +134,10 @@
     "screenTitle": "清晰度一览",
     "screenSubtitle": "来自副驾驶的观察 — 陈述，而非评判。",
     "loading": "加载中…",
+    "wellbeingTitle": "健康坚持度",
+    "wellbeingHint": "今日在轨道上已勾选的微习惯时段占比。",
+    "wellbeingEmpty": "今日轨道暂无微习惯安排。",
+    "wellbeingMeta": "{{done}} / {{total}} 个微时段已确认",
     "clarityTitle": "今日清晰度",
     "clarityHint": "温和解读：实际用时与预估有多接近（仅统计已完成的专注）。",
     "noSessionsToday": "今天还没有完成的专注。结束一次胶囊后会显示在这里。",
@@ -242,14 +242,7 @@
         "stats": "仪表盘睡了，你也可以。"
       }
     },
-    "suggestFocusCapsule": "你完成得很快！对更棘手的任务，专注胶囊也许能帮你稳住节奏。",
-    "mood": {
-      "0": "慢慢来？先在轨道上迈一小步。",
-      "1": "有点累 — 先锁定一个清晰区块，其余稍后再说。",
-      "2": "找个体贴的节奏：一个明确意图，然后再下一个。",
-      "3": "状态不错 — 在轨道上完成一个干脆的行动。",
-      "4": "能量拉满！一起拿下这条轨道。"
-    }
+    "suggestFocusCapsule": "你完成得很快！对更棘手的任务，专注胶囊也许能帮你稳住节奏。"
   },
   "connectors": {
     "whatsapp": "WhatsApp",

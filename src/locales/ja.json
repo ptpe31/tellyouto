@@ -80,6 +80,9 @@
     "fieldDescription": "詳細（任意）",
     "urgentLabel": "緊急としてマーク",
     "alarmLabel": "アラームを設定",
+    "microNowTitle": "いま",
+    "microVerifyQuestion": "小さな一歩、できましたか？",
+    "microVerifyCta": "確認",
     "done": "完了",
     "cancel": "キャンセル",
     "save": "保存",
@@ -87,16 +90,7 @@
       "pending": "保留",
       "active": "進行中",
       "done": "完了"
-    },
-    "cockpitKicker": "Tell Me To",
-    "sectionNow": "いま",
-    "sectionNext": "つぎ",
-    "launchCta": "開始",
-    "continueCta": "続ける",
-    "moodTitle": "今の気分は？",
-    "nextStarts": "{{time}} から",
-    "emptyCockpit": "レールにまだありません — + で意図を追加。",
-    "nowIdle": "進行中なし — 下から選ぶか意図を追加。"
+    }
   },
   "timeline": {
     "subtitle": "今日のレール — スペクトルに沿った提案（モメンタム高め → 深いブロック）。",
@@ -112,7 +106,9 @@
     "calendarRailTitle": "予定あり（カレンダー）",
     "calendarBusy": "予定あり · {{start}} – {{end}}",
     "alarmSwitch": "枠の開始時にアラーム",
-    "alarmBellA11y": "この枠にアラームあり"
+    "alarmBellA11y": "この枠にアラームあり",
+    "microFragment": "フラグメント {{current}} / {{total}}",
+    "microDuration": "約2分 · マイクロ習慣"
   },
   "focusMode": {
     "title": "セッションモード",
@@ -138,6 +134,10 @@
     "screenTitle": "明瞭さの概要",
     "screenSubtitle": "コパイロットからの観察 — 評価ではなく気づき。",
     "loading": "読み込み中…",
+    "wellbeingTitle": "ウェルビーイングの継続",
+    "wellbeingHint": "今日のマイクロ習慣スロットのうち確認済みの割合（レール上の予定）。",
+    "wellbeingEmpty": "今日はレールにマイクロ習慣がありません。",
+    "wellbeingMeta": "{{done}} / {{total}} ミニ枠を確認",
     "clarityTitle": "今日の明瞭さ",
     "clarityHint": "穏やかな読み：実際の時間が見積もりにどれだけ近かったか（完了したフォーカスのみ）。",
     "noSessionsToday": "今日はまだ完了したフォーカスがありません。カプセルを終えるとここに表示されます。",
@@ -242,14 +242,7 @@
         "stats": "ダッシュボードは眠る。あなたも、できれば。"
       }
     },
-    "suggestFocusCapsule": "とても速いペースですね。難しいタスクにはフォーカスカプセルが役立つかもしれません。",
-    "mood": {
-      "0": "ゆっくりいこう？レールのための小さな一歩から。",
-      "1": "重い一日 — まず一つのブロックだけ。あとは後で。",
-      "2": "正直なペースで：意図を一つはっきり、次へ。",
-      "3": "いい感じのエネルギー — レールに一つはっきりしたアクションを。",
-      "4": "最高のエネルギー！このレールを一緒に制しよう。"
-    }
+    "suggestFocusCapsule": "とても速いペースですね。難しいタスクにはフォーカスカプセルが役立つかもしれません。"
   },
   "connectors": {
     "whatsapp": "WhatsApp",

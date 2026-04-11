@@ -6,9 +6,8 @@ import { insertIntention } from '../api/localDb';
 import { syncPendingIntentions } from '../api/syncService';
 import type { UserSpectrumState } from '../context/UserSpectrumContext';
 import {
-  computeIntentionPriority,
+  analyzeNewIntentionSemantics,
   estimateDurationMinutes,
-  inferIsLateNightIntent,
 } from './agentLogic';
 import {
   ensureNotificationPermissions,
@@ -58,15 +57,10 @@ export async function ingestExternalRawMessage(options: {
     parsed.description,
     spectrum,
   );
-  const priority = computeIntentionPriority(
+  const { priority, isMicroHabit, isLateNight } = analyzeNewIntentionSemantics(
     parsed.title,
     parsed.description,
     spectrum,
-    now,
-  );
-  const isLateNight = inferIsLateNightIntent(
-    parsed.title,
-    parsed.description,
     now,
   );
 
@@ -90,6 +84,7 @@ export async function ingestExternalRawMessage(options: {
     user_forced_urgent: false,
     is_late_night: isLateNight,
     alarm_enabled: false,
+    is_micro_habit: isMicroHabit,
   });
 
   if (notify) {

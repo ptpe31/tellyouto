@@ -80,6 +80,9 @@
     "fieldDescription": "Detail (optional)",
     "urgentLabel": "Mark as urgent",
     "alarmLabel": "Set an alarm",
+    "microNowTitle": "Right now",
+    "microVerifyQuestion": "Did you do this small step?",
+    "microVerifyCta": "Check in",
     "done": "Done",
     "cancel": "Cancel",
     "save": "Save",
@@ -87,16 +90,7 @@
       "pending": "Pending",
       "active": "Active",
       "done": "Done"
-    },
-    "cockpitKicker": "Tell Me To",
-    "sectionNow": "Now",
-    "sectionNext": "Up next",
-    "launchCta": "LAUNCH",
-    "continueCta": "CONTINUE",
-    "moodTitle": "How are you feeling right now?",
-    "nextStarts": "From {{time}}",
-    "emptyCockpit": "Nothing on your rail yet — tap + for an intention.",
-    "nowIdle": "Nothing in progress — pick your next move below or add an intention."
+    }
   },
   "timeline": {
     "subtitle": "Today’s rail — suggested slots follow your spectrum (high Momentum → deeper blocks).",
@@ -112,7 +106,9 @@
     "calendarRailTitle": "Unavailable (calendar)",
     "calendarBusy": "Busy · {{start}} – {{end}}",
     "alarmSwitch": "Alarm at slot start",
-    "alarmBellA11y": "Alarm enabled for this slot"
+    "alarmBellA11y": "Alarm enabled for this slot",
+    "microFragment": "Fragment {{current}} / {{total}}",
+    "microDuration": "~ 2 min · micro-habit"
   },
   "focusMode": {
     "title": "Session mode",
@@ -138,6 +134,10 @@
     "screenTitle": "Clarity overview",
     "screenSubtitle": "Observations from your co-pilot — gentle, not grades.",
     "loading": "Loading…",
+    "wellbeingTitle": "Wellbeing consistency",
+    "wellbeingHint": "Share of today’s micro-habit slots you checked off (vs. pastilles scheduled on the rail).",
+    "wellbeingEmpty": "No micro-habits on the rail today.",
+    "wellbeingMeta": "{{done}} / {{total}} mini-slots confirmed",
     "clarityTitle": "Today’s clarity",
     "clarityHint": "A soft read on how your actual minutes compared to what you planned (completed focus only).",
     "noSessionsToday": "No completed focus yet today. Close a capsule and this will fill in.",
@@ -242,14 +242,7 @@
         "stats": "Dashboards sleep till morning—maybe you should too."
       }
     },
-    "suggestFocusCapsule": "You’re moving fast! For stickier work, a Focus Capsule might help you stay with it.",
-    "mood": {
-      "0": "Shall we go gently? Here’s one small step for your rail.",
-      "1": "Heavy day — pick one clear block; the rest can wait.",
-      "2": "Let’s find an honest rhythm: one clear intention, then the next.",
-      "3": "Nice energy — let’s land one crisp move on this rail.",
-      "4": "Full power! Let’s own this rail together."
-    }
+    "suggestFocusCapsule": "You’re moving fast! For stickier work, a Focus Capsule might help you stay with it."
   },
   "connectors": {
     "whatsapp": "WhatsApp",

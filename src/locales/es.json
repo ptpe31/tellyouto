@@ -80,6 +80,9 @@
     "fieldDescription": "Detalle (opcional)",
     "urgentLabel": "Marcar como urgente",
     "alarmLabel": "Poner alarma",
+    "microNowTitle": "Ahora",
+    "microVerifyQuestion": "¿Ya hiciste este pequeño gesto?",
+    "microVerifyCta": "Confirmar",
     "done": "Hecho",
     "cancel": "Cancelar",
     "save": "Guardar",
@@ -87,16 +90,7 @@
       "pending": "Pendiente",
       "active": "Activa",
       "done": "Hecha"
-    },
-    "cockpitKicker": "Tell Me To",
-    "sectionNow": "Ahora",
-    "sectionNext": "Siguiente",
-    "launchCta": "LANZAR",
-    "continueCta": "CONTINUAR",
-    "moodTitle": "¿Cómo te sientes ahora?",
-    "nextStarts": "Desde las {{time}}",
-    "emptyCockpit": "Nada en el riel — toca + para una intención.",
-    "nowIdle": "Nada en curso — elige abajo o añade una intención."
+    }
   },
   "timeline": {
     "subtitle": "Riel del día — ventanas sugeridas según tu espectro (Momentum alto → bloques más profundos).",
@@ -112,7 +106,9 @@
     "calendarRailTitle": "No disponible (calendario)",
     "calendarBusy": "Ocupado · {{start}} – {{end}}",
     "alarmSwitch": "Alarma al inicio del hueco",
-    "alarmBellA11y": "Alarma activa para este hueco"
+    "alarmBellA11y": "Alarma activa para este hueco",
+    "microFragment": "Fragmento {{current}} / {{total}}",
+    "microDuration": "~ 2 min · micro-hábito"
   },
   "focusMode": {
     "title": "Modo de sesión",
@@ -138,6 +134,10 @@
     "screenTitle": "Balance de claridad",
     "screenSubtitle": "Miradas del copiloto — observación, no juicio.",
     "loading": "Cargando…",
+    "wellbeingTitle": "Constancia de bienestar",
+    "wellbeingHint": "Parte de los mini-huecos de micro-hábitos confirmados hoy (pastillas previstas en el riel).",
+    "wellbeingEmpty": "Ningún micro-hábito planificado hoy en el riel.",
+    "wellbeingMeta": "{{done}} / {{total}} mini-huecos confirmados",
     "clarityTitle": "Claridad de hoy",
     "clarityHint": "Lectura suave: qué tan cerca estuvo el tiempo real de lo que planeaste (solo focus terminados).",
     "noSessionsToday": "Aún no hay focus terminado hoy. Cierra una cápsula y aparecerá aquí.",
@@ -242,14 +242,7 @@
         "stats": "Los paneles duermen hasta mañán — tú también si puedes."
       }
     },
-    "suggestFocusCapsule": "¡Vas rápido! Para tareas más densas, una Cápsula de foco podría ayudarte a sostenerlas.",
-    "mood": {
-      "0": "¿Vamos suave? Un pequeño paso para tu riel.",
-      "1": "Día pesado — un bloque claro; el resto espera.",
-      "2": "Ritmo honesto: una intención clara y luego la siguiente.",
-      "3": "Buena energía — una acción nítida en el riel.",
-      "4": "¡Máxima energía! Este riel es nuestro."
-    }
+    "suggestFocusCapsule": "¡Vas rápido! Para tareas más densas, una Cápsula de foco podría ayudarte a sostenerlas."
   },
   "connectors": {
     "whatsapp": "WhatsApp",

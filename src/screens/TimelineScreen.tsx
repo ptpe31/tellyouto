@@ -72,6 +72,7 @@ function TimelineSlotRow({
   onRequestLaunch,
   onAlarmChange,
 }: SlotRowProps) {
+  const isMicro = item.railVariant === 'micro_pastille';
   const opacity = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
 
@@ -94,9 +95,14 @@ function TimelineSlotRow({
 
   return (
     <Animated.View style={{ opacity, transform: [{ translateX }] }}>
-      <NeumorphicCard style={styles.card}>
+      <NeumorphicCard
+        style={[
+          isMicro ? styles.pastilleCard : styles.card,
+          isMicro ? { backgroundColor: 'rgba(195, 225, 210, 0.42)' } : null,
+        ]}
+      >
         <View style={styles.titleRow}>
-          {item.intention.alarm_enabled ? (
+          {item.intention.alarm_enabled && !isMicro ? (
             <Text
               style={styles.bellGlyph}
               accessibilityLabel={t('timeline.alarmBellA11y')}
@@ -105,15 +111,32 @@ function TimelineSlotRow({
             </Text>
           ) : null}
           <Text
-            style={[styles.cardTitle, { color: theme.colors.onSurface, flex: 1 }]}
+            style={[
+              isMicro ? styles.pastilleTitle : styles.cardTitle,
+              { color: theme.colors.onSurface, flex: 1 },
+            ]}
           >
             {item.intention.title}
           </Text>
         </View>
+        {isMicro &&
+        item.microFragmentIndex != null &&
+        item.microFragmentTotal != null ? (
+          <Text
+            style={[styles.microBadge, { color: theme.colors.onSurfaceVariant }]}
+          >
+            {t('timeline.microFragment', {
+              current: item.microFragmentIndex,
+              total: item.microFragmentTotal,
+            })}
+          </Text>
+        ) : null}
         <Text style={[styles.meta, { color: theme.colors.primary }]}>
-          {t('timeline.estimated', {
-            minutes: item.intention.estimated_duration,
-          })}
+          {isMicro
+            ? t('timeline.microDuration')
+            : t('timeline.estimated', {
+                minutes: item.intention.estimated_duration,
+              })}
         </Text>
         <Text style={[styles.slot, { color: theme.colors.onSurfaceVariant }]}>
           {t('timeline.suggestedWindow', {
@@ -121,7 +144,7 @@ function TimelineSlotRow({
             end: item.endLabel,
           })}
         </Text>
-        {item.intention.description ? (
+        {item.intention.description && !isMicro ? (
           <Text
             style={[styles.desc, { color: theme.colors.onSurfaceVariant }]}
             numberOfLines={2}
@@ -129,6 +152,7 @@ function TimelineSlotRow({
             {item.intention.description}
           </Text>
         ) : null}
+        {!isMicro ? (
         <View style={styles.alarmRow}>
           <Text style={[styles.alarmLabel, { color: theme.colors.onSurface }]}>
             {t('timeline.alarmSwitch')}
@@ -138,6 +162,7 @@ function TimelineSlotRow({
             onValueChange={(v) => onAlarmChange(item.intention, v)}
           />
         </View>
+        ) : null}
         <View style={styles.rowActions}>
           <Pressable
             onPress={runQuickDone}
@@ -465,6 +490,13 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '600', marginBottom: 6 },
   sub: { fontSize: 14, lineHeight: 20, marginBottom: 12 },
   card: { marginBottom: 14 },
+  pastilleCard: {
+    marginBottom: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  pastilleTitle: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
+  microBadge: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',

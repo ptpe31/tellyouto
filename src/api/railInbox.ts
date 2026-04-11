@@ -10,9 +10,8 @@ import {
 
 import type { UserSpectrumState } from '../context/UserSpectrumContext';
 import {
-  computeIntentionPriority,
+  analyzeNewIntentionSemantics,
   estimateDurationMinutes,
-  inferIsLateNightIntent,
 } from '../services/agentLogic';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 
@@ -57,13 +56,9 @@ export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => 
             description,
             spectrum,
           );
-          const priority = computeIntentionPriority(
-            title,
-            description,
-            spectrum,
-            now,
-          );
-          const is_late_night = inferIsLateNightIntent(title, description, now);
+          const { priority, isMicroHabit, isLateNight } =
+            analyzeNewIntentionSemantics(title, description, spectrum, now);
+          const is_late_night = isLateNight;
 
           try {
             await insertIntention({
@@ -88,6 +83,7 @@ export function subscribeRailInbox(getSpectrum: () => UserSpectrumState): () => 
               user_forced_urgent: false,
               is_late_night,
               alarm_enabled: false,
+              is_micro_habit: isMicroHabit,
             });
             await deleteDoc(doc(db, 'devices', deviceId, 'rail_inbox', c.id));
             void syncPendingIntentions();

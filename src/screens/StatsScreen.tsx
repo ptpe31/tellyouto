@@ -13,14 +13,20 @@ import { useTheme } from 'react-native-paper';
 import Svg, { Circle, G } from 'react-native-svg';
 
 import {
+  countMicroHabitChecksOnDay,
   listCompletedSessionsBetween,
+  listIntentionsDescending,
   listRecentCompletedFocusSessions,
   LOCAL_DB_RESET_EVENT,
   type IntentionRow,
 } from '../api/localDb';
+import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { AgentInsight } from '../components/AgentInsight';
 import { NeumorphicCard } from '../components';
+import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
 import { usePower } from '../context/PowerContext';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { buildTimelineSlots, type BusyInterval } from '../services/agentLogic';
 import {
   clarityPercent,
   distributeMinutesBySpectrum,
@@ -54,6 +60,10 @@ function startEndLocalDay(d: Date): { start: number; end: number } {
   const e = new Date(d);
   e.setHours(23, 59, 59, 999);
   return { start: s.getTime(), end: e.getTime() };
+}
+
+function localDayYmd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function groupSessionsByDay(rows: IntentionRow[]): {
@@ -161,20 +171,47 @@ export function StatsScreen() {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   const power = usePower();
+  const { spectrum } = useUserSpectrum();
+  const { connectEnabled, refreshBusy } = useCalendarIntegration();
   const [loading, setLoading] = useState(true);
   const [todayRows, setTodayRows] = useState<IntentionRow[]>([]);
   const [historyRows, setHistoryRows] = useState<IntentionRow[]>([]);
+  const [wellbeingChecks, setWellbeingChecks] = useState(0);
+  const [wellbeingScheduled, setWellbeingScheduled] = useState(0);
 
   const load = useCallback(async () => {
     const { start, end } = startEndLocalDay(new Date());
-    const [dayList, recent] = await Promise.all([
+    const dayYmd = localDayYmd(new Date());
+    const [dayList, recent, pending, checks] = await Promise.all([
       listCompletedSessionsBetween(start, end),
       listRecentCompletedFocusSessions(200),
+      listIntentionsDescending(),
+      countMicroHabitChecksOnDay(dayYmd),
     ]);
     setTodayRows(dayList);
     setHistoryRows(recent);
+    setWellbeingChecks(checks);
+    const pend = pending.filter((r) => r.status !== 'done');
+    let busy: BusyInterval[] = [];
+    if (connectEnabled) {
+      busy = await refreshBusy();
+    }
+    const slots = buildTimelineSlots(
+      pend,
+      {
+        structure: spectrum.structure,
+        momentum: spectrum.momentum,
+        zen: spectrum.zen,
+        stats: spectrum.stats,
+      },
+      new Date(),
+      { busyIntervals: busy },
+    );
+    setWellbeingScheduled(
+      slots.filter((s) => s.railVariant === 'micro_pastille').length,
+    );
     setLoading(false);
-  }, []);
+  }, [spectrum, connectEnabled, refreshBusy]);
 
   useFocusEffect(
     useCallback(() => {
@@ -187,7 +224,13 @@ export function StatsScreen() {
     const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
       void load();
     });
-    return () => sub.remove();
+    const sub2 = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT, () => {
+      void load();
+    });
+    return () => {
+      sub.remove();
+      sub2.remove();
+    };
   }, [load]);
 
   const dist = useMemo(
@@ -198,6 +241,12 @@ export function StatsScreen() {
   const totalMin = totalSpectrumMinutes(dist);
   const dom = useMemo(() => dominantAxis(dist), [dist]);
   const clarity = useMemo(() => clarityPercent(todayRows), [todayRows]);
+  const wellbeingPct = useMemo(() => {
+    if (wellbeingScheduled <= 0) return null;
+    return Math.round(
+      Math.min(100, (wellbeingChecks / wellbeingScheduled) * 100),
+    );
+  }, [wellbeingChecks, wellbeingScheduled]);
   const dayGroups = useMemo(
     () => groupSessionsByDay(historyRows),
     [historyRows],
@@ -257,6 +306,34 @@ export function StatsScreen() {
             isLowPower={power.isLowPower}
             energyScore={power.energyScore}
           />
+
+          <NeumorphicCard style={styles.card}>
+            <Text style={[styles.cardTitle, { color: theme.colors.primary }]}>
+              {t('stats.wellbeingTitle')}
+            </Text>
+            <Text
+              style={[styles.cardHint, { color: theme.colors.onSurfaceVariant }]}
+            >
+              {t('stats.wellbeingHint')}
+            </Text>
+            {wellbeingScheduled === 0 ? (
+              <Text style={[styles.empty, { color: theme.colors.onSurface }]}>
+                {t('stats.wellbeingEmpty')}
+              </Text>
+            ) : (
+              <>
+                <Text style={[styles.clarityBig, { color: palette.teal }]}>
+                  {wellbeingPct}%
+                </Text>
+                <Text style={[styles.meta, { color: theme.colors.onSurface }]}>
+                  {t('stats.wellbeingMeta', {
+                    done: wellbeingChecks,
+                    total: wellbeingScheduled,
+                  })}
+                </Text>
+              </>
+            )}
+          </NeumorphicCard>
 
           <NeumorphicCard style={styles.card}>
             <Text style={[styles.cardTitle, { color: theme.colors.primary }]}>
