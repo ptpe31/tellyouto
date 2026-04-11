@@ -1,5 +1,6 @@
 import * as Linking from 'expo-linking';
 
+import { DEBUG_BOT_NUMBER } from '../config/debugConfig';
 import i18n from '../locales/i18n';
 import type { AppLanguage } from '../context/LanguageContext';
 
@@ -13,6 +14,19 @@ export type AppDeepLinkTab = 'radar' | 'timeline' | 'recharge';
  */
 export function buildAppDeepLink(tab: AppDeepLinkTab): string {
   return `${APP_SCHEME}://${tab}`;
+}
+
+/**
+ * Lien WhatsApp (dev) avec message de liaison au Rail (prénom + identifiant appareil).
+ */
+export function buildWhatsAppRailDeepLink(
+  firstName: string,
+  userUid: string,
+): string {
+  const safeName = firstName.trim() || 'toi';
+  const safeUid = userUid.trim();
+  const message = `Hello ! C'est ${safeName}. Connecte-moi à mon Rail ID: ${safeUid}.`;
+  return `https://wa.me/${DEBUG_BOT_NUMBER}?text=${encodeURIComponent(message)}`;
 }
 
 /**

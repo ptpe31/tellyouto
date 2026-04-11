@@ -1,6 +1,8 @@
 import * as Clipboard from 'expo-clipboard';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -28,8 +30,10 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import {
   getBotInitializationMessage,
   getAppLinkForConnector,
+  buildWhatsAppRailDeepLink,
 } from '../services/connectorLinks';
 import { pushDeviceProfileToFirestore } from '../api/userProfile';
+import { getOrCreateDeviceId } from '../api/syncService';
 
 type Props = {
   onComplete: () => void;
@@ -59,6 +63,26 @@ export function OnboardingScreen({ onComplete }: Props) {
   const [selectedChannel, setSelectedChannel] =
     useState<PrivateChannelId | null>(null);
   const [initCopied, setInitCopied] = useState(false);
+  const [waitingConnection, setWaitingConnection] = useState(false);
+  const [waLinkPreview, setWaLinkPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedChannel !== 'whatsapp') {
+      setWaLinkPreview(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const uid = await getOrCreateDeviceId();
+      const name = (spectrum.first_name || firstNameInput).trim() || 'toi';
+      if (!cancelled) {
+        setWaLinkPreview(buildWhatsAppRailDeepLink(name, uid));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChannel, spectrum.first_name, firstNameInput]);
 
   const finishOnboarding = async (finalWeights = weights) => {
     await applyWeightsAndPersist(finalWeights);
@@ -122,6 +146,25 @@ export function OnboardingScreen({ onComplete }: Props) {
   }
 
   if (step === PRIVATE_CHANNEL_STEP) {
+    if (waitingConnection) {
+      return (
+        <View
+          style={[
+            styles.flex,
+            styles.waitingWrap,
+            { backgroundColor: theme.colors.background },
+          ]}
+        >
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text
+            style={[styles.waitingText, { color: theme.colors.onSurface }]}
+          >
+            {t('onboarding.privateChannel.waitingConnection')}
+          </Text>
+        </View>
+      );
+    }
+
     const appLink = getAppLinkForConnector('radar');
     const initMsg = getBotInitializationMessage(
       language,
@@ -197,9 +240,12 @@ export function OnboardingScreen({ onComplete }: Props) {
                 {selected ? (
                   <Text
                     style={[styles.channelHint, { color: theme.colors.primary }]}
-                    numberOfLines={2}
+                    numberOfLines={4}
                   >
-                    {resolvePrivateChannelBotUrl(id) || t('onboarding.privateChannel.urlPending')}
+                    {id === 'whatsapp' && waLinkPreview
+                      ? waLinkPreview
+                      : resolvePrivateChannelBotUrl(id) ||
+                        t('onboarding.privateChannel.urlPending')}
                   </Text>
                 ) : null}
               </Pressable>
@@ -211,10 +257,37 @@ export function OnboardingScreen({ onComplete }: Props) {
             style={styles.channelCta}
             disabled={selectedChannel === null}
             onPress={async () => {
-              if (selectedChannel) {
-                await savePrivateChannelChoice(selectedChannel);
-                const url = resolvePrivateChannelBotUrl(selectedChannel);
-                if (url) void Linking.openURL(url);
+              if (!selectedChannel) return;
+              await savePrivateChannelChoice(selectedChannel);
+
+              if (selectedChannel === 'whatsapp') {
+                const uid = await getOrCreateDeviceId();
+                const name = (spectrum.first_name || firstNameInput).trim() || 'toi';
+                const url = buildWhatsAppRailDeepLink(name, uid);
+                try {
+                  await Linking.openURL(url);
+                  setWaitingConnection(true);
+                  setTimeout(() => {
+                    setWaitingConnection(false);
+                    void finishOnboarding();
+                  }, 3200);
+                } catch {
+                  Alert.alert(
+                    t('onboarding.privateChannel.whatsappErrorTitle'),
+                    t('onboarding.privateChannel.whatsappErrorBody'),
+                  );
+                }
+                return;
+              }
+
+              const url = resolvePrivateChannelBotUrl(selectedChannel);
+              try {
+                if (url) await Linking.openURL(url);
+              } catch {
+                Alert.alert(
+                  t('onboarding.privateChannel.whatsappErrorTitle'),
+                  t('onboarding.privateChannel.genericOpenErrorBody'),
+                );
               }
               void finishOnboarding();
             }}
@@ -329,4 +402,11 @@ const styles = StyleSheet.create({
   channelCta: { marginTop: 8, alignSelf: 'stretch' },
   initLabel: { fontSize: 12, fontWeight: '700', marginBottom: 8 },
   initBody: { fontSize: 14, lineHeight: 21, marginBottom: 12 },
+  waitingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  waitingText: { marginTop: 20, fontSize: 16, textAlign: 'center' },
 });

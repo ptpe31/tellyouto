@@ -78,7 +78,11 @@
       "urlPending": "リンクを設定（EXPO_PUBLIC_BOT_*_URL）",
       "initMessageLabel": "ウェルカムメッセージ（ボット用にコピー）",
       "copyInit": "コピー",
-      "copied": "コピーしました"
+      "copied": "コピーしました",
+      "waitingConnection": "接続を待っています…",
+      "whatsappErrorTitle": "エラー",
+      "whatsappErrorBody": "WhatsApp を開けませんでした。インストールされているか確認してください。",
+      "genericOpenErrorBody": "リンクを開けませんでした。アプリがインストールされているか確認してください。"
     }
   },
   "radar": {
@@ -218,6 +222,9 @@
     "simLineRaw": "通話前に資料を送る",
     "simWhatsApp": "WhatsApp メッセージをシミュレート",
     "simWhatsAppHelp": "WhatsApp コネクタ経由でサンプル意図を SQLite に投入します。",
+    "simWhatsAppIntentionButton": "受信 WhatsApp メッセージをシミュレート",
+    "simWhatsAppIntentionHelp": "ローカル意図「Test WhatsApp」を作成して Radar と Timeline を確認します。",
+    "simWhatsAppIntentionBusy": "テスト意図を作成中…",
     "simLine": "LINE メッセージをシミュレート",
     "simLineHelp": "LINE コネクタで同じフロー。",
     "simBusy": "意図を注入中…",

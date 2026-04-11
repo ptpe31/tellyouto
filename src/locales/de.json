@@ -78,7 +78,11 @@
       "urlPending": "Link konfigurieren (EXPO_PUBLIC_BOT_*_URL)",
       "initMessageLabel": "Willkommensnachricht (für den Bot kopieren)",
       "copyInit": "Nachricht kopieren",
-      "copied": "Kopiert!"
+      "copied": "Kopiert!",
+      "waitingConnection": "Warte auf Verbindung...",
+      "whatsappErrorTitle": "Fehler",
+      "whatsappErrorBody": "WhatsApp konnte nicht geöffnet werden. Prüfe, ob es installiert ist.",
+      "genericOpenErrorBody": "Link konnte nicht geöffnet werden. Prüfe, ob die App installiert ist."
     }
   },
   "radar": {
@@ -218,6 +222,9 @@
     "simLineRaw": "Deck vor dem Call senden",
     "simWhatsApp": "WhatsApp-Nachricht simulieren",
     "simWhatsAppHelp": "Beispiel-Intention über WhatsApp-Connector und SQLite einfügen.",
+    "simWhatsAppIntentionButton": "WhatsApp-Nachricht simulieren (empfangen)",
+    "simWhatsAppIntentionHelp": "Erstellt die lokale Intention „Test WhatsApp“ für Radar und Timeline.",
+    "simWhatsAppIntentionBusy": "Test-Intention wird erstellt…",
     "simLine": "LINE-Nachricht simulieren",
     "simLineHelp": "Gleicher Ablauf mit LINE-Connector.",
     "simBusy": "Intention wird eingespielt…",

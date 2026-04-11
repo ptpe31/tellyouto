@@ -78,7 +78,11 @@
       "urlPending": "链接待配置（EXPO_PUBLIC_BOT_*_URL）",
       "initMessageLabel": "欢迎消息（复制给机器人）",
       "copyInit": "复制消息",
-      "copied": "已复制"
+      "copied": "已复制",
+      "waitingConnection": "正在等待连接…",
+      "whatsappErrorTitle": "错误",
+      "whatsappErrorBody": "无法打开 WhatsApp。请确认已安装。",
+      "genericOpenErrorBody": "无法打开链接。请确认应用已安装。"
     }
   },
   "radar": {
@@ -218,6 +222,9 @@
     "simLineRaw": "会议前发送演示文稿",
     "simWhatsApp": "模拟 WhatsApp 消息",
     "simWhatsAppHelp": "通过 WhatsApp 连接器将示例意图写入 SQLite。",
+    "simWhatsAppIntentionButton": "模拟收到 WhatsApp 消息",
+    "simWhatsAppIntentionHelp": "创建本地意图「Test WhatsApp」以验证雷达与时间线。",
+    "simWhatsAppIntentionBusy": "正在创建测试意图…",
     "simLine": "模拟 LINE 消息",
     "simLineHelp": "使用 LINE 连接器的相同流程。",
     "simBusy": "正在注入意图…",

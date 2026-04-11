@@ -78,7 +78,11 @@
       "urlPending": "Lien à définir (EXPO_PUBLIC_BOT_*_URL)",
       "initMessageLabel": "Message d’accueil (copie pour le bot)",
       "copyInit": "Copier le message",
-      "copied": "Copié !"
+      "copied": "Copié !",
+      "waitingConnection": "En attente de connexion...",
+      "whatsappErrorTitle": "Erreur",
+      "whatsappErrorBody": "Impossible d'ouvrir WhatsApp. Vérifie qu'il est installé.",
+      "genericOpenErrorBody": "Impossible d'ouvrir le lien. Vérifie que l'application est installée."
     }
   },
   "radar": {
@@ -218,6 +222,9 @@
     "simLineRaw": "Envoyer la présentation avant l’appel",
     "simWhatsApp": "Simuler message WhatsApp",
     "simWhatsAppHelp": "Injecte une intention d’exemple via le connecteur WhatsApp et SQLite (même pipeline qu’un webhook réel).",
+    "simWhatsAppIntentionButton": "Simuler message WhatsApp reçu",
+    "simWhatsAppIntentionHelp": "Crée l’intention locale « Test WhatsApp » pour vérifier Radar et Timeline.",
+    "simWhatsAppIntentionBusy": "Création de l’intention test…",
     "simLine": "Simuler message LINE",
     "simLineHelp": "Même flux avec le connecteur LINE.",
     "simBusy": "Injection de l’intention…",

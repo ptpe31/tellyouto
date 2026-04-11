@@ -78,7 +78,11 @@
       "urlPending": "Link to configure (EXPO_PUBLIC_BOT_*_URL)",
       "initMessageLabel": "Welcome message (copy for the bot)",
       "copyInit": "Copy message",
-      "copied": "Copied!"
+      "copied": "Copied!",
+      "waitingConnection": "Waiting for connection...",
+      "whatsappErrorTitle": "Error",
+      "whatsappErrorBody": "Could not open WhatsApp. Check that it is installed.",
+      "genericOpenErrorBody": "Could not open the link. Check that the app is installed."
     }
   },
   "radar": {
@@ -218,6 +222,9 @@
     "simLineRaw": "Send the deck before the call",
     "simWhatsApp": "Simulate WhatsApp message",
     "simWhatsAppHelp": "Inserts a sample intention via the WhatsApp connector and SQLite (same pipeline as a real webhook).",
+    "simWhatsAppIntentionButton": "Simulate received WhatsApp message",
+    "simWhatsAppIntentionHelp": "Creates the local intention “Test WhatsApp” to verify Radar and Timeline.",
+    "simWhatsAppIntentionBusy": "Creating test intention…",
     "simLine": "Simulate LINE message",
     "simLineHelp": "Same flow with the LINE connector.",
     "simBusy": "Injecting intention…",

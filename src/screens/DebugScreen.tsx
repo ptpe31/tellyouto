@@ -1,7 +1,9 @@
+import { randomUUID } from 'expo-crypto';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  DeviceEventEmitter,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,12 +14,15 @@ import { Button, useTheme } from 'react-native-paper';
 
 import { CalendarGranularSection } from '../components';
 import { LineConnector, WhatsAppConnector } from '../api/connectors';
+import { insertIntention } from '../api/localDb';
+import { syncPendingIntentions } from '../api/syncService';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { useOnboardingReset } from '../context/OnboardingResetContext';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { ingestExternalRawMessage } from '../services/externalIntentIngest';
 import { seedDemoTypicalDay } from '../services/demoTypicalDay';
+import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { palette } from '../theme/colors';
 
 export function DebugScreen() {
@@ -27,7 +32,13 @@ export function DebugScreen() {
   const power = usePower();
   const { resetProfileToOnboarding } = useOnboardingReset();
   const [busy, setBusy] = useState<
-    'profile' | 'db' | 'sim' | 'simLine' | 'demoDay' | null
+    | 'profile'
+    | 'db'
+    | 'sim'
+    | 'simLine'
+    | 'demoDay'
+    | 'simWaIntent'
+    | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -210,6 +221,41 @@ export function DebugScreen() {
     }
   }, [spectrum.platform_type, spectrum.platform_user_id, t]);
 
+  const onSimWhatsAppIntention = useCallback(async () => {
+    setLastError(null);
+    setBusy('simWaIntent');
+    try {
+      await insertIntention({
+        id: randomUUID(),
+        title: 'Test WhatsApp',
+        description: '',
+        status: 'pending',
+        priority: 72,
+        weights: {
+          structure: spectrum.structure,
+          momentum: spectrum.momentum,
+          zen: spectrum.zen,
+          stats: spectrum.stats,
+        },
+        platform_type: 'whatsapp',
+        platform_user_id: spectrum.platform_user_id?.trim() || 'debug_wa',
+        created_at: Date.now(),
+        estimated_duration: 25,
+        user_forced_urgent: false,
+        is_late_night: false,
+        alarm_enabled: false,
+        is_micro_habit: false,
+        is_hard_constraint: false,
+      });
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
+      void syncPendingIntentions();
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, [spectrum]);
+
   const onSimLine = useCallback(async () => {
     setLastError(null);
     setBusy('simLine');
@@ -287,6 +333,17 @@ export function DebugScreen() {
           {t('debug.simWhatsAppHelp')}
         </Text>
         <Button
+          mode="contained-tonal"
+          onPress={onSimWhatsAppIntention}
+          disabled={busy !== null}
+          style={styles.btn}
+        >
+          {t('debug.simWhatsAppIntentionButton')}
+        </Button>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.simWhatsAppIntentionHelp')}
+        </Text>
+        <Button
           mode="outlined"
           onPress={onSimLine}
           disabled={busy !== null}
@@ -337,7 +394,9 @@ export function DebugScreen() {
                 ? t('debug.busySqlite')
                 : busy === 'demoDay'
                   ? t('debug.demoDayBusy')
-                  : t('debug.simBusy')}
+                  : busy === 'simWaIntent'
+                    ? t('debug.simWhatsAppIntentionBusy')
+                    : t('debug.simBusy')}
           </Text>
         </View>
       )}
