@@ -4,6 +4,7 @@ export {
   insertIntention,
   listIntentionsDescending,
   listUnsyncedIntentions,
+  markIntentionActive,
   markIntentionSynced,
 } from './localDb';
 export type { IntentionRow, IntentionStatus } from './localDb';

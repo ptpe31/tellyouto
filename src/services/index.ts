@@ -4,4 +4,10 @@ export {
   ensureNotificationPermissions,
 } from './notifications';
 export { BACKGROUND_SYNC_TASK } from './backgroundTasks';
-export { computeIntentionPriority } from './agentLogic';
+export {
+  buildTimelineSlots,
+  computeIntentionPriority,
+  estimateDurationMinutes,
+  generateEncouragement,
+} from './agentLogic';
+export type { TimelineSlot } from './agentLogic';

@@ -64,5 +64,20 @@
       "active": "Aktiv",
       "done": "Erledigt"
     }
+  },
+  "timeline": {
+    "subtitle": "Tages-Schiene — vorgeschlagene Fenster nach Spektrum (hohes Momentum → tiefere Blöcke).",
+    "dayRail": "Position im Tag (6–22 Uhr)",
+    "empty": "Noch nichts für die Schiene. Intentionen im Radar hinzufügen.",
+    "estimated": "~ {{minutes}} Min. geschätzt",
+    "suggestedWindow": "Vorschlag: {{start}} – {{end}}",
+    "launch": "Starten"
+  },
+  "focus": {
+    "pause": "Pause",
+    "resume": "Weiter",
+    "finish": "Ende",
+    "feedbackTitle": "Klarheit",
+    "ok": "OK"
   }
 }

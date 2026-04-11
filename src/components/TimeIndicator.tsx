@@ -36,7 +36,7 @@ export function TimeIndicator({
   const position = Math.min(1, Math.max(0, raw));
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, { width: '100%' }]}>
       {label ? (
         <Text style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>
           {label}

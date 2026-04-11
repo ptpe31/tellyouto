@@ -7,6 +7,7 @@ import { useTheme } from 'react-native-paper';
 import { LanguageProvider } from './src/context/LanguageContext';
 import { PowerProvider } from './src/context/PowerContext';
 import { ThemeProvider } from './src/context/ThemeContext';
+import { FocusProtectionProvider } from './src/context/FocusProtectionContext';
 import { IntentionSyncBootstrap } from './src/components/IntentionSyncBootstrap';
 import { UserSpectrumProvider } from './src/context/UserSpectrumContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
@@ -29,9 +30,11 @@ export default function App() {
           <LanguageProvider>
             <PowerProvider>
               <UserSpectrumProvider>
-                <IntentionSyncBootstrap />
-                <AppNavigation />
-                <StatusBarRoot />
+                <FocusProtectionProvider>
+                  <IntentionSyncBootstrap />
+                  <AppNavigation />
+                  <StatusBarRoot />
+                </FocusProtectionProvider>
               </UserSpectrumProvider>
             </PowerProvider>
           </LanguageProvider>

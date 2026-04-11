@@ -64,5 +64,20 @@
       "active": "Activa",
       "done": "Hecha"
     }
+  },
+  "timeline": {
+    "subtitle": "Riel del día — ventanas sugeridas según tu espectro (Momentum alto → bloques más profundos).",
+    "dayRail": "Posición en el día (6h–22h)",
+    "empty": "Nada que colocar en el riel. Añade intenciones desde Radar.",
+    "estimated": "~ {{minutes}} min estimadas",
+    "suggestedWindow": "Ventana sugerida: {{start}} – {{end}}",
+    "launch": "Lanzar"
+  },
+  "focus": {
+    "pause": "Pausa",
+    "resume": "Reanudar",
+    "finish": "Fin",
+    "feedbackTitle": "Claridad",
+    "ok": "OK"
   }
 }

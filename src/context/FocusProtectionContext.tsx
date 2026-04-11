@@ -24,10 +24,10 @@ export function FocusProtectionProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [isProtectionActive, setProtectionActive] = useState(false);
+  const [isProtectionActive, setIsProtectionActive] = useState(false);
 
   const setProtectionActive = useCallback((v: boolean) => {
-    setProtectionActive(v);
+    setIsProtectionActive(v);
   }, []);
 
   const value = useMemo(

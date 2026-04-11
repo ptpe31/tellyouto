@@ -64,5 +64,20 @@
       "active": "Attiva",
       "done": "Completata"
     }
+  },
+  "timeline": {
+    "subtitle": "Binario della giornata — slot suggeriti in base allo spettro (Momentum alto → blocchi più profondi).",
+    "dayRail": "Posizione nella giornata (6–22)",
+    "empty": "Niente da mettere sul binario. Aggiungi intenzioni dal Radar.",
+    "estimated": "~ {{minutes}} min stimate",
+    "suggestedWindow": "Finestra suggerita: {{start}} – {{end}}",
+    "launch": "Avvia"
+  },
+  "focus": {
+    "pause": "Pausa",
+    "resume": "Riprendi",
+    "finish": "Fine",
+    "feedbackTitle": "Chiarezza",
+    "ok": "OK"
   }
 }

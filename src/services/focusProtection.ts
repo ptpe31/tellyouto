@@ -4,7 +4,6 @@
  */
 export function simulatedSetNotificationSuppression(active: boolean): void {
   if (__DEV__) {
-    // eslint-disable-next-line no-console
     console.info(
       `[TellYouTo] Focus protection: notifications ${active ? 'supprimées (simulation)' : 'rétablies'}`,
     );

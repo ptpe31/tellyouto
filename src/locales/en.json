@@ -64,5 +64,20 @@
       "active": "Active",
       "done": "Done"
     }
+  },
+  "timeline": {
+    "subtitle": "Today’s rail — suggested slots follow your spectrum (high Momentum → deeper blocks).",
+    "dayRail": "Where you are in the day (6am–10pm)",
+    "empty": "Nothing to place on the rail yet. Add intentions from Radar.",
+    "estimated": "~ {{minutes}} min estimated",
+    "suggestedWindow": "Suggested window: {{start}} – {{end}}",
+    "launch": "Launch"
+  },
+  "focus": {
+    "pause": "Pause",
+    "resume": "Resume",
+    "finish": "End",
+    "feedbackTitle": "Clarity",
+    "ok": "OK"
   }
 }

@@ -28,7 +28,10 @@ import {
 import { syncPendingIntentions } from '../api/syncService';
 import { NeumorphicCard } from '../components';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { computeIntentionPriority } from '../services/agentLogic';
+import {
+  computeIntentionPriority,
+  estimateDurationMinutes,
+} from '../services/agentLogic';
 
 export function RadarScreen() {
   const { t } = useTranslation();
@@ -61,6 +64,11 @@ export function RadarScreen() {
       description.trim(),
       spectrum,
     );
+    const estimated_duration = estimateDurationMinutes(
+      trimmedTitle,
+      description.trim(),
+      spectrum,
+    );
 
     await insertIntention({
       id: randomUUID(),
@@ -77,6 +85,7 @@ export function RadarScreen() {
       platform_type: 'none',
       platform_user_id: spectrum.platform_user_id,
       created_at: Date.now(),
+      estimated_duration,
     });
 
     setTitle('');
