@@ -71,7 +71,18 @@
     "screenSubtitle": "Multi-canaux, sans pub, priorité au support.",
     "devNote": "Version dev : le bouton simule l’abonnement sans paiement.",
     "subscribeGold": "S’abonner — 9,99€ / mois",
-    "back": "Fermer"
+    "back": "Fermer",
+    "linkRequiredTitle": "Compte requis",
+    "linkRequiredBody": "Pour conserver ton abonnement Pro entre téléphones, lie ton compte Google ou Apple (même identifiant Firebase).",
+    "linkGoogle": "Continuer avec Google",
+    "linkApple": "Continuer avec Apple",
+    "linkLater": "Plus tard",
+    "linkGoogleOnly": "Lier Google seulement",
+    "linkAppleOnly": "Lier Apple seulement",
+    "linkErrorTitle": "Liaison impossible",
+    "configureGoogleTitle": "Configuration Google",
+    "configureGoogleBody": "Définis EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (et client iOS/Android si besoin) dans .env puis relance Metro.",
+    "googleMissingEnv": "Client Google Web absent : la liaison OAuth ne fonctionnera pas tant que EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID n’est pas défini."
   },
   "channelCatalog": {
     "proBadge": "PRO",
@@ -204,6 +215,8 @@
     "save": "Enregistrer",
     "saveErrorTitle": "Enregistrement impossible",
     "saveErrorBody": "Une erreur s’est produite. Réessaie.",
+    "saveTimeoutTitle": "Délai dépassé",
+    "saveTimeoutBody": "L’écriture SQLite a pris plus de 3 secondes. Réessaie ou redémarre l’app.",
     "status": {
       "pending": "En attente",
       "active": "En cours",

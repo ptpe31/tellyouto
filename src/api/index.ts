@@ -1,3 +1,8 @@
+export {
+  AccountLinkingRequiredError,
+  ensureAuthenticatedUser,
+  isFirebaseUserAnonymous,
+} from './accountLinking';
 export { getFirebaseApp, getFirestoreDb } from './firebase';
 export {
   getLocalDatabase,

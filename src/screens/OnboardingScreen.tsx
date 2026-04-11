@@ -31,7 +31,11 @@ import {
   buildTelegramStartLink,
   getTelegramAllyWelcomeMessage,
 } from '../services/connectorLinks';
-import { pushDeviceProfileToFirestore } from '../api/userProfile';
+import {
+  AD_FREE_UNTIL_MS_FIRESTORE_DEFAULT,
+  pushDeviceProfileToFirestore,
+  pushUserEntitlementsToFirestore,
+} from '../api/userProfile';
 import { getOrCreateDeviceId } from '../api/syncService';
 import {
   canOpenTelegramNative,
@@ -106,8 +110,14 @@ export function OnboardingScreen({ onComplete }: Props) {
           locale: language,
           messenger_reminders_enabled: true,
           messenger_reminder_lead_minutes: 5,
-          ad_free_until_ms: spectrum.ad_free_until_ms ?? undefined,
-          is_pro_user: spectrum.isProUser || undefined,
+        });
+        await pushUserEntitlementsToFirestore({
+          ad_free_until_ms:
+            typeof spectrum.ad_free_until_ms === 'number' &&
+            Number.isFinite(spectrum.ad_free_until_ms)
+              ? spectrum.ad_free_until_ms
+              : AD_FREE_UNTIL_MS_FIRESTORE_DEFAULT,
+          is_pro_user: spectrum.isProUser === true,
         });
       } catch (e: unknown) {
         if (__DEV__) {
@@ -200,6 +210,7 @@ export function OnboardingScreen({ onComplete }: Props) {
       <ScrollView
         style={[styles.flex, { backgroundColor: theme.colors.background }]}
         contentContainerStyle={styles.pad}
+        keyboardShouldPersistTaps="handled"
       >
         <Text style={[styles.kicker, { color: theme.colors.primary }]}>
           {t('onboarding.progress', { current: 1, total: DIAGNOSTIC_STEPS })}
@@ -219,6 +230,11 @@ export function OnboardingScreen({ onComplete }: Props) {
             onChangeText={setFirstNameInput}
             autoCapitalize="words"
             autoCorrect={false}
+            returnKeyType="done"
+            blurOnSubmit={false}
+            onSubmitEditing={() => {
+              if (firstNameInput.trim()) void onContinueFirstName();
+            }}
             style={{ backgroundColor: theme.colors.surface }}
           />
           <Button
@@ -244,6 +260,7 @@ export function OnboardingScreen({ onComplete }: Props) {
         <ScrollView
           style={[styles.flex, { backgroundColor: theme.colors.background }]}
           contentContainerStyle={styles.pad}
+          keyboardShouldPersistTaps="handled"
         >
           <Text style={[styles.kicker, { color: theme.colors.primary }]}>
             {t('onboarding.progress', {
@@ -466,6 +483,7 @@ export function OnboardingScreen({ onComplete }: Props) {
     <ScrollView
       style={[styles.flex, { backgroundColor: theme.colors.background }]}
       contentContainerStyle={styles.pad}
+      keyboardShouldPersistTaps="handled"
     >
       <Text style={[styles.kicker, { color: theme.colors.primary }]}>
         {t('onboarding.progress', {

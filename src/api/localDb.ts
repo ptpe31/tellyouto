@@ -7,6 +7,10 @@ import { Platform } from '../utils/rnPlatform';
 
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
 import { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';
+import {
+  alertNativeModuleMissing,
+  isLikelyMissingNativeModuleError,
+} from '../utils/nativeModuleErrorAlert';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -419,14 +423,15 @@ export async function insertIntention(input: {
   energy_score?: number | null;
   recurrence_rrule?: string | null;
 }): Promise<void> {
-  const database = await getLocalDatabase();
-  const ufu = input.user_forced_urgent ? 1 : 0;
-  const iln = input.is_late_night ? 1 : 0;
-  const alarm = input.alarm_enabled ? 1 : 0;
-  const micro = input.is_micro_habit ? 1 : 0;
-  const hard = input.is_hard_constraint ? 1 : 0;
-  await database.runAsync(
-    `INSERT INTO intentions (
+  try {
+    const database = await getLocalDatabase();
+    const ufu = input.user_forced_urgent ? 1 : 0;
+    const iln = input.is_late_night ? 1 : 0;
+    const alarm = input.alarm_enabled ? 1 : 0;
+    const micro = input.is_micro_habit ? 1 : 0;
+    const hard = input.is_hard_constraint ? 1 : 0;
+    await database.runAsync(
+      `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
@@ -434,35 +439,41 @@ export async function insertIntention(input: {
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
       raw_transcript, energy_score, local_notification_id, recurrence_rrule
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-    [
-      input.id,
-      input.title,
-      input.description,
-      input.status,
-      input.priority,
-      JSON.stringify(input.weights),
-      input.platform_type,
-      input.platform_user_id,
-      input.created_at,
-      input.estimated_duration,
-      ufu,
-      iln,
-      alarm,
-      micro,
-      hard,
-      input.routine_id ?? null,
-      input.anchor_date_ymd ?? null,
-      input.fixed_start_minutes ?? null,
-      input.raw_transcript ?? null,
-      input.energy_score ?? null,
-      input.recurrence_rrule?.trim() ?? null,
-    ],
-  );
-  if (input.alarm_enabled) {
-    const alarmMod = await import('../services/alarmManager');
-    await alarmMod.requestAlarmPermissionIfNeeded();
+      [
+        input.id,
+        input.title,
+        input.description,
+        input.status,
+        input.priority,
+        JSON.stringify(input.weights),
+        input.platform_type,
+        input.platform_user_id,
+        input.created_at,
+        input.estimated_duration,
+        ufu,
+        iln,
+        alarm,
+        micro,
+        hard,
+        input.routine_id ?? null,
+        input.anchor_date_ymd ?? null,
+        input.fixed_start_minutes ?? null,
+        input.raw_transcript ?? null,
+        input.energy_score ?? null,
+        input.recurrence_rrule?.trim() ?? null,
+      ],
+    );
+    if (input.alarm_enabled) {
+      const alarmMod = await import('../services/alarmManager');
+      await alarmMod.requestAlarmPermissionIfNeeded();
+    }
+    await syncNativeRailAlarmsAfterIntentionWrite('insertIntention');
+  } catch (e) {
+    if (isLikelyMissingNativeModuleError(e)) {
+      alertNativeModuleMissing('insertIntention (expo-sqlite / expo-notifications)', e);
+    }
+    throw e;
   }
-  await syncNativeRailAlarmsAfterIntentionWrite('insertIntention');
 }
 
 /** Session déjà terminée (démo / outils pilote) — conserve durées réelles pour les stats. */

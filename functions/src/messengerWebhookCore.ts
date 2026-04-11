@@ -1,4 +1,8 @@
-import { Timestamp, type Firestore } from 'firebase-admin/firestore';
+import {
+  Timestamp,
+  type DocumentData,
+  type Firestore,
+} from 'firebase-admin/firestore';
 
 import {
   formatBotPremiumChannelDenied,
@@ -20,6 +24,28 @@ const DEFAULT_INTENTIONS_QUOTA = (() => {
 
 function bindingDocId(channel: string, messengerUserId: string): string {
   return `${channel}_${messengerUserId}`;
+}
+
+/** Pro surtout sur `users/{firebase_uid}` ; repli `devices.is_pro_user` pour anciens clients. */
+async function resolveIsProUser(
+  firestore: Firestore,
+  deviceData: DocumentData,
+): Promise<boolean> {
+  const uid =
+    typeof deviceData.firebase_uid === 'string' && deviceData.firebase_uid.trim()
+      ? deviceData.firebase_uid.trim()
+      : null;
+  if (uid) {
+    try {
+      const userSnap = await firestore.collection('users').doc(uid).get();
+      if (userSnap.exists && userSnap.data()?.is_pro_user === true) {
+        return true;
+      }
+    } catch {
+      /* indisponible ou règles */
+    }
+  }
+  return deviceData.is_pro_user === true;
 }
 
 export type MessengerWebhookCoreResult = {
@@ -57,7 +83,7 @@ export async function runMessengerWebhookCore(
 
   const deviceSnapPre = await deviceRef.get();
   const dPre = deviceSnapPre.data() ?? {};
-  const isPro = dPre.is_pro_user === true;
+  const isPro = await resolveIsProUser(firestore, dPre);
   const locPre =
     typeof dPre.locale === 'string' && dPre.locale.trim()
       ? dPre.locale.trim()

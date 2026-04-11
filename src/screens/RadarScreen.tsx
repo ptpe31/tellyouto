@@ -76,6 +76,10 @@ import {
 import { useWhatsAppInitCelebration } from '../hooks/useWhatsAppInitCelebration';
 import { Platform } from '../utils/rnPlatform';
 import {
+  alertNativeModuleMissing,
+  isLikelyMissingNativeModuleError,
+} from '../utils/nativeModuleErrorAlert';
+import {
   ONBOARDING_CHANNELS_SKIPPED_KEY,
   RADAR_CHANNELS_NUDGE_DISMISSED_KEY,
 } from '../data/onboardingFlags';
@@ -175,6 +179,17 @@ function RadarIntentionRow({
   );
 }
 
+const RADAR_SAVE_DB_TIMEOUT_MS = 3000;
+
+/** Repli si `randomUUID` échoue (build sans module natif expo-crypto, etc.). */
+function newRadarEntityId(): string {
+  try {
+    return randomUUID();
+  } catch {
+    return `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`;
+  }
+}
+
 export function RadarScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -191,6 +206,7 @@ export function RadarScreen() {
   const [description, setDescription] = useState('');
   const [urgent, setUrgent] = useState(false);
   const [alarm, setAlarm] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [allyTick, setAllyTick] = useState(0);
   const [quickStreak, setQuickStreak] = useState(0);
   const [focusPickTarget, setFocusPickTarget] = useState<IntentionRow | null>(
@@ -361,7 +377,7 @@ export function RadarScreen() {
     [focusPickTarget, shouldWarnForLaunch, navigateFocus],
   );
 
-  const onAdd = async () => {
+  const onAdd = useCallback(async () => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) return;
     Keyboard.dismiss();
@@ -375,7 +391,7 @@ export function RadarScreen() {
     const pending = (await listIntentionsDescending()).filter(
       (r) => r.status !== 'done',
     );
-    let busyForAgent: BusyInterval[] = connectEnabled ? busyIntervals : [];
+    const busyForAgent: BusyInterval[] = connectEnabled ? busyIntervals : [];
     const overlap = previewManualIntentionOverlapsHardRoutine(
       pending,
       trimmedTitle,
@@ -392,52 +408,78 @@ export function RadarScreen() {
       return;
     }
 
+    setIsSaving(true);
     try {
-      const {
-        priority,
-        isMicroHabit,
-        isLateNight: is_late_night,
-        isHardConstraint,
-      } = analyzeNewIntentionSemantics(trimmedTitle, desc, spectrum, now, {
-        userForcedUrgent,
-      });
-      const estimated_duration = estimateDurationMinutes(
-        trimmedTitle,
-        desc,
-        spectrum,
-      );
-
-      if (isHardConstraint) {
-        const plan = inferStructuralRoutinePlan(
+      const persistToLocalDb = async () => {
+        const {
+          priority,
+          isMicroHabit,
+          isLateNight: is_late_night,
+          isHardConstraint,
+        } = analyzeNewIntentionSemantics(trimmedTitle, desc, spectrum, now, {
+          userForcedUrgent,
+        });
+        const estimated_duration = estimateDurationMinutes(
           trimmedTitle,
           desc,
           spectrum,
-          now,
         );
-        if (plan) {
-          const routineId = randomUUID();
-          await insertRoutine({
-            id: routineId,
-            title: trimmedTitle,
-            description: desc,
-            weekday: plan.weekday,
-            start_minutes: plan.startMinutes,
-            duration_min: plan.durationMin,
-            weights: {
-              structure: spectrum.structure,
-              momentum: spectrum.momentum,
-              zen: spectrum.zen,
-              stats: spectrum.stats,
-            },
-            priority,
-            platform_type: 'none',
-            platform_user_id: uid,
-            created_at: Date.now(),
-          });
-          await ensureRoutineIntentionInstancesForHorizon(routineId, uid);
+
+        if (isHardConstraint) {
+          const plan = inferStructuralRoutinePlan(
+            trimmedTitle,
+            desc,
+            spectrum,
+            now,
+          );
+          if (plan) {
+            const routineId = newRadarEntityId();
+            await insertRoutine({
+              id: routineId,
+              title: trimmedTitle,
+              description: desc,
+              weekday: plan.weekday,
+              start_minutes: plan.startMinutes,
+              duration_min: plan.durationMin,
+              weights: {
+                structure: spectrum.structure,
+                momentum: spectrum.momentum,
+                zen: spectrum.zen,
+                stats: spectrum.stats,
+              },
+              priority,
+              platform_type: 'none',
+              platform_user_id: uid,
+              created_at: Date.now(),
+            });
+            await ensureRoutineIntentionInstancesForHorizon(routineId, uid);
+          } else {
+            await insertIntention({
+              id: newRadarEntityId(),
+              title: trimmedTitle,
+              description: desc,
+              status: 'pending',
+              priority,
+              weights: {
+                structure: spectrum.structure,
+                momentum: spectrum.momentum,
+                zen: spectrum.zen,
+                stats: spectrum.stats,
+              },
+              platform_type: 'none',
+              platform_user_id: uid,
+              created_at: Date.now(),
+              estimated_duration,
+              user_forced_urgent: userForcedUrgent,
+              is_late_night,
+              alarm_enabled: alarmPref,
+              is_micro_habit: isMicroHabit,
+              is_hard_constraint: false,
+            });
+          }
         } else {
           await insertIntention({
-            id: randomUUID(),
+            id: newRadarEntityId(),
             title: trimmedTitle,
             description: desc,
             status: 'pending',
@@ -459,74 +501,83 @@ export function RadarScreen() {
             is_hard_constraint: false,
           });
         }
-      } else {
-        await insertIntention({
-          id: randomUUID(),
-          title: trimmedTitle,
-          description: desc,
-          status: 'pending',
-          priority,
-          weights: {
-            structure: spectrum.structure,
-            momentum: spectrum.momentum,
-            zen: spectrum.zen,
-            stats: spectrum.stats,
-          },
-          platform_type: 'none',
-          platform_user_id: uid,
-          created_at: Date.now(),
-          estimated_duration,
-          user_forced_urgent: userForcedUrgent,
-          is_late_night,
-          alarm_enabled: alarmPref,
-          is_micro_habit: isMicroHabit,
-          is_hard_constraint: false,
-        });
+      };
+
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        persistToLocalDb().finally(() => {
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
+        }),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error('RADAR_SAVE_DB_TIMEOUT')),
+            RADAR_SAVE_DB_TIMEOUT_MS,
+          );
+        }),
+      ]);
+
+      setTitle('');
+      setDescription('');
+      setUrgent(false);
+      setAlarm(false);
+      setDialogOpen(false);
+      await load();
+      void syncPendingIntentions();
+
+      const list = await listIntentionsDescending();
+      const pendingAfter = list.filter((r) => r.status !== 'done');
+      let busyAfter: BusyInterval[] = [];
+      if (connectEnabled) {
+        busyAfter = await refreshBusy();
       }
-    } catch (e) {
-      if (__DEV__) {
-        console.error('[Radar] onAdd', e);
-      }
-      Alert.alert(
-        t('radar.saveErrorTitle'),
-        t('radar.saveErrorBody'),
+      const railNow = new Date();
+      const built = buildTimelineSlots(
+        pendingAfter,
+        {
+          structure: spectrum.structure,
+          momentum: spectrum.momentum,
+          zen: spectrum.zen,
+          stats: spectrum.stats,
+        },
+        railNow,
+        { busyIntervals: busyAfter },
       );
-      return;
+      await syncRailAlarmsWithTimeline({
+        pendingIntentions: pendingAfter,
+        slots: built,
+        now: railNow,
+      });
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing(
+          'Radar · Enregistrer (SQLite / notifications / alarmes)',
+          e,
+        );
+      } else if (msg === 'RADAR_SAVE_DB_TIMEOUT') {
+        Alert.alert(
+          t('radar.saveTimeoutTitle'),
+          t('radar.saveTimeoutBody'),
+        );
+      } else {
+        Alert.alert(t('radar.saveErrorTitle'), msg);
+      }
+    } finally {
+      setIsSaving(false);
     }
-
-    setTitle('');
-    setDescription('');
-    setUrgent(false);
-    setAlarm(false);
-    setDialogOpen(false);
-    await load();
-    void syncPendingIntentions();
-
-    const list = await listIntentionsDescending();
-    const pendingAfter = list.filter((r) => r.status !== 'done');
-    let busyAfter: BusyInterval[] = [];
-    if (connectEnabled) {
-      busyAfter = await refreshBusy();
-    }
-    const railNow = new Date();
-    const built = buildTimelineSlots(
-      pendingAfter,
-      {
-        structure: spectrum.structure,
-        momentum: spectrum.momentum,
-        zen: spectrum.zen,
-        stats: spectrum.stats,
-      },
-      railNow,
-      { busyIntervals: busyAfter },
-    );
-    await syncRailAlarmsWithTimeline({
-      pendingIntentions: pendingAfter,
-      slots: built,
-      now: railNow,
-    });
-    DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
-  };
+  }, [
+    title,
+    description,
+    urgent,
+    alarm,
+    spectrum,
+    connectEnabled,
+    busyIntervals,
+    load,
+    refreshBusy,
+    t,
+  ]);
 
   const renderItem = ({
     item,
@@ -892,6 +943,8 @@ export function RadarScreen() {
             </Button>
             <Button
               mode="contained"
+              loading={isSaving}
+              disabled={isSaving || !title.trim()}
               onPress={() => {
                 Keyboard.dismiss();
                 void onAdd();

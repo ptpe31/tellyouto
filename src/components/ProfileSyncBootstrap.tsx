@@ -1,9 +1,13 @@
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useEffect } from 'react';
 
-import { ensureFirebaseAnonymousAuth, getFirestoreDb } from '../api/firebase';
+import {
+  ensureFirebaseAnonymousAuth,
+  getFirebaseAuth,
+  getFirestoreDb,
+} from '../api/firebase';
 import { getOrCreateDeviceId } from '../api/syncService';
-import { fetchDeviceProfileFromFirestore } from '../api/userProfile';
+import { fetchMergedRemoteProfile } from '../api/userProfile';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 
 /**
@@ -16,7 +20,7 @@ export function ProfileSyncBootstrap() {
     let cancelled = false;
     void (async () => {
       await ensureFirebaseAnonymousAuth();
-      const remote = await fetchDeviceProfileFromFirestore();
+      const remote = await fetchMergedRemoteProfile();
       if (cancelled || !remote) return;
       mergeRemoteProfile(remote);
       await persist();
@@ -57,6 +61,40 @@ export function ProfileSyncBootstrap() {
       unsub?.();
     };
   }, [mergeRemoteProfile]);
+
+  useEffect(() => {
+    const db = getFirestoreDb();
+    if (!db) return;
+    let unsub: (() => void) | undefined;
+    void (async () => {
+      await ensureFirebaseAnonymousAuth();
+      const uid = getFirebaseAuth()?.currentUser?.uid;
+      if (!uid) return;
+      const ref = doc(db, 'users', uid);
+      unsub = onSnapshot(
+        ref,
+        (snap) => {
+          if (!snap.exists()) return;
+          const d = snap.data();
+          mergeRemoteProfile({
+            ad_free_until_ms:
+              typeof d.ad_free_until_ms === 'number' &&
+              Number.isFinite(d.ad_free_until_ms)
+                ? d.ad_free_until_ms
+                : 0,
+            is_pro_user: d.is_pro_user === true,
+          });
+          void persist();
+        },
+        () => {
+          /* hors ligne */
+        },
+      );
+    })();
+    return () => {
+      unsub?.();
+    };
+  }, [mergeRemoteProfile, persist]);
 
   return null;
 }

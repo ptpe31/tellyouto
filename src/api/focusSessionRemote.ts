@@ -1,6 +1,11 @@
 import { doc, setDoc } from 'firebase/firestore';
 
-import { ensureFirebaseAnonymousAuth, getFirestoreDb } from './firebase';
+import { sanitizeFirestoreMap } from './firestoreSanitize';
+import {
+  ensureFirebaseAnonymousAuth,
+  getFirebaseAuth,
+  getFirestoreDb,
+} from './firebase';
 import { getOrCreateDeviceId } from './syncService';
 
 /**
@@ -14,14 +19,16 @@ export async function setRemoteFocusSessionActive(
   if (!db) return;
   await ensureFirebaseAnonymousAuth();
   const deviceId = await getOrCreateDeviceId();
+  const uid = getFirebaseAuth()?.currentUser?.uid ?? null;
   await setDoc(
     doc(db, 'devices', deviceId),
-    {
+    sanitizeFirestoreMap({
       focus_session_active: active,
       focus_session_intention_id:
         active && intentionId ? intentionId : null,
       focus_session_updated_at: Date.now(),
-    },
+      firebase_uid: uid,
+    }),
     { merge: true },
   );
 }

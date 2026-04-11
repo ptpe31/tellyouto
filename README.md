@@ -29,7 +29,33 @@ npx expo start
 - **ID projet** : `tellmeto-4f3c7` — c’est celui de la console Firebase / GCP et de `EXPO_PUBLIC_FIREBASE_PROJECT_ID`. Le **slug Expo** (`tellyouto` dans `app.json`) est le nom d’app ; ne pas le confondre avec l’ID projet.
 - **Variables** : copier `env.example` vers `.env` et renseigner les clés ; ou utiliser le fichier `env` puis `cp env .env` (Expo ne charge que `.env` à la racine).
 - **CLI** : à la racine, `firebase use tellmeto-4f3c7` (voir `.firebaserc`). Déploiement des fonctions : `npm run deploy:functions`.
-- **Cloud Functions (2ᵉ gen)** : région **`europe-west9`** (`functions/src/region.ts`). URL typique : `https://europe-west9-tellmeto-4f3c7.cloudfunctions.net/<functionName>`.
+
+### Cloud Functions (Gen 2, `functions/src`)
+
+**Région** : toutes les fonctions exportées depuis `functions/src/index.ts` sont servies en **`europe-west9`** (Paris) — `setGlobalOptions({ region: 'europe-west9' })` pour HTTPS et schedulers ; les triggers Firestore dans `transitPurgeTriggers.ts` reprennent explicitement `region: 'europe-west9'`. La constante `FN_REGION` dans `region.ts` documente la même valeur. URL de base : `https://europe-west9-tellmeto-4f3c7.cloudfunctions.net/<nomFonction>`.
+
+| Fonction | Rôle | Déclencheur | Flux de données |
+|----------|------|-------------|------------------|
+| **`botWebhook`** | Réception **générique** des messages messagers (WhatsApp / Slack / Line / Telegram via corps JSON maison). Résout l’appareil via `messengerBindings`, applique quotas / handshake, écrit un document dans **`devices/{deviceId}/rail_inbox`** pour transit vers l’app. | **HTTPS** (`onRequest`, POST ; GET = sonde) | **Messagerie → Cloud** (webhook tiers ou tests avec `x-webhook-secret` / `BOT_WEBHOOK_SECRET`) → **Firestore** ; l’**app mobile** écoute / consomme `rail_inbox` puis supprime côté client ; réponses utilisateur via **API messager** (Telegram / WhatsApp) depuis `botReply`. |
+| **`telegramWebhook`** | Webhook **natif Telegram** (format Bot API). Vérifie `x-telegram-bot-api-secret-token` (`TELEGRAM_WEBHOOK_SECRET`), gère `/start` + deep-link de liaison (`users`, `messengerBindings`, `devices`), sinon délègue au même cœur métier que `botWebhook` pour alimenter `rail_inbox`. | **HTTPS** (POST updates Telegram ; GET = sonde) | **Telegram → Cloud** → **Firestore** (`rail_inbox`, profils device) → **app** ingère le transit ; réponses **Telegram** (`sendMessage`). |
+| **`disconnectMessenger`** | Déconnexion du canal : message d’adieu, suppression du doc **`messengerBindings/{channel}_{id}`**, retrait des champs `last_messenger_*` sur **`devices/{deviceId}`**. | **HTTPS** (POST, CORS activé ; secret `x-webhook-secret` si `BOT_WEBHOOK_SECRET` défini) | **App mobile** appelle l’URL après action utilisateur dans les réglages → **Cloud** met à jour Firestore et envoie le message de départ via **Telegram / WhatsApp** selon le dernier canal lié. |
+| **`scheduleProactiveReminders`** | Rappels **« avant le créneau rail »** : lit `devices` avec `rail_reminder_windows` récents, envoie un message Telegram dans une fenêtre de ±2 min après `remindAtUtcMs` (évite doublons via `reminder_sent_map`). | **Scheduler** (`onSchedule`, **toutes les minutes**, fuseau UTC) | **App** pousse fenêtres + méta sur **`devices/{deviceId}`** ; **Cloud** lit Firestore et appelle **Telegram** ; pas d’écriture d’intention SQLite côté serveur. |
+| **`purgeStaleTransitData`** | Hygiène **transit** : supprime vieux documents **`rail_inbox`** (> 24 h), intentions de transit expirées (`transit_expires_at`), et orphelins encore marqués `processed` (filet si `deleteDoc` client a échoué). | **Scheduler** (`onSchedule`, **toutes les 6 h**, UTC) | **Firestore uniquement** ; aucun appel direct à l’app ; allège la rétention cloud après sync / expiration. |
+| **`onRailInboxMarkedProcessed`** | Quand un doc **`devices/{deviceId}/rail_inbox/{docId}`** passe à **`processed: true`**, suppression serveur du document (sécurité + rétention si le client n’a pas pu le supprimer). | **Firestore** (`onDocumentUpdated` sur ce chemin) | **App** marque traité après ingestion → **trigger** efface le doc résiduel. |
+| **`onDeviceIntentionTransitProcessed`** | Même logique pour **`devices/{deviceId}/intentions/{docId}`** marqué `processed: true` (copies temporaires de sync). | **Firestore** (`onDocumentUpdated`) | **App** / sync → **Firestore** → purge automatique côté Cloud. |
+| **`helloWorld`** | Point de contrôle minimal (réponse `ok`) pour valider déploiement / connectivité. | **HTTPS** (GET/POST, CORS) | Aucun lien métier avec l’app ou Telegram ; diagnostic uniquement. |
+
+Les modules `messengerWebhookCore.ts`, `webhookHandler.ts`, `purgeTransitData.ts`, `scheduleProactiveReminders.ts`, `botReply.ts`, `reminderMessages.ts`, `railHandshake.ts`, `botLocales.ts`, `botTypes.ts` portent la logique **partagée** ; seules les entrées du tableau ci-dessus sont exposées comme Cloud Functions déployables.
+
+## Architecture des alarmes (local, sans dépendance Cloud pour sonner)
+
+Les **alarmes rail** (rappel à l’heure sur l’appareil) ne passent **pas** par Firebase pour être déclenchées. Chaîne résumée : **Agent IA → SQLite → Expo Notifications** (le téléphone sonne grâce au runtime local, pas à un push serveur).
+
+1. **Agent IA / UI** — création ou mise à jour d’intentions (texte, horaire, récurrence, toggle alarme).
+2. **SQLite** — source de vérité **offline-first** (`localDb` : insert / update / delete sur la table `intentions`).
+3. **Couche matérielle** — après chaque écriture pertinente, `intentionHardwareSync` appelle `refreshRailAlarmsAfterLocalDbChange` dans `alarmManager`, qui recalcule les créneaux et programme **Expo Notifications** (identifiants stables, annulation avant reprogrammation, bootstrap au cold start / après reboot via les permissions Android / hooks natifs).
+
+Le **Cloud** intervient pour le **messager** (Telegram, etc.) et le **transit Firestore** (`rail_inbox`, rappels texte `scheduleProactiveReminders`), pas pour déclencher la **sonnerie native** sur le téléphone. Même sans réseau, une intention déjà en base avec alarme activée peut être synchronisée avec le OS tant que l’app a pu exécuter le refresh local.
 
 ## Mode production
 

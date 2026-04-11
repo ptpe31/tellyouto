@@ -15,6 +15,10 @@ service cloud.firestore {
     }
 
     // Profil appareil + tout le sous-arbre (transit rail_inbox / intentions)
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
     match /devices/{deviceId} {
       allow read, write: if true;
       match /rail_inbox/{docId} {

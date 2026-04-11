@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 
 import { DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS } from '../config/transitPurgeKeys';
+import { sanitizeFirestoreMap } from './firestoreSanitize';
 import { ensureFirebaseAnonymousAuth, getFirestoreDb } from './firebase';
 import {
   listUnsyncedIntentions,
@@ -43,30 +44,31 @@ async function pushIntentionToFirestore(
   const now = Date.now();
 
   const ttlAt = now + TRANSIT_TTL_MS;
-  await setDoc(ref, {
+  const payload = sanitizeFirestoreMap({
     id: row.id,
     title: row.title,
     description: row.description,
     status: row.status,
     priority: row.priority,
-    weights: row.weights,
+    weights: row.weights as unknown as Record<string, unknown>,
     platform_type: row.platform_type,
     platform_user_id: row.platform_user_id,
     created_at: row.created_at,
     estimated_duration: row.estimated_duration,
-    actual_duration: row.actual_duration,
+    actual_duration: row.actual_duration ?? null,
     alarm_enabled: row.alarm_enabled,
     is_micro_habit: row.is_micro_habit,
     is_hard_constraint: row.is_hard_constraint,
-    routine_id: row.routine_id,
-    anchor_date_ymd: row.anchor_date_ymd,
-    fixed_start_minutes: row.fixed_start_minutes,
+    routine_id: row.routine_id ?? null,
+    anchor_date_ymd: row.anchor_date_ymd ?? null,
+    fixed_start_minutes: row.fixed_start_minutes ?? null,
     recurrence_rrule: row.recurrence_rrule ?? null,
     synced_client_at: now,
     transit_expires_at: ttlAt,
     /** Champ Timestamp pour politique TTL Firestore (24h) — configurer dans la console GCP. */
     ttl_expires_at: Timestamp.fromMillis(ttlAt),
-  });
+  } as Record<string, unknown>);
+  await setDoc(ref, payload);
 }
 
 /**

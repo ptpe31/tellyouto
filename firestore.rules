@@ -25,6 +25,11 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
+    /** Droits Premium / sans pub — portable (même `uid` après liaison Google / Apple). */
+    match /users/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
     // Refus explicite du reste (évite l’accès large par erreur).
     match /{document=**} {
       allow read, write: if false;

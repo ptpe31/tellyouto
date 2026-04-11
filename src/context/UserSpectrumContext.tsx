@@ -19,6 +19,7 @@ import {
 import {
   DEFAULT_INTENTIONS_QUOTA,
   pushDeviceProfileToFirestore,
+  pushUserEntitlementsToFirestore,
   type DeviceProfileFields,
 } from '../api/userProfile';
 
@@ -161,11 +162,13 @@ export function UserSpectrumProvider({
   }, []);
 
   const setFirstName = useCallback((first_name: string) => {
-    setSpectrum((prev) => {
-      const merged = { ...prev, first_name: first_name.trim() };
-      spectrumRef.current = merged;
-      return merged;
-    });
+    const trimmed = first_name.trim();
+    const merged: UserSpectrumState = {
+      ...spectrumRef.current,
+      first_name: trimmed,
+    };
+    spectrumRef.current = merged;
+    setSpectrum(merged);
   }, []);
 
   const setLocale = useCallback((locale: string) => {
@@ -196,59 +199,58 @@ export function UserSpectrumProvider({
   }, []);
 
   const mergeRemoteProfile = useCallback((remote: DeviceProfileFields) => {
-    setSpectrum((prev) => {
-      const merged = {
-        ...prev,
-        first_name:
-          typeof remote.first_name === 'string' && remote.first_name.trim()
-            ? remote.first_name.trim()
-            : prev.first_name,
-        intentions_quota:
-          typeof remote.intentions_quota === 'number' &&
-          Number.isFinite(remote.intentions_quota)
-            ? Math.max(0, Math.floor(remote.intentions_quota))
-            : prev.intentions_quota,
-        locale:
-          typeof remote.locale === 'string' && remote.locale.trim()
-            ? remote.locale.trim()
-            : prev.locale,
-        messenger_reminders_enabled:
-          typeof remote.messenger_reminders_enabled === 'boolean'
-            ? remote.messenger_reminders_enabled
-            : prev.messenger_reminders_enabled,
-        messenger_reminder_lead_minutes:
-          typeof remote.messenger_reminder_lead_minutes === 'number' &&
-          Number.isFinite(remote.messenger_reminder_lead_minutes)
-            ? Math.min(
-                60,
-                Math.max(1, Math.round(remote.messenger_reminder_lead_minutes)),
-              )
-            : prev.messenger_reminder_lead_minutes,
-        ad_free_until_ms: (() => {
-          const r = remote.ad_free_until_ms;
-          const p = prev.ad_free_until_ms;
-          const rN = typeof r === 'number' && Number.isFinite(r) ? r : null;
-          const pN = typeof p === 'number' && Number.isFinite(p) ? p : null;
-          if (rN == null) return pN;
-          if (pN == null) return rN;
-          return Math.max(rN, pN);
-        })(),
-        isProUser:
-          typeof remote.is_pro_user === 'boolean'
-            ? remote.is_pro_user
-            : prev.isProUser,
-        lastMessengerChannel:
-          remote.last_messenger_channel !== undefined
-            ? remote.last_messenger_channel
-            : prev.lastMessengerChannel,
-        lastMessengerUserId:
-          remote.last_messenger_user_id !== undefined
-            ? remote.last_messenger_user_id
-            : prev.lastMessengerUserId,
-      };
-      spectrumRef.current = merged;
-      return merged;
-    });
+    const prev = spectrumRef.current;
+    const merged: UserSpectrumState = {
+      ...prev,
+      first_name:
+        typeof remote.first_name === 'string' && remote.first_name.trim()
+          ? remote.first_name.trim()
+          : prev.first_name,
+      intentions_quota:
+        typeof remote.intentions_quota === 'number' &&
+        Number.isFinite(remote.intentions_quota)
+          ? Math.max(0, Math.floor(remote.intentions_quota))
+          : prev.intentions_quota,
+      locale:
+        typeof remote.locale === 'string' && remote.locale.trim()
+          ? remote.locale.trim()
+          : prev.locale,
+      messenger_reminders_enabled:
+        typeof remote.messenger_reminders_enabled === 'boolean'
+          ? remote.messenger_reminders_enabled
+          : prev.messenger_reminders_enabled,
+      messenger_reminder_lead_minutes:
+        typeof remote.messenger_reminder_lead_minutes === 'number' &&
+        Number.isFinite(remote.messenger_reminder_lead_minutes)
+          ? Math.min(
+              60,
+              Math.max(1, Math.round(remote.messenger_reminder_lead_minutes)),
+            )
+          : prev.messenger_reminder_lead_minutes,
+      ad_free_until_ms: (() => {
+        const r = remote.ad_free_until_ms;
+        const p = prev.ad_free_until_ms;
+        const rN = typeof r === 'number' && Number.isFinite(r) ? r : null;
+        const pN = typeof p === 'number' && Number.isFinite(p) ? p : null;
+        if (rN == null) return pN;
+        if (pN == null) return rN;
+        return Math.max(rN, pN);
+      })(),
+      isProUser:
+        typeof remote.is_pro_user === 'boolean'
+          ? remote.is_pro_user
+          : prev.isProUser,
+      lastMessengerChannel:
+        remote.last_messenger_channel !== undefined
+          ? remote.last_messenger_channel
+          : prev.lastMessengerChannel,
+      lastMessengerUserId:
+        remote.last_messenger_user_id !== undefined
+          ? remote.last_messenger_user_id
+          : prev.lastMessengerUserId,
+    };
+    spectrumRef.current = merged;
+    setSpectrum(merged);
   }, []);
 
   const resetSpectrum = useCallback(() => {
@@ -263,37 +265,31 @@ export function UserSpectrumProvider({
   }, []);
 
   const setProUser = useCallback(async (value: boolean) => {
-    const merged = { ...spectrumRef.current, isProUser: value };
+    const prev = spectrumRef.current;
+    const merged: UserSpectrumState = { ...prev, isProUser: value };
     spectrumRef.current = merged;
     setSpectrum(merged);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-    await pushDeviceProfileToFirestore({ is_pro_user: value });
+    await pushUserEntitlementsToFirestore({ is_pro_user: value });
+    await pushDeviceProfileToFirestore({});
   }, []);
 
-  const grantAdFreeDays = useCallback(
-    async (days: number) => {
-      const d = Math.min(365 * 5, Math.max(1, Math.round(days)));
-      const until = Date.now() + d * 24 * 60 * 60 * 1000;
-      setSpectrum((prev) => {
-        const cur = prev.ad_free_until_ms;
-        const nextUntil =
-          typeof cur === 'number' && cur > Date.now()
-            ? Math.max(until, cur)
-            : until;
-        const merged = { ...prev, ad_free_until_ms: nextUntil };
-        spectrumRef.current = merged;
-        return merged;
-      });
-      await AsyncStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(spectrumRef.current),
-      );
-      await pushDeviceProfileToFirestore({
-        ad_free_until_ms: spectrumRef.current.ad_free_until_ms ?? undefined,
-      });
-    },
-    [],
-  );
+  const grantAdFreeDays = useCallback(async (days: number) => {
+    const d = Math.min(365 * 5, Math.max(1, Math.round(days)));
+    const until = Date.now() + d * 24 * 60 * 60 * 1000;
+    const prev = spectrumRef.current;
+    const cur = prev.ad_free_until_ms;
+    const nextUntil =
+      typeof cur === 'number' && cur > Date.now()
+        ? Math.max(until, cur)
+        : until;
+    const merged: UserSpectrumState = { ...prev, ad_free_until_ms: nextUntil };
+    spectrumRef.current = merged;
+    setSpectrum(merged);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    await pushUserEntitlementsToFirestore({ ad_free_until_ms: nextUntil });
+    await pushDeviceProfileToFirestore({});
+  }, []);
 
   const applyMessengerReminderPrefs = useCallback(
     async (enabled: boolean, leadMinutes: number) => {

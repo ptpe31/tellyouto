@@ -71,7 +71,18 @@
     "screenSubtitle": "Multi-channel, ad-free, priority support.",
     "devNote": "Dev build: the button simulates subscription without payment.",
     "subscribeGold": "Subscribe — €9.99 / month",
-    "back": "Close"
+    "back": "Close",
+    "linkRequiredTitle": "Account required",
+    "linkRequiredBody": "To keep your Pro subscription across phones, link Google or Apple (same Firebase identity).",
+    "linkGoogle": "Continue with Google",
+    "linkApple": "Continue with Apple",
+    "linkLater": "Not now",
+    "linkGoogleOnly": "Link Google only",
+    "linkAppleOnly": "Link Apple only",
+    "linkErrorTitle": "Linking failed",
+    "configureGoogleTitle": "Google configuration",
+    "configureGoogleBody": "Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (and iOS/Android client IDs if needed) in .env, then restart Metro.",
+    "googleMissingEnv": "Missing Google Web client ID: OAuth linking will not work until EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID is set."
   },
   "channelCatalog": {
     "proBadge": "PRO",
@@ -204,6 +215,8 @@
     "save": "Save",
     "saveErrorTitle": "Could not save",
     "saveErrorBody": "Something went wrong. Please try again.",
+    "saveTimeoutTitle": "Timed out",
+    "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app.",
     "status": {
       "pending": "Pending",
       "active": "Active",
