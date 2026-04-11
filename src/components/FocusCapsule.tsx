@@ -2,12 +2,14 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Easing,
   LayoutAnimation,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   UIManager,
+  Vibration,
   View,
 } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
@@ -27,6 +29,7 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import type { MainStackParamList } from '../navigation/types';
 import { generateEncouragement } from '../services/agentLogic';
 import { simulatedSetNotificationSuppression } from '../services/focusProtection';
+import { palette } from '../theme/colors';
 import { neumorphicRaised } from '../theme/neumorphism';
 
 if (
@@ -51,6 +54,15 @@ const CIRC = 2 * Math.PI * R;
 const CX = RING_SIZE / 2;
 const CY = RING_SIZE / 2;
 
+function vibrateChronoComplete(): void {
+  if (Platform.OS === 'web') return;
+  if (Platform.OS === 'android') {
+    Vibration.vibrate([0, 380, 140, 280]);
+  } else {
+    Vibration.vibrate();
+  }
+}
+
 export function FocusCapsuleScreen({ route, navigation }: Props) {
   const { intentionId } = route.params;
   const { t } = useTranslation();
@@ -63,14 +75,17 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
   const [title, setTitle] = useState('');
   const [totalSeconds, setTotalSeconds] = useState(25 * 60);
   const [remaining, setRemaining] = useState(25 * 60);
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(true);
+  const [hasStarted, setHasStarted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [encouragement, setEncouragement] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
 
   const finalizedRef = useRef(false);
+  const prevRemainingRef = useRef<number | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(18)).current;
 
   const weights = useMemo(
     () => ({
@@ -83,12 +98,21 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
   );
 
   useEffect(() => {
-    Animated.timing(opacity, {
-      toValue: 1,
-      duration: 520,
-      useNativeDriver: true,
-    }).start();
-  }, [opacity]);
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 780,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 780,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [opacity, translateY]);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,6 +128,7 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
       const sec = Math.max(60, row.estimated_duration * 60);
       setTotalSeconds(sec);
       setRemaining(sec);
+      prevRemainingRef.current = sec;
       await markIntentionActive(row.id);
       setLoading(false);
     })();
@@ -122,12 +147,27 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
   }, [setProtectionActive]);
 
   useEffect(() => {
-    if (loading || paused || remaining <= 0 || sessionEnded) return;
+    if (loading || paused || remaining <= 0 || sessionEnded || !hasStarted) return;
     const id = setInterval(() => {
       setRemaining((r) => (r <= 1 ? 0 : r - 1));
     }, 1000);
     return () => clearInterval(id);
-  }, [loading, paused, remaining, sessionEnded]);
+  }, [loading, paused, remaining, sessionEnded, hasStarted]);
+
+  useEffect(() => {
+    const prev = prevRemainingRef.current;
+    if (
+      prev !== null &&
+      prev > 0 &&
+      remaining === 0 &&
+      hasStarted &&
+      !sessionEnded &&
+      !finalizedRef.current
+    ) {
+      vibrateChronoComplete();
+    }
+    prevRemainingRef.current = remaining;
+  }, [remaining, hasStarted, sessionEnded]);
 
   const progress = totalSeconds > 0 ? remaining / totalSeconds : 0;
   const strokeDashoffset = CIRC * (1 - progress);
@@ -144,7 +184,8 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
     }
 
     const elapsedSec = totalSeconds - remaining;
-    const actualMin = Math.max(1, Math.round(elapsedSec / 60));
+    const actualMin =
+      elapsedSec <= 0 ? 0 : Math.max(1, Math.round(elapsedSec / 60));
 
     await updateIntentionAfterFocus({
       id: row.id,
@@ -167,16 +208,32 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
   ]);
 
   useEffect(() => {
-    if (loading || remaining > 0 || finalizedRef.current) return;
+    if (
+      loading ||
+      remaining > 0 ||
+      finalizedRef.current ||
+      !hasStarted
+    ) {
+      return;
+    }
     void finalizeSession();
-  }, [remaining, loading, finalizeSession]);
+  }, [remaining, loading, finalizeSession, hasStarted]);
 
-  const onPauseToggle = () => {
+  const onStartOrPause = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (!hasStarted) {
+      setHasStarted(true);
+      setPaused(false);
+      return;
+    }
     setPaused((p) => !p);
   };
 
-  const onFinishPress = () => {
+  const onTerminate = () => {
+    if (!hasStarted) {
+      navigation.goBack();
+      return;
+    }
     void finalizeSession();
   };
 
@@ -185,29 +242,37 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
     navigation.goBack();
   };
 
+  const primaryLabel = !hasStarted
+    ? t('focus.start')
+    : paused
+      ? t('focus.resume')
+      : t('focus.pause');
+
   if (loading) {
     return (
       <View
         style={[
           styles.center,
-          { backgroundColor: theme.colors.background, paddingTop: insets.top },
+          { backgroundColor: palette.offWhite, paddingTop: insets.top },
         ]}
       />
     );
   }
 
   return (
-    <View
-      style={[styles.root, { backgroundColor: theme.colors.background }]}
-    >
+    <View style={[styles.root, { backgroundColor: palette.offWhite }]}>
       <Animated.View
         style={[
           styles.content,
-          { opacity, paddingTop: insets.top + 24 },
+          {
+            opacity,
+            transform: [{ translateY }],
+            paddingTop: insets.top + 28,
+          },
         ]}
       >
         <Text
-          style={[styles.intentionTitle, { color: theme.colors.onBackground }]}
+          style={[styles.intentionTitle, { color: palette.textOnLight }]}
           numberOfLines={3}
         >
           {title}
@@ -220,7 +285,7 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
                 cx={CX}
                 cy={CY}
                 r={R}
-                stroke={theme.colors.surfaceVariant}
+                stroke={palette.offWhiteDark}
                 strokeWidth={STROKE}
                 fill="none"
               />
@@ -228,7 +293,7 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
                 cx={CX}
                 cy={CY}
                 r={R}
-                stroke={theme.colors.primary}
+                stroke={palette.teal}
                 strokeWidth={STROKE}
                 fill="none"
                 strokeDasharray={CIRC}
@@ -238,7 +303,7 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
             </G>
           </Svg>
           <View style={styles.ringCenter} pointerEvents="none">
-            <Text style={[styles.timer, { color: theme.colors.onSurface }]}>
+            <Text style={[styles.timer, { color: palette.textOnLight }]}>
               {formatMmSs(remaining)}
             </Text>
           </View>
@@ -246,32 +311,33 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
 
         <View style={styles.actions}>
           <Pressable
-            onPress={onPauseToggle}
+            onPress={onStartOrPause}
             style={({ pressed }) => [
               styles.btn,
               {
-                backgroundColor: theme.colors.surface,
-                opacity: pressed ? 0.9 : 1,
-                borderColor: theme.colors.outlineVariant,
+                backgroundColor: palette.surfaceLight,
+                opacity: pressed ? 0.92 : 1,
+                borderColor: palette.outline,
               },
             ]}
           >
-            <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>
-              {paused ? t('focus.resume') : t('focus.pause')}
+            <Text style={{ color: palette.teal, fontWeight: '600' }}>
+              {primaryLabel}
             </Text>
           </Pressable>
           <Pressable
-            onPress={onFinishPress}
+            onPress={onTerminate}
             style={({ pressed }) => [
               styles.btn,
               {
-                backgroundColor: theme.colors.secondary,
+                backgroundColor: palette.orange,
                 opacity: pressed ? 0.92 : 1,
+                borderColor: 'transparent',
               },
             ]}
           >
-            <Text style={{ color: theme.colors.onSecondary, fontWeight: '600' }}>
-              {t('focus.finish')}
+            <Text style={{ color: '#1C1C1C', fontWeight: '600' }}>
+              {t('focus.terminate')}
             </Text>
           </Pressable>
         </View>
@@ -281,11 +347,11 @@ export function FocusCapsuleScreen({ route, navigation }: Props) {
         <Dialog
           visible={dialogOpen}
           onDismiss={closeFlow}
-          style={{ backgroundColor: theme.colors.surface }}
+          style={{ backgroundColor: palette.surfaceLight }}
         >
           <Dialog.Title>{t('focus.feedbackTitle')}</Dialog.Title>
           <Dialog.Content>
-            <Text style={{ color: theme.colors.onSurface }}>
+            <Text style={{ color: palette.textOnLight }}>
               {encouragement}
             </Text>
           </Dialog.Content>
@@ -326,10 +392,12 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: 16,
-    marginTop: 36,
+    marginTop: 40,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   btn: {
-    minWidth: 120,
+    minWidth: 128,
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 16,

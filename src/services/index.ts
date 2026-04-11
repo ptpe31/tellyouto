@@ -9,5 +9,6 @@ export {
   computeIntentionPriority,
   estimateDurationMinutes,
   generateEncouragement,
+  orderIntentionsBySpectrum,
 } from './agentLogic';
 export type { TimelineSlot } from './agentLogic';

@@ -67,6 +67,7 @@
   },
   "timeline": {
     "subtitle": "Rail du jour — créneaux suggérés selon ton spectre (Momentum élevé → blocs plus profonds).",
+    "now": "Maintenant",
     "dayRail": "Position dans la journée (6h–22h)",
     "empty": "Aucune intention à placer sur le rail. Ajoute-en depuis le Radar.",
     "estimated": "~ {{minutes}} min estimées",
@@ -74,9 +75,10 @@
     "launch": "Lancer"
   },
   "focus": {
+    "start": "Démarrer",
     "pause": "Pause",
     "resume": "Reprendre",
-    "finish": "Fin",
+    "terminate": "Terminer",
     "feedbackTitle": "Clarté",
     "ok": "OK"
   }

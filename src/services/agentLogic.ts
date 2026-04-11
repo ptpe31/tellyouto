@@ -133,16 +133,37 @@ const DAY_START_MIN = 8 * 60;
 const DAY_END_MIN = 20 * 60;
 
 /**
+ * Ordre suggéré par l’agent : alignement intention ↔ spectre actuel, puis priorité.
+ */
+export function orderIntentionsBySpectrum(
+  intentions: IntentionRow[],
+  spectrum: SpectrumWeights,
+): IntentionRow[] {
+  const alignment = (row: IntentionRow) =>
+    row.weights.structure * spectrum.structure +
+    row.weights.momentum * spectrum.momentum +
+    row.weights.zen * spectrum.zen +
+    row.weights.stats * spectrum.stats;
+
+  return [...intentions].sort((a, b) => {
+    const da = alignment(a);
+    const db = alignment(b);
+    const scoreA = da * 100 + a.priority * 0.45;
+    const scoreB = db * 100 + b.priority * 0.45;
+    if (Math.abs(scoreB - scoreA) > 0.01) return scoreB - scoreA;
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    return b.created_at - a.created_at;
+  });
+}
+
+/**
  * Répartit les intentions sur la journée selon le spectre (Momentum élevé → blocs plus longs, Zen → pauses plus larges).
  */
 export function buildTimelineSlots(
   intentions: IntentionRow[],
   spectrum: SpectrumWeights,
 ): TimelineSlot[] {
-  const sorted = [...intentions].sort((a, b) => {
-    if (b.priority !== a.priority) return b.priority - a.priority;
-    return b.created_at - a.created_at;
-  });
+  const sorted = orderIntentionsBySpectrum(intentions, spectrum);
 
   const gapBase = 6 + spectrum.zen * 18;
   const momentumStretch = spectrum.momentum > 0.52 ? 1.12 : 1;
@@ -187,85 +208,86 @@ function dominantAxis(w: SpectrumWeights): Axis {
   return entries[0][0];
 }
 
+/** Félicitations + tonalité : Zen = plus posé / long ; Momentum = plus court et dynamique */
 const ENCOURAGEMENT: Record<
   AppLanguage,
   Record<Axis, string>
 > = {
   fr: {
     structure:
-      'Ta clarté sur la suite — c’est ton levier de performance.',
+      'Bravo — ta navigation gagne en structure. Le co-pilote valide ta clarté sur la suite.',
     momentum:
-      'Un mouvement net. Le rythme porte, une intention à la fois.',
+      'Bravo — tu as tenu le tempo. Enchaîne quand tu veux, l’élan est là.',
     zen:
-      'Espace et présence : tu navigues avec plus de finesse qu’hier.',
+      'Magnifique présence. Tu as offert à ton intention un espace calme — respire, c’est bien avancé.',
     stats:
-      'Les repères que tu choisis renforcent ton cap. Continue.',
+      'Félicitations : tes repères parlent. Continue à ajuster le cap avec cette précision.',
   },
   en: {
     structure:
-      'Clarity on what’s next is your performance edge.',
+      'Nice work — your navigation just got clearer. The co-pilot nods: you know what’s next.',
     momentum:
-      'Clean motion. Let the pace carry you—one intention at a time.',
+      'You kept the pace—high energy done right. Ready for the next push when you are.',
     zen:
-      'Space and presence—you’re navigating with a lighter grip.',
+      'Beautiful focus. You gave this intention room to breathe—soft, steady, well played.',
     stats:
-      'The signals you track sharpen your course. Keep going.',
+      'Strong signals. Your course looks sharper—keep steering with that clarity.',
   },
   es: {
     structure:
-      'La claridad sobre lo próximo es tu palanca de rendimiento.',
+      'Bravo: tu navegación gana estructura. El co-piloto valida tu claridad sobre lo próximo.',
     momentum:
-      'Ritmo claro. Deja que el impulso lleve—una intención cada vez.',
+      'Ritmo impecable. Motor caliente — el siguiente sprint cuando quieras.',
     zen:
-      'Espacio y presencia: navegas con más finura.',
+      'Hermosa presencia. Diste espacio tranquilo a esta intención — bien jugado.',
     stats:
-      'Las señales que eliges afilan tu rumbo. Sigue.',
+      'Felicidades: tus señales afilan el rumbo. Sigue con esa precisión.',
   },
   de: {
     structure:
-      'Klarheit über das Nächste ist dein Hebel für Performance.',
+      'Starke Leistung — mehr Struktur in deiner Navigation. Der Co-Pilot bestätigt: du weißt, was folgt.',
     momentum:
-      'Saubere Bewegung. Tempo trägt—eine Absicht nach der anderen.',
+      'Tempo gehalten. Energie sauber eingesetzt — nächster Schub, wenn du willst.',
     zen:
-      'Raum und Präsenz—du navigierst mit mehr Feingefühl.',
+      'Ruhige Präsenz. Du hast dieser Absicht Raum gegeben — weich, klar, gut gemacht.',
     stats:
-      'Die Kennzahlen, die du wählst, schärfen deinen Kurs. Weiter so.',
+      'Klare Kennzahlen. Dein Kurs wirkt schärfer — weiter so.',
   },
   it: {
     structure:
-      'La chiarezza sul prossimo passo è la tua leva di performance.',
+      'Bravo — più struttura nella tua navigazione. Il co-pilota conferma la chiarezza sul dopo.',
     momentum:
-      'Movimento netto. Il ritmo porta—un’intenzione alla volta.',
+      'Hai tenuto il ritmo. Energia pulita — prossima spinta quando vuoi.',
     zen:
-      'Spazio e presenza: navighi con più finezza.',
+      'Presenza bellissima. Hai dato spazio calmo a questa intenzione — ben fatto.',
     stats:
-      'I segnali che segui affinano la rotta. Continua così.',
+      'Ottimi segnali. La rotta è più nitida — continua così.',
   },
   ja: {
     structure:
-      '次の一歩への明瞭さが、あなたのパフォーマンスのレバーになる。',
+      'よくできました。ナビがより構造化されました。次への明瞭さ、コパイロットも肯定します。',
     momentum:
-      '潔い動き。ペースに乗せて、意図を一つずつ。',
+      'テンポ維持、ナイス。次の一押しは、あなたのタイミングで。',
     zen:
-      '余白と在り方。より軽やかなナビゲーションへ。',
+      '静かな集中、素晴らしい。この意図に余白を与えられました。',
     stats:
-      '選んだ指標が針路を研ぎ澄ます。その調子で。',
+      '指標が冴えています。その精度で針路を保ってください。',
   },
   zh: {
     structure:
-      '对下一步的清晰，是你发挥表现的杠杆。',
+      '做得好——你的导航更有结构。副驾驶认可你对下一步的清晰。',
     momentum:
-      '动作干脆。让节奏带着走——一次一个意图。',
+      '节奏稳、能量足。想推进时随时继续。',
     zen:
-      '留白与在场，你的导航更轻盈。',
+      '很棒的在场感。你为这条意图留出了安静的空间——温柔而稳。',
     stats:
-      '你关注的信号让路径更清楚，继续。',
+      '信号清晰，路径更锐。保持这份精确。',
   },
 };
 
 /**
- * Phrase courte de motivation — personnalisée par le **Spectre** (dimension dominante) et la langue.
- * À appeler avec les poids issus de `useUserSpectrum().spectrum`.
+ * Notification de félicitations — ton calme si Zen domine, plus vif si Momentum domine (via texte).
+ * Utiliser avec `useUserSpectrum().spectrum` pour les poids.
  */
 export function generateEncouragement(
   spectrum: SpectrumWeights,

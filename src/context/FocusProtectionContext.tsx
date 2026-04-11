@@ -1,10 +1,4 @@
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-} from 'react';
+import React, { createContext, useContext, useMemo, useState } from 'react';
 
 /**
  * Mode « Protection » : terrain préparé pour réduire les interruptions pendant une Capsule.
@@ -24,15 +18,11 @@ export function FocusProtectionProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [isProtectionActive, setIsProtectionActive] = useState(false);
-
-  const setProtectionActive = useCallback((v: boolean) => {
-    setIsProtectionActive(v);
-  }, []);
+  const [isProtectionActive, setProtectionActive] = useState(false);
 
   const value = useMemo(
     () => ({ isProtectionActive, setProtectionActive }),
-    [isProtectionActive, setProtectionActive],
+    [isProtectionActive],
   );
 
   return (

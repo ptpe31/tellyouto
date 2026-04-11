@@ -67,6 +67,7 @@
   },
   "timeline": {
     "subtitle": "Riel del día — ventanas sugeridas según tu espectro (Momentum alto → bloques más profundos).",
+    "now": "Ahora",
     "dayRail": "Posición en el día (6h–22h)",
     "empty": "Nada que colocar en el riel. Añade intenciones desde Radar.",
     "estimated": "~ {{minutes}} min estimadas",
@@ -74,9 +75,10 @@
     "launch": "Lanzar"
   },
   "focus": {
+    "start": "Iniciar",
     "pause": "Pausa",
     "resume": "Reanudar",
-    "finish": "Fin",
+    "terminate": "Terminar",
     "feedbackTitle": "Claridad",
     "ok": "OK"
   }

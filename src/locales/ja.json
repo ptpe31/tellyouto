@@ -67,6 +67,7 @@
   },
   "timeline": {
     "subtitle": "今日のレール — スペクトルに沿った提案（モメンタム高め → 深いブロック）。",
+    "now": "いま",
     "dayRail": "一日の中の位置（6–22時）",
     "empty": "レールに載せる意図がありません。レーダーから追加してください。",
     "estimated": "約 {{minutes}} 分（見積）",
@@ -74,9 +75,10 @@
     "launch": "開始"
   },
   "focus": {
+    "start": "開始",
     "pause": "一時停止",
     "resume": "再開",
-    "finish": "終了",
+    "terminate": "終了",
     "feedbackTitle": "明瞭さ",
     "ok": "OK"
   }

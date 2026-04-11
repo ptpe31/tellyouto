@@ -136,6 +136,7 @@ export function TimelineScreen() {
               rangeStartMin={6 * 60}
               rangeEndMin={22 * 60}
               label={t('timeline.dayRail')}
+              timeCaption={t('timeline.now')}
             />
           </View>
         }

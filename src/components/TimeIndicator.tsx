@@ -8,6 +8,8 @@ type Props = {
   /** Minutes depuis minuit (fin de la plage affichée) */
   rangeEndMin: number;
   label?: string;
+  /** Préfixe devant l’heure (ex. « Maintenant ») */
+  timeCaption?: string;
 };
 
 /**
@@ -17,6 +19,7 @@ export function TimeIndicator({
   rangeStartMin,
   rangeEndMin,
   label,
+  timeCaption,
 }: Props) {
   const theme = useTheme();
   const [, setTick] = useState(0);
@@ -25,7 +28,7 @@ export function TimeIndicator({
     const id = setInterval(() => {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setTick((t) => t + 1);
-    }, 60_000);
+    }, 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -73,6 +76,7 @@ export function TimeIndicator({
         />
       </View>
       <Text style={[styles.time, { color: theme.colors.onSurface }]}>
+        {timeCaption ? `${timeCaption} · ` : ''}
         {`${pad(now.getHours())}:${pad(now.getMinutes())}`}
       </Text>
     </View>

@@ -67,6 +67,7 @@
   },
   "timeline": {
     "subtitle": "Binario della giornata — slot suggeriti in base allo spettro (Momentum alto → blocchi più profondi).",
+    "now": "Adesso",
     "dayRail": "Posizione nella giornata (6–22)",
     "empty": "Niente da mettere sul binario. Aggiungi intenzioni dal Radar.",
     "estimated": "~ {{minutes}} min stimate",
@@ -74,9 +75,10 @@
     "launch": "Avvia"
   },
   "focus": {
+    "start": "Avvia",
     "pause": "Pausa",
     "resume": "Riprendi",
-    "finish": "Fine",
+    "terminate": "Termina",
     "feedbackTitle": "Chiarezza",
     "ok": "OK"
   }

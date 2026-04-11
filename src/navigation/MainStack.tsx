@@ -16,7 +16,8 @@ export function MainStack() {
         component={FocusCapsuleScreen}
         options={{
           presentation: 'fullScreenModal',
-          animation: 'slide_from_bottom',
+          animation: 'fade_from_bottom',
+          animationDuration: 560,
         }}
       />
     </Stack.Navigator>
