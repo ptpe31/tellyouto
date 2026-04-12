@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Button, Switch, useTheme } from 'react-native-paper';
+import { Button, SegmentedButtons, Switch, useTheme } from 'react-native-paper';
 import { collection, getDocs, limit, query } from 'firebase/firestore';
 
 import { CalendarGranularSection } from '../components';
@@ -37,12 +37,13 @@ import { ingestExternalRawMessage } from '../services/externalIntentIngest';
 import { seedDemoTypicalDay } from '../services/demoTypicalDay';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { scheduleDebugAgentDirectAlarmIn10Minutes } from '../services/alarmManager';
+import type { RailAlarmSoundId } from '../services/railAlarmSound';
 import { palette } from '../theme/colors';
 
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { spectrum, setProUser } = useUserSpectrum();
+  const { spectrum, setProUser, setPreferredAlarmSound } = useUserSpectrum();
   const power = usePower();
   const { resetProfileToOnboarding } = useOnboardingReset();
   const [busy, setBusy] = useState<
@@ -444,6 +445,25 @@ export function DebugScreen() {
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          {t('debug.soundSectionTitle')}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.soundHelp')}
+        </Text>
+        <SegmentedButtons
+          value={spectrum.preferred_alarm_sound}
+          onValueChange={(v) => void setPreferredAlarmSound(v as RailAlarmSoundId)}
+          buttons={[
+            { value: 'default', label: t('debug.soundDefault') },
+            { value: 'zen', label: t('debug.soundZen') },
+            { value: 'digital', label: t('debug.soundDigital') },
+          ]}
+          style={styles.segment}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
           {t('debug.demoDaySectionTitle')}
         </Text>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
@@ -689,6 +709,7 @@ const styles = StyleSheet.create({
   btn: { alignSelf: 'flex-start' },
   btnSecond: { marginTop: 12 },
   help: { fontSize: 12, marginTop: 8, maxWidth: '100%' },
+  segment: { marginTop: 10, alignSelf: 'stretch' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

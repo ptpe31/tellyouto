@@ -301,6 +301,11 @@
   "debug": {
     "pilotTitle": "Piloting tools",
     "note": "Internal tool — minimal UI polish.",
+    "soundSectionTitle": "Sound settings",
+    "soundHelp": "Selects the bundled .wav for rail alarms (native rebuild after adding files). Android uses one notification channel per variant so the OS actually plays the selected sound.",
+    "soundDefault": "Default",
+    "soundZen": "Zen",
+    "soundDigital": "Digital",
     "calendarSection": "System calendar",
     "calendarConnect": "Connect system calendars",
     "calendarConnectHelp": "Local read only — no event titles are sent to Firebase.",

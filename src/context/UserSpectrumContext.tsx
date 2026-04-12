@@ -15,7 +15,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   checkpointLocalDatabase,
   DATABASE_RESET_COMPLETE_EVENT,
+  syncPreferredRailAlarmSoundToSqlite,
 } from '../api/localDb';
+import {
+  normalizeRailAlarmSoundId,
+  type RailAlarmSoundId,
+} from '../services/railAlarmSound';
 import {
   DEFAULT_INTENTIONS_QUOTA,
   pushDeviceProfileToFirestore,
@@ -58,6 +63,8 @@ export type UserSpectrumState = SpectrumWeights & {
   lastMessengerChannel: string | null;
   /** Identifiant messager lié */
   lastMessengerUserId: string | null;
+  /** Sonnerie native des alarmes rail (fichiers bundlés + canaux Android). */
+  preferred_alarm_sound: RailAlarmSoundId;
 };
 
 function detectPlatformType(): PlatformType {
@@ -93,6 +100,7 @@ const defaultSpectrum = (): UserSpectrumState => ({
   isProUser: false,
   lastMessengerChannel: null,
   lastMessengerUserId: null,
+  preferred_alarm_sound: 'default',
 });
 
 type UserSpectrumContextValue = {
@@ -114,6 +122,7 @@ type UserSpectrumContextValue = {
   /** Prolonge ou définit le mode sans pub (persist + Firestore si dispo). */
   grantAdFreeDays: (days: number) => Promise<void>;
   setProUser: (value: boolean) => Promise<void>;
+  setPreferredAlarmSound: (sound: RailAlarmSoundId) => Promise<void>;
   resetSpectrum: () => void;
   persist: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
@@ -274,6 +283,26 @@ export function UserSpectrumProvider({
     await pushDeviceProfileToFirestore({});
   }, []);
 
+  const setPreferredAlarmSound = useCallback(async (sound: RailAlarmSoundId) => {
+    const id = normalizeRailAlarmSoundId(sound);
+    const merged: UserSpectrumState = {
+      ...spectrumRef.current,
+      preferred_alarm_sound: id,
+    };
+    spectrumRef.current = merged;
+    setSpectrum(merged);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    await syncPreferredRailAlarmSoundToSqlite(id);
+    try {
+      const { invalidateRailAlarmChannelCache, refreshRailAlarmsAfterLocalDbChange } =
+        await import('../services/alarmManager');
+      invalidateRailAlarmChannelCache();
+      await refreshRailAlarmsAfterLocalDbChange();
+    } catch {
+      /* Expo Go / module absent */
+    }
+  }, []);
+
   const grantAdFreeDays = useCallback(async (days: number) => {
     const d = Math.min(365 * 5, Math.max(1, Math.round(days)));
     const until = Date.now() + d * 24 * 60 * 60 * 1000;
@@ -370,7 +399,13 @@ export function UserSpectrumProvider({
           if (v === null || typeof v === 'string') return v ?? null;
           return prev.lastMessengerUserId;
         })(),
+        preferred_alarm_sound: normalizeRailAlarmSoundId(
+          parsed.preferred_alarm_sound as string | undefined,
+        ),
       }));
+      void syncPreferredRailAlarmSoundToSqlite(
+        normalizeRailAlarmSoundId(parsed.preferred_alarm_sound as string | undefined),
+      );
     } catch {
       /* ignore */
     }
@@ -425,6 +460,7 @@ export function UserSpectrumProvider({
       mergeRemoteProfile,
       grantAdFreeDays,
       setProUser,
+      setPreferredAlarmSound,
       resetSpectrum,
       persist,
       loadFromStorage,
@@ -442,6 +478,7 @@ export function UserSpectrumProvider({
       mergeRemoteProfile,
       grantAdFreeDays,
       setProUser,
+      setPreferredAlarmSound,
       resetSpectrum,
       persist,
       loadFromStorage,

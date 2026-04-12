@@ -301,6 +301,11 @@
   "debug": {
     "pilotTitle": "Outils de Pilotage",
     "note": "Outil interne — interface volontairement brute.",
+    "soundSectionTitle": "Paramètres sonores",
+    "soundHelp": "Choisit le fichier .wav bundlé pour les alarmes rail (rebuild natif si tu ajoutes des sons). Sous Android, un canal de notification par variante permet au système de jouer réellement le son choisi.",
+    "soundDefault": "Défaut",
+    "soundZen": "Zen",
+    "soundDigital": "Digital",
     "calendarSection": "Calendrier système",
     "calendarConnect": "Connecter les calendriers système",
     "calendarConnectHelp": "Lecture locale uniquement — aucun titre d’événement n’est envoyé sur Firebase.",

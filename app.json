@@ -54,7 +54,9 @@
         "expo-notifications",
         {
           "sounds": [
-            "./assets/sounds/rail_alarm.wav"
+            "./assets/sounds/rail_alarm.wav",
+            "./assets/sounds/rail_alarm_zen.wav",
+            "./assets/sounds/rail_alarm_digital.wav"
           ]
         }
       ],

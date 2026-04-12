@@ -29,18 +29,26 @@ import {
 } from './notifications';
 import type { IntentionRow } from '../api/localDb';
 import { nextOccurrenceAfter, nextOccurrenceFrom } from './recurrenceRrule';
-
-/** Fichier listé dans app.json → plugin expo-notifications → sounds (rebuild natif requis). */
-const RAIL_ALARM_SOUND_FILE = 'rail_alarm.wav';
-
-const ANDROID_ALARM_CHANNEL = 'tellyouto_rail_alarms_v2';
+import {
+  androidNotificationChannelIdForSound,
+  bundledSoundFilenameForPreference,
+  type RailAlarmSoundId,
+} from './railAlarmSound';
 
 /** Identifiant stable par intention — annulation / remplacement sans ambiguïté. */
 export function intentionRailAlarmNotificationId(intentionId: string): string {
   return `tellyouto_rail_alarm_${intentionId}`;
 }
 
-let androidChannelReady = false;
+/** Canaux Android déjà enregistrés cette session (un canal par variante de son). */
+const androidRailChannelsReady = new Set<string>();
+
+/**
+ * À appeler après changement de préférence sonore : le prochain schedule recréera le canal si besoin.
+ */
+export function invalidateRailAlarmChannelCache(): void {
+  androidRailChannelsReady.clear();
+}
 
 let permissionDeniedAlertLastShown = 0;
 const PERMISSION_ALERT_THROTTLE_MS = 45_000;
@@ -55,16 +63,22 @@ function maybeAlertAgentAlarmPermissionDenied(): void {
   );
 }
 
-async function ensureAndroidAlarmChannel(): Promise<void> {
-  if (Platform.OS !== 'android') return;
-  const n = getNotifications();
-  if (!n) return;
-  if (androidChannelReady) return;
-  await n.setNotificationChannelAsync(ANDROID_ALARM_CHANNEL, {
-    name: 'TellYouTo · Rail',
+type NotificationsModule = NonNullable<ReturnType<typeof getNotifications>>;
+
+async function ensureAndroidAlarmChannelForSound(
+  n: NotificationsModule,
+  soundId: RailAlarmSoundId,
+): Promise<string> {
+  if (Platform.OS !== 'android') return '';
+  const channelId = androidNotificationChannelIdForSound(soundId);
+  if (androidRailChannelsReady.has(channelId)) return channelId;
+
+  const filename = bundledSoundFilenameForPreference(soundId);
+  await n.setNotificationChannelAsync(channelId, {
+    name: `TellYouTo · Rail (${soundId})`,
     importance: n.AndroidImportance.MAX,
     vibrationPattern: [0, 450, 200, 450, 200, 450, 200, 600],
-    sound: RAIL_ALARM_SOUND_FILE,
+    ...(filename ? { sound: filename } : {}),
     enableVibrate: true,
     bypassDnd: true,
     lockscreenVisibility: n.AndroidNotificationVisibility.PUBLIC,
@@ -78,14 +92,14 @@ async function ensureAndroidAlarmChannel(): Promise<void> {
       },
     },
   });
-  androidChannelReady = true;
+  androidRailChannelsReady.add(channelId);
+  return channelId;
 }
 
-type NotificationsModule = NonNullable<ReturnType<typeof getNotifications>>;
-
 /**
- * Payload unique pour alarmes rail et debug hardware : même `channelId`, son, priorité Android,
- * interruption iOS — seul `identifier` / `title` / `data` / `when` varient.
+ * Planifie une notification date/heure style rail (même canal alarme Android, son selon préférence utilisateur).
+ *
+ * Le fichier `.wav` est lu depuis SQLite (`getPreferredRailAlarmSoundId`) pour rester cohérent hors React.
  */
 async function scheduleRailStyleDateNotification(
   n: NotificationsModule,
@@ -96,13 +110,21 @@ async function scheduleRailStyleDateNotification(
     data: Record<string, unknown>;
   },
 ): Promise<string> {
-  await ensureAndroidAlarmChannel();
+  const { getPreferredRailAlarmSoundId } = await import('../api/localDb');
+  const soundId = await getPreferredRailAlarmSoundId();
+  const filename = bundledSoundFilenameForPreference(soundId);
+
+  let channelId = '';
+  if (Platform.OS === 'android') {
+    channelId = await ensureAndroidAlarmChannelForSound(n, soundId);
+  }
+
   return n.scheduleNotificationAsync({
     identifier: args.identifier,
     content: {
       title: args.title,
       body: '',
-      sound: RAIL_ALARM_SOUND_FILE,
+      ...(filename ? { sound: filename } : {}),
       data: args.data,
       ...(Platform.OS === 'ios'
         ? {
@@ -113,7 +135,9 @@ async function scheduleRailStyleDateNotification(
     trigger: {
       type: n.SchedulableTriggerInputTypes.DATE,
       date: args.when,
-      ...(Platform.OS === 'android' ? { channelId: ANDROID_ALARM_CHANNEL } : {}),
+      ...(Platform.OS === 'android' && channelId
+        ? { channelId }
+        : {}),
     },
   });
 }

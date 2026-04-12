@@ -20,6 +20,11 @@ import { DeviceEventEmitter } from 'react-native';
 import { Platform } from '../utils/rnPlatform';
 
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
+import {
+  APP_PREF_RAIL_ALARM_SOUND_KEY,
+  normalizeRailAlarmSoundId,
+  type RailAlarmSoundId,
+} from '../services/railAlarmSound';
 import { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';
 import {
   alertNativeModuleMissing,
@@ -57,6 +62,56 @@ export function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> 
     () => undefined,
   );
   return next;
+}
+
+/**
+ * Lit une entrée générique de préférences locales (SQLite).
+ *
+ * @param key Clé stable (ex. {@link APP_PREF_RAIL_ALARM_SOUND_KEY}).
+ * @returns Valeur stockée ou `null`.
+ */
+export async function getAppPreference(key: string): Promise<string | null> {
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const row = await database.getFirstAsync<{ value: string }>(
+      `SELECT value FROM app_prefs WHERE key = ?`,
+      [key],
+    );
+    return row?.value ?? null;
+  });
+}
+
+/**
+ * Upsert d’une préférence clé/valeur (profil alarme, etc.).
+ */
+export async function setAppPreference(
+  key: string,
+  value: string,
+): Promise<void> {
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `INSERT OR REPLACE INTO app_prefs (key, value) VALUES (?, ?)`,
+      [key, value],
+    );
+  });
+}
+
+/**
+ * Sonnerie rail préférée persistée en SQLite (lue par `alarmManager` hors React).
+ */
+export async function getPreferredRailAlarmSoundId(): Promise<RailAlarmSoundId> {
+  const v = await getAppPreference(APP_PREF_RAIL_ALARM_SOUND_KEY);
+  return normalizeRailAlarmSoundId(v);
+}
+
+/**
+ * Aligner SQLite sur le profil utilisateur (AsyncStorage) après changement de sonnerie.
+ */
+export async function syncPreferredRailAlarmSoundToSqlite(
+  soundId: RailAlarmSoundId,
+): Promise<void> {
+  await setAppPreference(APP_PREF_RAIL_ALARM_SOUND_KEY, soundId);
 }
 
 let pragmasApplied = false;
@@ -137,6 +192,11 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_micro_habit_day ON micro_habit_checks (day_ymd);
   CREATE INDEX IF NOT EXISTS idx_intentions_synced ON intentions (synced);
   CREATE INDEX IF NOT EXISTS idx_intentions_created ON intentions (created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS app_prefs (
+    key TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL
+  );
 `;
 
 function getPhysicalDatabasePaths(): string[] {
@@ -184,6 +244,7 @@ export async function dangerouslyResetDatabase(): Promise<void> {
       DROP TABLE IF EXISTS intentions;
       DROP TABLE IF EXISTS routines;
       DROP TABLE IF EXISTS sync_queue;
+      DROP TABLE IF EXISTS app_prefs;
     `);
       try {
         await database.closeAsync();
