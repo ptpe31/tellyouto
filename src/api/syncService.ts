@@ -57,6 +57,7 @@ async function pushIntentionToFirestore(
     estimated_duration: row.estimated_duration,
     actual_duration: row.actual_duration ?? null,
     alarm_enabled: row.alarm_enabled,
+    is_flexible: row.is_flexible,
     is_micro_habit: row.is_micro_habit,
     is_hard_constraint: row.is_hard_constraint,
     routine_id: row.routine_id ?? null,

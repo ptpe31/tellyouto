@@ -8,7 +8,6 @@ import {
   getNotifications,
 } from './notifications';
 import type { IntentionRow } from '../api/localDb';
-import type { TimelineSlot } from './agentLogic';
 import { nextOccurrenceAfter, nextOccurrenceFrom } from './recurrenceRrule';
 
 /** Fichier listé dans app.json → plugin expo-notifications → sounds (rebuild natif requis). */
@@ -367,7 +366,6 @@ async function runSyncRailAlarmsWithTimeline(args: { now: Date }): Promise<void>
   if (!n) return;
 
   const { listIntentionsDescending } = await import('../api/localDb');
-  const { buildTimelineSlots } = await import('./agentLogic');
   const { now } = args;
 
   const pendingIntentions = (await listIntentionsDescending()).filter(
@@ -375,20 +373,14 @@ async function runSyncRailAlarmsWithTimeline(args: { now: Date }): Promise<void>
   );
   if (pendingIntentions.length === 0) return;
 
-  const slotById = new Map<string, TimelineSlot>();
-  const spectrum = pendingIntentions[0]!.weights;
-  const slots = buildTimelineSlots(pendingIntentions, spectrum, now, {
-    busyIntervals: [],
-  });
-  for (const s of slots) {
-    const prev = slotById.get(s.intention.id);
-    if (!prev || s.startMinutes < prev.startMinutes) {
-      slotById.set(s.intention.id, s);
-    }
-  }
-
   for (const row of pendingIntentions) {
     if (!row.alarm_enabled) {
+      await cancelIntentionRailAlarm(row.id);
+      continue;
+    }
+
+    /** Alarme native uniquement pour ancres fixes (pas de créneau flexible). */
+    if (row.is_flexible) {
       await cancelIntentionRailAlarm(row.id);
       continue;
     }
@@ -403,16 +395,12 @@ async function runSyncRailAlarmsWithTimeline(args: { now: Date }): Promise<void>
       continue;
     }
 
-    const slot = slotById.get(row.id);
-    let startMinutes: number | undefined;
-    if (row.fixed_start_minutes != null) {
-      startMinutes = row.fixed_start_minutes;
-    } else if (slot) {
-      startMinutes = slot.startMinutes;
-    } else {
-      startMinutes = fallbackRailAlarmStartMinutes(now);
+    if (row.fixed_start_minutes == null) {
+      await cancelIntentionRailAlarm(row.id);
+      continue;
     }
-    await scheduleIntentionRailAlarm(row, startMinutes, now);
+
+    await scheduleIntentionRailAlarm(row, row.fixed_start_minutes, now);
   }
 }
 

@@ -206,6 +206,7 @@
     "fieldTitle": "Title",
     "fieldDescription": "Detail (optional)",
     "urgentLabel": "Mark as urgent",
+    "flexibleSlotLabel": "Flexible slot (let the AI adjust)",
     "alarmLabel": "Set an alarm",
     "microNowTitle": "Right now",
     "microVerifyQuestion": "Did you do this small step?",

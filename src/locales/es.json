@@ -196,6 +196,7 @@
     "fieldDescription": "Detalle (opcional)",
     "urgentLabel": "Marcar como urgente",
     "alarmLabel": "Poner alarma",
+    "flexibleSlotLabel": "Franja flexible (dejar que la IA ajuste)",
     "microNowTitle": "Ahora",
     "microVerifyQuestion": "¿Ya hiciste este pequeño gesto?",
     "microVerifyCta": "Confirmar",

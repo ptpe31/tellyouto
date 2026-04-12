@@ -196,6 +196,7 @@
     "fieldDescription": "詳細（任意）",
     "urgentLabel": "緊急としてマーク",
     "alarmLabel": "アラームを設定",
+    "flexibleSlotLabel": "柔軟な枠（AIに調整させる）",
     "microNowTitle": "いま",
     "microVerifyQuestion": "小さな一歩、できましたか？",
     "microVerifyCta": "確認",

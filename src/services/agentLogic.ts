@@ -493,6 +493,7 @@ export function previewManualIntentionOverlapsHardRoutine(
     user_forced_urgent: false,
     is_late_night: sem.isLateNight,
     alarm_enabled: false,
+    is_flexible: true,
     is_micro_habit: false,
     is_hard_constraint: false,
     routine_id: null,
@@ -679,13 +680,16 @@ export function buildTimelineSlots(
     (i) => i.anchor_date_ymd == null || i.anchor_date_ymd === todayYmd,
   );
 
-  const hardPool = pool.filter(
-    (i) =>
-      i.is_hard_constraint &&
-      i.fixed_start_minutes != null &&
-      !i.is_late_night,
+  /** Ancre fixe (réveil) : `is_flexible === false` — heure sacrée. Structure routine + fixe : glissement possible si encore flexible. */
+  const isHardRailPool = (i: IntentionRow) =>
+    i.fixed_start_minutes != null &&
+    !i.is_late_night &&
+    (!i.is_flexible || i.is_hard_constraint);
+
+  const hardPool = pool.filter(isHardRailPool);
+  const regular = pool.filter(
+    (i) => !i.is_late_night && !isHardRailPool(i),
   );
-  const regular = pool.filter((i) => !i.is_hard_constraint && !i.is_late_night);
   const late = pool.filter((i) => i.is_late_night);
 
   const orderedHard = orderIntentionsBySpectrum(hardPool, spectrum);
@@ -700,7 +704,11 @@ export function buildTimelineSlots(
   const hardSlots: TimelineSlot[] = [];
   for (const intention of orderedHard) {
     const fs = intention.fixed_start_minutes!;
-    const startMinutes = Math.max(fs, railOpenMin, nowMin);
+    const immutable =
+      !intention.is_flexible && intention.fixed_start_minutes != null;
+    const startMinutes = immutable
+      ? fs
+      : Math.max(fs, railOpenMin, nowMin);
     const rawEnd = startMinutes + intention.estimated_duration;
     const endMinutes = Math.min(rawEnd, REGULAR_RAIL_END_MIN);
     if (endMinutes - startMinutes < 10) continue;

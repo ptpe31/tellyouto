@@ -77,6 +77,7 @@ const SCHEMA = `
     user_forced_urgent INTEGER NOT NULL DEFAULT 0,
     is_late_night INTEGER NOT NULL DEFAULT 0,
     alarm_enabled INTEGER NOT NULL DEFAULT 0,
+    is_flexible INTEGER NOT NULL DEFAULT 1,
     is_micro_habit INTEGER NOT NULL DEFAULT 0,
     is_hard_constraint INTEGER NOT NULL DEFAULT 0,
     routine_id TEXT,
@@ -260,6 +261,11 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
   if (!names.has('recurrence_rrule')) {
     await database.execAsync(`ALTER TABLE intentions ADD COLUMN recurrence_rrule TEXT`);
   }
+  if (!names.has('is_flexible')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN is_flexible INTEGER NOT NULL DEFAULT 1`,
+    );
+  }
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS routines (
       id TEXT PRIMARY KEY NOT NULL,
@@ -378,6 +384,11 @@ export type IntentionRow = {
   is_late_night: boolean;
   /** Notification à l’heure du créneau suggéré sur le rail */
   alarm_enabled: boolean;
+  /**
+   * Créneau laissé à l’IA (Momentum/Zen) — exclusif avec `alarm_enabled` :
+   * pas les deux à la fois.
+   */
+  is_flexible: boolean;
   /** Micro-habitude (soin répété) — fragmentée sur le rail */
   is_micro_habit: boolean;
   /** Ancre structurelle (routine récurrente + heure) — créneau sanctuarisé */
@@ -446,6 +457,8 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
     is_late_night: Number(row.is_late_night) === 1,
     alarm_enabled:
       row.alarm_enabled != null && Number(row.alarm_enabled) === 1,
+    is_flexible:
+      row.is_flexible == null ? true : Number(row.is_flexible) === 1,
     is_micro_habit:
       row.is_micro_habit != null && Number(row.is_micro_habit) === 1,
     is_hard_constraint:
@@ -476,6 +489,40 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
   };
 }
 
+/**
+ * Alarme et créneau flexible sont mutuellement exclusifs. Alarme active ⇒ ancre fixe + contrainte dure.
+ */
+export function normalizeFlexAlarmForInsert(input: {
+  is_flexible?: boolean;
+  alarm_enabled?: boolean;
+  is_hard_constraint?: boolean;
+  routine_id?: string | null;
+}): {
+  is_flexible: boolean;
+  alarm_enabled: boolean;
+  is_hard_constraint: boolean;
+} {
+  const alarm = !!input.alarm_enabled;
+  if (alarm) {
+    return { is_flexible: false, alarm_enabled: true, is_hard_constraint: true };
+  }
+  const isFlexible = input.is_flexible !== false;
+  if (isFlexible) {
+    return {
+      is_flexible: true,
+      alarm_enabled: false,
+      is_hard_constraint: input.routine_id
+        ? true
+        : !!input.is_hard_constraint,
+    };
+  }
+  return {
+    is_flexible: false,
+    alarm_enabled: false,
+    is_hard_constraint: !!input.is_hard_constraint || !!input.routine_id,
+  };
+}
+
 export async function insertIntention(input: {
   id: string;
   title: string;
@@ -490,6 +537,7 @@ export async function insertIntention(input: {
   user_forced_urgent?: boolean;
   is_late_night?: boolean;
   alarm_enabled?: boolean;
+  is_flexible?: boolean;
   is_micro_habit?: boolean;
   is_hard_constraint?: boolean;
   routine_id?: string | null;
@@ -500,22 +548,29 @@ export async function insertIntention(input: {
   recurrence_rrule?: string | null;
 }): Promise<void> {
   try {
+    const norm = normalizeFlexAlarmForInsert({
+      is_flexible: input.is_flexible,
+      alarm_enabled: input.alarm_enabled,
+      is_hard_constraint: input.is_hard_constraint,
+      routine_id: input.routine_id,
+    });
     await runSerializedSqlite(async () => {
       const database = await ensureDbReady();
       const ufu = input.user_forced_urgent ? 1 : 0;
       const iln = input.is_late_night ? 1 : 0;
-      const alarm = input.alarm_enabled ? 1 : 0;
+      const alarm = norm.alarm_enabled ? 1 : 0;
+      const flex = norm.is_flexible ? 1 : 0;
       const micro = input.is_micro_habit ? 1 : 0;
-      const hard = input.is_hard_constraint ? 1 : 0;
+      const hard = norm.is_hard_constraint ? 1 : 0;
       await database.runAsync(
         `INSERT INTO intentions (
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
-      user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
+      user_forced_urgent, is_late_night, alarm_enabled, is_flexible, is_micro_habit,
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
       raw_transcript, energy_score, local_notification_id, recurrence_rrule
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
         [
           input.id,
           input.title,
@@ -530,6 +585,7 @@ export async function insertIntention(input: {
           ufu,
           iln,
           alarm,
+          flex,
           micro,
           hard,
           input.routine_id ?? null,
@@ -541,7 +597,7 @@ export async function insertIntention(input: {
         ],
       );
     });
-    if (input.alarm_enabled) {
+    if (norm.alarm_enabled) {
       const alarmMod = await import('../services/alarmManager');
       await alarmMod.requestAlarmPermissionIfNeeded();
     }
@@ -583,7 +639,7 @@ export async function insertCompletedIntention(input: {
       id, title, description, status, priority, weights,
       platform_type, platform_user_id, created_at, synced,
       estimated_duration, actual_duration, completed_at,
-      user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
+      user_forced_urgent, is_late_night, alarm_enabled, is_flexible, is_micro_habit,
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
       raw_transcript, energy_score, local_notification_id, recurrence_rrule
     ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
@@ -602,6 +658,7 @@ export async function insertCompletedIntention(input: {
         ufu,
         iln,
         alarm,
+        1,
         micro,
       ],
     );
@@ -648,12 +705,23 @@ export async function updateIntentionAlarmEnabled(
 ): Promise<void> {
   await runSerializedSqlite(async () => {
     const database = await ensureDbReady();
-    await database.runAsync(
-      enabled
-        ? `UPDATE intentions SET alarm_enabled = ?, synced = 0 WHERE id = ?`
-        : `UPDATE intentions SET alarm_enabled = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
-      [enabled ? 1 : 0, id],
-    );
+    if (enabled) {
+      await database.runAsync(
+        `UPDATE intentions SET alarm_enabled = 1, is_flexible = 0, is_hard_constraint = 1, synced = 0 WHERE id = ?`,
+        [id],
+      );
+    } else {
+      const row = await database.getFirstAsync<{ routine_id: string | null }>(
+        `SELECT routine_id FROM intentions WHERE id = ?`,
+        [id],
+      );
+      const routine =
+        row?.routine_id != null && String(row.routine_id).trim() !== '';
+      await database.runAsync(
+        `UPDATE intentions SET alarm_enabled = 0, is_flexible = 1, is_hard_constraint = ?, local_notification_id = NULL, synced = 0 WHERE id = ?`,
+        [routine ? 1 : 0, id],
+      );
+    }
   });
   const alarm = await import('../services/alarmManager');
   if (enabled) {
@@ -1016,10 +1084,10 @@ export async function ensureRoutineIntentionInstancesForHorizon(
         id, title, description, status, priority, weights,
         platform_type, platform_user_id, created_at, synced,
         estimated_duration, actual_duration, completed_at,
-        user_forced_urgent, is_late_night, alarm_enabled, is_micro_habit,
+        user_forced_urgent, is_late_night, alarm_enabled, is_flexible, is_micro_habit,
         is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
         raw_transcript, energy_score, local_notification_id, recurrence_rrule
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 0, 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 1, 0, 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
         [
           intentionId,
           routine.title,

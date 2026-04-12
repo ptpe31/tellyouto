@@ -203,6 +203,8 @@ export function RadarScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [urgent, setUrgent] = useState(false);
+  /** Par défaut le rail peut déplacer le créneau ; exclusif avec l’alarme. */
+  const [slotFlexible, setSlotFlexible] = useState(true);
   const [alarm, setAlarm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [allyTick, setAllyTick] = useState(0);
@@ -355,6 +357,7 @@ export function RadarScreen() {
     const desc = description.trim();
     const userForcedUrgent = urgent;
     const alarmPref = alarm;
+    const effectiveFlexible = !alarmPref && slotFlexible;
     const now = new Date();
     const uid = spectrum.platform_user_id?.trim() || '';
 
@@ -419,6 +422,7 @@ export function RadarScreen() {
             user_forced_urgent: userForcedUrgent,
             is_late_night,
             alarm_enabled: alarmPref,
+            is_flexible: effectiveFlexible,
             is_micro_habit: false,
             is_hard_constraint: false,
             routine_id: null,
@@ -451,8 +455,9 @@ export function RadarScreen() {
             user_forced_urgent: userForcedUrgent,
             is_late_night,
             alarm_enabled: alarmPref,
+            is_flexible: effectiveFlexible,
             is_micro_habit: false,
-            is_hard_constraint: false,
+            is_hard_constraint: isHardConstraint,
             anchor_date_ymd,
             fixed_start_minutes,
           });
@@ -510,6 +515,7 @@ export function RadarScreen() {
       setTitle('');
       setDescription('');
       setUrgent(false);
+      setSlotFlexible(true);
       setAlarm(false);
       setDialogOpen(false);
       await load();
@@ -537,6 +543,7 @@ export function RadarScreen() {
     title,
     description,
     urgent,
+    slotFlexible,
     alarm,
     spectrum,
     load,
@@ -836,24 +843,63 @@ export function RadarScreen() {
               <Pressable
                 style={styles.urgentRow}
                 onPress={() => {
+                  setSlotFlexible((f) => {
+                    const next = !f;
+                    if (next) setAlarm(false);
+                    return next;
+                  });
+                }}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: slotFlexible }}
+              >
+                <Checkbox.Android
+                  status={slotFlexible ? 'checked' : 'unchecked'}
+                  onPress={() => {
+                    setSlotFlexible((f) => {
+                      const next = !f;
+                      if (next) setAlarm(false);
+                      return next;
+                    });
+                  }}
+                />
+                <Text
+                  style={[
+                    styles.urgentLabel,
+                    { color: theme.colors.onSurface },
+                  ]}
+                >
+                  {t('radar.flexibleSlotLabel')}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.urgentRow,
+                  slotFlexible ? { opacity: 0.45 } : null,
+                ]}
+                disabled={slotFlexible}
+                onPress={() => {
+                  if (slotFlexible) return;
                   void (async () => {
                     const next = !alarm;
                     if (next) {
                       void requestAlarmPermissionIfNeeded();
+                      setSlotFlexible(false);
                     }
                     setAlarm(next);
                   })();
                 }}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: alarm }}
+                accessibilityState={{ checked: alarm, disabled: slotFlexible }}
               >
                 <Checkbox.Android
                   status={alarm ? 'checked' : 'unchecked'}
                   onPress={() => {
+                    if (slotFlexible) return;
                     void (async () => {
                       const next = !alarm;
                       if (next) {
                         void requestAlarmPermissionIfNeeded();
+                        setSlotFlexible(false);
                       }
                       setAlarm(next);
                     })();
@@ -862,7 +908,11 @@ export function RadarScreen() {
                 <Text
                   style={[
                     styles.urgentLabel,
-                    { color: theme.colors.onSurface },
+                    {
+                      color: slotFlexible
+                        ? theme.colors.outline
+                        : theme.colors.onSurface,
+                    },
                   ]}
                 >
                   {t('radar.alarmLabel')}

@@ -196,6 +196,7 @@
     "fieldDescription": "Detail (optional)",
     "urgentLabel": "Als dringend markieren",
     "alarmLabel": "Wecker für den Vorschlagsblock",
+    "flexibleSlotLabel": "Flexibler Slot (KI darf anpassen)",
     "microNowTitle": "Jetzt",
     "microVerifyQuestion": "Kleine Handlung erledigt?",
     "microVerifyCta": "Bestätigen",

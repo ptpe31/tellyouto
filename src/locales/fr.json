@@ -206,6 +206,7 @@
     "fieldTitle": "Titre",
     "fieldDescription": "Détail (optionnel)",
     "urgentLabel": "Marquer comme urgent",
+    "flexibleSlotLabel": "Créneau flexible (laisser l'IA ajuster)",
     "alarmLabel": "Régler une alarme",
     "microNowTitle": "Maintenant",
     "microVerifyQuestion": "Ce petit geste, c’est fait ?",

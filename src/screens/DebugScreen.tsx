@@ -344,6 +344,7 @@ export function DebugScreen() {
         alarm_enabled: false,
         is_micro_habit: false,
         is_hard_constraint: false,
+        is_flexible: true,
         raw_transcript: 'Test WhatsApp (simulation debug)',
         energy_score: 0.72,
       });

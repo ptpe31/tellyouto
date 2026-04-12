@@ -196,6 +196,7 @@
     "fieldDescription": "详情（可选）",
     "urgentLabel": "标记为紧急",
     "alarmLabel": "设置闹钟",
+    "flexibleSlotLabel": "灵活时段（让 AI 调整）",
     "microNowTitle": "此刻",
     "microVerifyQuestion": "这个小动作完成了吗？",
     "microVerifyCta": "确认",
