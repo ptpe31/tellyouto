@@ -153,6 +153,8 @@ function scoreSemanticImportance(textRaw: string, now: Date): number {
 
 export type ComputePriorityOptions = {
   userForcedUrgent?: boolean;
+  systemLocale?: string;
+  aiLanguage?: string;
 };
 
 /** Embedding léger (n-grammes de caractères) — aucune liste lexicale figée. */
@@ -229,30 +231,268 @@ const WEEKDAY_PROTOTYPE_EMBEDDINGS: number[][] = (() => {
   return out;
 })();
 
+/** Contexte pour extraction : locales système / IA + instant de référence (désambiguïsation). */
+export type UniversalTimeExtractOptions = {
+  /** Ex. `expo-localization` `getLocales()[0].languageTag` */
+  systemLocale?: string;
+  /** Ex. langue d’interaction (chaîne courte ou BCP-47) */
+  aiLanguage?: string;
+  /** Référence pour « prochaine occurrence » ; défaut : maintenant */
+  now?: Date;
+};
+
+function resolveEffectiveLocaleTag(
+  systemLocale?: string,
+  aiLanguage?: string,
+): string {
+  const a = systemLocale?.trim();
+  if (a) return a;
+  const b = aiLanguage?.trim();
+  if (b) return b;
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale;
+  } catch {
+    return 'en-US';
+  }
+}
+
+/** Indique si `Intl` attend un cycle 12h pour l’étiquetage (sans nommer de territoire). */
+function resolvedHourCycleIs12(localeTag: string): boolean {
+  try {
+    const r = new Intl.DateTimeFormat(localeTag, {
+      hour: 'numeric',
+    }).resolvedOptions();
+    return r.hourCycle === 'h11' || r.hourCycle === 'h12';
+  } catch {
+    return false;
+  }
+}
+
+function clampMinuteOfDay(m: number): number {
+  let x = Math.floor(m) % 1440;
+  if (x < 0) x += 1440;
+  return x;
+}
+
 /**
- * Extrait une heure d’horloge depuis le texte (motifs numériques, pas de table d’heures).
- * Priorité absolue pour l’ancrage : cette valeur ne doit pas être remplacée par un placement rail.
+ * Parmi des minutes-jour 0..1439, retourne celle dont l’occurrence **strictement future**
+ * est la plus proche (wrap lendemain si tout est passé aujourd’hui).
  */
-export function extractClockMinutesFromText(raw: string): number | null {
+function disambiguateClosestFutureMinuteOfDay(
+  candidates: number[],
+  now: Date,
+): number {
+  const uniq = [
+    ...new Set(
+      candidates.map((c) => clampMinuteOfDay(c)).filter((c) => c >= 0 && c < 1440),
+    ),
+  ];
+  if (uniq.length === 0) return 0;
+  const nowMin =
+    now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  let best = uniq[0]!;
+  let bestDelta = Infinity;
+  for (const c of uniq) {
+    let delta = c - nowMin;
+    if (delta <= 0) delta += 1440;
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = c;
+    }
+  }
+  return best;
+}
+
+function minutesFrom12h(h: number, minute: number, isPm: boolean): number {
+  let hh = h;
+  if (hh === 12) {
+    return isPm ? 12 * 60 + minute : minute;
+  }
+  if (isPm) return (hh + 12) * 60 + minute;
+  return hh * 60 + minute;
+}
+
+/**
+ * Date d’ancrage (AAAA-MM-JJ) pour un couple (instant, minute du jour) : ce jour si l’heure
+ * est encore dans le futur, sinon le lendemain.
+ */
+export function resolveAnchorDateYmdForClockMinute(
+  now: Date,
+  minuteOfDay: number,
+): string {
+  const m = clampMinuteOfDay(minuteOfDay);
+  const d = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+  d.setMinutes(m);
+  if (d.getTime() <= now.getTime()) {
+    d.setDate(d.getDate() + 1);
+  }
+  return formatLocalDateYmd(d);
+}
+
+/**
+ * Extrait une minute depuis minuit (0–1439) depuis le texte — motifs **structurels**
+ * (chiffres + séparateurs / suffixes), sans tables linguistiques par pays.
+ * Dès qu’une heure est retenue, l’appelant doit traiter l’intention comme ancrée (flexible off, contrainte dure).
+ */
+export function extractClockMinutesFromText(
+  raw: string,
+  options?: UniversalTimeExtractOptions,
+): number | null {
+  const now = options?.now ?? new Date();
+  const systemLocale = resolveEffectiveLocaleTag(
+    options?.systemLocale,
+    options?.aiLanguage,
+  );
+
   const text = raw
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
     .toLowerCase();
-  const hm = text.match(/\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/);
-  if (hm) {
-    const h = parseInt(hm[1]!, 10);
-    const m = parseInt(hm[2]!, 10);
-    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
+
+  type Hit = { min: number; label: string; ambiguous?: boolean; cands?: number[] };
+  const hits: Hit[] = [];
+
+  const tryPush = (h: Hit) => {
+    hits.push(h);
+  };
+
+  // 1) Suffixes A/P + M (structure universelle, insensible à la casse)
+  let m: RegExpExecArray | null;
+  const reAmPmFull =
+    /\b([01]?\d|2[0-3]):([0-5]\d)\s*([ap])\s*\.?\s*m\.?\b/gi;
+  while ((m = reAmPmFull.exec(text)) !== null) {
+    const hh = parseInt(m[1]!, 10);
+    const mm = parseInt(m[2]!, 10);
+    const ap = m[3]!.toLowerCase();
+    const isPm = ap === 'p';
+    tryPush({
+      min: minutesFrom12h(hh, mm, isPm),
+      label: m[0]!,
+    });
   }
-  const hmSp = text.match(/\b([01]?\d|2[0-3])\s*h\s*([0-5]\d)\b/);
-  if (hmSp) {
-    const h = parseInt(hmSp[1]!, 10);
-    const m = parseInt(hmSp[2]!, 10);
-    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
+  const reAmPmHour =
+    /\b([01]?\d|2[0-3])\s*([ap])\s*\.?\s*m\.?\b/gi;
+  while ((m = reAmPmHour.exec(text)) !== null) {
+    const hh = parseInt(m[1]!, 10);
+    const ap = m[2]!.toLowerCase();
+    const isPm = ap === 'p';
+    tryPush({
+      min: minutesFrom12h(hh, 0, isPm),
+      label: m[0]!,
+    });
   }
-  const ho = text.match(/\b([01]?\d|2[0-3])\s*h\b/);
-  if (ho) return parseInt(ho[1]!, 10) * 60;
-  return null;
+
+  const followedByAmPm = (idx: number, len: number) =>
+    /\s*([ap])\s*\.?\s*m\b/i.test(text.slice(idx + len, idx + len + 12));
+
+  // 2) Séparateurs « horloge » larges : : . h @ _ - et espaces (motif structurel)
+  const reStructHm =
+    /\b([01]?\d|2[0-3])[\s.:_\-h@]+([0-5]\d)\b/gi;
+  while ((m = reStructHm.exec(text)) !== null) {
+    if (followedByAmPm(m.index, m[0]!.length)) continue;
+    const hh = parseInt(m[1]!, 10);
+    const mm = parseInt(m[2]!, 10);
+    if (hh <= 23 && mm <= 59)
+      tryPush({ min: hh * 60 + mm, label: m[0]! });
+  }
+
+  // 3) Point décimal HH.MM (24h)
+  const reDot = /\b([01]?\d|2[0-3])\.([0-5]\d)\b/g;
+  while ((m = reDot.exec(text)) !== null) {
+    if (followedByAmPm(m.index, m[0]!.length)) continue;
+    const hh = parseInt(m[1]!, 10);
+    const mm = parseInt(m[2]!, 10);
+    if (hh <= 23) tryPush({ min: hh * 60 + mm, label: m[0]! });
+  }
+
+  // 4) *uhr* (lettres contiguës, suffixe fréquent sur plusieurs régions)
+  const reUhr =
+    /\b([01]?\d|2[0-3])(?:[\s.:]([0-5]\d))?\s*uhr\b/gi;
+  while ((m = reUhr.exec(text)) !== null) {
+    const hh = parseInt(m[1]!, 10);
+    const mm = m[2] != null ? parseInt(m[2]!, 10) : 0;
+    if (hh <= 23 && mm <= 59)
+      tryPush({ min: hh * 60 + mm, label: m[0]! });
+  }
+
+  // 5) Heure seule avec « h » sans minutes (ex. 9h fin de token)
+  const reHOnly = /\b([01]?\d|2[0-3])\s*h\b/gi;
+  while ((m = reHOnly.exec(text)) !== null) {
+    const hh = parseInt(m[1]!, 10);
+    if (hh <= 23) {
+      const base = hh * 60;
+      const cands: number[] =
+        hh >= 0 && hh <= 12 && resolvedHourCycleIs12(systemLocale)
+          ? hh === 12
+            ? [0, 12 * 60]
+            : [hh * 60, (hh + 12) * 60]
+          : [base];
+      tryPush({
+        min: disambiguateClosestFutureMinuteOfDay(cands, now),
+        label: m[0]!,
+        ambiguous: cands.length > 1,
+        cands,
+      });
+    }
+  }
+
+  // 6) Chiffre isolé (1–12) après séparateur non-chiffre (hors `-` pour éviter les fragments AAAA-MM-JJ)
+  const reBare =
+    /(?:^|[^\d\w-])([01]?\d|1[0-2])(?=\s*[,:;)!?.]*(?:\s|$))/gi;
+  while ((m = reBare.exec(text)) !== null) {
+    const hh = parseInt(m[1]!, 10);
+    if (hh >= 1 && hh <= 12) {
+      const cands =
+        resolvedHourCycleIs12(systemLocale) && hh <= 12
+          ? hh === 12
+            ? [0, 12 * 60]
+            : [hh * 60, (hh + 12) * 60]
+          : [hh * 60];
+      tryPush({
+        min: disambiguateClosestFutureMinuteOfDay(cands, now),
+        label: m[0]!.trim(),
+        ambiguous: cands.length > 1,
+        cands,
+      });
+    }
+  }
+
+  if (hits.length === 0) return null;
+
+  // Priorité : correspondances les plus informatives (AM/PM ou deux chiffres avec séparateur) d’abord
+  const scored = hits.map((h, i) => {
+    const hasSep = /[:.]/i.test(h.label) || /\d{2}/.test(h.label);
+    const hasAmPm = /[ap]\s*\.?\s*m/i.test(h.label);
+    const score = (hasAmPm ? 4 : 0) + (hasSep ? 2 : 0) - (h.ambiguous ? 1 : 0);
+    return { h, i, score };
+  });
+  scored.sort((a, b) => b.score - a.score || a.i - b.i);
+  const pick = scored[0]!.h;
+  let result = pick.min;
+  if (pick.cands && pick.cands.length > 1) {
+    result = disambiguateClosestFutureMinuteOfDay(pick.cands, now);
+  }
+
+  result = clampMinuteOfDay(result);
+
+  console.log(
+    '[UNIVERSAL-TIME] Locale: ' +
+      systemLocale +
+      " | Raw: '" +
+      pick.label +
+      "' -> FixedMinutes: " +
+      result,
+  );
+
+  return result;
 }
 
 /** Score 0–1 : alignement texte ↔ concept de récurrence (embedding vs ancre analytique). */
@@ -288,9 +528,13 @@ export function inferIsHardConstraint(
   description: string,
   spectrum: SpectrumWeights,
   now: Date,
+  timeExtract?: UniversalTimeExtractOptions,
 ): boolean {
   const rec = inferRecurrenceStrength(title, description);
-  const clock = extractClockMinutesFromText(`${title}\n${description}`);
+  const clock = extractClockMinutesFromText(`${title}\n${description}`, {
+    ...timeExtract,
+    now,
+  });
   const structured = spectrum.structure >= 0.28;
   return structured && rec > 0.42 && clock != null;
 }
@@ -306,9 +550,14 @@ export function inferStructuralRoutinePlan(
   description: string,
   spectrum: SpectrumWeights,
   now: Date,
+  timeExtract?: UniversalTimeExtractOptions,
 ): StructuralRoutinePlan | null {
-  if (!inferIsHardConstraint(title, description, spectrum, now)) return null;
-  const start = extractClockMinutesFromText(`${title}\n${description}`);
+  if (!inferIsHardConstraint(title, description, spectrum, now, timeExtract))
+    return null;
+  const start = extractClockMinutesFromText(`${title}\n${description}`, {
+    ...timeExtract,
+    now,
+  });
   if (start == null) return null;
   return {
     weekday: inferWeekdayIndexFromEmbedding(title, description),
@@ -443,12 +692,18 @@ export function analyzeNewIntentionSemantics(
   );
   const isMicroHabit = inferIsMicroHabit(title, description, spectrum, now);
   let isLateNight = inferIsLateNightIntent(title, description, now);
+  const timeOpts: UniversalTimeExtractOptions = {
+    systemLocale: options?.systemLocale,
+    aiLanguage: options?.aiLanguage,
+    now,
+  };
   const explicitClockMinutes = extractClockMinutesFromText(
     `${title}\n${description}`,
+    timeOpts,
   );
   const isHardConstraint =
     explicitClockMinutes != null ||
-    inferIsHardConstraint(title, description, spectrum, now);
+    inferIsHardConstraint(title, description, spectrum, now, timeOpts);
   if (isHardConstraint) {
     isLateNight = false;
     priority = Math.max(priority, 93);
@@ -467,15 +722,21 @@ export function previewManualIntentionOverlapsHardRoutine(
   now: Date,
   busyIntervals: BusyInterval[],
   platformUserId: string,
+  timeExtract?: UniversalTimeExtractOptions,
 ): { overlaps: boolean; blockingTitle?: string } {
   const sem = analyzeNewIntentionSemantics(
     candidateTitle,
     candidateDesc,
     spectrum,
     now,
+    {
+      systemLocale: timeExtract?.systemLocale,
+      aiLanguage: timeExtract?.aiLanguage,
+    },
   );
   const clockPin = extractClockMinutesFromText(
     `${candidateTitle}\n${candidateDesc}`,
+    { ...timeExtract, now },
   );
   const mock: IntentionRow = {
     id: '__candidate__',
@@ -799,23 +1060,33 @@ export function computeRailAnchorAndFixedStartForNewIntention(args: {
   spectrum: SpectrumWeights;
   now: Date;
   busyIntervals?: BusyInterval[];
+  systemLocale?: string;
+  aiLanguage?: string;
 }): { anchor_date_ymd: string; fixed_start_minutes: number } {
-  const anchor_date_ymd = formatLocalDateYmd(args.now);
+  const timeCtx: UniversalTimeExtractOptions = {
+    systemLocale: args.systemLocale,
+    aiLanguage: args.aiLanguage,
+    now: args.now,
+  };
   if (args.candidate.fixed_start_minutes != null) {
+    const m = args.candidate.fixed_start_minutes;
     return {
-      anchor_date_ymd,
-      fixed_start_minutes: args.candidate.fixed_start_minutes,
+      anchor_date_ymd: resolveAnchorDateYmdForClockMinute(args.now, m),
+      fixed_start_minutes: m,
     };
   }
   const fromTitle = extractClockMinutesFromText(
     `${args.candidate.title}\n${args.candidate.description ?? ''}`,
+    timeCtx,
   );
   if (fromTitle != null) {
     return {
-      anchor_date_ymd,
+      anchor_date_ymd: resolveAnchorDateYmdForClockMinute(args.now, fromTitle),
       fixed_start_minutes: fromTitle,
     };
   }
+
+  const anchor_date_ymd = formatLocalDateYmd(args.now);
 
   const merged = buildTimelineSlots(
     [...args.pendingOthers, args.candidate],

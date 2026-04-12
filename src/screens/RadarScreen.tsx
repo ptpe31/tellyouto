@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Localization from 'expo-localization';
 import { randomUUID } from 'expo-crypto';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -53,6 +54,7 @@ import {
 } from '../services/alarmManager';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
+import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useFocusCalendarConflict } from '../hooks/useFocusCalendarConflict';
 import {
@@ -196,6 +198,7 @@ export function RadarScreen() {
   const navigation =
     useNavigation<BottomTabNavigationProp<AppTabParamList, 'Radar'>>();
   const { spectrum } = useUserSpectrum();
+  const { interactionLanguage } = useLanguage();
   const { connectEnabled, busyIntervals, refreshBusy } = useCalendarIntegration();
   const { shouldWarnForLaunch } = useFocusCalendarConflict();
 
@@ -360,6 +363,14 @@ export function RadarScreen() {
     const alarmPref = alarm;
     const effectiveFlexible = !alarmPref && slotFlexible;
     const now = new Date();
+    const systemLocale =
+      Localization.getLocales()[0]?.languageTag ??
+      Intl.DateTimeFormat().resolvedOptions().locale;
+    const timeExtractOpts = {
+      systemLocale,
+      aiLanguage: spectrum.locale?.trim() || interactionLanguage,
+      now,
+    };
     const uid = spectrum.platform_user_id?.trim() || '';
 
     const pending = (await listIntentionsDescending()).filter(
@@ -374,6 +385,7 @@ export function RadarScreen() {
       now,
       busyForAgent,
       uid,
+      timeExtractOpts,
     );
     if (overlap.overlaps) {
       setDialogOpen(false);
@@ -391,6 +403,8 @@ export function RadarScreen() {
           isHardConstraint,
         } = analyzeNewIntentionSemantics(trimmedTitle, desc, spectrum, now, {
           userForcedUrgent,
+          systemLocale,
+          aiLanguage: interactionLanguage,
         });
         const estimated_duration = estimateDurationMinutes(
           trimmedTitle,
@@ -408,6 +422,7 @@ export function RadarScreen() {
           };
           const titlePinnedMinutes = extractClockMinutesFromText(
             `${trimmedTitle}\n${desc}`,
+            timeExtractOpts,
           );
           const isTitleTimePinned = titlePinnedMinutes != null;
           const candidate: IntentionRow = {
@@ -445,15 +460,9 @@ export function RadarScreen() {
               spectrum: weights,
               now,
               busyIntervals: busyForAgent,
+              systemLocale,
+              aiLanguage: interactionLanguage,
             });
-          console.log(
-            '[INVESTIGATION] Titre:',
-            trimmedTitle,
-            '-> Valeur finale SQLite:',
-            fixed_start_minutes,
-            'anchor:',
-            anchor_date_ymd,
-          );
           await insertIntention({
             id,
             title: trimmedTitle,
@@ -482,6 +491,7 @@ export function RadarScreen() {
             desc,
             spectrum,
             now,
+            timeExtractOpts,
           );
           if (plan) {
             const routineId = newRadarEntityId();
@@ -561,6 +571,7 @@ export function RadarScreen() {
     spectrum,
     load,
     t,
+    interactionLanguage,
   ]);
 
   const renderItem = ({
