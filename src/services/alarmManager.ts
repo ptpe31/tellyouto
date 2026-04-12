@@ -317,6 +317,20 @@ async function scheduleIntentionRailAlarm(
 ): Promise<void> {
   const dayStart = intentionAlarmAnchorMidnight(row, now);
   const when = dateAtLocalMinutes(dayStart, startMinutes);
+  if (__DEV__) {
+    console.log(
+      '[INVESTIGATION] Alarme native SQLite fixed_start_minutes=',
+      startMinutes,
+      '(',
+      Math.floor(startMinutes / 60),
+      'h',
+      String(startMinutes % 60).padStart(2, '0'),
+      ') →',
+      when.toISOString(),
+      '|',
+      row.title,
+    );
+  }
   await scheduleIntentionRailAlarmAtDate(row, when, now);
 }
 

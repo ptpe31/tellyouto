@@ -60,6 +60,7 @@ import {
   buildTimelineSlots,
   computeRailAnchorAndFixedStartForNewIntention,
   estimateDurationMinutes,
+  extractClockMinutesFromText,
   inferStructuralRoutinePlan,
   previewManualIntentionOverlapsHardRoutine,
   type BusyInterval,
@@ -405,6 +406,10 @@ export function RadarScreen() {
             zen: spectrum.zen,
             stats: spectrum.stats,
           };
+          const titlePinnedMinutes = extractClockMinutesFromText(
+            `${trimmedTitle}\n${desc}`,
+          );
+          const isTitleTimePinned = titlePinnedMinutes != null;
           const candidate: IntentionRow = {
             id,
             title: trimmedTitle,
@@ -422,12 +427,12 @@ export function RadarScreen() {
             user_forced_urgent: userForcedUrgent,
             is_late_night,
             alarm_enabled: alarmPref,
-            is_flexible: effectiveFlexible,
+            is_flexible: isTitleTimePinned ? false : effectiveFlexible,
             is_micro_habit: false,
-            is_hard_constraint: false,
+            is_hard_constraint: isHardConstraint,
             routine_id: null,
             anchor_date_ymd: null,
-            fixed_start_minutes: null,
+            fixed_start_minutes: titlePinnedMinutes,
             raw_transcript: null,
             energy_score: null,
             local_notification_id: null,
@@ -441,6 +446,14 @@ export function RadarScreen() {
               now,
               busyIntervals: busyForAgent,
             });
+          console.log(
+            '[INVESTIGATION] Titre:',
+            trimmedTitle,
+            '-> Valeur finale SQLite:',
+            fixed_start_minutes,
+            'anchor:',
+            anchor_date_ymd,
+          );
           await insertIntention({
             id,
             title: trimmedTitle,
@@ -455,7 +468,7 @@ export function RadarScreen() {
             user_forced_urgent: userForcedUrgent,
             is_late_night,
             alarm_enabled: alarmPref,
-            is_flexible: effectiveFlexible,
+            is_flexible: isTitleTimePinned ? false : effectiveFlexible,
             is_micro_habit: false,
             is_hard_constraint: isHardConstraint,
             anchor_date_ymd,

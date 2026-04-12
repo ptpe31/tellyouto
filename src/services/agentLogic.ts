@@ -231,6 +231,7 @@ const WEEKDAY_PROTOTYPE_EMBEDDINGS: number[][] = (() => {
 
 /**
  * Extrait une heure d’horloge depuis le texte (motifs numériques, pas de table d’heures).
+ * Priorité absolue pour l’ancrage : cette valeur ne doit pas être remplacée par un placement rail.
  */
 export function extractClockMinutesFromText(raw: string): number | null {
   const text = raw
@@ -241,6 +242,12 @@ export function extractClockMinutesFromText(raw: string): number | null {
   if (hm) {
     const h = parseInt(hm[1]!, 10);
     const m = parseInt(hm[2]!, 10);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
+  }
+  const hmSp = text.match(/\b([01]?\d|2[0-3])\s*h\s*([0-5]\d)\b/);
+  if (hmSp) {
+    const h = parseInt(hmSp[1]!, 10);
+    const m = parseInt(hmSp[2]!, 10);
     if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
   }
   const ho = text.match(/\b([01]?\d|2[0-3])\s*h\b/);
@@ -436,12 +443,12 @@ export function analyzeNewIntentionSemantics(
   );
   const isMicroHabit = inferIsMicroHabit(title, description, spectrum, now);
   let isLateNight = inferIsLateNightIntent(title, description, now);
-  const isHardConstraint = inferIsHardConstraint(
-    title,
-    description,
-    spectrum,
-    now,
+  const explicitClockMinutes = extractClockMinutesFromText(
+    `${title}\n${description}`,
   );
+  const isHardConstraint =
+    explicitClockMinutes != null ||
+    inferIsHardConstraint(title, description, spectrum, now);
   if (isHardConstraint) {
     isLateNight = false;
     priority = Math.max(priority, 93);
@@ -466,6 +473,9 @@ export function previewManualIntentionOverlapsHardRoutine(
     candidateDesc,
     spectrum,
     now,
+  );
+  const clockPin = extractClockMinutesFromText(
+    `${candidateTitle}\n${candidateDesc}`,
   );
   const mock: IntentionRow = {
     id: '__candidate__',
@@ -493,12 +503,12 @@ export function previewManualIntentionOverlapsHardRoutine(
     user_forced_urgent: false,
     is_late_night: sem.isLateNight,
     alarm_enabled: false,
-    is_flexible: true,
+    is_flexible: clockPin != null ? false : true,
     is_micro_habit: false,
-    is_hard_constraint: false,
+    is_hard_constraint: clockPin != null ? true : false,
     routine_id: null,
     anchor_date_ymd: null,
-    fixed_start_minutes: null,
+    fixed_start_minutes: clockPin,
     raw_transcript: null,
     energy_score: null,
     local_notification_id: null,
@@ -776,8 +786,12 @@ export function buildTimelineSlots(
 }
 
 /**
- * Ancre du jour + première minute du rail pour une nouvelle intention (agent / manuel).
- * S’appuie sur le premier créneau attribué par `buildTimelineSlots` — requis pour une alarme à heure fixe.
+ * Ancre du jour + `fixed_start_minutes` pour une nouvelle intention.
+ *
+ * **Priorité absolue (sans placement Momentum / Zen) :**
+ * 1. `candidate.fixed_start_minutes` déjà renseigné ;
+ * 2. heure explicite extraite du titre / description (`extractClockMinutesFromText`) ;
+ * 3. sinon seulement : premier créneau issu de `buildTimelineSlots` (flux fluide).
  */
 export function computeRailAnchorAndFixedStartForNewIntention(args: {
   pendingOthers: IntentionRow[];
@@ -786,6 +800,23 @@ export function computeRailAnchorAndFixedStartForNewIntention(args: {
   now: Date;
   busyIntervals?: BusyInterval[];
 }): { anchor_date_ymd: string; fixed_start_minutes: number } {
+  const anchor_date_ymd = formatLocalDateYmd(args.now);
+  if (args.candidate.fixed_start_minutes != null) {
+    return {
+      anchor_date_ymd,
+      fixed_start_minutes: args.candidate.fixed_start_minutes,
+    };
+  }
+  const fromTitle = extractClockMinutesFromText(
+    `${args.candidate.title}\n${args.candidate.description ?? ''}`,
+  );
+  if (fromTitle != null) {
+    return {
+      anchor_date_ymd,
+      fixed_start_minutes: fromTitle,
+    };
+  }
+
   const merged = buildTimelineSlots(
     [...args.pendingOthers, args.candidate],
     args.spectrum,
@@ -800,12 +831,12 @@ export function computeRailAnchorAndFixedStartForNewIntention(args: {
   const fallbackMin = Math.min(Math.max(nowMin, railOpenMin) + 15, 23 * 60 + 45);
   if (!mine) {
     return {
-      anchor_date_ymd: formatLocalDateYmd(args.now),
+      anchor_date_ymd,
       fixed_start_minutes: fallbackMin,
     };
   }
   return {
-    anchor_date_ymd: formatLocalDateYmd(args.now),
+    anchor_date_ymd,
     fixed_start_minutes: mine.startMinutes,
   };
 }
