@@ -36,6 +36,7 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { ingestExternalRawMessage } from '../services/externalIntentIngest';
 import { seedDemoTypicalDay } from '../services/demoTypicalDay';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
+import { scheduleDebugAgentDirectAlarmIn10Minutes } from '../services/alarmManager';
 import { palette } from '../theme/colors';
 
 export function DebugScreen() {
@@ -52,6 +53,7 @@ export function DebugScreen() {
     | 'demoDay'
     | 'simWaIntent'
     | 'purgeIntentions'
+    | 'forceAgentAlarm'
     | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -389,10 +391,10 @@ export function DebugScreen() {
               setBusy('purgeIntentions');
               try {
                 await deleteAllIntentions();
-                await refreshRawIntentions();
               } catch (e) {
                 setLastError(e instanceof Error ? e.message : String(e));
               } finally {
+                await refreshRawIntentions();
                 setBusy(null);
               }
             })();
@@ -401,6 +403,23 @@ export function DebugScreen() {
       ],
     );
   }, [refreshRawIntentions, t]);
+
+  const onForceAgentDirectAlarm = useCallback(async () => {
+    setLastError(null);
+    setBusy('forceAgentAlarm');
+    try {
+      const id = await scheduleDebugAgentDirectAlarmIn10Minutes();
+      Alert.alert(
+        t('debug.forceAgentAlarmSuccessTitle'),
+        t('debug.forceAgentAlarmSuccessBody', { id }),
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('debug.forceAgentAlarmErrorTitle'), msg);
+    } finally {
+      setBusy(null);
+    }
+  }, [t]);
 
   return (
     <ScrollView
@@ -483,6 +502,24 @@ export function DebugScreen() {
       </View>
 
       <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          {t('debug.sectionAgentNativeTitle')}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.forceAgentAlarmHelp')}
+        </Text>
+        <Button
+          mode="contained"
+          onPress={() => void onForceAgentDirectAlarm()}
+          disabled={busy !== null}
+          style={styles.btn}
+          buttonColor={palette.teal}
+        >
+          {t('debug.forceAgentAlarmButton')}
+        </Button>
+      </View>
+
+      <View style={styles.section}>
         <Button
           mode="contained"
           onPress={onResetProfile}
@@ -524,7 +561,9 @@ export function DebugScreen() {
                     ? t('debug.simWhatsAppIntentionBusy')
                     : busy === 'purgeIntentions'
                       ? t('debug.purgeIntentionsBusy')
-                      : t('debug.simBusy')}
+                      : busy === 'forceAgentAlarm'
+                        ? t('debug.forceAgentAlarmBusy')
+                        : t('debug.simBusy')}
           </Text>
         </View>
       )}

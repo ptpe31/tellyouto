@@ -27,11 +27,12 @@ const mod = getNotifications();
 if (mod) {
   mod.setNotificationHandler({
     handleNotification: async (notification) => {
-      const isRailAlarm =
-        notification.request.content.data?.kind === 'rail_alarm';
+      const kind = notification.request.content.data?.kind;
+      const isRailAlarm = kind === 'rail_alarm';
+      const isDebugAgentDirect = kind === 'debug_agent_direct';
       return {
         shouldShowAlert: true,
-        shouldPlaySound: isRailAlarm,
+        shouldPlaySound: isRailAlarm || isDebugAgentDirect,
         shouldSetBadge: false,
         shouldShowBanner: true,
         shouldShowList: true,

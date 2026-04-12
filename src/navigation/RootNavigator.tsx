@@ -36,12 +36,11 @@ function RootNavigatorInner() {
   >(null);
 
   const refreshRoute = useCallback(async () => {
-    const [v] = await Promise.all([
-      AsyncStorage.getItem(ONBOARDING_KEY),
-      touchLocalDatabaseForStartup().catch(() => undefined),
-    ]);
+    const v = await AsyncStorage.getItem(ONBOARDING_KEY);
     setInitialRoute(v === 'true' ? 'App' : 'Onboarding');
     setReady(true);
+    /** Ne pas bloquer le TTI sur la file SQLite : ouverture paresseuse après premier rendu. */
+    void touchLocalDatabaseForStartup().catch(() => undefined);
   }, []);
 
   useEffect(() => {

@@ -332,8 +332,9 @@ export async function withLocalDatabase<T>(
 }
 
 /**
- * Lecture minimale sur `intentions` pour valider que SQLite est prêt (splash / TTI).
- * Ne charge pas toute la table.
+ * Lecture minimale sur `intentions` pour valider que SQLite est prêt.
+ * Ne charge pas toute la table. Appelé après le premier rendu (RootNavigator) pour ne pas
+ * bloquer le TTI sur la file `runSerializedSqlite`.
  */
 export async function touchLocalDatabaseForStartup(): Promise<void> {
   await runSerializedSqlite(async () => {
@@ -1065,16 +1066,31 @@ const INTENTIONS_CHANGED_DEBUG = 'tellyouto/intentions_changed';
 
 /**
  * Supprime toutes les intentions locales (+ contrôles micro-habitudes) — tests Debug / profils.
+ * Les étapes notifications / resync rail ne doivent pas empêcher la purge SQLite ni l’événement UI :
+ * une erreur expo-sqlite côté alarmes (`finalizeAsync`, etc.) laissait autrefois la table vidée
+ * sans `INTENTIONS_CHANGED`, donc l’écran Debug affichait encore les anciennes lignes.
  */
 export async function deleteAllIntentions(): Promise<void> {
   await runSerializedSqlite(async () => {
     const database = await ensureDbReady();
-    await database.runAsync(`DELETE FROM micro_habit_checks`);
-    await database.runAsync(`DELETE FROM intentions`);
+    await database.withTransactionAsync(async () => {
+      await database.execAsync('DELETE FROM micro_habit_checks;');
+      await database.execAsync('DELETE FROM intentions;');
+    });
   });
-  const { cancelAllScheduledRailAlarms } = await import('../services/alarmManager');
-  await cancelAllScheduledRailAlarms();
-  await syncNativeRailAlarmsAfterIntentionWrite('deleteAllIntentions');
+  try {
+    const { cancelAllScheduledRailAlarms } = await import(
+      '../services/alarmManager'
+    );
+    await cancelAllScheduledRailAlarms();
+  } catch {
+    /* Expo Go, module notifications, SQLite secondaire : la table est déjà vide */
+  }
+  try {
+    await syncNativeRailAlarmsAfterIntentionWrite('deleteAllIntentions');
+  } catch {
+    /* idem — ne pas bloquer l’UI après DELETE réussi */
+  }
   DeviceEventEmitter.emit(INTENTIONS_CHANGED_DEBUG);
 }
 

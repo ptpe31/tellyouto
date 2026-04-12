@@ -412,7 +412,8 @@ export function inferIsLateNightIntent(
 }
 
 /**
- * Analyse complète à l’insertion : priorité, nature micro-habitude, segment nuit.
+ * Analyse complète à l’insertion : priorité, segment nuit, contrainte dure.
+ * `isMicroHabit` reste dans le retour pour compatibilité schéma / sync (toujours false).
  */
 export function analyzeNewIntentionSemantics(
   title: string,
@@ -658,6 +659,9 @@ export function orderIntentionsBySpectrum(
 
 /**
  * Répartit les intentions : jamais dans le passé ; jour jusqu’à 20h ; fin de nuit après 21h.
+ * Tout le monde passe par les pools **hard** (ancre + heure fixe, hors nuit) / **regular** / **late** —
+ * pas de fragmentation micro-habitude : le flag `is_micro_habit` en base est ignoré pour le placement.
+ *
  * `busyIntervals` : blocs indisponibles (ex. calendrier système **connectés** dans les réglages) —
  * traités **uniquement en local**. Les calendriers « masqués sur le rail » mais connectés doivent
  * être inclus ici pour le placement ; l’affichage séparé est géré par l’écran (créneaux visibles).

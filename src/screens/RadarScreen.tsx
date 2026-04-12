@@ -49,9 +49,7 @@ import {
 } from '../components';
 import type { FocusCapsuleMode } from '../navigation/types';
 import {
-  refreshRailAlarmsAfterLocalDbChange,
   requestAlarmPermissionIfNeeded,
-  syncRailAlarmsWithTimeline,
 } from '../services/alarmManager';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
@@ -494,8 +492,6 @@ export function RadarScreen() {
         } else {
           await insertRadarPendingIntention();
         }
-
-        await refreshRailAlarmsAfterLocalDbChange();
       };
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -518,7 +514,6 @@ export function RadarScreen() {
       setDialogOpen(false);
       await load();
       void syncPendingIntentions();
-      await syncRailAlarmsWithTimeline({ now: new Date() });
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);

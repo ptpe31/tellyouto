@@ -62,6 +62,43 @@ async function ensureAndroidAlarmChannel(): Promise<void> {
   androidChannelReady = true;
 }
 
+type NotificationsModule = NonNullable<ReturnType<typeof getNotifications>>;
+
+/**
+ * Payload unique pour alarmes rail et debug hardware : même `channelId`, son, priorité Android,
+ * interruption iOS — seul `identifier` / `title` / `data` / `when` varient.
+ */
+async function scheduleRailStyleDateNotification(
+  n: NotificationsModule,
+  args: {
+    identifier: string;
+    title: string;
+    when: Date;
+    data: Record<string, unknown>;
+  },
+): Promise<string> {
+  await ensureAndroidAlarmChannel();
+  return n.scheduleNotificationAsync({
+    identifier: args.identifier,
+    content: {
+      title: args.title,
+      body: '',
+      sound: RAIL_ALARM_SOUND_FILE,
+      data: args.data,
+      ...(Platform.OS === 'ios'
+        ? {
+            interruptionLevel: 'timeSensitive' as const,
+          }
+        : { priority: n.AndroidNotificationPriority.MAX }),
+    },
+    trigger: {
+      type: n.SchedulableTriggerInputTypes.DATE,
+      date: args.when,
+      ...(Platform.OS === 'android' ? { channelId: ANDROID_ALARM_CHANNEL } : {}),
+    },
+  });
+}
+
 function dateAtLocalMinutes(day: Date, totalMinutes: number): Date {
   const d = new Date(day);
   d.setHours(0, 0, 0, 0);
@@ -178,6 +215,48 @@ export async function requestAlarmPermissionIfNeeded(): Promise<boolean> {
   return ensureNotificationPermissions();
 }
 
+/** Identifiant stable — remplace une planification debug précédente sans toucher SQLite. */
+const DEBUG_AGENT_DIRECT_NOTIFICATION_ID = 'tellyouto_debug_agent_direct_alarm';
+
+/**
+ * Écran Debug uniquement : planifie une notification native dans 10 minutes (même canal /
+ * priorité que les alarmes rail), sans lecture ni écriture SQLite.
+ */
+export async function scheduleDebugAgentDirectAlarmIn10Minutes(): Promise<string> {
+  const n = getNotifications();
+  if (!n) {
+    throw new Error(
+      'expo-notifications indisponible (Expo Go ou module absent — utiliser un dev build).',
+    );
+  }
+  const permitted = await requestAlarmPermissionIfNeeded();
+  if (!permitted) {
+    throw new Error(
+      'Permission notifications refusée ou non accordée (réglages système).',
+    );
+  }
+  const now = new Date();
+  const when = new Date(now.getTime() + 10 * 60 * 1000);
+  if (when.getTime() <= now.getTime() + 10_000) {
+    throw new Error('Date de déclenchement trop proche.');
+  }
+  try {
+    await n.cancelScheduledNotificationAsync(DEBUG_AGENT_DIRECT_NOTIFICATION_ID);
+  } catch {
+    /* aucune planification précédente */
+  }
+  const scheduledId = await scheduleRailStyleDateNotification(n, {
+    identifier: DEBUG_AGENT_DIRECT_NOTIFICATION_ID,
+    title: '🚨 TEST AGENT DIRECT',
+    when,
+    data: { kind: 'debug_agent_direct' },
+  });
+  console.log(
+    '[Debug-Agent] Ordre de planification envoyé pour dans 10 minutes.',
+  );
+  return scheduledId;
+}
+
 async function persistScheduledId(intentionId: string, scheduledId: string): Promise<void> {
   const { setIntentionLocalNotificationId } = await import('../api/localDb');
   await setIntentionLocalNotificationId(intentionId, scheduledId);
@@ -214,30 +293,14 @@ async function scheduleIntentionRailAlarmAtDate(
     fresh.local_notification_id ?? undefined,
   );
 
-  await ensureAndroidAlarmChannel();
-
   const identifier = intentionRailAlarmNotificationId(row.id);
-  const soundName = RAIL_ALARM_SOUND_FILE;
-  const scheduledId = await n.scheduleNotificationAsync({
+  const scheduledId = await scheduleRailStyleDateNotification(n, {
     identifier,
-    content: {
-      title: row.title,
-      body: '',
-      sound: soundName,
-      data: {
-        kind: 'rail_alarm',
-        intentionId: row.id,
-      },
-      ...(Platform.OS === 'ios'
-        ? {
-            interruptionLevel: 'timeSensitive' as const,
-          }
-        : { priority: n.AndroidNotificationPriority.MAX }),
-    },
-    trigger: {
-      type: n.SchedulableTriggerInputTypes.DATE,
-      date: when,
-      ...(Platform.OS === 'android' ? { channelId: ANDROID_ALARM_CHANNEL } : {}),
+    title: row.title,
+    when,
+    data: {
+      kind: 'rail_alarm',
+      intentionId: row.id,
     },
   });
   await persistScheduledId(row.id, scheduledId);
@@ -264,12 +327,29 @@ function computeNextRruleAlarmDate(row: IntentionRow, now: Date): Date | null {
 }
 
 /**
+ * Une seule resync rail à la fois (bootstrap, Timeline, écritures SQLite). Sinon plusieurs
+ * `syncRailAlarmsWithTimeline` entrelacés peuvent faire échouer expo-sqlite sur Android
+ * (`NativeStatement.finalizeAsync` rejeté).
+ */
+let railSyncTail: Promise<void> = Promise.resolve();
+
+function enqueueRailAlarmSync(run: () => Promise<void>): Promise<void> {
+  const next = railSyncTail.then(run, run);
+  railSyncTail = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+/**
  * Re-synchronise les alarmes après écriture SQLite (toggle alarme, insert agent, etc.).
  * Lecture locale uniquement — aucune attente Cloud.
  */
 export async function refreshRailAlarmsAfterLocalDbChange(): Promise<void> {
-  const now = new Date();
-  await syncRailAlarmsWithTimeline({ now });
+  return enqueueRailAlarmSync(async () => {
+    await runSyncRailAlarmsWithTimeline({ now: new Date() });
+  });
 }
 
 /**
@@ -277,6 +357,12 @@ export async function refreshRailAlarmsAfterLocalDbChange(): Promise<void> {
  * Les créneaux rail sont recalculés en mémoire sans calendrier externe ni état de sync Firebase.
  */
 export async function syncRailAlarmsWithTimeline(args: { now: Date }): Promise<void> {
+  return enqueueRailAlarmSync(async () => {
+    await runSyncRailAlarmsWithTimeline(args);
+  });
+}
+
+async function runSyncRailAlarmsWithTimeline(args: { now: Date }): Promise<void> {
   const n = getNotifications();
   if (!n) return;
 
@@ -366,13 +452,13 @@ export async function handleRailAlarmDelivered(intentionId: string): Promise<voi
  */
 export async function bootstrapNativeAlarmsOnAppStart(): Promise<void> {
   try {
+    await refreshRailAlarmsAfterLocalDbChange();
     const { listIntentionsDescending } = await import('../api/localDb');
     const rows = await listIntentionsDescending();
     const count = rows.filter(
       (r) => r.status === 'pending' && r.alarm_enabled,
     ).length;
-    console.log(`[Hardware-Alarm] ${count} alarmes reprogrammées au démarrage`);
-    await refreshRailAlarmsAfterLocalDbChange();
+    console.log(`[Hardware-Alarm] ${count} alarme(s) alignée(s) après bootstrap`);
   } catch (e) {
     if (__DEV__) console.warn('[TellYouTo] bootstrapNativeAlarmsOnAppStart', e);
   }
