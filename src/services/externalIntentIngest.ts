@@ -6,6 +6,7 @@ import {
   ensureRoutineIntentionInstancesForHorizon,
   insertIntention,
   insertRoutine,
+  INTENTIONS_CHANGED_EVENT_NAME,
 } from '../api/localDb';
 import { syncPendingIntentions } from '../api/syncService';
 import type { UserSpectrumState } from '../context/UserSpectrumContext';
@@ -20,7 +21,7 @@ import {
 } from './notifications';
 
 /** Émis après insertion locale (Radar / Timeline peuvent recharger). */
-export const INTENTIONS_CHANGED_EVENT = 'tellyouto/intentions_changed';
+export const INTENTIONS_CHANGED_EVENT = INTENTIONS_CHANGED_EVENT_NAME;
 
 /**
  * Si un `platform_user_id` est défini dans le profil, l’expéditeur externe doit correspondre.

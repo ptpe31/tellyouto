@@ -392,6 +392,7 @@ export function DebugScreen() {
               setBusy('purgeIntentions');
               try {
                 await deleteAllIntentions();
+                setRawIntentionsJson('[]');
               } catch (e) {
                 setLastError(e instanceof Error ? e.message : String(e));
               } finally {

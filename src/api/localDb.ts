@@ -1129,14 +1129,18 @@ export async function checkpointLocalDatabase(): Promise<void> {
   }
 }
 
-/** Aligné sur `INTENTIONS_CHANGED_EVENT` (externalIntentIngest) — évite import circulaire. */
-const INTENTIONS_CHANGED_DEBUG = 'tellyouto/intentions_changed';
+/**
+ * Aligné sur `INTENTIONS_CHANGED_EVENT` (`externalIntentIngest`) — évite import circulaire.
+ * Tous les écrans qui écoutent `tellyouto/intentions_changed` sont notifiés.
+ */
+export const INTENTIONS_CHANGED_EVENT_NAME = 'tellyouto/intentions_changed';
 
 /**
  * Supprime toutes les intentions locales (+ contrôles micro-habitudes) — tests Debug / profils.
- * Les étapes notifications / resync rail ne doivent pas empêcher la purge SQLite ni l’événement UI :
- * une erreur expo-sqlite côté alarmes (`finalizeAsync`, etc.) laissait autrefois la table vidée
- * sans `INTENTIONS_CHANGED`, donc l’écran Debug affichait encore les anciennes lignes.
+ *
+ * Ordre : transaction SQLite (DELETE) → `VACUUM` → annulation **totale** des notifications Expo
+ * (`cancelAllScheduledNotificationsAsync`) → nettoyage poignées rail / SQLite → resync alarmes (no-op) →
+ * événement global pour rafraîchir l’UI.
  */
 export async function deleteAllIntentions(): Promise<void> {
   await runSerializedSqlite(async () => {
@@ -1145,21 +1149,36 @@ export async function deleteAllIntentions(): Promise<void> {
       await database.execAsync('DELETE FROM micro_habit_checks;');
       await database.execAsync('DELETE FROM intentions;');
     });
+    try {
+      await database.execAsync('VACUUM;');
+    } catch {
+      /* VACUUM peut échouer sur certaines configs (lecture seule, etc.) — DELETE déjà validé */
+    }
   });
+
+  try {
+    const { cancelAllLocalScheduledNotifications } = await import(
+      '../services/notifications'
+    );
+    await cancelAllLocalScheduledNotifications();
+  } catch {
+    /* Expo Go / module absent */
+  }
   try {
     const { cancelAllScheduledRailAlarms } = await import(
       '../services/alarmManager'
     );
     await cancelAllScheduledRailAlarms();
   } catch {
-    /* Expo Go, module notifications, SQLite secondaire : la table est déjà vide */
+    /* second passage : préfixes rail + UPDATE SQLite */
   }
   try {
     await syncNativeRailAlarmsAfterIntentionWrite('deleteAllIntentions');
   } catch {
-    /* idem — ne pas bloquer l’UI après DELETE réussi */
+    /* ne pas bloquer l’UI après DELETE réussi */
   }
-  DeviceEventEmitter.emit(INTENTIONS_CHANGED_DEBUG);
+
+  DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
 }
 
 /** Vue compacte pour l’écran Debug (Use Cases / sync Firebase). */
