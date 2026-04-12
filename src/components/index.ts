@@ -1,3 +1,9 @@
+/**
+ * Point d’entrée des composants UI réutilisables (cartes, modales, rail, focus).
+ * Préférer des imports depuis ce fichier pour garder des chemins stables dans les écrans.
+ *
+ * @packageDocumentation
+ */
 export { ErrorBoundary } from './ErrorBoundary';
 export { AllyThoughtBubble } from './AllyThoughtBubble';
 export { AgentInsight } from './AgentInsight';

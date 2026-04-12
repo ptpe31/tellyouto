@@ -1,3 +1,11 @@
+/**
+ * Accès paresseux à **expo-notifications** : chargement conditionnel pour éviter les erreurs Expo Go.
+ *
+ * **Pourquoi** : les builds de prod ont besoin du module ; Expo Go ne l’expose pas complètement.
+ * Les appelants doivent gérer `null` comme « pas de notifications ».
+ *
+ * @module notifications
+ */
 import Constants from 'expo-constants';
 
 import i18n from '../locales/i18n';
@@ -41,7 +49,11 @@ if (mod) {
   });
 }
 
-/** Annule toutes les notifications planifiées locales (rail, rappels). */
+/**
+ * Annule **toutes** les notifications planifiées locales (`cancelAllScheduledNotificationsAsync`).
+ *
+ * **Pourquoi** : reset usine / purge — le système ne doit garder aucune sonnerie résiduelle.
+ */
 export async function cancelAllLocalScheduledNotifications(): Promise<void> {
   const n = getNotifications();
   if (!n) return;

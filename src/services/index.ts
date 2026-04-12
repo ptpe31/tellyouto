@@ -1,3 +1,7 @@
+/**
+ * Ré-exports des services **runtime** (santé, notifications, logique agent) pour les entrées
+ * qui ne souhaitent pas importer chaque fichier en profondeur.
+ */
 export { pollVigilanceSignals } from './vigilanceAgent';
 export type { VigilanceSignal } from './vigilanceAgent';
 export {

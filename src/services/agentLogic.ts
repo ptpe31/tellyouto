@@ -1,3 +1,24 @@
+/**
+ * Logique « agent » locale : priorisation, rail temporel, extraction d’heure, encouragement.
+ *
+ * **Pourquoi ce module existe** : tout le raisonnement sur les intentions doit rester **déterministe,
+ * testable et hors réseau** pour que l’utilisateur garde confiance quand le cloud est absent.
+ *
+ * ---
+ * ### Loi du système — priorité du titre et ancrage horaire (ne pas casser)
+ *
+ * Une intention peut contenir une **heure explicite** dans le libellé. Dans ce cas, la minute
+ * retournée par {@link extractClockMinutesFromText} et {@link computeRailAnchorAndFixedStartForNewIntention}
+ * est une **décision produit** : elle **prime** sur le placement fluide du rail (Momentum / Zen / busy).
+ * Ne jamais « optimiser » par-dessus cette valeur pour coller au rail : c’était la source de
+ * **dérive temporelle** (alarme décalée, utilisateur perd confiance).
+ *
+ * - Ne pas court-circuiter l’ordre **titre → minute fixe → rail** sans revue produit + tests alarme.
+ * - Toute nouvelle heuristique de placement doit **ignorer** ou **respecter** `fixed_start_minutes`
+ * selon `is_flexible`, pas les mélanger implicitement.
+ *
+ * @module agentLogic
+ */
 import type { IntentionRow } from '../api/localDb';
 import { formatLocalDateYmd } from '../api/localDb';
 import type { AppLanguage } from '../context/LanguageContext';
@@ -151,9 +172,15 @@ function scoreSemanticImportance(textRaw: string, now: Date): number {
   return Math.max(0, Math.min(1, score));
 }
 
+/**
+ * Options communes pour l’analyse à l’insertion (priorité, extraction d’heure contextualisée).
+ */
 export type ComputePriorityOptions = {
+  /** Priorité artificiellement haute si l’utilisateur a marqué l’intention comme urgente. */
   userForcedUrgent?: boolean;
+  /** Tag BCP‑47 pour `Intl` / parsing (souvent `expo-localization`). */
   systemLocale?: string;
+  /** Langue d’interaction (profil ou UI) — second recours si la locale système est absente. */
   aiLanguage?: string;
 };
 
@@ -313,8 +340,14 @@ function minutesFrom12h(h: number, minute: number, isPm: boolean): number {
 }
 
 /**
- * Date d’ancrage (AAAA-MM-JJ) pour un couple (instant, minute du jour) : ce jour si l’heure
- * est encore dans le futur, sinon le lendemain.
+ * Calcule la date d’ancrage (AAAA-MM-JJ) pour une minute de journée donnée par rapport à `now`.
+ *
+ * **Pourquoi** : une alarme à 09:00 saisie le soir doit viser **demain**, pas un horaire déjà passé
+ * le jour même — sans quoi le matériel annule ou se tait.
+ *
+ * @param now Horloge de référence (fuseau local de l’appareil).
+ * @param minuteOfDay Minutes 0–1439 depuis minuit.
+ * @returns Chaîne `YYYY-MM-DD` locale pour `anchor_date_ymd`.
  */
 export function resolveAnchorDateYmdForClockMinute(
   now: Date,
@@ -340,7 +373,17 @@ export function resolveAnchorDateYmdForClockMinute(
 /**
  * Extrait une minute depuis minuit (0–1439) depuis le texte — motifs **structurels**
  * (chiffres + séparateurs / suffixes), sans tables linguistiques par pays.
- * Dès qu’une heure est retenue, l’appelant doit traiter l’intention comme ancrée (flexible off, contrainte dure).
+ *
+ * **Pourquoi** : l’heure tapée par l’utilisateur est l’engagement de confiance ; le moteur doit
+ * être **agnostique** (structure + `Intl`) pour tenir un déploiement mondial sans maintenance
+ * de listes par langue.
+ *
+ * **Loi du système** : le résultat **sanctifie** l’intention côté produit (ancrage non négociable).
+ * Ne pas réinjecter ce résultat dans un second passage qui le remplace par un créneau « optimisé » du rail.
+ *
+ * @param raw Texte brut (titre + description concaténés en pratique).
+ * @param options Locales + `now` pour désambiguïsation (prochaine occurrence future).
+ * @returns Minutes depuis minuit, ou `null` si aucune horloge fiable n’a été détectée.
  */
 export function extractClockMinutesFromText(
   raw: string,
@@ -668,8 +711,18 @@ export function inferIsLateNightIntent(
 }
 
 /**
- * Analyse complète à l’insertion : priorité, segment nuit, contrainte dure.
- * `isMicroHabit` reste dans le retour pour compatibilité schéma / sync (toujours false).
+ * Agrège toutes les inférences nécessaires à la **première persistance** d’une intention (Radar, agents).
+ *
+ * **Pourquoi** : un seul point d’entrée évite les incohérences (priorité haute mais nuit mal détectée).
+ * La détection d’heure dans le texte force une **contrainte dure** car l’utilisateur a exprimé une
+ * obligation temporelle explicite.
+ *
+ * @param title Titre brut utilisateur.
+ * @param description Détail optionnel.
+ * @param spectrum Poids spectre courants.
+ * @param now Horloge pour importance sémantique et nuit.
+ * @param options Urgence utilisateur + locales pour {@link extractClockMinutesFromText}.
+ * @returns Paquet sémantique prêt pour SQLite / Firestore.
  */
 export function analyzeNewIntentionSemantics(
   title: string,
@@ -930,13 +983,20 @@ export function orderIntentionsBySpectrum(
 }
 
 /**
- * Répartit les intentions : jamais dans le passé ; jour jusqu’à 20h ; fin de nuit après 21h.
- * Tout le monde passe par les pools **hard** (ancre + heure fixe, hors nuit) / **regular** / **late** —
- * pas de fragmentation micro-habitude : le flag `is_micro_habit` en base est ignoré pour le placement.
+ * Construit les créneaux affichables du « rail » pour une journée : ordre, durées, collisions busy.
  *
- * `busyIntervals` : blocs indisponibles (ex. calendrier système **connectés** dans les réglages) —
- * traités **uniquement en local**. Les calendriers « masqués sur le rail » mais connectés doivent
- * être inclus ici pour le placement ; l’affichage séparé est géré par l’écran (créneaux visibles).
+ * **Pourquoi** : offrir une **vue cohérente** (Timeline / Radar) sans serveur ; le spectre module
+ * la densité (Momentum / Zen) pour que le rail reflète le profil utilisateur.
+ *
+ * **Important** : les intentions **non flexibles** avec `fixed_start_minutes` utilisent l’heure
+ * comme **ancre immuable** (pas de glissement « intelligent »). Ne pas fusionner ce pool avec le
+ * placement fluide sans respecter `is_flexible` / `is_hard_constraint`.
+ *
+ * @param intentions Lignes SQLite (ou mocks) du jour concerné.
+ * @param spectrum Poids Structure / Momentum / Zen / Stats.
+ * @param now Horloge de référence (évite les blocs entièrement dans le passé).
+ * @param options.busyIntervals Indisponibilités locales (calendriers connectés, etc.).
+ * @returns Créneaux triés avec libellés horaires pour l’UI.
  */
 export function buildTimelineSlots(
   intentions: IntentionRow[],
@@ -1047,12 +1107,26 @@ export function buildTimelineSlots(
 }
 
 /**
- * Ancre du jour + `fixed_start_minutes` pour une nouvelle intention.
+ * Produit le couple (`anchor_date_ymd`, `fixed_start_minutes`) stocké en SQLite pour une nouvelle intention.
  *
- * **Priorité absolue (sans placement Momentum / Zen) :**
- * 1. `candidate.fixed_start_minutes` déjà renseigné ;
- * 2. heure explicite extraite du titre / description (`extractClockMinutesFromText`) ;
- * 3. sinon seulement : premier créneau issu de `buildTimelineSlots` (flux fluide).
+ * **Pourquoi** : séparer **l’heure promise à l’utilisateur** du **placement fluide** du rail évite
+ * la dérive (ex. 09h45 → 09h37) qui cassait les alarmes.
+ *
+ * **Loi du système — ordre contractuel (ne pas inverser)** :
+ * 1. `candidate.fixed_start_minutes` si déjà défini (ex. prérempli après parsing titre) ;
+ * 2. sinon {@link extractClockMinutesFromText} — **priorité absolue** sur le rail ;
+ * 3. sinon seulement : premier créneau issu de {@link buildTimelineSlots} (fluide / busy / spectre).
+ *
+ * Toute modification de cet ordre doit être validée avec scénarios alarme + Timeline.
+ *
+ * @param args.pendingOthers Intentions déjà en base pour simulation du rail (mode fluide).
+ * @param args.candidate Prototype d’intention (id, durée, flags…) utilisé pour le placement.
+ * @param args.spectrum Poids spectre pour le placement fluide (étape 3 uniquement).
+ * @param args.now Instant présent pour ancrage et rail.
+ * @param args.busyIntervals Indisponibilités calendrier (optionnel).
+ * @param args.systemLocale Tag passé au parseur d’heure (étape 2).
+ * @param args.aiLanguage Seconde piste locale pour le parseur (étape 2).
+ * @returns Ancre calendaire + minutes depuis minuit à persister.
  */
 export function computeRailAnchorAndFixedStartForNewIntention(args: {
   pendingOthers: IntentionRow[];

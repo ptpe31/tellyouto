@@ -1,3 +1,23 @@
+/**
+ * Pont **SQLite → Expo Notifications** pour les alarmes « rail » sur l’appareil.
+ *
+ * **Pourquoi** : la sonnerie doit survivre **sans Firebase** ; le OS ne connaît que les
+ * planifications locales. Ce module est la seule couche autorisée à poser / retirer des triggers
+ * `DATE` stables pour les intentions.
+ *
+ * ---
+ * ### Loi du système — ne jamais dériver de la vérité SQLite
+ *
+ * - Les alarmes natives pour les intentions **non récurrentes** utilisent **uniquement**
+ *   `fixed_start_minutes` + `anchor_date_ymd` lus en base — **pas** un second calcul « rail » qui
+ *   pourrait différer de ce que l’utilisateur a validé (sinon retour de la **dérive temporelle**).
+ * - Si `is_flexible === true`, **aucune** alarme matérielle n’est planifiée : le créneau peut bouger ;
+ *   programmer le OS ici casserait la promesse produit.
+ * - Toute modification du flux **doit** garder la cohérence avec {@link extractClockMinutesFromText}
+ *   / persistance dans `localDb` (révision croisée obligatoire).
+ *
+ * @module alarmManager
+ */
 import { Alert } from 'react-native';
 
 import i18n from '../locales/i18n';
@@ -352,8 +372,11 @@ export async function refreshRailAlarmsAfterLocalDbChange(): Promise<void> {
 }
 
 /**
- * Replanifie les alarmes matérielles à partir **uniquement** de la table `intentions` (SQLite).
- * Les créneaux rail sont recalculés en mémoire sans calendrier externe ni état de sync Firebase.
+ * Replanifie les alarmes matérielles à partir **uniquement** des lignes `intentions` (SQLite).
+ *
+ * **Pourquoi** : après toute écriture locale, le OS doit refléter exactement la base — pas l’inverse.
+ * Il n’y a **pas** de recalcul de « rail graphique » ici : on lit `fixed_start_minutes` / RRULE et on
+ * pose les `DATE` notifications correspondantes.
  */
 export async function syncRailAlarmsWithTimeline(args: { now: Date }): Promise<void> {
   return enqueueRailAlarmSync(async () => {
@@ -361,6 +384,13 @@ export async function syncRailAlarmsWithTimeline(args: { now: Date }): Promise<v
   });
 }
 
+/**
+ * Implémentation séquentielle (file d’attente) : une intention à la fois pour éviter les courses
+ * SQLite sur Android (`finalizeAsync`).
+ *
+ * **Loi du système** : annulation systématique des flex + alarmes sans `fixed_start_minutes` ;
+ * ancres fixes uniquement pour le matériel.
+ */
 async function runSyncRailAlarmsWithTimeline(args: { now: Date }): Promise<void> {
   const n = getNotifications();
   if (!n) return;

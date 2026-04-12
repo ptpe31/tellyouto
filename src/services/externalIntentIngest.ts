@@ -1,3 +1,10 @@
+/**
+ * Ingestion des messages **externes** (messagerie, webhooks simulés) vers SQLite + sync cloud.
+ *
+ * **Pourquoi** : isoler le parsing / quotas / handshake pour ne pas dupliquer la logique Radar.
+ *
+ * @module externalIntentIngest
+ */
 import { randomUUID } from 'expo-crypto';
 import { DeviceEventEmitter } from 'react-native';
 

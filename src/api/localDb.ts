@@ -1,3 +1,17 @@
+/**
+ * Couche **SQLite** : source de vérité **offline-first** pour les intentions, routines, file de sync.
+ *
+ * **Pourquoi** : le réseau est optionnel ; l’utilisateur doit voir et entendre ses engagements
+ * même en mode avion. Toute logique métier « critique » (alarme, rail) lit ici en premier.
+ *
+ * **Sérialisation** : {@link runSerializedSqlite} garantit une file d’attente unique pour éviter les
+ * verrous et les `finalizeAsync` concurrents (Android).
+ *
+ * **Reset** : {@link deleteAllIntentions} exécute transaction + `VACUUM`, purge les notifications Expo,
+ * puis émet {@link INTENTIONS_CHANGED_EVENT_NAME} pour que les écrans se vident.
+ *
+ * @module localDb
+ */
 import * as SQLite from 'expo-sqlite';
 import { deleteAsync } from 'expo-file-system/legacy';
 import { defaultDatabaseDirectory } from 'expo-sqlite';
@@ -20,6 +34,12 @@ let openingDb: Promise<SQLite.SQLiteDatabase> | null = null;
 let sqliteQueueTail: Promise<unknown> = Promise.resolve();
 let sqliteReentrantDepth = 0;
 
+/**
+ * Exécute une opération SQLite dans une **file d’attente globale** (réentrante si déjà dans la file).
+ *
+ * @param operation Callback async contenant `runAsync` / `withTransactionAsync` / `execAsync`.
+ * @returns Résultat de l’opération.
+ */
 export function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> {
   if (sqliteReentrantDepth > 0) {
     return operation();
