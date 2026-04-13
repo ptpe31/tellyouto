@@ -9,7 +9,8 @@
     "recharge": "Recharge",
     "messaging": "Messages",
     "stats": "Stats",
-    "debug": "Debug"
+    "debug": "Debug",
+    "talkHome": "Talk"
   },
   "messaging": {
     "lead": "Liens profonds TellYouTo — ouvre l’app directement sur Radar, Timeline ou Recharge.",
@@ -561,5 +562,16 @@
     "projects": "Projets",
     "premiumQuota": "Quota Premium",
     "premiumQuotaRemaining": "Quota Premium restant : {{count}}"
+  },
+  "talkHome": {
+    "brandName": "TalkNDone",
+    "profileButton": "Ouvrir le profil",
+    "priorityHigh": "High-priorite",
+    "questionHydration": "Boire un verre d'eau ?",
+    "yes": "OUI",
+    "no": "NON",
+    "localPrivacyHint": "Gere par l'IA locale • Confidentialite Totale",
+    "progressLabel": "Tache en cours : 1/3 | Prochaine ancre : Meditation (soir)",
+    "holdToTalk": "HOLD-TO-TALK"
   }
 }

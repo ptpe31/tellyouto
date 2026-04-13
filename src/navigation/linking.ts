@@ -18,6 +18,7 @@ export const appLinking = {
           Tabs: {
             path: '',
             screens: {
+              TalkHome: 'home',
               Radar: {
                 path: 'radar',
                 parse: {

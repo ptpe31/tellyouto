@@ -1,3 +1,4 @@
+export { TalkHomeScreen } from './TalkHomeScreen';
 export { RadarScreen } from './RadarScreen';
 export { TimelineScreen } from './TimelineScreen';
 export { AgentIAScreen } from './AgentIAScreen';

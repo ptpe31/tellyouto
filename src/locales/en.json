@@ -9,7 +9,8 @@
     "recharge": "Recharge",
     "messaging": "Messaging",
     "stats": "Stats",
-    "debug": "Debug"
+    "debug": "Debug",
+    "talkHome": "Talk"
   },
   "messaging": {
     "lead": "TellYouTo deep links — open the app on Radar, Timeline, or Recharge.",
@@ -561,5 +562,16 @@
     "projects": "Projects",
     "premiumQuota": "Premium quota",
     "premiumQuotaRemaining": "Premium quota remaining: {{count}}"
+  },
+  "talkHome": {
+    "brandName": "TalkNDone",
+    "profileButton": "Open profile",
+    "priorityHigh": "High-priority",
+    "questionHydration": "Drink a glass of water?",
+    "yes": "YES",
+    "no": "NO",
+    "localPrivacyHint": "Managed by local AI • Total Privacy",
+    "progressLabel": "Current task: 1/3 | Next anchor: Meditation (evening)",
+    "holdToTalk": "HOLD-TO-TALK"
   }
 }

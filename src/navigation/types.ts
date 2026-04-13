@@ -15,6 +15,7 @@ export type MainStackParamList = {
 };
 
 export type AppTabParamList = {
+  TalkHome: undefined;
   Radar: undefined;
   Timeline: undefined;
   AgentIA: NavigatorScreenParams<AgentStackParamList> | undefined;

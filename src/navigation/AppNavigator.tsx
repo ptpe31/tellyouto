@@ -4,6 +4,7 @@ import {
   Bot,
   Bug,
   Clock,
+  House,
   Radar,
   Sparkles,
 } from 'lucide-react-native';
@@ -15,6 +16,7 @@ import {
   RadarScreen,
   RechargeScreen,
   StatsScreen,
+  TalkHomeScreen,
   TimelineScreen,
 } from '../screens';
 import { IS_PRODUCTION } from '../config/appConfig';
@@ -32,6 +34,7 @@ export function AppNavigator() {
 
   return (
     <Tab.Navigator
+      initialRouteName="TalkHome"
       screenOptions={{
         headerShown: true,
         tabBarActiveTintColor: theme.colors.primary,
@@ -42,6 +45,17 @@ export function AppNavigator() {
         },
       }}
     >
+      <Tab.Screen
+        name="TalkHome"
+        component={TalkHomeScreen}
+        options={{
+          headerShown: false,
+          title: t('tabs.talkHome'),
+          tabBarIcon: ({ color, size }) => (
+            <House color={color} size={size} />
+          ),
+        }}
+      />
       <Tab.Screen
         name="Radar"
         component={RadarScreen}
