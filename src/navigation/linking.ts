@@ -12,7 +12,6 @@ export const appLinking = {
   ],
   config: {
     screens: {
-      Onboarding: 'onboarding',
       App: {
         path: '',
         screens: {

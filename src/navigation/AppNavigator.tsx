@@ -4,7 +4,6 @@ import {
   Bot,
   Bug,
   Clock,
-  MessageCircle,
   Radar,
   Sparkles,
 } from 'lucide-react-native';
@@ -13,7 +12,6 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
 import {
   DebugScreen,
-  MessagingScreen,
   RadarScreen,
   RechargeScreen,
   StatsScreen,
@@ -80,16 +78,6 @@ export function AppNavigator() {
           title: t('tabs.recharge'),
           tabBarIcon: ({ color, size }) => (
             <Sparkles color={color} size={size} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Messaging"
-        component={MessagingScreen}
-        options={{
-          title: t('tabs.messaging'),
-          tabBarIcon: ({ color, size }) => (
-            <MessageCircle color={color} size={size} />
           ),
         }}
       />

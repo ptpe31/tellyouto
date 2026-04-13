@@ -16,12 +16,12 @@ import { collection, getDocs, limit, query } from 'firebase/firestore';
 
 import { CalendarGranularSection } from '../components';
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
-import { LineConnector } from '../api/connectors';
 import {
   deleteAllIntentions,
   insertIntention,
   intentionRowToDebugSnapshot,
   listIntentionsDescending,
+  INTENTIONS_CHANGED_EVENT_NAME,
   LOCAL_DB_RESET_EVENT,
 } from '../api/localDb';
 import { ensureFirebaseAnonymousAuth, getFirestoreDb } from '../api/firebase';
@@ -31,12 +31,9 @@ import {
   DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS,
 } from '../config/transitPurgeKeys';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
-import { useOnboardingReset } from '../context/OnboardingResetContext';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { ingestExternalRawMessage } from '../services/externalIntentIngest';
 import { seedDemoTypicalDay } from '../services/demoTypicalDay';
-import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { scheduleDebugAgentDirectAlarmIn10Minutes } from '../services/alarmManager';
 import type { RailAlarmSoundId } from '../services/railAlarmSound';
 import { palette } from '../theme/colors';
@@ -46,12 +43,10 @@ export function DebugScreen() {
   const theme = useTheme();
   const { spectrum, setProUser, setPreferredAlarmSound } = useUserSpectrum();
   const power = usePower();
-  const { resetProfileToOnboarding } = useOnboardingReset();
   const [busy, setBusy] = useState<
     | 'profile'
     | 'db'
     | 'sim'
-    | 'simLine'
     | 'demoDay'
     | 'simWaIntent'
     | 'purgeIntentions'
@@ -126,7 +121,7 @@ export function DebugScreen() {
     void refreshRawIntentions();
     void refreshSyncPurge();
     const subIntentions = DeviceEventEmitter.addListener(
-      INTENTIONS_CHANGED_EVENT,
+      INTENTIONS_CHANGED_EVENT_NAME,
       () => {
         void refreshRawIntentions();
         void refreshSyncPurge();
@@ -146,20 +141,22 @@ export function DebugScreen() {
     setLastError(null);
     setBusy('profile');
     try {
-      await resetProfileToOnboarding();
+      power.setEnergyScore(1);
+      power.setLowPower(false);
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
-  }, [resetProfileToOnboarding]);
+  }, [power]);
 
   const runFactoryReset = useCallback(async () => {
     setLastError(null);
     setBusy('db');
     try {
       const { health } = await executeFactoryResetDataPlane();
-      await resetProfileToOnboarding();
+      power.setEnergyScore(1);
+      power.setLowPower(false);
       if (!health.sqliteOk) {
         setLastError(t('debug.factoryResetHealthWarn'));
       }
@@ -174,7 +171,7 @@ export function DebugScreen() {
     } finally {
       setBusy(null);
     }
-  }, [resetProfileToOnboarding, t]);
+  }, [power, t]);
 
   const onRebuildDb = useCallback(() => {
     Alert.alert(
@@ -213,15 +210,30 @@ export function DebugScreen() {
     setLastError(null);
     setBusy('sim');
     try {
-      const res = await ingestExternalRawMessage({
-        raw: t('debug.simSampleRaw'),
-        connector: LineConnector,
-        externalUserId: externalSenderId,
-        spectrum,
+      await insertIntention({
+        id: randomUUID(),
+        title: t('debug.simWhatsApp'),
+        description: t('debug.simSampleRaw'),
+        status: 'pending',
+        priority: 70,
+        weights: {
+          structure: spectrum.structure,
+          momentum: spectrum.momentum,
+          zen: spectrum.zen,
+          stats: spectrum.stats,
+        },
+        platform_type: 'none',
+        platform_user_id: externalSenderId,
+        created_at: Date.now(),
+        estimated_duration: 25,
+        user_forced_urgent: false,
+        is_late_night: false,
+        alarm_enabled: false,
+        is_flexible: true,
+        is_micro_habit: false,
+        is_hard_constraint: false,
       });
-      if (!res.ok && res.error === 'user_id_mismatch') {
-        setLastError(t('debug.simErrorUser'));
-      }
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -350,7 +362,7 @@ export function DebugScreen() {
         raw_transcript: 'Test WhatsApp (simulation debug)',
         energy_score: 0.72,
       });
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       void syncPendingIntentions();
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
@@ -358,26 +370,6 @@ export function DebugScreen() {
       setBusy(null);
     }
   }, [spectrum]);
-
-  const onSimLine = useCallback(async () => {
-    setLastError(null);
-    setBusy('simLine');
-    try {
-      const res = await ingestExternalRawMessage({
-        raw: t('debug.simLineRaw'),
-        connector: LineConnector,
-        externalUserId: externalSenderId,
-        spectrum,
-      });
-      if (!res.ok && res.error === 'user_id_mismatch') {
-        setLastError(t('debug.simErrorUser'));
-      }
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }, [externalSenderId, spectrum, t]);
 
   const onPurgeIntentions = useCallback(() => {
     Alert.alert(
@@ -517,17 +509,6 @@ export function DebugScreen() {
         </Button>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
           {t('debug.simWhatsAppIntentionHelp')}
-        </Text>
-        <Button
-          mode="outlined"
-          onPress={onSimLine}
-          disabled={busy !== null}
-          style={[styles.btn, styles.btnSecond]}
-        >
-          {t('debug.simLine')}
-        </Button>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.simLineHelp')}
         </Text>
       </View>
 

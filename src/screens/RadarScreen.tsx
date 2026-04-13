@@ -34,6 +34,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ensureRoutineIntentionInstancesForHorizon,
   insertIntention,
+  INTENTIONS_CHANGED_EVENT_NAME,
   insertRoutine,
   listIntentionsDescending,
   markIntentionQuickComplete,
@@ -51,7 +52,6 @@ import type { FocusCapsuleMode } from '../navigation/types';
 import {
   requestAlarmPermissionIfNeeded,
 } from '../services/alarmManager';
-import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -239,7 +239,7 @@ export function RadarScreen() {
     const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
       void load();
     });
-    const sub2 = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT, () => {
+    const sub2 = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
       void load();
     });
     return () => {
@@ -312,7 +312,7 @@ export function RadarScreen() {
       await markIntentionQuickComplete(item.id);
       await recordQuickCompleteWithoutCapsule();
       setQuickStreak(await getQuickCompleteStreak());
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       void syncPendingIntentions();
       await load();
     },
@@ -530,7 +530,7 @@ export function RadarScreen() {
       setDialogOpen(false);
       await load();
       void syncPendingIntentions();
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (isLikelyMissingNativeModuleError(e)) {

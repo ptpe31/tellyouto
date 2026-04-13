@@ -21,6 +21,7 @@ import { Button, Dialog, Portal, Switch, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  INTENTIONS_CHANGED_EVENT_NAME,
   listIntentionsDescending,
   markIntentionQuickComplete,
   updateIntentionAlarmEnabled,
@@ -40,7 +41,6 @@ import {
   type BusyInterval,
   type TimelineSlot,
 } from '../services/agentLogic';
-import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { recordQuickCompleteWithoutCapsule } from '../services/focusHabits';
 import { syncRailReminderScheduleFromSlots } from '../services/railReminderSchedule';
 import {
@@ -315,7 +315,7 @@ export function TimelineScreen() {
       void load();
     });
     const sub2 = DeviceEventEmitter.addListener(
-      INTENTIONS_CHANGED_EVENT,
+      INTENTIONS_CHANGED_EVENT_NAME,
       () => {
         void load();
       },
@@ -339,7 +339,7 @@ export function TimelineScreen() {
         await cancelIntentionRailAlarm(intention.id);
       }
       await updateIntentionAlarmEnabled(intention.id, enabled);
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       void syncPendingIntentions();
       await load();
     },
@@ -350,7 +350,7 @@ export function TimelineScreen() {
     async (intention: IntentionRow) => {
       await markIntentionQuickComplete(intention.id);
       await recordQuickCompleteWithoutCapsule();
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT);
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       void syncPendingIntentions();
       await load();
     },

@@ -13,12 +13,12 @@ import { useTheme } from 'react-native-paper';
 import Svg, { Circle, G } from 'react-native-svg';
 
 import {
+  INTENTIONS_CHANGED_EVENT_NAME,
   listCompletedSessionsBetween,
   listRecentCompletedFocusSessions,
   LOCAL_DB_RESET_EVENT,
   type IntentionRow,
 } from '../api/localDb';
-import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { AgentInsight } from '../components/AgentInsight';
 import { NeumorphicCard } from '../components';
 import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
@@ -205,7 +205,7 @@ export function StatsScreen() {
     const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
       void load();
     });
-    const sub2 = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT, () => {
+    const sub2 = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
       void load();
     });
     return () => {

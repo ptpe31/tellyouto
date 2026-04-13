@@ -23,14 +23,3 @@ export {
   startConnectivitySyncListener,
   syncPendingIntentions,
 } from './syncService';
-export type {
-  ConnectorId,
-  ConnectorStatus,
-  ParsedIncomingIntention,
-  PlatformConnector,
-} from './connectors';
-export {
-  connectorRegistry,
-  getConnectorById,
-  LineConnector,
-} from './connectors';

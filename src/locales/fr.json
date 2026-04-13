@@ -558,6 +558,8 @@
   },
   "common": {
     "habits": "Habitudes",
-    "projects": "Projets"
+    "projects": "Projets",
+    "premiumQuota": "Quota Premium",
+    "premiumQuotaRemaining": "Quota Premium restant : {{count}}"
   }
 }
