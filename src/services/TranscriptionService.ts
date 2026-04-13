@@ -70,6 +70,27 @@ export function reformulateStructuredIntent(transcript: string): StructuredVoice
 }
 
 /**
+ * Libellé « fréquence » dérivé des heuristiques locales (complément du timeMarker regex).
+ */
+export function inferLocalFrequencyLabel(
+  raw: string,
+  structured: StructuredVoiceIntent,
+): string {
+  const tm = structured.timeMarker.trim();
+  if (tm) {
+    return tm;
+  }
+  const lower = raw.toLowerCase();
+  if (/\b(chaque|tous\s+les|every|quotidien|hebdo|weekly|daily)\b/i.test(lower)) {
+    return 'récurrent (heuristique locale)';
+  }
+  if (/\b(demain|tomorrow|aujourd|today|ce\s+soir|tonight|après-?\s*demain)\b/i.test(lower)) {
+    return 'ponctuel / date proche (heuristique locale)';
+  }
+  return 'non précisée (heuristique locale)';
+}
+
+/**
  * Étape cloud simulée : graphe sémantique (tags, polarité) avant persistance locale.
  */
 export async function finalizeIntentWithCloudSemanticGraph(payload: {

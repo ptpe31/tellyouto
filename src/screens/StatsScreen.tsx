@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   DeviceEventEmitter,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
 import Svg, { Circle, G } from 'react-native-svg';
@@ -34,6 +35,7 @@ import {
 } from '../services/dayStats';
 import { palette } from '../theme/colors';
 import { neumorphicInset } from '../theme/neumorphism';
+import { navigateToSemanticBrainLab } from '../navigation/navigateSemanticBrainLab';
 
 const DONUT = 120;
 const R = (DONUT - 14) / 2;
@@ -167,6 +169,7 @@ function SpectrumDonut({ pct }: DonutProps) {
 export function StatsScreen() {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
+  const navigation = useNavigation();
   const power = usePower();
   const { spectrum } = useUserSpectrum();
   const { connectEnabled, refreshBusy } = useCalendarIntegration();
@@ -417,6 +420,26 @@ export function StatsScreen() {
               ))
             )}
           </NeumorphicCard>
+
+          <NeumorphicCard style={styles.card}>
+            <Text style={[styles.cardTitle, { color: theme.colors.primary }]}>
+              {t('stats.semanticLabTitle')}
+            </Text>
+            <Text
+              style={[styles.cardHint, { color: theme.colors.onSurfaceVariant }]}
+            >
+              {t('stats.semanticLabHint')}
+            </Text>
+            <Pressable
+              onPress={() => navigateToSemanticBrainLab(navigation)}
+              style={({ pressed }) => [
+                styles.labBtn,
+                { opacity: pressed ? 0.85 : 1, backgroundColor: theme.colors.primary },
+              ]}
+            >
+              <Text style={styles.labBtnText}>{t('stats.semanticLabOpen')}</Text>
+            </Pressable>
+          </NeumorphicCard>
         </>
       )}
     </ScrollView>
@@ -461,4 +484,12 @@ const styles = StyleSheet.create({
   },
   barFill: { height: '100%', borderRadius: 10, minWidth: 4 },
   historyLine: { fontSize: 14, lineHeight: 22, marginBottom: 6 },
+  labBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  labBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });

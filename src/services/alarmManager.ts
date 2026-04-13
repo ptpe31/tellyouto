@@ -75,7 +75,7 @@ async function ensureAndroidAlarmChannelForSound(
 
   const filename = bundledSoundFilenameForPreference(soundId);
   await n.setNotificationChannelAsync(channelId, {
-    name: `TellYouTo · Rail (${soundId})`,
+    name: i18n.t('agent.railChannelName', { soundId }),
     importance: n.AndroidImportance.MAX,
     vibrationPattern: [0, 450, 200, 450, 200, 450, 200, 600],
     ...(filename ? { sound: filename } : {}),

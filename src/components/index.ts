@@ -10,6 +10,8 @@ export { AgentInsight } from './AgentInsight';
 export { FocusModePicker } from './FocusModePicker';
 export { FadeSlideIn } from './FadeSlideIn';
 export { FocusCapsuleScreen } from './FocusCapsule';
+export { IntentionOrbital } from './IntentionOrbital';
+export type { IntentionOrbitalRef, OrbitalSlot } from './IntentionOrbital';
 export { CalendarGranularSection } from './CalendarGranularSection';
 export { NeumorphicCard } from './NeumorphicCard';
 export { NeumorphicSurface } from './NeumorphicSurface';

@@ -12,6 +12,8 @@ export type RootStackParamList = {
 export type MainStackParamList = {
   Tabs: undefined;
   FocusCapsule: { intentionId: string; mode?: FocusCapsuleMode };
+  /** Lab test : audio .m4a → Gemini + comparaison IA locale (aucune persistance DB). */
+  SemanticBrainLab: undefined;
 };
 
 export type AppTabParamList = {

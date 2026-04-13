@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 
 import { getFirebaseApp } from '../api/firebase';
+import i18n from '../locales/i18n';
 
 /**
  * Affiche le projectId SDK vs EXPO_PUBLIC — à appeler depuis l’écran Debug uniquement
@@ -8,11 +9,13 @@ import { getFirebaseApp } from '../api/firebase';
  */
 export function showFirebaseProjectIdDebugAlert(): void {
   const sdkApp = getFirebaseApp();
-  const fromSdk = sdkApp?.options?.projectId ?? '(getFirebaseApp = null)';
+  const fromSdk =
+    sdkApp?.options?.projectId ?? i18n.t('debug.firebaseSdkNullLabel');
   const fromEnv =
-    process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '(EXPO_PUBLIC_* absent)';
+    process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ??
+    i18n.t('debug.firebaseEnvAbsentLabel');
   Alert.alert(
-    'Firebase — projectId (debug)',
-    `SDK (app.options.projectId) :\n${fromSdk}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID :\n${fromEnv}`,
+    i18n.t('debug.firebaseProjectIdTitle'),
+    i18n.t('debug.firebaseProjectIdBody', { sdk: fromSdk, env: fromEnv }),
   );
 }

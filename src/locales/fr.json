@@ -299,7 +299,10 @@
     "insightClarity": "La clarté tourne autour de {{score}}% — une idée de la proximité entre le temps réel et tes estimations.",
     "insightShort": "Même un ou deux courts blocs racontent déjà quelque chose de doux.",
     "insightEnergyLow": "Ton énergie semble légère ; demain peut rester en petits pas.",
-    "insightEnergyOk": "Ton énergie paraît suffisante pour la suite, au choix."
+    "insightEnergyOk": "Ton énergie paraît suffisante pour la suite, au choix.",
+    "semanticLabTitle": "Semantic Brain Lab",
+    "semanticLabHint": "Audio .m4a → Gemini Flash + comparaison avec l’IA locale (aucune persistance DB).",
+    "semanticLabOpen": "Ouvrir le lab test"
   },
   "debug": {
     "pilotTitle": "Outils de Pilotage",
@@ -393,7 +396,20 @@
     "demoIntent5Desc": "Mise à jour des indicateurs et de la charge.",
     "semantic_tags": "Tags sémantiques",
     "user_profile_sync_success": "Profil utilisateur mis a jour avec succes.",
-    "user_profile_sync_error": "Echec de mise a jour du profil utilisateur."
+    "user_profile_sync_error": "Echec de mise a jour du profil utilisateur.",
+    "firebaseProjectIdTitle": "Firebase — projectId (debug)",
+    "firebaseProjectIdBody": "SDK (app.options.projectId) :\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID :\n{{env}}",
+    "firebaseSdkNullLabel": "(getFirebaseApp = null)",
+    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* absent)",
+    "testWhatsAppTitle": "Test WhatsApp",
+    "testWhatsAppRaw": "Test WhatsApp (simulation debug)",
+    "talkCaptureSectionTitle": "Moniteur Talk (Quick / Deep)",
+    "talkCaptureEmpty": "Aucune capture récente — utilise l’onglet Talk.",
+    "talkCaptureModeQuick": "Mode Quick",
+    "talkCaptureModeDeep": "Mode Deep",
+    "talkCaptureRawLabel": "Transcription brute",
+    "talkCaptureLocalLabel": "Tri local (JSON)",
+    "talkCaptureGeminiLabel": "Gemini (JSON complet)"
   },
   "legal": {
     "screenTitle": "À propos",
@@ -555,7 +571,8 @@
     "agentPool": "Réserve temps co-pilote : {{seconds}} s",
     "allyPreview": "Voix : {{voice}} · Tonalité : {{tone}} · Langue IA : {{lang}}",
     "alarmPermissionTitle": "Notifications nécessaires",
-    "alarmPermissionBody": "L’agent IA local ne peut pas faire sonner le téléphone pour les alarmes Rail sans l’autorisation notifications (et alarmes sur Android). Active-les pour cette app dans les réglages système."
+    "alarmPermissionBody": "L’agent IA local ne peut pas faire sonner le téléphone pour les alarmes Rail sans l’autorisation notifications (et alarmes sur Android). Active-les pour cette app dans les réglages système.",
+    "railChannelName": "TellYouTo · Rail ({{soundId}})"
   },
   "common": {
     "habits": "Habitudes",
@@ -573,9 +590,49 @@
     "localPrivacyHint": "Géré par l'IA locale • Confidentialité Totale",
     "progressCurrent": "Tâche en cours : 1/3",
     "progressNextAnchor": "Prochaine ancre : Méditation (soir)",
-    "holdToTalk": "HOLD-TO-TALK",
+    "holdToTalk": "Maintiens pour parler",
+    "status": {
+      "listening": "Écoute en cours",
+      "analyzing": "Analyse…"
+    },
+    "button": {
+      "stop": "STOP"
+    },
+    "label": {
+      "quickIntent": "Mode Quick — local",
+      "deepIntent": "Mode Deep — Gemini"
+    },
+    "hintTapQuick": "Tap court : intention rapide (reconnaissance locale).",
+    "hintHoldDeep": "Maintiens pour déverrouiller : enregistrement mains libres, puis STOP → Gemini.",
+    "a11yMainIdle": "Tap court pour parler en mode local, ou maintiens pour enregistrer en mode Gemini mains libres",
+    "a11yStopQuick": "Arrêter l’écoute locale et analyser",
+    "a11yStopDeep": "Arrêter l’enregistrement et envoyer à Gemini",
+    "deepNoApiKeyTitle": "Clé API Gemini",
+    "deepNoApiKeyBody": "Définis EXPO_PUBLIC_GEMINI_API_KEY dans .env puis relance Metro pour le mode Deep.",
+    "orbital": {
+      "hintSlide": "Fais glisser la bille vers Tâche (droite) ou Projet (gauche), puis maintiens le micro.",
+      "holdRelease": "Relâche pour terminer",
+      "pickTitle": "Choix requis",
+      "pickBody": "Glisse la bille vers Tâche ou Projet avant de parler."
+    },
+    "a11yMicNeutral": "Micro : glisse d’abord la bille vers Tâche ou Projet, puis maintiens pour parler",
+    "a11yMicQuick": "Micro : maintiens pour dictée locale (Tâche)",
+    "a11yMicDeep": "Micro : maintiens pour enregistrement Projet envoyé à Gemini",
     "microphonePermissionTitle": "Accès micro requis",
     "microphonePermissionBody": "Autorise le micro pour enregistrer ta voix avec TalkNDone.",
+    "microphonePermissionDeniedTitle": "Micro non autorisé",
+    "microphonePermissionDeniedBody": "Sans accès au micro, la dictée ne peut pas démarrer. Ouvre les réglages de l’appareil et autorise le micro pour TalkNDone.",
+    "speechRecognitionUnavailableTitle": "Reconnaissance vocale indisponible",
+    "speechRecognitionUnavailableBody": "Ce téléphone ne fournit pas de service de reconnaissance vocale système (souvent lié à l’app Google et aux services vocaux sur Android). Installe ou mets à jour l’application Google, vérifie la langue système, puis réessaie.",
+    "speechErrorNotAllowed": "Micro ou reconnaissance vocale refusée pour TalkNDone. Ouvre les réglages de l’appareil pour autoriser l’accès.",
+    "speechErrorService": "Le service de reconnaissance vocale du système n’est pas disponible. Vérifie que l’app Google (Android) ou Dictation (iOS) est activée.",
+    "speechErrorNetwork": "La reconnaissance a échoué : problème réseau. Réessaie ou vérifie la connexion.",
+    "speechErrorNoSpeech": "Aucune parole détectée. Parle un peu plus fort ou plus près du micro.",
+    "speechErrorClient": "Erreur côté moteur de reconnaissance. Réessaie dans un instant.",
+    "speechErrorInterrupted": "Reconnaissance interrompue (appel, Siri, autre app audio). Réessaie quand l’audio est libre.",
+    "speechErrorGeneric": "{{message}}",
+    "speechDebugTitle": "Détail technique (dev)",
+    "speechDebugBody": "{{detail}}",
     "recordingErrorTitle": "Enregistrement",
     "recordingErrorStart": "Impossible de démarrer l'enregistrement.",
     "recordingErrorStop": "Impossible d'arrêter l'enregistrement.",
@@ -605,6 +662,64 @@
     "titleRequiredTitle": "Titre requis",
     "titleRequiredBody": "Ajoute un titre court avant de traiter.",
     "voicePersistErrorTitle": "Enregistrement impossible",
-    "voicePersistErrorBody": "Impossible d’enregistrer cette intention. Réessaie dans un instant."
+    "voicePersistErrorBody": "Impossible d’enregistrer cette intention. Réessaie dans un instant.",
+    "confirmEmptyTitle": "—"
+  },
+  "errorBoundary": {
+    "brand": "TalkNDone",
+    "title": "Un moment sans écran blanc",
+    "body": "Un petit grain de sable dans les rouages — rien de grave. Respire, on repart quand tu es prêt·e.",
+    "restartA11y": "Redémarrer l’application",
+    "restart": "Redémarrer"
+  },
+  "nativeModule": {
+    "missingTitle": "Erreur module natif",
+    "missingBody": "{{name}} manquant ou non lié au binaire actuel.\nContexte : {{context}}\n→ Recompilation Android requise (npx expo prebuild --clean --platform android puis compilation).\n\n{{detail}}",
+    "unknownModuleName": "(module inconnu)",
+    "contextTalkHomeSpeech": "Talk · reconnaissance vocale",
+    "contextTalkHomePersist": "Talk · intention vocale (base locale)",
+    "contextRadarSave": "Radar · enregistrer (base locale / notifications / alarmes)",
+    "contextInsertIntention": "Insertion intention (SQLite / notifications)"
+  },
+  "semanticLab": {
+    "kind": {
+      "habit": "Habitude",
+      "task": "Tâche",
+      "project": "Projet"
+    },
+    "yes": "oui",
+    "no": "non",
+    "alertWebUnsupportedTitle": "Non supporté",
+    "alertWebUnsupportedBody": "Enregistrement expo-av : iOS / Android uniquement.",
+    "alertMicTitle": "Micro",
+    "alertMicDeniedBody": "Permission micro refusée.",
+    "alertRecordingTitle": "Enregistrement",
+    "alertRecordingNoActiveBody": "Aucun enregistrement actif — appuie d’abord sur DÉMARRER.",
+    "alertApiKeyTitle": "Clé API",
+    "alertApiKeyBody": "Définis EXPO_PUBLIC_GEMINI_API_KEY dans .env puis relance Metro.",
+    "pipelineErrorExpoAvRebuild": "Module natif expo-av absent : rebuild obligatoire (npx expo prebuild + run:android / run:ios).",
+    "errorUriAfterStop": "URI fichier .m4a introuvable après arrêt.",
+    "webUnsupportedMessage": "Web non supporté — utilise iOS ou Android (expo-av).",
+    "lead": "Pipeline : .m4a (source de vérité) → transcription Gemini Flash → [IA LOCALE] vs [GEMINI]. Aucune écriture SQLite / Firestore.",
+    "btnStart": "DÉMARRER (.m4a)",
+    "btnStopPipeline": "ARRÊTER & PIPELINE",
+    "btnReset": "RESET (mémoire + fichier)",
+    "loaderLabel": "Transcription + analyse…",
+    "sectionRaw": "— TEXTE BRUT (Gemini transcription)",
+    "sectionLocal": "— [IA LOCALE] (reformulateStructuredIntent + fréquence)",
+    "sectionGemini": "— [GEMINI FLASH] (JSON structuré)",
+    "sectionSynth": "— SYNTHÈSE (comparaison)",
+    "emptyPlaceholder": "—",
+    "localLineType": "Type : {{kind}} ({{kindCode}})",
+    "localLineFrequency": "Fréquence : {{value}}",
+    "localLineTitle": "Titre (nettoyé) : {{value}}",
+    "localLineTimeMarker": "timeMarker : {{value}}",
+    "synthNoGeminiHeader": "(Analyse Gemini absente — voir erreur pipeline ci-dessus.)\n",
+    "synthLocalOnlyLine": "[IA LOCALE] seule : {{kind}} — fréquence : {{freq}}",
+    "synthAligned": "Types alignés : {{localLabel}} = Gemini \"{{geminiType}}\".\nFréquence locale : {{locFreq}}\nFréquence Gemini : {{gemFreq}}",
+    "synthMismatch": "Écart : [IA LOCALE] a dit « {{localLabel}} », [GEMINI FLASH] a dit « {{geminiType}} ».\nFréquence locale : {{locFreq}}\nFréquence Gemini : {{gemFreq}}\nProjet complexe (Gemini) : {{complex}}\nPourquoi (Gemini) : {{reasoning}}"
+  },
+  "navigation": {
+    "semanticBrainLabHeader": "Semantic Brain Lab"
   }
 }

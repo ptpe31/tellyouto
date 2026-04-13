@@ -53,10 +53,20 @@
       "expo-sqlite",
       "expo-localization",
       [
-        "@react-native-voice/voice",
+        "expo-speech-recognition",
         {
-          "microphonePermission": "TalkNDone utilise le micro pour la reconnaissance vocale sur ton appareil.",
-          "speechRecognitionPermission": "TalkNDone utilise le moteur de reconnaissance vocale du système pour transcrire tes intentions."
+          "microphonePermission": "TalkNDone uses the microphone for on-device speech capture (Quick mode) and optional hands-free recording (Deep mode).",
+          "speechRecognitionPermission": "TalkNDone uses speech recognition to turn your voice into text on device (Quick mode).",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.tts"
+          ]
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "TalkNDone records audio for hands-free Deep mode (.m4a) and cloud transcription when you choose to stop and send."
         }
       ],
       [
@@ -94,7 +104,8 @@
           }
         }
       ],
-      "./plugins/withAndroidReleaseBuildStability.js"
+      "./plugins/withAndroidReleaseBuildStability.js",
+      "./plugins/withAndroidLegacySupportCompat.js"
     ]
   }
 }

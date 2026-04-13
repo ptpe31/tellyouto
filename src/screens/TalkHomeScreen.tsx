@@ -1,18 +1,27 @@
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
 import * as Localization from 'expo-localization';
-import Voice, {
-  type SpeechErrorEvent,
-  type SpeechResultsEvent,
-} from '@react-native-voice/voice';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+  type ExpoSpeechRecognitionErrorEvent,
+} from 'expo-speech-recognition';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mic, Pencil, UserCircle2, Waves } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  IntentionOrbital,
+  type IntentionOrbitalRef,
+  type OrbitalSlot,
+} from '../components/IntentionOrbital';
 import {
   Alert,
   Animated,
   DeviceEventEmitter,
   Easing,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -20,6 +29,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
 import {
@@ -31,7 +41,10 @@ import {
   type IntentionRow,
 } from '../api/localDb';
 import { syncPendingIntentions } from '../api/syncService';
+import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
+import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
+import type { AppLanguage } from '../context/LanguageContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import {
@@ -44,7 +57,14 @@ import {
   type BusyInterval,
 } from '../services/agentLogic';
 import {
+  geminiDeepIntentionFromTranscript,
+  geminiTranscribeAudioBase64,
+  getGeminiApiKey,
+  type GeminiAnalysisPromptLanguage,
+} from '../services/geminiSemanticLab';
+import {
   finalizeIntentWithCloudSemanticGraph,
+  inferLocalFrequencyLabel,
   reformulateStructuredIntent,
   type VoiceIntentKind,
 } from '../services/TranscriptionService';
@@ -52,6 +72,7 @@ import {
   alertNativeModuleMissing,
   isLikelyMissingNativeModuleError,
 } from '../utils/nativeModuleErrorAlert';
+import { resolveSpeechLangForSession } from '../utils/speechLocale';
 
 type VoiceConfirmState = {
   rawTranscript: string;
@@ -61,18 +82,8 @@ type VoiceConfirmState = {
   isEditing: boolean;
 };
 
-function voiceLocaleTag(language: string): string {
-  const base = language.split(/[-_]/)[0]?.toLowerCase() ?? 'en';
-  const map: Record<string, string> = {
-    fr: 'fr-FR',
-    en: 'en-US',
-    es: 'es-ES',
-    de: 'de-DE',
-    it: 'it-IT',
-    ja: 'ja-JP',
-    zh: 'zh-CN',
-  };
-  return map[base] ?? 'en-US';
+function mapInteractionToGeminiPrompt(lang: AppLanguage): GeminiAnalysisPromptLanguage {
+  return lang === 'fr' ? 'fr' : 'en';
 }
 
 function newTalkEntityId(): string {
@@ -83,15 +94,82 @@ function newTalkEntityId(): string {
   }
 }
 
+function alertSpeechRecognitionError(
+  t: TFunction,
+  ev: ExpoSpeechRecognitionErrorEvent,
+): void {
+  if (ev.error === 'aborted') {
+    return;
+  }
+  const title = t('talkHome.recordingErrorTitle');
+  let body: string;
+  switch (ev.error) {
+    case 'not-allowed':
+      body = t('talkHome.speechErrorNotAllowed');
+      Alert.alert(title, body, [
+        { text: t('channelSwitch.cancel'), style: 'cancel' },
+        {
+          text: t('ally.openSettings'),
+          onPress: () => {
+            void Linking.openSettings();
+          },
+        },
+      ]);
+      return;
+    case 'service-not-allowed':
+      body = t('talkHome.speechErrorService');
+      break;
+    case 'network':
+      body = t('talkHome.speechErrorNetwork');
+      break;
+    case 'no-speech':
+    case 'speech-timeout':
+      body = t('talkHome.speechErrorNoSpeech');
+      break;
+    case 'client':
+      body = t('talkHome.speechErrorClient');
+      break;
+    case 'interrupted':
+      body = t('talkHome.speechErrorInterrupted');
+      break;
+    default:
+      body = t('talkHome.speechErrorGeneric', {
+        message: ev.message?.trim() || ev.error,
+      });
+  }
+  Alert.alert(title, body);
+}
+
+/** Android 13+ : mode continu adapté au maintien du bouton ; iOS : continu. */
+function speechContinuousForHold(): boolean {
+  if (Platform.OS === 'ios') {
+    return true;
+  }
+  if (Platform.OS === 'android' && typeof Platform.Version === 'number') {
+    return Platform.Version >= 33;
+  }
+  return false;
+}
+
 export function TalkHomeScreen() {
   const { t, i18n } = useTranslation();
+  const tRef = useRef(t);
+  tRef.current = t;
   useTheme();
   const { spectrum } = useUserSpectrum();
   const { interactionLanguage } = useLanguage();
   const { connectEnabled, busyIntervals } = useCalendarIntegration();
 
+  const [orbitalSlot, setOrbitalSlot] = useState<OrbitalSlot>('neutral');
+  const orbitalRef = useRef<IntentionOrbitalRef>(null);
+  const onOrbitalSlotChange = useCallback((slot: OrbitalSlot) => {
+    setOrbitalSlot(slot);
+  }, []);
+
+  const [captureMode, setCaptureMode] = useState<'idle' | 'quick' | 'deep'>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const [isPostCaptureAnalyzing, setIsPostCaptureAnalyzing] = useState(false);
   const [voiceConfirm, setVoiceConfirm] = useState<VoiceConfirmState | null>(null);
   const [livePartial, setLivePartial] = useState('');
   const voiceActiveRef = useRef(false);
@@ -99,13 +177,29 @@ export function TalkHomeScreen() {
   const partialTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
   const speechErrorRef = useRef(false);
+  const avRecordingRef = useRef<Audio.Recording | null>(null);
   const ringPulse = useRef(new Animated.Value(0)).current;
   const wavePulse = useRef(new Animated.Value(0)).current;
 
-  const liveStructured = useMemo(
-    () => reformulateStructuredIntent(livePartial),
-    [livePartial],
-  );
+  const unloadAvRecording = useCallback(async () => {
+    const rec = avRecordingRef.current;
+    avRecordingRef.current = null;
+    if (rec) {
+      try {
+        await rec.stopAndUnloadAsync();
+      } catch {
+        /* already stopped */
+      }
+    }
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const resetVoiceConfirm = useCallback(() => {
     setVoiceConfirm(null);
@@ -152,31 +246,59 @@ export function TalkHomeScreen() {
     };
   }, [isRecording, ringPulse, wavePulse]);
 
+  useSpeechRecognitionEvent('result', (event) => {
+    const text = event.results[0]?.transcript ?? '';
+    partialTranscriptRef.current = text;
+    setLivePartial(text);
+    if (event.isFinal && text.trim()) {
+      finalTranscriptRef.current = text.trim();
+    }
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    if (event.error === 'aborted') {
+      return;
+    }
+    speechErrorRef.current = true;
+    const silent =
+      event.error === 'no-speech' || event.error === 'speech-timeout';
+    if (silent) {
+      return;
+    }
+    alertSpeechRecognitionError(tRef.current, event);
+    if (voiceActiveRef.current) {
+      voiceActiveRef.current = false;
+      setIsRecording(false);
+      setCaptureMode('idle');
+      partialTranscriptRef.current = '';
+      finalTranscriptRef.current = '';
+      setLivePartial('');
+    }
+  });
+
   useEffect(() => {
-    Voice.onSpeechPartialResults = (e: SpeechResultsEvent) => {
-      const next = e.value?.[0] ?? '';
-      partialTranscriptRef.current = next;
-      setLivePartial(next);
-    };
-    Voice.onSpeechResults = (e: SpeechResultsEvent) => {
-      const v = (e.value?.[0] ?? '').trim();
-      if (v) finalTranscriptRef.current = v;
-    };
-    Voice.onSpeechError = (_e: SpeechErrorEvent) => {
-      speechErrorRef.current = true;
-    };
-    return () => {
-      void Voice.destroy()
-        .then(() => {
-          Voice.removeAllListeners();
-        })
-        .catch(() => {
-          Voice.removeAllListeners();
-        });
-    };
+    if (Platform.OS === 'web') {
+      return;
+    }
+    void ExpoSpeechRecognitionModule.requestPermissionsAsync().catch(() => undefined);
   }, []);
 
-  const startVoiceSession = async (): Promise<void> => {
+  useEffect(() => {
+    return () => {
+      try {
+        ExpoSpeechRecognitionModule.abort();
+      } catch {
+        /* ignore */
+      }
+      void unloadAvRecording();
+    };
+  }, [unloadAvRecording]);
+
+  const emitTalkDebug = useCallback((payload: TalkCaptureDebugPayload) => {
+    DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, payload);
+  }, []);
+
+  const startQuickCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') {
       Alert.alert(
         t('talkHome.voiceWebUnsupportedTitle'),
@@ -184,7 +306,7 @@ export function TalkHomeScreen() {
       );
       return;
     }
-    if (isBusy || voiceConfirm || voiceActiveRef.current) return;
+    if (isBusy || voiceConfirm || voiceActiveRef.current || avRecordingRef.current) return;
     speechErrorRef.current = false;
     partialTranscriptRef.current = '';
     finalTranscriptRef.current = '';
@@ -192,51 +314,147 @@ export function TalkHomeScreen() {
     startedAtRef.current = Date.now();
     setIsBusy(true);
     try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      await Voice.start(voiceLocaleTag(i18n.language));
+      if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
+        Alert.alert(
+          t('talkHome.speechRecognitionUnavailableTitle'),
+          t('talkHome.speechRecognitionUnavailableBody'),
+        );
+        return;
+      }
+
+      let perm = await ExpoSpeechRecognitionModule.getPermissionsAsync();
+      if (!perm.granted) {
+        perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      }
+      if (!perm.granted) {
+        Alert.alert(
+          t('talkHome.microphonePermissionDeniedTitle'),
+          t('talkHome.microphonePermissionDeniedBody'),
+          [
+            { text: t('channelSwitch.cancel'), style: 'cancel' },
+            {
+              text: t('ally.openSettings'),
+              onPress: () => {
+                void Linking.openSettings();
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const asrTag = resolveSpeechLangForSession(i18n.language);
+      ExpoSpeechRecognitionModule.start({
+        lang: asrTag,
+        interimResults: true,
+        continuous: speechContinuousForHold(),
+        maxAlternatives: 1,
+        iosTaskHint: 'dictation',
+        iosVoiceProcessingEnabled: true,
+      });
       voiceActiveRef.current = true;
+      setCaptureMode('quick');
       setIsRecording(true);
     } catch (e: unknown) {
       voiceActiveRef.current = false;
       setIsRecording(false);
+      setCaptureMode('idle');
       if (isLikelyMissingNativeModuleError(e)) {
-        alertNativeModuleMissing('TalkHome · reconnaissance vocale', e);
+        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
+      } else if (__DEV__) {
+        const detail =
+          e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        Alert.alert(
+          t('talkHome.speechDebugTitle'),
+          t('talkHome.speechDebugBody', { detail }),
+        );
       } else {
         Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStart'));
       }
     } finally {
       setIsBusy(false);
     }
-  };
+  }, [i18n.language, isBusy, t, voiceConfirm]);
 
-  const stopVoiceSession = async (): Promise<void> => {
-    if (Platform.OS === 'web') return;
-    if (!voiceActiveRef.current) return;
-    voiceActiveRef.current = false;
-    const elapsedMs = Date.now() - startedAtRef.current;
+  const startDeepCapture = useCallback(async (): Promise<void> => {
+    if (Platform.OS === 'web') {
+      Alert.alert(
+        t('talkHome.voiceWebUnsupportedTitle'),
+        t('talkHome.voiceWebUnsupportedBody'),
+      );
+      return;
+    }
+    if (isBusy || voiceConfirm || voiceActiveRef.current || avRecordingRef.current) {
+      return;
+    }
     setIsBusy(true);
     try {
-      if (elapsedMs < 550) {
-        try {
-          await Voice.cancel();
-        } catch {
-          /* ignore */
-        }
-        partialTranscriptRef.current = '';
-        finalTranscriptRef.current = '';
-        setIsRecording(false);
-        setLivePartial('');
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      await unloadAvRecording();
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) {
         Alert.alert(
-          t('talkHome.recordingTooShortTitle'),
-          t('talkHome.recordingTooShortBody'),
+          t('talkHome.microphonePermissionDeniedTitle'),
+          t('talkHome.microphonePermissionDeniedBody'),
+          [
+            { text: t('channelSwitch.cancel'), style: 'cancel' },
+            {
+              text: t('ally.openSettings'),
+              onPress: () => {
+                void Linking.openSettings();
+              },
+            },
+          ],
         );
         return;
       }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      );
+      avRecordingRef.current = recording;
+      setCaptureMode('deep');
+      setIsRecording(true);
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e: unknown) {
+      setCaptureMode('idle');
+      setIsRecording(false);
+      await unloadAvRecording();
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
+      } else if (__DEV__) {
+        const detail =
+          e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        Alert.alert(
+          t('talkHome.speechDebugTitle'),
+          t('talkHome.speechDebugBody', { detail }),
+        );
+      } else {
+        Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStart'));
+      }
+    } finally {
+      setIsBusy(false);
+    }
+  }, [isBusy, t, unloadAvRecording, voiceConfirm]);
+
+  const stopQuickCapture = useCallback(async (): Promise<void> => {
+    if (Platform.OS === 'web') return;
+    if (!voiceActiveRef.current) return;
+    voiceActiveRef.current = false;
+    setIsPostCaptureAnalyzing(true);
+    setIsBusy(true);
+    try {
       try {
-        await Voice.stop();
+        ExpoSpeechRecognitionModule.stop();
       } catch {
-        /* ignore */
+        try {
+          ExpoSpeechRecognitionModule.abort();
+        } catch {
+          /* ignore */
+        }
       }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await new Promise<void>((r) => setTimeout(r, 480));
@@ -248,8 +466,10 @@ export function TalkHomeScreen() {
       partialTranscriptRef.current = '';
       finalTranscriptRef.current = '';
       setIsRecording(false);
+      setCaptureMode('idle');
       setLivePartial('');
       if (!text) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Alert.alert(
           t('talkHome.transcriptionUnclearTitle'),
           t('talkHome.transcriptionUnclearBody'),
@@ -258,6 +478,22 @@ export function TalkHomeScreen() {
       }
       const draft = reformulateStructuredIntent(text);
       const title = draft.title.trim() || text;
+      const freq = inferLocalFrequencyLabel(text, draft);
+      emitTalkDebug({
+        mode: 'quick',
+        at: Date.now(),
+        rawTranscript: text,
+        localStructuredJson: JSON.stringify(
+          {
+            kind: draft.kind,
+            title: draft.title,
+            timeMarker: draft.timeMarker,
+            localFrequencyLabel: freq,
+          },
+          null,
+          2,
+        ),
+      });
       setVoiceConfirm({
         rawTranscript: text,
         kind: draft.kind,
@@ -267,13 +503,142 @@ export function TalkHomeScreen() {
       });
     } catch {
       setIsRecording(false);
+      setCaptureMode('idle');
       setLivePartial('');
       Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStop'));
     } finally {
       speechErrorRef.current = false;
       setIsBusy(false);
+      setIsPostCaptureAnalyzing(false);
+      orbitalRef.current?.resetToNeutral();
     }
-  };
+  }, [emitTalkDebug, t]);
+
+  const stopDeepCapture = useCallback(async (): Promise<void> => {
+    if (Platform.OS === 'web') return;
+    const rec = avRecordingRef.current;
+    if (!rec) return;
+
+    setIsPostCaptureAnalyzing(true);
+    setIsBusy(true);
+    let audioUri: string | null = null;
+    try {
+      try {
+        await rec.stopAndUnloadAsync();
+      } catch {
+        /* ignore */
+      }
+      avRecordingRef.current = null;
+      audioUri = rec.getURI() ?? null;
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
+      setIsRecording(false);
+      setCaptureMode('idle');
+
+      if (!getGeminiApiKey()) {
+        Alert.alert(t('talkHome.deepNoApiKeyTitle'), t('talkHome.deepNoApiKeyBody'));
+        return;
+      }
+
+      if (!audioUri) {
+        Alert.alert(
+          t('talkHome.recordingErrorTitle'),
+          t('talkHome.recordingErrorMissingFile'),
+        );
+        return;
+      }
+
+      const b64 = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
+      const transcript = await geminiTranscribeAudioBase64(b64, 'audio/mp4');
+      const { parsed, rawResponseText } = await geminiDeepIntentionFromTranscript(transcript, {
+        promptLanguage: mapInteractionToGeminiPrompt(interactionLanguage),
+      });
+      const title = parsed.title.trim() || transcript.trim();
+      const timing = parsed.timing.trim();
+
+      emitTalkDebug({
+        mode: 'deep',
+        at: Date.now(),
+        rawTranscript: transcript,
+        geminiFullJson: JSON.stringify(
+          { parsed, rawModelText: rawResponseText },
+          null,
+          2,
+        ),
+      });
+
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setVoiceConfirm({
+        rawTranscript: transcript,
+        kind: parsed.type,
+        editedTitle: title,
+        editedTime: timing,
+        isEditing: false,
+      });
+    } catch (e: unknown) {
+      setIsRecording(false);
+      setCaptureMode('idle');
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
+      } else {
+        const msg = e instanceof Error ? e.message : String(e);
+        Alert.alert(t('talkHome.recordingErrorTitle'), msg);
+      }
+    } finally {
+      try {
+        await unloadAvRecording();
+      } catch {
+        /* ignore */
+      }
+      if (audioUri) {
+        try {
+          await FileSystem.deleteAsync(audioUri, { idempotent: true });
+        } catch {
+          /* ignore */
+        }
+      }
+      setIsBusy(false);
+      setIsPostCaptureAnalyzing(false);
+      orbitalRef.current?.resetToNeutral();
+    }
+  }, [emitTalkDebug, interactionLanguage, t, unloadAvRecording]);
+
+  const onMicPressIn = useCallback(() => {
+    if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
+    if (voiceActiveRef.current || avRecordingRef.current) return;
+    if (orbitalSlot === 'neutral') {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(t('talkHome.orbital.pickTitle'), t('talkHome.orbital.pickBody'));
+      return;
+    }
+    if (orbitalSlot === 'quick') {
+      void startQuickCapture();
+      return;
+    }
+    void startDeepCapture();
+  }, [
+    isBusy,
+    isPostCaptureAnalyzing,
+    orbitalSlot,
+    startDeepCapture,
+    startQuickCapture,
+    t,
+    voiceConfirm,
+  ]);
+
+  const onMicPressOut = useCallback(() => {
+    if (voiceActiveRef.current) {
+      void stopQuickCapture();
+      return;
+    }
+    if (avRecordingRef.current) {
+      void stopDeepCapture();
+      return;
+    }
+    orbitalRef.current?.resetToNeutral();
+  }, [stopDeepCapture, stopQuickCapture]);
 
   const onCancelVoice = useCallback(() => {
     if (!voiceConfirm) return;
@@ -325,7 +690,9 @@ export function TalkHomeScreen() {
       if (overlap.overlaps) {
         Alert.alert(
           t('radar.hardRoutineConflictTitle'),
-          t('radar.hardRoutineConflictBody', { name: overlap.blockingTitle ?? '—' }),
+          t('radar.hardRoutineConflictBody', {
+            name: overlap.blockingTitle ?? t('talkHome.confirmEmptyTitle'),
+          }),
         );
         throw new Error('HARD_ROUTINE_OVERLAP');
       }
@@ -466,7 +833,7 @@ export function TalkHomeScreen() {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg !== 'HARD_ROUTINE_OVERLAP') {
         if (isLikelyMissingNativeModuleError(e)) {
-          alertNativeModuleMissing('TalkHome · intention vocale (SQLite)', e);
+          alertNativeModuleMissing('nativeModule.contextTalkHomePersist', e);
         } else {
           Alert.alert(t('talkHome.voicePersistErrorTitle'), t('talkHome.voicePersistErrorBody'));
         }
@@ -503,34 +870,50 @@ export function TalkHomeScreen() {
     </>
   );
 
+  /** Quick : texte ASR partiel/final. Deep : consigne mains libres (pas de preview .m4a). */
   const renderLiveSpeechCard = () => {
-    const actionDisplay = livePartial.trim()
+    if (captureMode === 'deep') {
+      return (
+        <View style={styles.titleHeroWrap}>
+          <Text style={styles.liveStatusLead}>{t('talkHome.status.listening')}</Text>
+          <Text style={styles.titleHero}>{t('talkHome.label.deepIntent')}</Text>
+        </View>
+      );
+    }
+    const line = livePartial.trim()
       ? livePartial.trim()
       : t('talkHome.voiceLivePlaceholder');
-    const momentDisplay = liveStructured.timeMarker.trim()
-      ? liveStructured.timeMarker.trim()
-      : t('talkHome.timeUnspecified');
-
     return (
-      <>
-        <Text style={styles.liveSpeechLead}>{t('talkHome.listeningNow')}</Text>
-        <View style={styles.typeRow}>
-          <Text style={styles.confirmMetaLabel}>{t('talkHome.confirmTypePrefix')}</Text>
-          <Text style={styles.typeValue}>{intentTypeLabel(liveStructured.kind)}</Text>
-        </View>
-        <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmActionLabel')}</Text>
-        <View style={styles.titleHeroWrap}>
-          <Text style={styles.titleHero}>{actionDisplay}</Text>
-        </View>
-        <View style={styles.timeSection}>
-          <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmMomentLabel')}</Text>
-          <View style={styles.timeValueWrap}>
-            <Text style={styles.timeValue}>{momentDisplay}</Text>
-          </View>
-        </View>
-      </>
+      <View style={styles.titleHeroWrap}>
+        <Text style={styles.liveStatusLead}>{t('talkHome.status.listening')}</Text>
+        <Text style={styles.titleHero}>{line}</Text>
+      </View>
     );
   };
+
+  const renderAnalyzingCard = () => (
+    <View style={styles.titleHeroWrap}>
+      <Text style={styles.titleHero}>{t('talkHome.status.analyzing')}</Text>
+    </View>
+  );
+
+  const micGradientColors = useMemo((): readonly [string, string] => {
+    if (isRecording) {
+      return captureMode === 'deep'
+        ? (['#ca8a04', '#a16207'] as const)
+        : (['#2563eb', '#1d4ed8'] as const);
+    }
+    if (orbitalSlot === 'quick') return ['#60a5fa', '#2563eb'] as const;
+    if (orbitalSlot === 'deep') return ['#facc15', '#ca8a04'] as const;
+    return ['#64748b', '#475569'] as const;
+  }, [captureMode, isRecording, orbitalSlot]);
+
+  const micA11yLabel = useMemo(() => {
+    if (isRecording) return t('talkHome.orbital.holdRelease');
+    if (orbitalSlot === 'quick') return t('talkHome.a11yMicQuick');
+    if (orbitalSlot === 'deep') return t('talkHome.a11yMicDeep');
+    return t('talkHome.a11yMicNeutral');
+  }, [isRecording, orbitalSlot, t]);
 
   const renderConfirmCard = () => {
     if (!voiceConfirm) return null;
@@ -573,7 +956,9 @@ export function TalkHomeScreen() {
           />
         ) : (
           <View style={styles.titleHeroWrap}>
-            <Text style={styles.titleHero}>{editedTitle.trim() || '—'}</Text>
+            <Text style={styles.titleHero}>
+              {editedTitle.trim() || t('talkHome.confirmEmptyTitle')}
+            </Text>
           </View>
         )}
 
@@ -649,9 +1034,11 @@ export function TalkHomeScreen() {
         <View style={styles.pingCard}>
           {voiceConfirm
             ? renderConfirmCard()
-            : isRecording
-              ? renderLiveSpeechCard()
-              : renderPingCard()}
+            : isPostCaptureAnalyzing
+              ? renderAnalyzingCard()
+              : isRecording
+                ? renderLiveSpeechCard()
+                : renderPingCard()}
         </View>
 
         <View style={styles.progressCard}>
@@ -663,74 +1050,97 @@ export function TalkHomeScreen() {
         </View>
 
         <View style={styles.talkWrap}>
-          <Animated.View
-            style={[
-              styles.outerRing,
-              {
-                opacity: ringPulse.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.88, 1],
-                }),
-                borderColor: ringPulse.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['rgba(255,255,255,0.62)', 'rgba(235,252,248,0.94)'],
-                }),
-              },
-            ]}
-          >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t('talkHome.holdToTalk')}
-              onPressIn={() => {
-                void startVoiceSession();
-              }}
-              onPressOut={() => {
-                void stopVoiceSession();
-              }}
-              disabled={isBusy || voiceConfirm !== null || Platform.OS === 'web'}
+          <View style={styles.orbitalStack}>
+            <IntentionOrbital
+              ref={orbitalRef}
+              radius={115}
+              disabled={
+                isBusy ||
+                voiceConfirm !== null ||
+                isPostCaptureAnalyzing ||
+                isRecording ||
+                Platform.OS === 'web'
+              }
+              onSlotChange={onOrbitalSlotChange}
+              labelQuick={t('talkHome.intentType.task')}
+              labelDeep={t('talkHome.intentType.project')}
+            />
+            <Animated.View
+              style={[
+                styles.micOuterPulse,
+                {
+                  opacity: ringPulse.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.88, 1],
+                  }),
+                },
+              ]}
             >
-              <LinearGradient
-                colors={
-                  isRecording
-                    ? ['#10B981', '#059669']
-                    : ['#4c73ad', '#5f8fa3', '#79a89c']
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={micA11yLabel}
+                onPressIn={onMicPressIn}
+                onPressOut={onMicPressOut}
+                disabled={
+                  isBusy ||
+                  voiceConfirm !== null ||
+                  Platform.OS === 'web' ||
+                  isPostCaptureAnalyzing
                 }
-                start={{ x: 0.15, y: 0.05 }}
-                end={{ x: 0.95, y: 0.95 }}
-                style={[
-                  styles.talkButton,
-                  isRecording ? styles.talkButtonRecording : null,
-                ]}
+                style={styles.micPressable}
               >
-                <Text style={styles.holdLabel}>{t('talkHome.holdToTalk')}</Text>
-                <View style={styles.micCore}>
-                  <Mic size={30} color="#ffffff" />
-                </View>
-                {isRecording ? (
-                  <Animated.View
-                    pointerEvents="none"
-                    style={[
-                      styles.waveHalo,
-                      {
-                        transform: [
-                          {
-                            scale: wavePulse.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0.95, 1.34],
-                            }),
-                          },
-                        ],
-                        opacity: wavePulse.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.35, 0],
-                        }),
-                      },
-                    ]}
-                  />
-                ) : null}
-              </LinearGradient>
-            </Pressable>
-          </Animated.View>
+                <LinearGradient
+                  colors={[micGradientColors[0], micGradientColors[1]]}
+                  start={{ x: 0.15, y: 0.05 }}
+                  end={{ x: 0.95, y: 0.95 }}
+                  style={[styles.talkButton, isRecording ? styles.talkButtonRecording : null]}
+                >
+                  {isRecording ? (
+                    <>
+                      <Text style={styles.modeHint}>
+                        {captureMode === 'deep'
+                          ? t('talkHome.label.deepIntent')
+                          : t('talkHome.label.quickIntent')}
+                      </Text>
+                      <Text style={styles.holdLabel}>{t('talkHome.orbital.holdRelease')}</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.holdLabel}>{t('talkHome.holdToTalk')}</Text>
+                  )}
+                  <View style={styles.micCore}>
+                    <Mic size={30} color="#ffffff" />
+                  </View>
+                  {isRecording ? (
+                    <Animated.View
+                      pointerEvents="none"
+                      style={[
+                        styles.waveHalo,
+                        {
+                          transform: [
+                            {
+                              scale: wavePulse.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0.95, 1.34],
+                              }),
+                            },
+                          ],
+                          opacity: wavePulse.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.35, 0],
+                          }),
+                        },
+                      ]}
+                    />
+                  ) : null}
+                </LinearGradient>
+              </Pressable>
+            </Animated.View>
+          </View>
+          {!isRecording && !voiceConfirm ? (
+            <View style={styles.tapHints}>
+              <Text style={styles.tapHintLine}>{t('talkHome.orbital.hintSlide')}</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </LinearGradient>
@@ -883,6 +1293,15 @@ const styles = StyleSheet.create({
     color: '#1e3d42',
     lineHeight: 28,
   },
+  liveStatusLead: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f766e',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
   editTitleInput: {
     backgroundColor: 'rgba(255,255,255,0.85)',
     borderRadius: 14,
@@ -981,20 +1400,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  outerRing: {
-    width: 312,
-    height: 312,
-    borderRadius: 156,
+  orbitalStack: {
+    width: 302,
+    height: 302,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(214, 227, 223, 0.56)',
-    borderWidth: 14,
-    borderColor: 'rgba(255,255,255,0.62)',
+  },
+  micOuterPulse: {
+    position: 'absolute',
+    left: 51,
+    top: 51,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    zIndex: 4,
+  },
+  micPressable: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    overflow: 'hidden',
   },
   talkButton: {
-    width: 248,
-    height: 248,
-    borderRadius: 124,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1003,10 +1433,30 @@ const styles = StyleSheet.create({
   },
   holdLabel: {
     color: '#eff8f8',
-    fontSize: 21,
-    letterSpacing: 2.2,
+    fontSize: 19,
+    letterSpacing: 2,
     fontWeight: '700',
-    marginBottom: 26,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modeHint: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  tapHints: {
+    marginTop: 18,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  tapHintLine: {
+    fontSize: 12,
+    color: '#5a6d68',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   micCore: {
     width: 100,
@@ -1020,9 +1470,9 @@ const styles = StyleSheet.create({
   },
   waveHalo: {
     position: 'absolute',
-    width: 248,
-    height: 248,
-    borderRadius: 124,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
     borderWidth: 4,
     borderColor: 'rgba(219, 255, 246, 0.8)',
   },

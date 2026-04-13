@@ -1,4 +1,5 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Platform } from '../utils/rnPlatform';
@@ -10,9 +11,6 @@ import { reloadApplication } from '../utils/reloadApp';
 type Props = { children: ReactNode };
 
 type State = { hasError: boolean; message: string };
-
-const ALLY_FALLBACK =
-  'Un petit grain de sable dans les rouages — rien de grave. Respire, on repart quand tu es prêt·e.';
 
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false, message: '' };
@@ -52,6 +50,7 @@ function ErrorFallbackScreen({
   onRestart: () => void;
   devDetail: string;
 }) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -64,10 +63,10 @@ function ErrorFallbackScreen({
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.brand}>TalkNDone</Text>
-        <Text style={styles.trankil}>TalkNDone</Text>
-        <Text style={styles.title}>Un moment sans écran blanc</Text>
-        <Text style={styles.body}>{ALLY_FALLBACK}</Text>
+        <Text style={styles.brand}>{t('errorBoundary.brand')}</Text>
+        <Text style={styles.trankil}>{t('errorBoundary.brand')}</Text>
+        <Text style={styles.title}>{t('errorBoundary.title')}</Text>
+        <Text style={styles.body}>{t('errorBoundary.body')}</Text>
         {__DEV__ && devDetail ? (
           <Text style={styles.dev} selectable>
             {devDetail}
@@ -80,9 +79,9 @@ function ErrorFallbackScreen({
             { opacity: pressed ? 0.9 : 1 },
           ]}
           accessibilityRole="button"
-          accessibilityLabel="Redémarrer l’application"
+          accessibilityLabel={t('errorBoundary.restartA11y')}
         >
-          <Text style={styles.btnText}>Redémarrer</Text>
+          <Text style={styles.btnText}>{t('errorBoundary.restart')}</Text>
         </Pressable>
       </ScrollView>
     </View>

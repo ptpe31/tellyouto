@@ -831,7 +831,7 @@ export async function insertIntention(input: {
     await syncNativeRailAlarmsAfterIntentionWrite('insertIntention');
   } catch (e) {
     if (isLikelyMissingNativeModuleError(e)) {
-      alertNativeModuleMissing('insertIntention (expo-sqlite / expo-notifications)', e);
+      alertNativeModuleMissing('nativeModule.contextInsertIntention', e);
     }
     throw e;
   }

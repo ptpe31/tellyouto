@@ -534,10 +534,7 @@ export function RadarScreen() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (isLikelyMissingNativeModuleError(e)) {
-        alertNativeModuleMissing(
-          'Radar · Enregistrer (SQLite / notifications / alarmes)',
-          e,
-        );
+        alertNativeModuleMissing('nativeModule.contextRadarSave', e);
       } else if (msg === 'RADAR_SAVE_DB_TIMEOUT') {
         Alert.alert(
           t('radar.saveTimeoutTitle'),

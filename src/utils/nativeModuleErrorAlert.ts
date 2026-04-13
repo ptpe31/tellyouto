@@ -1,5 +1,7 @@
 import { Alert } from 'react-native';
 
+import i18n from '../locales/i18n';
+
 const NATIVE_MODULE_RE = /Cannot find native module ['"]([^'"]+)['"]/i;
 
 /**
@@ -13,18 +15,16 @@ export function extractMissingNativeModuleName(err: unknown): string | null {
 
 /**
  * Alerte bloquante pour APK / dev client désynchronisé avec package.json.
- * À appeler depuis un catch avant de relancer l’erreur si besoin.
+ * `contextI18nKey` : clé i18n complète (ex. `nativeModule.contextTalkHomeSpeech`).
  */
-export function alertNativeModuleMissing(context: string, err: unknown): void {
+export function alertNativeModuleMissing(contextI18nKey: string, err: unknown): void {
   const mod = extractMissingNativeModuleName(err);
-  const name = mod ?? '(module inconnu)';
+  const name = mod ?? i18n.t('nativeModule.unknownModuleName');
   const detail = err instanceof Error ? err.message : String(err);
+  const context = i18n.t(contextI18nKey);
   Alert.alert(
-    'ERREUR MODULE NATIF',
-    `${name} manquant ou non lié au binaire actuel.\n` +
-      `Contexte : ${context}\n` +
-      `→ Rebuild Android requis (npx expo prebuild --clean --platform android puis compilation).\n\n` +
-      `${detail}`,
+    i18n.t('nativeModule.missingTitle'),
+    i18n.t('nativeModule.missingBody', { name, context, detail }),
   );
 }
 

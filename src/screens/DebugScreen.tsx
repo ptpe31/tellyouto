@@ -30,6 +30,8 @@ import {
   DEBUG_LAST_RAIL_INBOX_PURGE_MS,
   DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS,
 } from '../config/transitPurgeKeys';
+import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
+import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -66,6 +68,9 @@ export function DebugScreen() {
     null,
   );
   const [syncPurgeBusy, setSyncPurgeBusy] = useState(false);
+  const [talkCaptureLog, setTalkCaptureLog] = useState<TalkCaptureDebugPayload | null>(
+    null,
+  );
 
   const refreshSyncPurge = useCallback(async () => {
     setSyncPurgeBusy(true);
@@ -131,9 +136,16 @@ export function DebugScreen() {
       LOCAL_DB_RESET_EVENT,
       () => void refreshRawIntentions(),
     );
+    const subTalkCapture = DeviceEventEmitter.addListener(
+      TALK_CAPTURE_DEBUG_EVENT,
+      (payload: TalkCaptureDebugPayload) => {
+        setTalkCaptureLog(payload);
+      },
+    );
     return () => {
       subIntentions.remove();
       subReset.remove();
+      subTalkCapture.remove();
     };
   }, [refreshRawIntentions, refreshSyncPurge]);
 
@@ -339,7 +351,7 @@ export function DebugScreen() {
     try {
       await insertIntention({
         id: randomUUID(),
-        title: 'Test WhatsApp',
+        title: t('debug.testWhatsAppTitle'),
         description: '',
         status: 'pending',
         priority: 72,
@@ -359,7 +371,7 @@ export function DebugScreen() {
         is_micro_habit: false,
         is_hard_constraint: false,
         is_flexible: true,
-        raw_transcript: 'Test WhatsApp (simulation debug)',
+        raw_transcript: t('debug.testWhatsAppRaw'),
         energy_score: 0.72,
       });
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
@@ -369,7 +381,7 @@ export function DebugScreen() {
     } finally {
       setBusy(null);
     }
-  }, [spectrum]);
+  }, [spectrum, t]);
 
   const onPurgeIntentions = useCallback(() => {
     Alert.alert(
@@ -435,6 +447,60 @@ export function DebugScreen() {
       >
         {t('debug.firebaseProjectIdButton')}
       </Button>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          {t('debug.talkCaptureSectionTitle')}
+        </Text>
+        {!talkCaptureLog ? (
+          <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+            {t('debug.talkCaptureEmpty')}
+          </Text>
+        ) : (
+          <>
+            <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+              {talkCaptureLog.mode === 'quick'
+                ? t('debug.talkCaptureModeQuick')
+                : t('debug.talkCaptureModeDeep')}
+            </Text>
+            <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+              {t('debug.talkCaptureRawLabel')}
+            </Text>
+            <Text
+              selectable
+              style={[styles.mono, { color: theme.colors.onSurfaceVariant }]}
+            >
+              {talkCaptureLog.rawTranscript}
+            </Text>
+            {talkCaptureLog.localStructuredJson ? (
+              <>
+                <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+                  {t('debug.talkCaptureLocalLabel')}
+                </Text>
+                <Text
+                  selectable
+                  style={[styles.mono, styles.rawJson, { color: theme.colors.onSurfaceVariant }]}
+                >
+                  {talkCaptureLog.localStructuredJson}
+                </Text>
+              </>
+            ) : null}
+            {talkCaptureLog.geminiFullJson ? (
+              <>
+                <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+                  {t('debug.talkCaptureGeminiLabel')}
+                </Text>
+                <Text
+                  selectable
+                  style={[styles.mono, styles.rawJson, { color: theme.colors.onSurfaceVariant }]}
+                >
+                  {talkCaptureLog.geminiFullJson}
+                </Text>
+              </>
+            ) : null}
+          </>
+        )}
+      </View>
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>

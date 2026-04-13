@@ -29,12 +29,14 @@ function normalizeLocale(tag: string | undefined): AppLanguage {
 }
 
 type LanguageContextValue = {
-  /** Langue de l’interface (i18n) */
+  /** Langue de l’interface (i18n) — modifiable dans les réglages, distincte du système. */
   language: AppLanguage;
   setLanguage: (lang: AppLanguage) => Promise<void>;
-  /** Langue des réponses / interaction IA (indépendante de l’UI) */
+  /** Langue des prompts / réponses IA (indépendante de l’UI) — branchée sur Gemini et l’agent. */
   interactionLanguage: AppLanguage;
   setInteractionLanguage: (lang: AppLanguage) => Promise<void>;
+  /** Locale système (expo-localization) — prioritaire pour ASR natif via speechRecognitionBcp47Tag. */
+  systemLanguageTag: string | null;
   ready: boolean;
 };
 
@@ -106,15 +108,28 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setInteractionLanguageState(lang);
   }, []);
 
+  const systemLanguageTag = useMemo(
+    () => Localization.getLocales()[0]?.languageTag?.trim() ?? null,
+    [language],
+  );
+
   const value = useMemo(
     () => ({
       language,
       setLanguage,
       interactionLanguage,
       setInteractionLanguage,
+      systemLanguageTag,
       ready,
     }),
-    [language, setLanguage, interactionLanguage, setInteractionLanguage, ready],
+    [
+      language,
+      setLanguage,
+      interactionLanguage,
+      setInteractionLanguage,
+      systemLanguageTag,
+      ready,
+    ],
   );
 
   if (!ready) {

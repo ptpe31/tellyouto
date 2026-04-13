@@ -8,3 +8,4 @@ export { RechargeScreen } from './RechargeScreen';
 export { StatsScreen } from './StatsScreen';
 export { ProSubscriptionScreen } from './ProSubscriptionScreen';
 export { DebugScreen } from './DebugScreen';
+export { SemanticBrainLabScreen } from './SemanticBrainLabScreen';
