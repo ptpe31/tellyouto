@@ -571,7 +571,8 @@
     "yes": "YES",
     "no": "NO",
     "localPrivacyHint": "Managed by local AI • Total Privacy",
-    "progressLabel": "Current task: 1/3 | Next anchor: Meditation (evening)",
+    "progressCurrent": "Current task: 1/3",
+    "progressNextAnchor": "Next anchor: Meditation (evening)",
     "holdToTalk": "HOLD-TO-TALK"
   }
 }

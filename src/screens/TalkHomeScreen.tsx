@@ -7,7 +7,7 @@ import { useTheme } from 'react-native-paper';
 
 export function TalkHomeScreen() {
   const { t } = useTranslation();
-  const theme = useTheme();
+  useTheme();
 
   return (
     <LinearGradient
@@ -21,7 +21,7 @@ export function TalkHomeScreen() {
           <View style={styles.logoWrap}>
             <Waves size={18} color="#2d6f70" />
           </View>
-          <Text style={[styles.brandName, { color: theme.colors.primary }]}>
+          <Text style={styles.brandName}>
             {t('talkHome.brandName')}
           </Text>
         </View>
@@ -30,7 +30,7 @@ export function TalkHomeScreen() {
           accessibilityLabel={t('talkHome.profileButton')}
           style={styles.profileBtn}
         >
-          <UserCircle2 size={26} color={theme.colors.outline} />
+          <UserCircle2 size={26} color="#9fa7a3" />
         </Pressable>
       </View>
 
@@ -49,7 +49,8 @@ export function TalkHomeScreen() {
       </View>
 
       <View style={styles.progressCard}>
-        <Text style={styles.progressLabel}>{t('talkHome.progressLabel')}</Text>
+        <Text style={styles.progressLabel}>{t('talkHome.progressCurrent')}</Text>
+        <Text style={styles.progressLabel}>{t('talkHome.progressNextAnchor')}</Text>
         <View style={styles.progressTrack}>
           <View style={styles.progressFill} />
         </View>
@@ -58,9 +59,9 @@ export function TalkHomeScreen() {
       <View style={styles.talkWrap}>
         <View style={styles.outerRing}>
           <LinearGradient
-            colors={['#3f71b5', '#6ca392']}
-            start={{ x: 0.2, y: 0.1 }}
-            end={{ x: 1, y: 1 }}
+            colors={['#4c73ad', '#5f8fa3', '#79a89c']}
+            start={{ x: 0.15, y: 0.05 }}
+            end={{ x: 0.95, y: 0.95 }}
             style={styles.talkButton}
           >
             <Text style={styles.holdLabel}>{t('talkHome.holdToTalk')}</Text>
@@ -86,7 +87,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.55)',
   },
-  brandName: { fontSize: 32, fontWeight: '700' },
+  brandName: { fontSize: 34, fontWeight: '700', color: '#2e5f68' },
   profileBtn: {
     width: 40,
     height: 40,
@@ -101,11 +102,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 18,
     backgroundColor: '#fbf8f3',
-    shadowColor: '#8a8a8a',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 5 },
-    shadowRadius: 8,
-    elevation: 5,
+    shadowColor: '#707b75',
+    shadowOpacity: 0.14,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 18,
+    elevation: 7,
   },
   priorityBadge: {
     textAlign: 'center',
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontSize: 17,
   },
-  question: { textAlign: 'center', fontSize: 34, fontWeight: '600', color: '#2a2a2a' },
+  question: { textAlign: 'center', fontSize: 34, fontWeight: '600', color: '#2f4f5a' },
   answerRow: { marginTop: 16, flexDirection: 'row', gap: 12 },
   answerBtn: {
     flex: 1,
@@ -148,7 +149,7 @@ const styles = StyleSheet.create({
     shadowRadius: 7,
     elevation: 3,
   },
-  progressLabel: { textAlign: 'center', color: '#707572', fontSize: 11, marginBottom: 7 },
+  progressLabel: { textAlign: 'center', color: '#707572', fontSize: 10, marginBottom: 3 },
   progressTrack: {
     height: 7,
     borderRadius: 4,
@@ -158,25 +159,25 @@ const styles = StyleSheet.create({
   progressFill: { width: '38%', height: '100%', backgroundColor: '#78ad92' },
   talkWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 36 },
   outerRing: {
-    width: 304,
-    height: 304,
-    borderRadius: 152,
+    width: 312,
+    height: 312,
+    borderRadius: 156,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(220, 233, 229, 0.56)',
-    borderWidth: 10,
-    borderColor: 'rgba(255,255,255,0.46)',
+    backgroundColor: 'rgba(214, 227, 223, 0.56)',
+    borderWidth: 14,
+    borderColor: 'rgba(255,255,255,0.62)',
   },
   talkButton: {
-    width: 250,
-    height: 250,
-    borderRadius: 125,
+    width: 248,
+    height: 248,
+    borderRadius: 124,
     alignItems: 'center',
     justifyContent: 'center',
   },
   holdLabel: {
-    color: '#eaf6f6',
-    fontSize: 22,
+    color: '#eff8f8',
+    fontSize: 21,
     letterSpacing: 2.2,
     fontWeight: '700',
     marginBottom: 26,
@@ -187,7 +188,7 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(245, 255, 251, 0.22)',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.5)',
   },

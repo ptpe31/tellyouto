@@ -566,12 +566,13 @@
   "talkHome": {
     "brandName": "TalkNDone",
     "profileButton": "Ouvrir le profil",
-    "priorityHigh": "High-priorite",
+    "priorityHigh": "High-priorité",
     "questionHydration": "Boire un verre d'eau ?",
     "yes": "OUI",
     "no": "NON",
-    "localPrivacyHint": "Gere par l'IA locale • Confidentialite Totale",
-    "progressLabel": "Tache en cours : 1/3 | Prochaine ancre : Meditation (soir)",
+    "localPrivacyHint": "Géré par l'IA locale • Confidentialité Totale",
+    "progressCurrent": "Tâche en cours : 1/3",
+    "progressNextAnchor": "Prochaine ancre : Méditation (soir)",
     "holdToTalk": "HOLD-TO-TALK"
   }
 }
