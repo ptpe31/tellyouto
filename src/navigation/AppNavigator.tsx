@@ -3,12 +3,14 @@ import {
   BarChart3,
   House,
   Leaf,
+  Shuffle,
 } from 'lucide-react-native';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
 import { ZenGardenScreen } from '../modules/zenGarden';
 import {
+  MeliMeloScreen,
   StatsScreen,
   TalkHomeScreen,
 } from '../screens';
@@ -41,6 +43,17 @@ export function AppNavigator() {
           title: t('tabs.talkHome'),
           tabBarIcon: ({ color, size }) => (
             <House color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="MeliMelo"
+        component={MeliMeloScreen}
+        options={{
+          headerShown: false,
+          title: t('tabs.meliMelo'),
+          tabBarIcon: ({ color, size }) => (
+            <Shuffle color={color} size={size} />
           ),
         }}
       />

@@ -5,6 +5,22 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "sorting": {
+    "screenTitle": "Méli-Mélo",
+    "shakeInstruction": "Secouez pour ranger votre esprit",
+    "webNoShake": "Le secouement est disponible sur l’appareil — ouvre Méli-Mélo sur téléphone.",
+    "empty": "Rien en attente de tri — vos intentions ouvertes apparaîtront ici.",
+    "noCreditTitle": "Élan projet",
+    "noCreditBody": "Un petit passage au Jardin Zen recharge tes crédits Projet pour ce rangement magique.",
+    "noCreditCancel": "OK",
+    "goZenGarden": "Ouvrir le Jardin",
+    "noApiKeyTitle": "Clé Gemini",
+    "noApiKeyBody": "Ajoute EXPO_PUBLIC_GEMINI_API_KEY pour activer le tri intelligent.",
+    "errorTitle": "Le tri a chancelé",
+    "orphanGroup": "Divers",
+    "pileCount": "{{count}} note(s)",
+    "dismiss": "Continuer"
+  },
   "zenGarden": {
     "screenTitle": "Jardin Zen",
     "levelShort": "NIV. {{level}}",
@@ -25,6 +41,7 @@
     "stats": "Stats",
     "debug": "Debug",
     "talkHome": "Talk",
+    "meliMelo": "Méli-Mélo",
     "zenGarden": "Jardin"
   },
   "messaging": {

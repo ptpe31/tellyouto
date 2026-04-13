@@ -21,6 +21,7 @@
       "bundleIdentifier": "com.trankil.talkndone",
       "icon": "./assets/talkndone/icon-placeholder.png",
       "infoPlist": {
+        "NSMotionUsageDescription": "TalkNDone uses device motion to detect a gentle shake and organize your open intentions in Méli-Mélo.",
         "LSApplicationQueriesSchemes": [
           "tg",
           "telegram"

@@ -6,11 +6,13 @@ export {
 export { getFirebaseApp, getFirestoreDb } from './firebase';
 export {
   withLocalDatabase,
+  applyMelimeloGrouping,
   createIntention,
   insertIntention,
   listCompletedSessionsBetween,
   listIntentionsDescending,
   listRecentCompletedFocusSessions,
+  listUnclusteredPendingIntentions,
   listUnsyncedIntentions,
   markIntentionActive,
   markIntentionSynced,

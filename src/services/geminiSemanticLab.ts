@@ -261,3 +261,141 @@ export async function geminiDeepIntentionFromTranscript(
   const parsed = parseDeepIntentionJson(rawResponseText);
   return { parsed, rawResponseText };
 }
+
+/** Groupe renvoyé par Gemini pour Méli-Mélo (clés JSON en anglais, titres en langue UI). */
+export type MelimeloGeminiGroup = {
+  title: string;
+  icon: string;
+  noteIds: string[];
+};
+
+const MELOMELO_ICONS = new Set([
+  'briefcase',
+  'home',
+  'heart',
+  'star',
+  'book',
+  'leaf',
+  'zap',
+  'coffee',
+  'music',
+  'moon',
+  'sun',
+  'car',
+  'plane',
+  'target',
+  'gift',
+]);
+
+function buildMelimeloPrompt(
+  lines: string,
+  uiLanguage: string,
+): string {
+  const langName =
+    uiLanguage.startsWith('fr') || uiLanguage === 'fr'
+      ? 'French'
+      : uiLanguage.startsWith('en') || uiLanguage === 'en'
+        ? 'English'
+        : uiLanguage;
+  return `You are clustering short notes for a calm productivity app (TellYouTo). Group them by theme.
+
+Input notes (id and text, one per line):
+${lines}
+
+Rules:
+- Output ONE valid JSON object only, no markdown, no commentary.
+- Shape: {"groups":[{"title":"...","icon":"briefcase","noteIds":["id1","id2"]}]}
+- Keys must stay in English: groups, title, icon, noteIds.
+- Every "title" must be written in ${langName} (user interface language).
+- icon must be one of: briefcase, home, heart, star, book, leaf, zap, coffee, music, moon, sun, car, plane, target, gift.
+- Every input note id must appear exactly once across all noteIds arrays.
+- If a note fits nowhere, put it alone in a small group with a neutral title in ${langName}.
+- Prefer 2–6 thematic groups when there are enough notes; single note = one group.`;
+}
+
+function parseMelimeloClusterJson(
+  raw: string,
+  validIds: Set<string>,
+  orphanTitle: string,
+): MelimeloGeminiGroup[] {
+  const s = stripJsonFence(raw);
+  const obj = JSON.parse(s) as { groups?: unknown };
+  const groupsRaw = obj.groups;
+  if (!Array.isArray(groupsRaw)) {
+    throw new Error('Gemini Méli-Mélo: groups missing');
+  }
+  const used = new Set<string>();
+  const out: MelimeloGeminiGroup[] = [];
+  for (const g of groupsRaw) {
+    if (!g || typeof g !== 'object') continue;
+    const rec = g as Record<string, unknown>;
+    const titleRaw = typeof rec.title === 'string' ? rec.title.trim() : '';
+    const title = titleRaw || orphanTitle;
+    let icon = typeof rec.icon === 'string' ? rec.icon.trim().toLowerCase() : 'leaf';
+    if (!MELOMELO_ICONS.has(icon)) icon = 'leaf';
+    const idsRaw = rec.noteIds;
+    const noteIds: string[] = [];
+    if (Array.isArray(idsRaw)) {
+      for (const id of idsRaw) {
+        if (typeof id === 'string' && validIds.has(id) && !used.has(id)) {
+          used.add(id);
+          noteIds.push(id);
+        }
+      }
+    }
+    if (noteIds.length > 0) {
+      out.push({ title, icon, noteIds });
+    }
+  }
+  for (const id of validIds) {
+    if (!used.has(id)) {
+      out.push({
+        title: orphanTitle,
+        icon: 'leaf',
+        noteIds: [id],
+      });
+    }
+  }
+  return out.filter((g) => g.noteIds.length > 0);
+}
+
+/**
+ * Regroupe des notes (id + texte brut) via Gemini Flash — JSON thématique.
+ */
+export async function geminiMelimeloClusterNotes(
+  notes: { id: string; text: string }[],
+  options: { uiLanguage: string; orphanTitle?: string },
+): Promise<{ groups: MelimeloGeminiGroup[]; rawResponseText: string }> {
+  if (notes.length === 0) {
+    throw new Error('Aucune note à regrouper');
+  }
+  const validIds = new Set(notes.map((n) => n.id));
+  const lines = notes
+    .map((n) => {
+      const t = n.text.length > 800 ? `${n.text.slice(0, 800)}…` : n.text;
+      return `${n.id}\t${JSON.stringify(t)}`;
+    })
+    .join('\n');
+  const prompt = buildMelimeloPrompt(lines, options.uiLanguage);
+
+  const data = await postGenerateContent({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.22,
+      maxOutputTokens: 2048,
+    },
+  });
+  const rawResponseText = extractTextFromGenerateResponse(data);
+  if (!rawResponseText) {
+    throw new Error('Gemini Méli-Mélo: réponse vide');
+  }
+  const groups = parseMelimeloClusterJson(
+    rawResponseText,
+    validIds,
+    (options.orphanTitle ?? 'Notes').trim() || 'Notes',
+  );
+  if (groups.length === 0) {
+    throw new Error('Gemini Méli-Mélo: aucun groupe valide');
+  }
+  return { groups, rawResponseText };
+}

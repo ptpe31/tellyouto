@@ -1298,6 +1298,45 @@ export async function listIntentionsDescending(): Promise<IntentionRow[]> {
   });
 }
 
+/**
+ * Intentions encore « en vrac » pour Méli-Mélo : en attente, sans cluster sémantique.
+ */
+export async function listUnclusteredPendingIntentions(): Promise<IntentionRow[]> {
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const rows = await database.getAllAsync<Record<string, unknown>>(
+      `SELECT * FROM intentions
+       WHERE status = 'pending'
+         AND (semantic_cluster_id IS NULL OR TRIM(semantic_cluster_id) = '')
+       ORDER BY created_at DESC`,
+    );
+    return rows.map(rowToIntention);
+  });
+}
+
+/**
+ * Applique le regroupement Méli-Mélo : un `semantic_cluster_id` par pile + tag `melimelo:<titre>`.
+ */
+export async function applyMelimeloGrouping(
+  groups: { clusterId: string; themeLabel: string; intentionIds: string[] }[],
+): Promise<void> {
+  for (const g of groups) {
+    for (const id of g.intentionIds) {
+      const row = await getIntentionById(id);
+      if (!row) continue;
+      const tag = `melimelo:${g.themeLabel}`;
+      const tags = [...row.semantic_tags];
+      if (!tags.includes(tag)) tags.push(tag);
+      await updateIntention({
+        id,
+        semantic_cluster_id: g.clusterId,
+        semantic_tags: tags,
+      });
+    }
+  }
+  DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+}
+
 export async function listUnsyncedIntentions(): Promise<IntentionRow[]> {
   return runSerializedSqlite(async () => {
     const database = await ensureDbReady();

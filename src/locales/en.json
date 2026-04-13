@@ -5,6 +5,22 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "sorting": {
+    "screenTitle": "Méli-Mélo",
+    "shakeInstruction": "Shake to clear your mind",
+    "webNoShake": "Shake sorting runs on device — open Méli-Mélo on your phone.",
+    "empty": "Nothing waiting to sort — your open intentions will appear here.",
+    "noCreditTitle": "Project momentum",
+    "noCreditBody": "A quick visit to the Zen Garden refills your Project credits for this magic sort.",
+    "noCreditCancel": "OK",
+    "goZenGarden": "Open Zen Garden",
+    "noApiKeyTitle": "Gemini key",
+    "noApiKeyBody": "Add EXPO_PUBLIC_GEMINI_API_KEY to enable smart sorting.",
+    "errorTitle": "Sorting stumbled",
+    "orphanGroup": "Misc",
+    "pileCount": "{{count}} note(s)",
+    "dismiss": "Continue"
+  },
   "zenGarden": {
     "screenTitle": "Zen Garden",
     "levelShort": "LVL {{level}}",
@@ -25,6 +41,7 @@
     "stats": "Stats",
     "debug": "Debug",
     "talkHome": "Talk",
+    "meliMelo": "Méli-Mélo",
     "zenGarden": "Garden"
   },
   "messaging": {

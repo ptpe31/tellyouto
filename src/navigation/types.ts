@@ -18,6 +18,7 @@ export type MainStackParamList = {
 
 export type AppTabParamList = {
   TalkHome: undefined;
+  MeliMelo: undefined;
   ZenGarden: undefined;
   Radar: undefined;
   Timeline: undefined;
