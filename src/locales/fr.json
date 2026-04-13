@@ -582,6 +582,7 @@
     "recordingErrorMissingFile": "Fichier audio introuvable après l'enregistrement.",
     "recordingTooShortTitle": "Enregistrement trop court",
     "recordingTooShortBody": "Maintiens le bouton un peu plus longtemps pour enregistrer.",
-    "transcriptionTitle": "Transcription locale"
+    "transcriptionTitle": "Transcription locale",
+    "listeningNow": "Je t'écoute..."
   }
 }

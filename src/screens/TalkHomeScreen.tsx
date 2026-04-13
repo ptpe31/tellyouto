@@ -24,14 +24,17 @@ export function TalkHomeScreen() {
   const recordingRef = useRef<Audio.Recording | null>(null);
   const startedAtRef = useRef<number>(0);
   const ringPulse = useRef(new Animated.Value(0)).current;
+  const wavePulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!isRecording) {
       ringPulse.stopAnimation();
       ringPulse.setValue(0);
+      wavePulse.stopAnimation();
+      wavePulse.setValue(0);
       return;
     }
-    const loop = Animated.loop(
+    const ringLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(ringPulse, {
           toValue: 1,
@@ -47,9 +50,22 @@ export function TalkHomeScreen() {
         }),
       ]),
     );
-    loop.start();
-    return () => loop.stop();
-  }, [isRecording, ringPulse]);
+    const waveLoop = Animated.loop(
+      Animated.timing(wavePulse, {
+        toValue: 1,
+        duration: 1300,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false,
+      }),
+      { resetBeforeIteration: true },
+    );
+    ringLoop.start();
+    waveLoop.start();
+    return () => {
+      ringLoop.stop();
+      waveLoop.stop();
+    };
+  }, [isRecording, ringPulse, wavePulse]);
 
   const ensureMicrophonePermission = async (): Promise<boolean> => {
     const permission = await Audio.getPermissionsAsync();
@@ -196,6 +212,9 @@ export function TalkHomeScreen() {
         </View>
 
         <View style={styles.talkWrap}>
+          {isRecording ? (
+            <Text style={styles.listeningHint}>{t('talkHome.listeningNow')}</Text>
+          ) : null}
           <Animated.View
             style={[
               styles.outerRing,
@@ -223,7 +242,11 @@ export function TalkHomeScreen() {
               disabled={isBusy}
             >
               <LinearGradient
-                colors={['#4c73ad', '#5f8fa3', '#79a89c']}
+                colors={
+                  isRecording
+                    ? ['#10B981', '#059669']
+                    : ['#4c73ad', '#5f8fa3', '#79a89c']
+                }
                 start={{ x: 0.15, y: 0.05 }}
                 end={{ x: 0.95, y: 0.95 }}
                 style={[
@@ -235,6 +258,28 @@ export function TalkHomeScreen() {
                 <View style={styles.micCore}>
                   <Mic size={30} color="#ffffff" />
                 </View>
+                {isRecording ? (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.waveHalo,
+                      {
+                        transform: [
+                          {
+                            scale: wavePulse.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0.95, 1.34],
+                            }),
+                          },
+                        ],
+                        opacity: wavePulse.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.35, 0],
+                        }),
+                      },
+                    ]}
+                  />
+                ) : null}
               </LinearGradient>
             </Pressable>
           </Animated.View>
@@ -362,7 +407,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   talkButtonRecording: {
-    opacity: 0.92,
+    opacity: 0.96,
   },
   holdLabel: {
     color: '#eff8f8',
@@ -380,5 +425,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 255, 251, 0.22)',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.5)',
+  },
+  waveHalo: {
+    position: 'absolute',
+    width: 248,
+    height: 248,
+    borderRadius: 124,
+    borderWidth: 4,
+    borderColor: 'rgba(219, 255, 246, 0.8)',
+  },
+  listeningHint: {
+    marginTop: 12,
+    color: '#3b6b60',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });
