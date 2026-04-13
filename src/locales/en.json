@@ -573,6 +573,15 @@
     "localPrivacyHint": "Managed by local AI • Total Privacy",
     "progressCurrent": "Current task: 1/3",
     "progressNextAnchor": "Next anchor: Meditation (evening)",
-    "holdToTalk": "HOLD-TO-TALK"
+    "holdToTalk": "HOLD-TO-TALK",
+    "microphonePermissionTitle": "Microphone access required",
+    "microphonePermissionBody": "Allow microphone access to record your voice with TalkNDone.",
+    "recordingErrorTitle": "Recording",
+    "recordingErrorStart": "Unable to start recording.",
+    "recordingErrorStop": "Unable to stop recording.",
+    "recordingErrorMissingFile": "Audio file not found after recording.",
+    "recordingTooShortTitle": "Recording too short",
+    "recordingTooShortBody": "Hold the button a little longer to capture audio.",
+    "transcriptionTitle": "Local transcription"
   }
 }

@@ -1,13 +1,151 @@
+import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mic, UserCircle2, Waves } from 'lucide-react-native';
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
+import { transcribeAudio } from '../services/TranscriptionService';
 
 export function TalkHomeScreen() {
   const { t } = useTranslation();
   useTheme();
+  const [isRecording, setIsRecording] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const startedAtRef = useRef<number>(0);
+  const ringPulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!isRecording) {
+      ringPulse.stopAnimation();
+      ringPulse.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ringPulse, {
+          toValue: 1,
+          duration: 720,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }),
+        Animated.timing(ringPulse, {
+          toValue: 0,
+          duration: 720,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [isRecording, ringPulse]);
+
+  const ensureMicrophonePermission = async (): Promise<boolean> => {
+    const permission = await Audio.getPermissionsAsync();
+    if (permission.granted) return true;
+    const requested = await Audio.requestPermissionsAsync();
+    if (requested.granted) return true;
+    Alert.alert(
+      t('talkHome.microphonePermissionTitle'),
+      t('talkHome.microphonePermissionBody'),
+    );
+    return false;
+  };
+
+  const startRecording = async (): Promise<void> => {
+    if (isBusy || recordingRef.current) return;
+    const allowed = await ensureMicrophonePermission();
+    if (!allowed) return;
+    setIsBusy(true);
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync({
+        isMeteringEnabled: false,
+        android: {
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.m4a',
+          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+          audioQuality: Audio.IOSAudioQuality.HIGH,
+          sampleRate: 16000,
+          numberOfChannels: 1,
+          bitRate: 128000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {
+          mimeType: 'audio/webm',
+          bitsPerSecond: 128000,
+        },
+      });
+      await recording.startAsync();
+      recordingRef.current = recording;
+      startedAtRef.current = Date.now();
+      setIsRecording(true);
+    } catch (e) {
+      Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStart'));
+      recordingRef.current = null;
+      setIsRecording(false);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const stopRecording = async (): Promise<void> => {
+    const recording = recordingRef.current;
+    if (!recording) return;
+    setIsBusy(true);
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      recordingRef.current = null;
+      setIsRecording(false);
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      const elapsedMs = Date.now() - startedAtRef.current;
+      if (elapsedMs < 550) {
+        Alert.alert(
+          t('talkHome.recordingTooShortTitle'),
+          t('talkHome.recordingTooShortBody'),
+        );
+        return;
+      }
+      if (!uri) {
+        Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorMissingFile'));
+        return;
+      }
+      const text = await transcribeAudio(uri);
+      Alert.alert(t('talkHome.transcriptionTitle'), text);
+    } catch {
+      Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStop'));
+    } finally {
+      setIsBusy(false);
+    }
+  };
 
   return (
     <LinearGradient
@@ -58,19 +196,48 @@ export function TalkHomeScreen() {
         </View>
 
         <View style={styles.talkWrap}>
-          <View style={styles.outerRing}>
-            <LinearGradient
-              colors={['#4c73ad', '#5f8fa3', '#79a89c']}
-              start={{ x: 0.15, y: 0.05 }}
-              end={{ x: 0.95, y: 0.95 }}
-              style={styles.talkButton}
+          <Animated.View
+            style={[
+              styles.outerRing,
+              {
+                opacity: ringPulse.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.88, 1],
+                }),
+                borderColor: ringPulse.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['rgba(255,255,255,0.62)', 'rgba(235,252,248,0.94)'],
+                }),
+              },
+            ]}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('talkHome.holdToTalk')}
+              onPressIn={() => {
+                void startRecording();
+              }}
+              onPressOut={() => {
+                void stopRecording();
+              }}
+              disabled={isBusy}
             >
-              <Text style={styles.holdLabel}>{t('talkHome.holdToTalk')}</Text>
-              <View style={styles.micCore}>
-                <Mic size={30} color="#ffffff" />
-              </View>
-            </LinearGradient>
-          </View>
+              <LinearGradient
+                colors={['#4c73ad', '#5f8fa3', '#79a89c']}
+                start={{ x: 0.15, y: 0.05 }}
+                end={{ x: 0.95, y: 0.95 }}
+                style={[
+                  styles.talkButton,
+                  isRecording ? styles.talkButtonRecording : null,
+                ]}
+              >
+                <Text style={styles.holdLabel}>{t('talkHome.holdToTalk')}</Text>
+                <View style={styles.micCore}>
+                  <Mic size={30} color="#ffffff" />
+                </View>
+              </LinearGradient>
+            </Pressable>
+          </Animated.View>
         </View>
       </View>
     </LinearGradient>
@@ -193,6 +360,9 @@ const styles = StyleSheet.create({
     borderRadius: 124,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  talkButtonRecording: {
+    opacity: 0.92,
   },
   holdLabel: {
     color: '#eff8f8',
