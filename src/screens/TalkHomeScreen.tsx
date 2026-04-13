@@ -34,41 +34,43 @@ export function TalkHomeScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.pingCard}>
-        <Text style={styles.priorityBadge}>{t('talkHome.priorityHigh')}</Text>
-        <Text style={styles.question}>{t('talkHome.questionHydration')}</Text>
-        <View style={styles.answerRow}>
-          <Pressable style={[styles.answerBtn, styles.yesBtn]}>
-            <Text style={styles.yesText}>{t('talkHome.yes')}</Text>
-          </Pressable>
-          <Pressable style={[styles.answerBtn, styles.noBtn]}>
-            <Text style={styles.noText}>{t('talkHome.no')}</Text>
-          </Pressable>
+      <View style={styles.contentFlow}>
+        <View style={styles.pingCard}>
+          <Text style={styles.priorityBadge}>{t('talkHome.priorityHigh')}</Text>
+          <Text style={styles.question}>{t('talkHome.questionHydration')}</Text>
+          <View style={styles.answerRow}>
+            <Pressable style={[styles.answerBtn, styles.yesBtn]}>
+              <Text style={styles.yesText}>{t('talkHome.yes')}</Text>
+            </Pressable>
+            <Pressable style={[styles.answerBtn, styles.noBtn]}>
+              <Text style={styles.noText}>{t('talkHome.no')}</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.privacyHint}>{t('talkHome.localPrivacyHint')}</Text>
         </View>
-        <Text style={styles.privacyHint}>{t('talkHome.localPrivacyHint')}</Text>
-      </View>
 
-      <View style={styles.progressCard}>
-        <Text style={styles.progressLabel}>{t('talkHome.progressCurrent')}</Text>
-        <Text style={styles.progressLabel}>{t('talkHome.progressNextAnchor')}</Text>
-        <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+        <View style={styles.progressCard}>
+          <Text style={styles.progressLabel}>{t('talkHome.progressCurrent')}</Text>
+          <Text style={styles.progressLabel}>{t('talkHome.progressNextAnchor')}</Text>
+          <View style={styles.progressTrack}>
+            <View style={styles.progressFill} />
+          </View>
         </View>
-      </View>
 
-      <View style={styles.talkWrap}>
-        <View style={styles.outerRing}>
-          <LinearGradient
-            colors={['#4c73ad', '#5f8fa3', '#79a89c']}
-            start={{ x: 0.15, y: 0.05 }}
-            end={{ x: 0.95, y: 0.95 }}
-            style={styles.talkButton}
-          >
-            <Text style={styles.holdLabel}>{t('talkHome.holdToTalk')}</Text>
-            <View style={styles.micCore}>
-              <Mic size={30} color="#ffffff" />
-            </View>
-          </LinearGradient>
+        <View style={styles.talkWrap}>
+          <View style={styles.outerRing}>
+            <LinearGradient
+              colors={['#4c73ad', '#5f8fa3', '#79a89c']}
+              start={{ x: 0.15, y: 0.05 }}
+              end={{ x: 0.95, y: 0.95 }}
+              style={styles.talkButton}
+            >
+              <Text style={styles.holdLabel}>{t('talkHome.holdToTalk')}</Text>
+              <View style={styles.micCore}>
+                <Mic size={30} color="#ffffff" />
+              </View>
+            </LinearGradient>
+          </View>
         </View>
       </View>
     </LinearGradient>
@@ -76,7 +78,14 @@ export function TalkHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, paddingHorizontal: 22, paddingTop: 62 },
+  root: {
+    flex: 1,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    paddingHorizontal: 22,
+    paddingTop: 62,
+    paddingBottom: 22,
+  },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   logoWrap: {
@@ -96,8 +105,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.35)',
   },
+  contentFlow: {
+    flex: 1,
+    flexDirection: 'column',
+    justifyContent: 'space-around',
+    paddingTop: 14,
+    paddingBottom: 16,
+  },
   pingCard: {
-    marginTop: 24,
     borderRadius: 20,
     paddingHorizontal: 18,
     paddingVertical: 18,
@@ -136,7 +151,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   progressCard: {
-    marginTop: 16,
+    marginTop: 8,
     alignSelf: 'center',
     width: '80%',
     borderRadius: 14,
@@ -149,7 +164,7 @@ const styles = StyleSheet.create({
     shadowRadius: 7,
     elevation: 3,
   },
-  progressLabel: { textAlign: 'center', color: '#707572', fontSize: 10, marginBottom: 3 },
+  progressLabel: { textAlign: 'center', color: '#707572', fontSize: 9, marginBottom: 2 },
   progressTrack: {
     height: 7,
     borderRadius: 4,
@@ -157,7 +172,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: { width: '38%', height: '100%', backgroundColor: '#78ad92' },
-  talkWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 36 },
+  talkWrap: {
+    marginTop: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   outerRing: {
     width: 312,
     height: 312,
