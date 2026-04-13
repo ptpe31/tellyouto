@@ -30,23 +30,14 @@ export function reformulateStructuredIntent(transcript: string): StructuredVoice
   }
 
   const patterns: RegExp[] = [
-    /\btous\s+les\s+(lundis?|mardis?|mercredis?|jeudis?|vendredis?|samedis?|dimanches?)\b/giu,
-    /\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b/giu,
-    /\b(?:après-?\s*demain|après demain)\b/giu,
-    /\b(?:the\s+)?day\s+after\s+tomorrow\b/giu,
+    /\b(?:après-?\s*demain|après demain|the\s+day\s+after\s+tomorrow)\b/giu,
     /\b(?:demain|tomorrow)\b/giu,
-    /\bce\s+soir\b/giu,
-    /\b(?:tonight|this\s+evening)\b/giu,
-    /\bce\s+matin\b/giu,
-    /\bthis\s+morning\b/giu,
-    /\b(?:à|a)\s*\d{1,2}\s*h\s*\d{2}\b/giu,
-    /\b\d{1,2}\s*h\s*\d{2}\b/giu,
-    /\b(?:à|a)\s*\d{1,2}\s*h\b/giu,
-    /\b\d{1,2}\s*h\b/giu,
+    /\b(?:ce\s+matin|this\s+morning|ce\s+soir|tonight|this\s+evening)\b/giu,
+    /\b(?:tous\s+les|every)\s+(lundis?|mardis?|mercredis?|jeudis?|vendredis?|samedis?|dimanches?|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b/giu,
+    /\b(?:à|a|at)\s*\d{1,2}\s*h(?:\s*\d{2})?\b/giu,
+    /\b\d{1,2}\s*h(?:\s*\d{2})?\b/giu,
     /\b(?:à|at)\s*\d{1,2}:\d{2}\b/giu,
     /\b\d{1,2}:\d{2}\b/giu,
-    /\b(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/giu,
-    /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/giu,
   ];
 
   let timeMarker = '';
@@ -67,15 +58,9 @@ export function reformulateStructuredIntent(transcript: string): StructuredVoice
 
   const lower = raw.toLowerCase();
   let kind: VoiceIntentKind = 'task';
-  if (
-    /\b(habitude|routine|chaque\s+jour|tous\s+les\s+jours|quotidiennement|every\s+day|daily(\s+habit)?)\b/i.test(
-      lower,
-    )
-  ) {
+  if (/\b(chaque|tous\s+les|every|matin|soir|morning|evening)\b/i.test(lower)) {
     kind = 'habit';
-  } else if (
-    /\b(projet|project|jalon|milestone|livrer|delivery|roadmap)\b/i.test(lower)
-  ) {
+  } else if (/\b(organiser|préparer|preparer|dossier|project)\b/i.test(lower)) {
     kind = 'project';
   }
 
@@ -87,12 +72,10 @@ export function reformulateStructuredIntent(transcript: string): StructuredVoice
 }
 
 /**
- * Placeholder transcription : journalise la taille du fichier, puis retourne le texte simulé si fourni.
+ * Placeholder transcription: flux réel basé sur le fichier courant.
+ * Tant que le moteur STT local/cloud n'est pas branché, on ne fabrique aucun contenu.
  */
-export async function transcribeAudio(
-  uri: string,
-  opts?: { simulatedTranscript?: string },
-): Promise<string> {
+export async function transcribeAudio(uri: string): Promise<string> {
   try {
     const fileInfo = await FileSystem.getInfoAsync(uri);
     const sizeBytes = fileInfo.exists && 'size' in fileInfo ? fileInfo.size ?? 0 : 0;
@@ -101,8 +84,7 @@ export async function transcribeAudio(
     console.log(`[TranscriptionService] failed to inspect audio file uri=${uri}`, error);
   }
   await delay(1000);
-  const fromOpts = opts?.simulatedTranscript?.trim();
-  return fromOpts ?? '';
+  return '';
 }
 
 /**

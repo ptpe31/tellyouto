@@ -217,11 +217,12 @@ export function TalkHomeScreen() {
         return;
       }
       audioUri = uri;
-      const transcript = await transcribeAudio(uri, {
-        simulatedTranscript: t('talkHome.simulatedTranscriptDemo'),
-      });
+      const transcript = await transcribeAudio(uri);
       if (!transcript.trim()) {
-        Alert.alert(t('talkHome.transcriptEmptyTitle'), t('talkHome.transcriptEmptyBody'));
+        Alert.alert(
+          t('talkHome.transcriptionUnclearTitle'),
+          t('talkHome.transcriptionUnclearBody'),
+        );
         await deleteAudioCacheFile(uri);
         return;
       }
@@ -505,7 +506,7 @@ export function TalkHomeScreen() {
           <Text style={styles.typeValue}>{intentTypeLabel(kind)}</Text>
         </View>
 
-        <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmTitleLabel')}</Text>
+        <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmActionLabel')}</Text>
         {isEditing ? (
           <TextInput
             value={editedTitle}
@@ -523,7 +524,7 @@ export function TalkHomeScreen() {
         )}
 
         <View style={styles.timeSection}>
-          <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmTimeLabel')}</Text>
+          <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmMomentLabel')}</Text>
           {isEditing ? (
             <TextInput
               value={editedTime}
