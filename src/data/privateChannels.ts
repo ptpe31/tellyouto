@@ -36,7 +36,7 @@ export function resolvePrivateChannelBotUrl(id: PrivateChannelId): string {
     case 'whatsapp':
       return process.env.EXPO_PUBLIC_BOT_WHATSAPP_URL ?? '';
     case 'telegram':
-      return process.env.EXPO_PUBLIC_BOT_TELEGRAM_URL ?? 'https://t.me/TellYouToBot';
+      return process.env.EXPO_PUBLIC_BOT_TELEGRAM_URL ?? 'https://t.me/TalkNDoneBot';
     case 'slack':
       return process.env.EXPO_PUBLIC_BOT_SLACK_URL ?? '';
     case 'line':

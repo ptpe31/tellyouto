@@ -23,7 +23,9 @@ export async function disconnectChannelRemote(
     });
     return res.ok;
   } catch (e) {
-    console.warn('channelsService: disconnect request failed', e);
+    if (__DEV__) {
+      console.warn('channelsService: disconnect request failed', e);
+    }
     return false;
   }
 }

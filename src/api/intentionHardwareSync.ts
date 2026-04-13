@@ -22,7 +22,7 @@ export async function syncNativeRailAlarmsAfterIntentionWrite(
   } catch (e) {
     if (__DEV__) {
       console.warn(
-        `[TellYouTo] intentionHardwareSync${reason ? ` ← ${reason}` : ''}`,
+        `[TalkNDone] intentionHardwareSync${reason ? ` ← ${reason}` : ''}`,
         e,
       );
     }

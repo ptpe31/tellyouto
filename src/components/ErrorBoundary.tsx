@@ -64,8 +64,8 @@ function ErrorFallbackScreen({
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.brand}>TellYouTo</Text>
-        <Text style={styles.trankil}>Trankil</Text>
+        <Text style={styles.brand}>TalkNDone</Text>
+        <Text style={styles.trankil}>TalkNDone</Text>
         <Text style={styles.title}>Un moment sans écran blanc</Text>
         <Text style={styles.body}>{ALLY_FALLBACK}</Text>
         {__DEV__ && devDetail ? (

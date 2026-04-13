@@ -5,7 +5,7 @@ import type { QueryDocumentSnapshot } from 'firebase-admin/firestore';
 
 /**
  * Si l’app marque un document de transit comme `processed` mais que deleteDoc échoue,
- * on supprime côté serveur (sécurité + rétention Trankil).
+ * on supprime côté serveur (sécurité + rétention TalkNDone).
  */
 async function deleteIfProcessed(
   change: Change<QueryDocumentSnapshot> | undefined,

@@ -74,7 +74,7 @@ export async function pushDeviceProfileToFirestore(
   if (!db) {
     if (__DEV__) {
       console.warn(
-        '[TellYouTo] pushDeviceProfileToFirestore : Firestore indisponible (getFirestoreDb null) — config Firebase ou .env',
+        '[TalkNDone] pushDeviceProfileToFirestore : Firestore indisponible (getFirestoreDb null) — config Firebase ou .env',
       );
     }
     return;
@@ -85,7 +85,7 @@ export async function pushDeviceProfileToFirestore(
   const deviceId = await getOrCreateDeviceId();
   if (__DEV__) {
     console.log(
-      `[TellYouTo] pushDeviceProfileToFirestore → devices/${deviceId} (merge profil technique)`,
+      `[TalkNDone] pushDeviceProfileToFirestore → devices/${deviceId} (merge profil technique)`,
     );
   }
   const ref = doc(db, 'devices', deviceId);

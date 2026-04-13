@@ -44,7 +44,7 @@ function initAuthWithAsyncStoragePersistence(app: FirebaseApp): Auth {
 
 /**
  * Configuration Firebase — uniquement via `process.env.EXPO_PUBLIC_*` (`.env` / EAS).
- * Projet GCP officiel : `tellmeto-4f3c7` (ne pas confondre avec le slug d’app `tellyouto`).
+ * Projet GCP officiel : `tellmeto-4f3c7` (ne pas confondre avec le slug d’app `talkndone`).
  */
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',
@@ -63,7 +63,7 @@ function logFirebaseInit(projectId: string, source: 'new' | 'existing'): void {
   if (firebaseInitLogged || !__DEV__) return;
   firebaseInitLogged = true;
   console.log(
-    `[TellYouTo] Firebase initialisé (${source}) — projectId=${projectId}`,
+    `[TalkNDone] Firebase initialisé (${source}) — projectId=${projectId}`,
   );
 }
 
@@ -71,7 +71,7 @@ function logFirebaseMissingEnv(): void {
   if (firebaseInitLogged || !__DEV__) return;
   firebaseInitLogged = true;
   console.warn(
-    '[TellYouTo] Firebase non configuré : variables EXPO_PUBLIC_FIREBASE_* absentes au bundle. ' +
+    '[TalkNDone] Firebase non configuré : variables EXPO_PUBLIC_FIREBASE_* absentes au bundle. ' +
       'Renomme la racine `env` → `.env` (Expo ne lit que `.env`), puis relance : npx expo start -c',
   );
 }
@@ -128,9 +128,13 @@ function scheduleFirestoreConnectionWriteTest(db: Firestore): void {
           device: 'App-Mobile',
           status: 'Trying to connect...',
         });
-        console.log("✅ TEST D'ÉCRITURE RÉUSSI DANS FIRESTORE !");
+        if (__DEV__) {
+          console.log("✅ TEST D'ÉCRITURE RÉUSSI DANS FIRESTORE !");
+        }
       } catch (e) {
-        console.error('❌ ÉCHEC CRITIQUE FIRESTORE:', e);
+        if (__DEV__) {
+          console.error('❌ ÉCHEC CRITIQUE FIRESTORE:', e);
+        }
       }
     })();
   }, 2500);
@@ -158,7 +162,7 @@ export async function ensureFirebaseAnonymousAuth(): Promise<void> {
     if (__DEV__ && !anonymousAuthReadyLogged) {
       anonymousAuthReadyLogged = true;
       console.log(
-        `[TellYouTo] Auth anonyme prête — uid=${existing.uid} (écritures Firestore autorisées)`,
+        `[TalkNDone] Auth anonyme prête — uid=${existing.uid} (écritures Firestore autorisées)`,
       );
     }
     return;
@@ -168,7 +172,7 @@ export async function ensureFirebaseAnonymousAuth(): Promise<void> {
   if (__DEV__ && created && !anonymousAuthReadyLogged) {
     anonymousAuthReadyLogged = true;
     console.log(
-      `[TellYouTo] Auth anonyme activée — uid=${created.uid} (écritures Firestore autorisées)`,
+      `[TalkNDone] Auth anonyme activée — uid=${created.uid} (écritures Firestore autorisées)`,
     );
   }
 }

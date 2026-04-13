@@ -250,7 +250,7 @@ export async function requestAlarmPermissionIfNeeded(): Promise<boolean> {
   if (!n) {
     if (__DEV__) {
       console.warn(
-        '[TellYouTo] expo-notifications indisponible (souvent Expo Go). Préférence alarme enregistrable ; planification native après dev build.',
+        '[TalkNDone] expo-notifications indisponible (souvent Expo Go). Préférence alarme enregistrable ; planification native après dev build.',
       );
     }
     return true;
@@ -294,9 +294,11 @@ export async function scheduleDebugAgentDirectAlarmIn10Minutes(): Promise<string
     when,
     data: { kind: 'debug_agent_direct' },
   });
-  console.log(
-    '[Debug-Agent] Ordre de planification envoyé pour dans 10 minutes.',
-  );
+  if (__DEV__) {
+    console.log(
+      '[Debug-Agent] Ordre de planification envoyé pour dans 10 minutes.',
+    );
+  }
   return scheduledId;
 }
 
@@ -500,8 +502,12 @@ export async function bootstrapNativeAlarmsOnAppStart(): Promise<void> {
     const count = rows.filter(
       (r) => r.status === 'pending' && r.alarm_enabled,
     ).length;
-    console.log(`[Hardware-Alarm] ${count} alarme(s) alignée(s) après bootstrap`);
+    if (__DEV__) {
+      console.log(
+        `[Hardware-Alarm] ${count} alarme(s) alignée(s) après bootstrap`,
+      );
+    }
   } catch (e) {
-    if (__DEV__) console.warn('[TellYouTo] bootstrapNativeAlarmsOnAppStart', e);
+    if (__DEV__) console.warn('[TalkNDone] bootstrapNativeAlarmsOnAppStart', e);
   }
 }

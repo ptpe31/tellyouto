@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "814759010315",
+    "project_id": "tellmeto-4f3c7",
+    "storage_bucket": "tellmeto-4f3c7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:814759010315:android:9a5b477db367360d1f270e",
+        "android_client_info": {
+          "package_name": "com.tellmeto.trankilv3"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-6K9DsTAW-D0ZWL7j5I709ctrJyam2Do"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:814759010315:android:bbe4411b9c05b83d1f270e",
+        "android_client_info": {
+          "package_name": "com.trankil.talkndone"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-6K9DsTAW-D0ZWL7j5I709ctrJyam2Do"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

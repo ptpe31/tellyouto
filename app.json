@@ -1,24 +1,25 @@
 {
   "expo": {
-    "name": "TellYouTo",
-    "slug": "tellyouto",
+    "name": "TalkNDone",
+    "slug": "talkndone",
     "version": "1.0.0",
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/talkndone/icon-placeholder.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "scheme": "tellyouto",
+    "scheme": "talkndone",
     "splash": {
-      "image": "./assets/adaptive-icon.png",
+      "image": "./assets/talkndone/splash-placeholder.png",
       "resizeMode": "contain",
       "backgroundColor": "#F5F5F0"
     },
     "ios": {
       "supportsTablet": true,
-      "icon": "./assets/icon.png",
+      "bundleIdentifier": "com.trankil.talkndone",
+      "icon": "./assets/talkndone/icon-placeholder.png",
       "infoPlist": {
         "LSApplicationQueriesSchemes": [
           "tg",
@@ -27,10 +28,10 @@
       }
     },
     "android": {
-      "package": "com.tellmeto.trankilv3",
+      "package": "com.trankil.talkndone",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/talkndone/icon-placeholder.png",
         "backgroundColor": "#F5F5F0"
       },
       "edgeToEdgeEnabled": true,
@@ -70,12 +71,22 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#F5F5F0",
-          "image": "./assets/adaptive-icon.png",
+          "image": "./assets/talkndone/splash-placeholder.png",
           "resizeMode": "contain"
         }
       ],
       "expo-web-browser",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.1.20",
+            "reactNativeReleaseLevel": "stable"
+          }
+        }
+      ],
+      "./plugins/withAndroidReleaseBuildStability.js"
     ]
   }
 }
