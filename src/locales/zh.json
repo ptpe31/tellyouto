@@ -2,6 +2,9 @@
   "app": {
     "name": "TellYouTo"
   },
+  "quota": {
+    "format": "{{current}}/{{total}}"
+  },
   "tabs": {
     "radar": "雷达",
     "timeline": "时间线",
@@ -9,7 +12,8 @@
     "recharge": "充能",
     "messaging": "消息",
     "stats": "统计",
-    "debug": "调试"
+    "debug": "调试",
+    "zenGarden": "庭园"
   },
   "messaging": {
     "lead": "TellYouTo 深层链接 — 直接打开雷达、时间线或充电站。",

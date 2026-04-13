@@ -214,6 +214,16 @@ const SCHEMA = `
 
   INSERT OR IGNORE INTO user_profile (id, user_tier, ai_token_quota, is_ad_free, chronotype_data)
   VALUES (1, 'free', 5, 0, '{}');
+
+  CREATE TABLE IF NOT EXISTS user_status (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    current_level INTEGER NOT NULL DEFAULT 12,
+    current_xp INTEGER NOT NULL DEFAULT 780,
+    credits_projet_ia INTEGER NOT NULL DEFAULT 2
+  );
+
+  INSERT OR IGNORE INTO user_status (id, current_level, current_xp, credits_projet_ia)
+  VALUES (1, 12, 780, 2);
 `;
 
 function getPhysicalDatabasePaths(): string[] {
@@ -460,6 +470,19 @@ async function migrateUserProfileColumns(database: SQLite.SQLiteDatabase): Promi
   );
 }
 
+async function migrateUserStatus(database: SQLite.SQLiteDatabase): Promise<void> {
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS user_status (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      current_level INTEGER NOT NULL DEFAULT 12,
+      current_xp INTEGER NOT NULL DEFAULT 780,
+      credits_projet_ia INTEGER NOT NULL DEFAULT 2
+    );
+    INSERT OR IGNORE INTO user_status (id, current_level, current_xp, credits_projet_ia)
+    VALUES (1, 12, 780, 2);
+  `);
+}
+
 /**
  * Ouvre la base si besoin, applique schéma + migrations + PRAGMAs (WAL / busy_timeout sur mobile).
  * À n’appeler que depuis `runSerializedSqlite` ou `withLocalDatabase`.
@@ -482,6 +505,7 @@ async function ensureDbReady(): Promise<SQLite.SQLiteDatabase> {
   }
   await migrateIntentionsColumns(db);
   await migrateUserProfileColumns(db);
+  await migrateUserStatus(db);
   if (!pragmasApplied && Platform.OS !== 'web') {
     try {
       await db.execAsync('PRAGMA journal_mode=WAL;');
@@ -513,6 +537,51 @@ export async function touchLocalDatabaseForStartup(): Promise<void> {
     const database = await ensureDbReady();
     await database.getFirstAsync<{ id: string }>(
       `SELECT id FROM intentions LIMIT 1`,
+    );
+  });
+}
+
+/** Ligne unique : progression Zen Garden + crédits « Projet » (IA). */
+export type UserStatusRow = {
+  current_level: number;
+  current_xp: number;
+  credits_projet_ia: number;
+};
+
+const USER_STATUS_DEFAULT: UserStatusRow = {
+  current_level: 12,
+  current_xp: 780,
+  credits_projet_ia: 2,
+};
+
+export async function getUserStatus(): Promise<UserStatusRow> {
+  return runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const row = await database.getFirstAsync<UserStatusRow>(
+      `SELECT current_level, current_xp, credits_projet_ia FROM user_status WHERE id = 1`,
+    );
+    return row ?? USER_STATUS_DEFAULT;
+  });
+}
+
+export async function updateUserStatus(
+  patch: Partial<UserStatusRow>,
+): Promise<void> {
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    const row = await database.getFirstAsync<UserStatusRow>(
+      `SELECT current_level, current_xp, credits_projet_ia FROM user_status WHERE id = 1`,
+    );
+    const base = row ?? USER_STATUS_DEFAULT;
+    const next: UserStatusRow = {
+      current_level: patch.current_level ?? base.current_level,
+      current_xp: patch.current_xp ?? base.current_xp,
+      credits_projet_ia: patch.credits_projet_ia ?? base.credits_projet_ia,
+    };
+    await database.runAsync(
+      `INSERT OR REPLACE INTO user_status (id, current_level, current_xp, credits_projet_ia)
+       VALUES (1, ?, ?, ?)`,
+      [next.current_level, next.current_xp, next.credits_projet_ia],
     );
   });
 }

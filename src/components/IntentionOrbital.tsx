@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import React, { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -25,6 +26,9 @@ type Props = {
 };
 
 const SPRING = { damping: 17, stiffness: 260, mass: 0.8 };
+
+/** Plafond affiché pour le quota Projet (9h) — à remplacer par SQLite plus tard. */
+const PROJECT_QUOTA_TOTAL = 3;
 
 function snapTarget(angle: number): { target: number; slot: OrbitalSlot } {
   'worklet';
@@ -60,6 +64,8 @@ export const IntentionOrbital = forwardRef<IntentionOrbitalRef, Props>(
     },
     ref,
   ) {
+    const { t } = useTranslation();
+    const [currentProjectCredits] = useState(1);
     const size = (radius + 36) * 2;
     const cx = size / 2;
     const cy = size / 2;
@@ -169,9 +175,21 @@ export const IntentionOrbital = forwardRef<IntentionOrbitalRef, Props>(
           },
         ]}
       />
-      <GestureDetector gesture={pan}>
-        <Animated.View style={[styles.ball, ballStyle, ballColorStyle]} />
-      </GestureDetector>
+      <Animated.View style={[styles.ballCluster, ballStyle]} pointerEvents="box-none">
+        {displaySlot === 'deep' ? (
+          <View style={styles.quotaAbove} pointerEvents="none">
+            <Text style={styles.quotaText}>
+              {t('quota.format', {
+                current: currentProjectCredits,
+                total: PROJECT_QUOTA_TOTAL,
+              })}
+            </Text>
+          </View>
+        ) : null}
+        <GestureDetector gesture={pan}>
+          <Animated.View style={[styles.ball, ballColorStyle]} />
+        </GestureDetector>
+      </Animated.View>
         {displaySlot === 'quick' ? (
           <View style={[styles.slotLabel, { left: rightLabelLeft, top: cy - 8 }]}>
             <Text style={styles.slotLabelText}>{labelQuick}</Text>
@@ -198,6 +216,29 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(45, 111, 112, 0.28)',
     backgroundColor: 'transparent',
   },
+  ballCluster: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 28,
+    height: 28,
+    zIndex: 10,
+  },
+  /** Au-dessus de la bille (slot 9h / Projet), sans modifier l’ancre orbitale 28×28. */
+  quotaAbove: {
+    position: 'absolute',
+    left: -14,
+    right: -14,
+    top: -13,
+    alignItems: 'center',
+  },
+  quotaText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: 'rgba(46, 95, 104, 0.72)',
+    letterSpacing: 0.2,
+    textAlign: 'center',
+  },
   ball: {
     position: 'absolute',
     left: 0,
@@ -210,7 +251,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 8,
-    zIndex: 10,
   },
   slotLabel: {
     position: 'absolute',

@@ -16,7 +16,12 @@ export {
   markIntentionSynced,
   updateIntention,
 } from './localDb';
-export type { IntentionRow, IntentionStatus } from './localDb';
+export type {
+  IntentionRow,
+  IntentionStatus,
+  UserStatusRow,
+} from './localDb';
+export { getUserStatus, updateUserStatus } from './localDb';
 export { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';
 export {
   getOrCreateDeviceId,

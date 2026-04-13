@@ -2,6 +2,9 @@
   "app": {
     "name": "TellYouTo"
   },
+  "quota": {
+    "format": "{{current}}/{{total}}"
+  },
   "tabs": {
     "radar": "レーダー",
     "timeline": "タイムライン",
@@ -9,7 +12,8 @@
     "recharge": "リチャージ",
     "messaging": "メッセージ",
     "stats": "統計",
-    "debug": "Debug"
+    "debug": "Debug",
+    "zenGarden": "庭"
   },
   "messaging": {
     "lead": "TellYouToのディープリンク — Radar・Timeline・チャージを直接開きます。",

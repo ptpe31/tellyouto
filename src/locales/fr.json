@@ -2,6 +2,20 @@
   "app": {
     "name": "TellYouTo"
   },
+  "quota": {
+    "format": "{{current}}/{{total}}"
+  },
+  "zenGarden": {
+    "screenTitle": "Jardin Zen",
+    "levelShort": "NIV. {{level}}",
+    "growthXp": "Croissance : {{current}} / {{total}} XP",
+    "actionZoneTitle": "NOURRIR LES INTENTIONS",
+    "actionBoost": "Booster ma plante",
+    "actionVideoReward": "Voir une vidéo (3 Projets)",
+    "quotaA11y": "Crédits projet : {{current}} sur {{total}}",
+    "plantA11y": "État visuel de ton intention sur le piédestal",
+    "whisper": "Un geste simple, une clarté durable."
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Temps",
@@ -10,7 +24,8 @@
     "messaging": "Messages",
     "stats": "Stats",
     "debug": "Debug",
-    "talkHome": "Talk"
+    "talkHome": "Talk",
+    "zenGarden": "Jardin"
   },
   "messaging": {
     "lead": "Liens profonds TellYouTo — ouvre l’app directement sur Radar, Timeline ou Recharge.",

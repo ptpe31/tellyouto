@@ -2,6 +2,20 @@
   "app": {
     "name": "TellYouTo"
   },
+  "quota": {
+    "format": "{{current}}/{{total}}"
+  },
+  "zenGarden": {
+    "screenTitle": "Zen Garden",
+    "levelShort": "LVL {{level}}",
+    "growthXp": "Growth: {{current}} / {{total}} XP",
+    "actionZoneTitle": "FEED YOUR INTENTIONS",
+    "actionBoost": "Boost my plant",
+    "actionVideoReward": "Watch a video (3 Projects)",
+    "quotaA11y": "Project credits: {{current}} of {{total}}",
+    "plantA11y": "Your intention state on the stone pedestal",
+    "whisper": "One gentle move, lasting clarity."
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Timeline",
@@ -10,7 +24,8 @@
     "messaging": "Messaging",
     "stats": "Stats",
     "debug": "Debug",
-    "talkHome": "Talk"
+    "talkHome": "Talk",
+    "zenGarden": "Garden"
   },
   "messaging": {
     "lead": "TellYouTo deep links — open the app on Radar, Timeline, or Recharge.",

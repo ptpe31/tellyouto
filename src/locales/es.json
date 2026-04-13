@@ -2,6 +2,9 @@
   "app": {
     "name": "TellYouTo"
   },
+  "quota": {
+    "format": "{{current}}/{{total}}"
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Línea",
@@ -9,7 +12,8 @@
     "recharge": "Recarga",
     "messaging": "Mensajes",
     "stats": "Stats",
-    "debug": "Debug"
+    "debug": "Debug",
+    "zenGarden": "Jardín"
   },
   "messaging": {
     "lead": "Enlaces profundos de TellYouTo — abre la app en Radar, Timeline o recarga.",
