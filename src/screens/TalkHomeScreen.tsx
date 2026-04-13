@@ -1,15 +1,19 @@
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
 import * as Localization from 'expo-localization';
-import { Audio } from 'expo-av';
+import Voice, {
+  type SpeechErrorEvent,
+  type SpeechResultsEvent,
+} from '@react-native-voice/voice';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mic, Pencil, UserCircle2, Waves } from 'lucide-react-native';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
   DeviceEventEmitter,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -40,10 +44,8 @@ import {
   type BusyInterval,
 } from '../services/agentLogic';
 import {
-  deleteAudioCacheFile,
   finalizeIntentWithCloudSemanticGraph,
   reformulateStructuredIntent,
-  transcribeAudio,
   type VoiceIntentKind,
 } from '../services/TranscriptionService';
 import {
@@ -52,13 +54,26 @@ import {
 } from '../utils/nativeModuleErrorAlert';
 
 type VoiceConfirmState = {
-  audioUri: string;
   rawTranscript: string;
   kind: VoiceIntentKind;
   editedTitle: string;
   editedTime: string;
   isEditing: boolean;
 };
+
+function voiceLocaleTag(language: string): string {
+  const base = language.split(/[-_]/)[0]?.toLowerCase() ?? 'en';
+  const map: Record<string, string> = {
+    fr: 'fr-FR',
+    en: 'en-US',
+    es: 'es-ES',
+    de: 'de-DE',
+    it: 'it-IT',
+    ja: 'ja-JP',
+    zh: 'zh-CN',
+  };
+  return map[base] ?? 'en-US';
+}
 
 function newTalkEntityId(): string {
   try {
@@ -69,7 +84,7 @@ function newTalkEntityId(): string {
 }
 
 export function TalkHomeScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   useTheme();
   const { spectrum } = useUserSpectrum();
   const { interactionLanguage } = useLanguage();
@@ -78,10 +93,19 @@ export function TalkHomeScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [voiceConfirm, setVoiceConfirm] = useState<VoiceConfirmState | null>(null);
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const [livePartial, setLivePartial] = useState('');
+  const voiceActiveRef = useRef(false);
   const startedAtRef = useRef<number>(0);
+  const partialTranscriptRef = useRef('');
+  const finalTranscriptRef = useRef('');
+  const speechErrorRef = useRef(false);
   const ringPulse = useRef(new Animated.Value(0)).current;
   const wavePulse = useRef(new Animated.Value(0)).current;
+
+  const liveStructured = useMemo(
+    () => reformulateStructuredIntent(livePartial),
+    [livePartial],
+  );
 
   const resetVoiceConfirm = useCallback(() => {
     setVoiceConfirm(null);
@@ -128,126 +152,132 @@ export function TalkHomeScreen() {
     };
   }, [isRecording, ringPulse, wavePulse]);
 
-  const ensureMicrophonePermission = async (): Promise<boolean> => {
-    const permission = await Audio.getPermissionsAsync();
-    if (permission.granted) return true;
-    const requested = await Audio.requestPermissionsAsync();
-    if (requested.granted) return true;
-    Alert.alert(
-      t('talkHome.microphonePermissionTitle'),
-      t('talkHome.microphonePermissionBody'),
-    );
-    return false;
-  };
+  useEffect(() => {
+    Voice.onSpeechPartialResults = (e: SpeechResultsEvent) => {
+      const next = e.value?.[0] ?? '';
+      partialTranscriptRef.current = next;
+      setLivePartial(next);
+    };
+    Voice.onSpeechResults = (e: SpeechResultsEvent) => {
+      const v = (e.value?.[0] ?? '').trim();
+      if (v) finalTranscriptRef.current = v;
+    };
+    Voice.onSpeechError = (_e: SpeechErrorEvent) => {
+      speechErrorRef.current = true;
+    };
+    return () => {
+      void Voice.destroy()
+        .then(() => {
+          Voice.removeAllListeners();
+        })
+        .catch(() => {
+          Voice.removeAllListeners();
+        });
+    };
+  }, []);
 
-  const startRecording = async (): Promise<void> => {
-    if (isBusy || recordingRef.current || voiceConfirm) return;
-    const allowed = await ensureMicrophonePermission();
-    if (!allowed) return;
+  const startVoiceSession = async (): Promise<void> => {
+    if (Platform.OS === 'web') {
+      Alert.alert(
+        t('talkHome.voiceWebUnsupportedTitle'),
+        t('talkHome.voiceWebUnsupportedBody'),
+      );
+      return;
+    }
+    if (isBusy || voiceConfirm || voiceActiveRef.current) return;
+    speechErrorRef.current = false;
+    partialTranscriptRef.current = '';
+    finalTranscriptRef.current = '';
+    setLivePartial('');
+    startedAtRef.current = Date.now();
     setIsBusy(true);
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync({
-        isMeteringEnabled: false,
-        android: {
-          extension: '.m4a',
-          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-          audioEncoder: Audio.AndroidAudioEncoder.AAC,
-          sampleRate: 16000,
-          numberOfChannels: 1,
-          bitRate: 128000,
-        },
-        ios: {
-          extension: '.m4a',
-          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-          audioQuality: Audio.IOSAudioQuality.HIGH,
-          sampleRate: 16000,
-          numberOfChannels: 1,
-          bitRate: 128000,
-          linearPCMBitDepth: 16,
-          linearPCMIsBigEndian: false,
-          linearPCMIsFloat: false,
-        },
-        web: {
-          mimeType: 'audio/webm',
-          bitsPerSecond: 128000,
-        },
-      });
-      await recording.startAsync();
-      recordingRef.current = recording;
-      startedAtRef.current = Date.now();
+      await Voice.start(voiceLocaleTag(i18n.language));
+      voiceActiveRef.current = true;
       setIsRecording(true);
-    } catch {
-      Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStart'));
-      recordingRef.current = null;
+    } catch (e: unknown) {
+      voiceActiveRef.current = false;
       setIsRecording(false);
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('TalkHome · reconnaissance vocale', e);
+      } else {
+        Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStart'));
+      }
     } finally {
       setIsBusy(false);
     }
   };
 
-  const stopRecording = async (): Promise<void> => {
-    const recording = recordingRef.current;
-    if (!recording) return;
+  const stopVoiceSession = async (): Promise<void> => {
+    if (Platform.OS === 'web') return;
+    if (!voiceActiveRef.current) return;
+    voiceActiveRef.current = false;
+    const elapsedMs = Date.now() - startedAtRef.current;
     setIsBusy(true);
-    let audioUri: string | null = null;
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      recordingRef.current = null;
-      setIsRecording(false);
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      const elapsedMs = Date.now() - startedAtRef.current;
       if (elapsedMs < 550) {
+        try {
+          await Voice.cancel();
+        } catch {
+          /* ignore */
+        }
+        partialTranscriptRef.current = '';
+        finalTranscriptRef.current = '';
+        setIsRecording(false);
+        setLivePartial('');
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Alert.alert(
           t('talkHome.recordingTooShortTitle'),
           t('talkHome.recordingTooShortBody'),
         );
         return;
       }
-      if (!uri) {
-        Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorMissingFile'));
-        return;
+      try {
+        await Voice.stop();
+      } catch {
+        /* ignore */
       }
-      audioUri = uri;
-      const transcript = await transcribeAudio(uri);
-      if (!transcript.trim()) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await new Promise<void>((r) => setTimeout(r, 480));
+      const text = (
+        finalTranscriptRef.current ||
+        partialTranscriptRef.current ||
+        ''
+      ).trim();
+      partialTranscriptRef.current = '';
+      finalTranscriptRef.current = '';
+      setIsRecording(false);
+      setLivePartial('');
+      if (!text) {
         Alert.alert(
           t('talkHome.transcriptionUnclearTitle'),
           t('talkHome.transcriptionUnclearBody'),
         );
-        await deleteAudioCacheFile(uri);
         return;
       }
-      const draft = reformulateStructuredIntent(transcript);
-      const title = draft.title.trim() || transcript.trim();
+      const draft = reformulateStructuredIntent(text);
+      const title = draft.title.trim() || text;
       setVoiceConfirm({
-        audioUri: uri,
-        rawTranscript: transcript.trim(),
+        rawTranscript: text,
         kind: draft.kind,
         editedTitle: title,
         editedTime: draft.timeMarker,
         isEditing: false,
       });
     } catch {
+      setIsRecording(false);
+      setLivePartial('');
       Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStop'));
     } finally {
+      speechErrorRef.current = false;
       setIsBusy(false);
     }
   };
 
-  const onCancelVoice = useCallback(async () => {
+  const onCancelVoice = useCallback(() => {
     if (!voiceConfirm) return;
-    const uri = voiceConfirm.audioUri;
     resetVoiceConfirm();
-    await deleteAudioCacheFile(uri);
   }, [voiceConfirm, resetVoiceConfirm]);
 
   const onProcessVoice = useCallback(async () => {
@@ -260,18 +290,14 @@ export function TalkHomeScreen() {
     const desc = voiceConfirm.editedTime.trim();
     const rawTranscript = voiceConfirm.rawTranscript;
     const kind = voiceConfirm.kind;
-    const audioUri = voiceConfirm.audioUri;
     setIsBusy(true);
     try {
-      const graph = await finalizeIntentWithCloudSemanticGraph(
-        {
-          kind,
-          title: trimmedTitle,
-          timeMarker: desc,
-          rawTranscript,
-        },
-        { audioUri },
-      );
+      const graph = await finalizeIntentWithCloudSemanticGraph({
+        kind,
+        title: trimmedTitle,
+        timeMarker: desc,
+        rawTranscript,
+      });
 
       const now = new Date();
       const systemLocale =
@@ -446,7 +472,6 @@ export function TalkHomeScreen() {
         }
       }
     } finally {
-      await deleteAudioCacheFile(audioUri);
       setIsBusy(false);
     }
   }, [
@@ -477,6 +502,35 @@ export function TalkHomeScreen() {
       <Text style={styles.privacyHint}>{t('talkHome.localPrivacyHint')}</Text>
     </>
   );
+
+  const renderLiveSpeechCard = () => {
+    const actionDisplay = livePartial.trim()
+      ? livePartial.trim()
+      : t('talkHome.voiceLivePlaceholder');
+    const momentDisplay = liveStructured.timeMarker.trim()
+      ? liveStructured.timeMarker.trim()
+      : t('talkHome.timeUnspecified');
+
+    return (
+      <>
+        <Text style={styles.liveSpeechLead}>{t('talkHome.listeningNow')}</Text>
+        <View style={styles.typeRow}>
+          <Text style={styles.confirmMetaLabel}>{t('talkHome.confirmTypePrefix')}</Text>
+          <Text style={styles.typeValue}>{intentTypeLabel(liveStructured.kind)}</Text>
+        </View>
+        <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmActionLabel')}</Text>
+        <View style={styles.titleHeroWrap}>
+          <Text style={styles.titleHero}>{actionDisplay}</Text>
+        </View>
+        <View style={styles.timeSection}>
+          <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmMomentLabel')}</Text>
+          <View style={styles.timeValueWrap}>
+            <Text style={styles.timeValue}>{momentDisplay}</Text>
+          </View>
+        </View>
+      </>
+    );
+  };
 
   const renderConfirmCard = () => {
     if (!voiceConfirm) return null;
@@ -593,7 +647,11 @@ export function TalkHomeScreen() {
 
       <View style={styles.contentFlow}>
         <View style={styles.pingCard}>
-          {voiceConfirm ? renderConfirmCard() : renderPingCard()}
+          {voiceConfirm
+            ? renderConfirmCard()
+            : isRecording
+              ? renderLiveSpeechCard()
+              : renderPingCard()}
         </View>
 
         <View style={styles.progressCard}>
@@ -605,9 +663,6 @@ export function TalkHomeScreen() {
         </View>
 
         <View style={styles.talkWrap}>
-          {isRecording ? (
-            <Text style={styles.listeningHint}>{t('talkHome.listeningNow')}</Text>
-          ) : null}
           <Animated.View
             style={[
               styles.outerRing,
@@ -627,12 +682,12 @@ export function TalkHomeScreen() {
               accessibilityRole="button"
               accessibilityLabel={t('talkHome.holdToTalk')}
               onPressIn={() => {
-                void startRecording();
+                void startVoiceSession();
               }}
               onPressOut={() => {
-                void stopRecording();
+                void stopVoiceSession();
               }}
-              disabled={isBusy || voiceConfirm !== null}
+              disabled={isBusy || voiceConfirm !== null || Platform.OS === 'web'}
             >
               <LinearGradient
                 colors={
@@ -754,6 +809,13 @@ const styles = StyleSheet.create({
     color: '#77807a',
     fontSize: 13,
     fontWeight: '500',
+  },
+  liveSpeechLead: {
+    textAlign: 'center',
+    color: '#3b6b60',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 12,
   },
   confirmHeaderRow: {
     flexDirection: 'row',
@@ -963,12 +1025,5 @@ const styles = StyleSheet.create({
     borderRadius: 124,
     borderWidth: 4,
     borderColor: 'rgba(219, 255, 246, 0.8)',
-  },
-  listeningHint: {
-    marginTop: 12,
-    color: '#3b6b60',
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.2,
   },
 });

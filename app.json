@@ -42,7 +42,8 @@
         "android.permission.WAKE_LOCK",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.SCHEDULE_EXACT_ALARM",
-        "android.permission.USE_EXACT_ALARM"
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -51,6 +52,13 @@
     "plugins": [
       "expo-sqlite",
       "expo-localization",
+      [
+        "@react-native-voice/voice",
+        {
+          "microphonePermission": "TalkNDone utilise le micro pour la reconnaissance vocale sur ton appareil.",
+          "speechRecognitionPermission": "TalkNDone utilise le moteur de reconnaissance vocale du système pour transcrire tes intentions."
+        }
+      ],
       [
         "expo-notifications",
         {

@@ -594,7 +594,10 @@
       "task": "Task",
       "project": "Project"
     },
-    "editIntentA11y": "Edit title and time marker",
+    "editIntentA11y": "Edit action and moment",
+    "voiceLivePlaceholder": "…",
+    "voiceWebUnsupportedTitle": "Speech recognition",
+    "voiceWebUnsupportedBody": "Native dictation is not available on the web. Use the iOS or Android app.",
     "voiceProcess": "PROCESS",
     "voiceCancel": "CANCEL",
     "transcriptionUnclearTitle": "Transcription",

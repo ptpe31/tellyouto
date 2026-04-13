@@ -1,5 +1,3 @@
-import * as FileSystem from 'expo-file-system';
-
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export type VoiceIntentKind = 'habit' | 'task' | 'project';
@@ -72,54 +70,23 @@ export function reformulateStructuredIntent(transcript: string): StructuredVoice
 }
 
 /**
- * Placeholder transcription: flux réel basé sur le fichier courant.
- * Tant que le moteur STT local/cloud n'est pas branché, on ne fabrique aucun contenu.
- */
-export async function transcribeAudio(uri: string): Promise<string> {
-  try {
-    const fileInfo = await FileSystem.getInfoAsync(uri);
-    const sizeBytes = fileInfo.exists && 'size' in fileInfo ? fileInfo.size ?? 0 : 0;
-    console.log(`[TranscriptionService] audio source uri=${uri} size=${sizeBytes}B`);
-  } catch (error) {
-    console.log(`[TranscriptionService] failed to inspect audio file uri=${uri}`, error);
-  }
-  await delay(1000);
-  return '';
-}
-
-/**
  * Étape cloud simulée : graphe sémantique (tags, polarité) avant persistance locale.
  */
-export async function finalizeIntentWithCloudSemanticGraph(
-  payload: {
-    kind: VoiceIntentKind;
-    title: string;
-    timeMarker: string;
-    rawTranscript: string;
-  },
-  meta?: { audioUri?: string | null },
-): Promise<{
+export async function finalizeIntentWithCloudSemanticGraph(payload: {
+  kind: VoiceIntentKind;
+  title: string;
+  timeMarker: string;
+  rawTranscript: string;
+}): Promise<{
   semantic_tags: string[];
   sentiment_score: number | null;
   semantic_cluster_id: string | null;
 }> {
-  let audioSizeB: number | null = null;
-  const audioUri = meta?.audioUri?.trim();
-  if (audioUri) {
-    try {
-      const fileInfo = await FileSystem.getInfoAsync(audioUri);
-      if (fileInfo.exists && 'size' in fileInfo && typeof fileInfo.size === 'number') {
-        audioSizeB = fileInfo.size;
-      }
-    } catch (error) {
-      console.log('[CloudSemanticGraph] audio file stat failed', error);
-    }
-  }
   const approxDurationMs = Math.round(
     Math.min(120_000, 600 + payload.rawTranscript.length * 38 + payload.title.length * 10),
   );
   console.log(
-    `[CloudSemanticGraph] finalize kind=${payload.kind} audioSize=${audioSizeB ?? 'n/a'}B approxDurationMs=${approxDurationMs}`,
+    `[CloudSemanticGraph] finalize kind=${payload.kind} approxDurationMs=${approxDurationMs}`,
   );
   await delay(450);
   return {
@@ -127,16 +94,4 @@ export async function finalizeIntentWithCloudSemanticGraph(
     sentiment_score: 0.12,
     semantic_cluster_id: null,
   };
-}
-
-export async function deleteAudioCacheFile(uri: string | null | undefined): Promise<void> {
-  if (!uri?.trim()) return;
-  try {
-    const info = await FileSystem.getInfoAsync(uri);
-    if (info.exists) {
-      await FileSystem.deleteAsync(uri, { idempotent: true });
-    }
-  } catch (e) {
-    console.log('[TranscriptionService] deleteAudioCacheFile failed', e);
-  }
 }
