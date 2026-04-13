@@ -583,6 +583,26 @@
     "recordingTooShortTitle": "Recording too short",
     "recordingTooShortBody": "Hold the button a little longer to capture audio.",
     "transcriptionTitle": "Local transcription",
-    "listeningNow": "I'm listening..."
+    "listeningNow": "I'm listening...",
+    "simulatedTranscriptDemo": "Prepare the project presentation tomorrow at 6pm",
+    "confirmIntro": "Confirm to take this into account:",
+    "confirmTypePrefix": "Type",
+    "confirmTitleLabel": "Title",
+    "confirmTimeLabel": "Time marker",
+    "timeUnspecified": "Not specified",
+    "intentType": {
+      "habit": "Habit",
+      "task": "Task",
+      "project": "Project"
+    },
+    "editIntentA11y": "Edit title and time marker",
+    "voiceProcess": "PROCESS",
+    "voiceCancel": "CANCEL",
+    "transcriptEmptyTitle": "Empty text",
+    "transcriptEmptyBody": "No phrase was recognized. Try speaking a little longer.",
+    "titleRequiredTitle": "Title required",
+    "titleRequiredBody": "Add a short title before processing.",
+    "voicePersistErrorTitle": "Could not save",
+    "voicePersistErrorBody": "This intention could not be saved. Please try again shortly."
   }
 }

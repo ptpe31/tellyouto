@@ -583,6 +583,26 @@
     "recordingTooShortTitle": "Enregistrement trop court",
     "recordingTooShortBody": "Maintiens le bouton un peu plus longtemps pour enregistrer.",
     "transcriptionTitle": "Transcription locale",
-    "listeningNow": "Je t'écoute..."
+    "listeningNow": "Je t'écoute...",
+    "simulatedTranscriptDemo": "Préparer la présentation projet demain à 18h",
+    "confirmIntro": "Confirme pour prendre en compte :",
+    "confirmTypePrefix": "Type",
+    "confirmTitleLabel": "Titre",
+    "confirmTimeLabel": "Marqueur de temps",
+    "timeUnspecified": "Non précisé",
+    "intentType": {
+      "habit": "Habitude",
+      "task": "Tâche",
+      "project": "Projet"
+    },
+    "editIntentA11y": "Modifier le titre et le marqueur de temps",
+    "voiceProcess": "TRAITER",
+    "voiceCancel": "ANNULER",
+    "transcriptEmptyTitle": "Texte vide",
+    "transcriptEmptyBody": "Aucune phrase n’a été reconnue. Réessaie en parlant un peu plus longtemps.",
+    "titleRequiredTitle": "Titre requis",
+    "titleRequiredBody": "Ajoute un titre court avant de traiter.",
+    "voicePersistErrorTitle": "Enregistrement impossible",
+    "voicePersistErrorBody": "Impossible d’enregistrer cette intention. Réessaie dans un instant."
   }
 }
