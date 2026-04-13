@@ -1,5 +1,7 @@
 {
-  "app": { "name": "TellYouTo" },
+  "app": {
+    "name": "TellYouTo"
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Línea",
@@ -288,6 +290,7 @@
   "debug": {
     "pilotTitle": "Herramientas de pilotaje",
     "note": "Herramienta interna — interfaz mínima.",
+    "firebaseProjectIdButton": "Ver projectId de Firebase (SDK vs .env)",
     "calendarSection": "Calendario del sistema",
     "calendarConnect": "Conectar calendarios del sistema",
     "calendarConnectHelp": "Solo lectura local — ningún título va a Firebase.",
@@ -368,7 +371,10 @@
     "demoIntent4Title": "Revisión de hitos",
     "demoIntent4Desc": "Alineación a mitad del día sobre los siguientes pasos.",
     "demoIntent5Title": "Tablero de seguimiento",
-    "demoIntent5Desc": "Actualizar indicadores y carga."
+    "demoIntent5Desc": "Actualizar indicadores y carga.",
+    "semantic_tags": "Etiquetas semanticas",
+    "user_profile_sync_success": "Perfil de usuario actualizado correctamente.",
+    "user_profile_sync_error": "Error al actualizar el perfil de usuario."
   },
   "legal": {
     "screenTitle": "Acerca de",
@@ -486,8 +492,8 @@
     "openSettings": "Ajustes",
     "externalHelp": "Más sobre el foco (web)",
     "versionLabel": "Versión {{version}}",
-    "debugUnlockTitle": "Herramientas de piloto",
-    "debugUnlockBody": "La pestaña Debug ya está disponible al final de la barra.",
+    "debugUnlockTitle": "Modo desarrollador",
+    "debugUnlockBody": "Acceso autorizado.",
     "sectionLegal": "Información",
     "legalNav": "Acerca de y aviso legal",
     "voice": {
@@ -531,5 +537,9 @@
     "allyPreview": "Voz: {{voice}} · Tono: {{tone}} · Idioma IA: {{lang}}",
     "alarmPermissionTitle": "Notificaciones necesarias",
     "alarmPermissionBody": "Sin permiso de notificaciones, el agente local no puede programar alarmas del rail en el dispositivo. Activa las notificaciones (y alarmas en Android) para esta app en los ajustes del sistema."
+  },
+  "common": {
+    "habits": "Habitos",
+    "projects": "Proyectos"
   }
 }

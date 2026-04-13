@@ -1,11 +1,9 @@
 import Constants from 'expo-constants';
-import { useNavigation } from '@react-navigation/native';
+import { CommonActions, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  AppState,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,10 +27,7 @@ import {
   NeumorphicCard,
 } from '../components';
 import { ChannelCatalogCard } from '../components/ChannelCatalogCard';
-import { TelegramMissingDialog } from '../components/TelegramMissingDialog';
 import { PassProModal } from '../components/PassProModal';
-import { ChannelLinkingModal } from '../components/ChannelLinkingModal';
-import { LinkLaunchedModal } from '../components/LinkLaunchedModal';
 import { SingleChannelSwitchModal } from '../components/SingleChannelSwitchModal';
 import { IS_PRODUCTION } from '../config/appConfig';
 import { useDebugUnlock } from '../context/DebugUnlockContext';
@@ -51,16 +46,7 @@ import {
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import type { AgentStackParamList } from '../navigation/AgentStack';
-import {
-  buildTelegramStartLink,
-  buildWhatsAppStartLink,
-} from '../services/connectorLinks';
 import { disconnectChannelRemote } from '../services/channelsService';
-import { getOrCreateDeviceId } from '../api/syncService';
-import {
-  canOpenTelegramNative,
-  openTelegramStore,
-} from '../utils/linkingHelper';
 import { ChannelsPrivacyFootnote } from './ChannelsScreen';
 
 const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
@@ -74,21 +60,35 @@ export function AgentSettingsScreen() {
   const version = Constants.expoConfig?.version ?? '—';
   const tapCountRef = useRef(0);
   const tapWindowRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const VERSION_TAP_MAX_GAP_MS = 2000;
 
   const onVersionPress = useCallback(() => {
-    if (!IS_PRODUCTION) return;
     if (tapWindowRef.current) clearTimeout(tapWindowRef.current);
     tapCountRef.current += 1;
     tapWindowRef.current = setTimeout(() => {
       tapCountRef.current = 0;
-    }, 2200);
-    if (tapCountRef.current >= 5) {
-      tapCountRef.current = 0;
-      if (tapWindowRef.current) clearTimeout(tapWindowRef.current);
-      void unlock().then(() => {
+    }, VERSION_TAP_MAX_GAP_MS);
+    if (tapCountRef.current < 5) return;
+
+    tapCountRef.current = 0;
+    if (tapWindowRef.current) clearTimeout(tapWindowRef.current);
+
+    void unlock().then(() => {
+      if (rootNavigationRef.isReady()) {
+        rootNavigationRef.dispatch(
+          CommonActions.navigate({
+            name: 'App',
+            params: {
+              screen: 'Tabs',
+              params: { screen: 'Debug' },
+            },
+          } as never),
+        );
+      }
+      if (IS_PRODUCTION) {
         Alert.alert(t('ally.debugUnlockTitle'), t('ally.debugUnlockBody'));
-      });
-    }
+      }
+    });
   }, [t, unlock]);
   const { language, setLanguage, interactionLanguage, setInteractionLanguage } =
     useLanguage();
@@ -109,15 +109,7 @@ export function AgentSettingsScreen() {
   const [leadDraft, setLeadDraft] = useState(
     String(spectrum.messenger_reminder_lead_minutes),
   );
-  const [telegramMissingVisible, setTelegramMissingVisible] = useState(false);
-  const pendingTelegramStoreReturn = useRef(false);
-  const [linkingModalVisible, setLinkingModalVisible] = useState(false);
-  const [linkingModalChannelId, setLinkingModalChannelId] =
-    useState<PrivateChannelId | null>(null);
   const [channelLinkedSnackbar, setChannelLinkedSnackbar] = useState(false);
-  const [linkLaunched, setLinkLaunched] = useState<{
-    showTelegramMark: boolean;
-  } | null>(null);
   const prevMessengerUidRef = useRef<string | null>(null);
   const handshakeMountRef = useRef(false);
 
@@ -133,82 +125,22 @@ export function AgentSettingsScreen() {
   }, []);
 
   const applyChannel = useCallback(async (id: PrivateChannelId) => {
-    const uid = await getOrCreateDeviceId();
-    if (id === 'telegram') {
-      await savePrivateChannelChoice(id, buildTelegramStartLink(uid));
-    } else if (id === 'whatsapp') {
-      await savePrivateChannelChoice(id, buildWhatsAppStartLink(uid));
-    } else {
-      await savePrivateChannelChoice(id);
-    }
+    await savePrivateChannelChoice(id);
     setChannelChoice(id);
-  }, []);
-
-  const openLinkingModal = useCallback((id: PrivateChannelId) => {
-    setLinkingModalChannelId(id);
-    setLinkingModalVisible(true);
-  }, []);
-
-  const dismissLinkingModal = useCallback(() => {
-    setLinkingModalVisible(false);
-    setLinkingModalChannelId(null);
   }, []);
 
   const connectChannel = useCallback(
     async (
       id: PrivateChannelId,
-      opts?: { skipTelegramNativeCheck?: boolean },
     ) => {
       if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
         setPassProVisible(true);
         return;
       }
-      if (id === 'telegram' && !opts?.skipTelegramNativeCheck) {
-        const can = await canOpenTelegramNative();
-        if (!can) {
-          setTelegramMissingVisible(true);
-          return;
-        }
-      }
       await applyChannel(id);
-      const url = await getStoredPrivateChannelBotUrl();
-      if (url) {
-        try {
-          await Linking.openURL(url);
-        } catch {
-          /* app absente ou URL vide */
-        }
-      }
     },
     [applyChannel, spectrum.isProUser],
   );
-
-  const onLinkingModalContinue = useCallback(() => {
-    const id = linkingModalChannelId;
-    setLinkingModalVisible(false);
-    setLinkingModalChannelId(null);
-    if (!id) return;
-
-    void (async () => {
-      if (isPremiumPrivateChannel(id) && !spectrum.isProUser) {
-        setPassProVisible(true);
-        return;
-      }
-      if (id === 'telegram') {
-        const can = await canOpenTelegramNative();
-        if (!can) {
-          setTelegramMissingVisible(true);
-          return;
-        }
-      }
-      setLinkLaunched({ showTelegramMark: id === 'telegram' });
-      setTimeout(() => {
-        void connectChannel(id, {
-          skipTelegramNativeCheck: id === 'telegram',
-        });
-      }, 280);
-    })();
-  }, [linkingModalChannelId, connectChannel, spectrum.isProUser]);
 
   useEffect(() => {
     const uid = spectrum.lastMessengerUserId ?? null;
@@ -222,19 +154,6 @@ export function AgentSettingsScreen() {
     }
     prevMessengerUidRef.current = uid;
   }, [spectrum.lastMessengerUserId]);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state !== 'active' || !pendingTelegramStoreReturn.current) return;
-      void (async () => {
-        const can = await canOpenTelegramNative();
-        if (!can) return;
-        pendingTelegramStoreReturn.current = false;
-        await connectChannel('telegram', { skipTelegramNativeCheck: true });
-      })();
-    });
-    return () => sub.remove();
-  }, [connectChannel]);
 
   const disconnectActiveChannel = useCallback(
     async (id: PrivateChannelId) => {
@@ -280,14 +199,14 @@ export function AgentSettingsScreen() {
           spectrum.lastMessengerChannel === id &&
           !!spectrum.lastMessengerUserId;
         if (live) return;
-        openLinkingModal(id);
+        void connectChannel(id);
         return;
       }
-      openLinkingModal(id);
+      void connectChannel(id);
     },
     [
       channelChoice,
-      openLinkingModal,
+      connectChannel,
       spectrum.isProUser,
       spectrum.lastMessengerChannel,
       spectrum.lastMessengerUserId,
@@ -311,12 +230,12 @@ export function AgentSettingsScreen() {
       setChannelChoice(null);
       await persist();
     }
-    openLinkingModal(target);
+    void connectChannel(target);
   }, [
     pendingChannelId,
     spectrum.lastMessengerChannel,
     spectrum.lastMessengerUserId,
-    openLinkingModal,
+    connectChannel,
     mergeRemoteProfile,
     persist,
   ]);
@@ -399,7 +318,7 @@ export function AgentSettingsScreen() {
         <Text style={[styles.section, { color: theme.colors.primary }]}>
           {t('settings.channelsCatalogTitle')}
         </Text>
-        {listPrivateChannelIds().map((id) => {
+        {listPrivateChannelIds().filter((id) => id !== 'telegram' && id !== 'whatsapp').map((id) => {
           const isPremium = isPremiumPrivateChannel(id);
           const locked = isPremium && !spectrum.isProUser;
           const connectionStatus = (() => {
@@ -416,12 +335,8 @@ export function AgentSettingsScreen() {
             <ChannelCatalogCard
               key={id}
               title={t(`channelCatalog.names.${id}`)}
-              freeBadgeLabel={
-                id === 'telegram' ? t('channelCatalog.freeBadge') : undefined
-              }
-              recommendedBadgeLabel={
-                id === 'telegram' ? t('channelCatalog.recommendedBadge') : undefined
-              }
+              freeBadgeLabel={undefined}
+              recommendedBadgeLabel={undefined}
               proBadgeLabel={t('channelCatalog.proBadge')}
               isPremiumChannel={isPremium}
               showProLock={locked}
@@ -453,24 +368,6 @@ export function AgentSettingsScreen() {
         onConfirm={() => void confirmChannelSwitch()}
       />
 
-      <ChannelLinkingModal
-        visible={linkingModalVisible}
-        variant={linkingModalChannelId === 'telegram' ? 'telegram' : 'other'}
-        channelName={
-          linkingModalChannelId
-            ? t(`channelCatalog.names.${linkingModalChannelId}`)
-            : ''
-        }
-        onDismiss={dismissLinkingModal}
-        onContinue={onLinkingModalContinue}
-      />
-
-      <LinkLaunchedModal
-        visible={linkLaunched != null}
-        showTelegramMark={linkLaunched?.showTelegramMark ?? false}
-        onDismiss={() => setLinkLaunched(null)}
-      />
-
       <PassProModal
         visible={passProVisible}
         onDismiss={() => setPassProVisible(false)}
@@ -479,16 +376,6 @@ export function AgentSettingsScreen() {
           if (rootNavigationRef.isReady()) {
             rootNavigationRef.navigate('ProSubscription');
           }
-        }}
-      />
-
-      <TelegramMissingDialog
-        visible={telegramMissingVisible}
-        onDismiss={() => setTelegramMissingVisible(false)}
-        onInstall={() => {
-          pendingTelegramStoreReturn.current = true;
-          setTelegramMissingVisible(false);
-          void openTelegramStore();
         }}
       />
 
@@ -594,7 +481,7 @@ export function AgentSettingsScreen() {
       </NeumorphicCard>
 
       <View style={styles.linkBox}>
-        <SafeExternalLink href="https://example.com/tellyouto-focus">
+        <SafeExternalLink href="https://example.com/talkndone-focus">
           <Text style={[styles.linkText, { color: theme.colors.primary }]}>
             {t('ally.externalHelp')}
           </Text>

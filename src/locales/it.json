@@ -1,5 +1,7 @@
 {
-  "app": { "name": "TellYouTo" },
+  "app": {
+    "name": "TellYouTo"
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Tempo",
@@ -288,6 +290,7 @@
   "debug": {
     "pilotTitle": "Strumenti di pilotaggio",
     "note": "Strumento interno — interfaccia essenziale.",
+    "firebaseProjectIdButton": "Mostra projectId Firebase (SDK vs .env)",
     "calendarSection": "Calendario di sistema",
     "calendarConnect": "Collega i calendari di sistema",
     "calendarConnectHelp": "Solo lettura locale — nessun titolo evento su Firebase.",
@@ -368,7 +371,10 @@
     "demoIntent4Title": "Revisione milestone",
     "demoIntent4Desc": "Allineamento a metà giornata sui prossimi passi.",
     "demoIntent5Title": "Board di monitoraggio",
-    "demoIntent5Desc": "Aggiornare metriche e carico."
+    "demoIntent5Desc": "Aggiornare metriche e carico.",
+    "semantic_tags": "Tag semantici",
+    "user_profile_sync_success": "Profilo utente aggiornato con successo.",
+    "user_profile_sync_error": "Aggiornamento del profilo utente non riuscito."
   },
   "legal": {
     "screenTitle": "Informazioni",
@@ -486,8 +492,8 @@
     "openSettings": "Impostazioni",
     "externalHelp": "Scopri di più sul focus (web)",
     "versionLabel": "Versione {{version}}",
-    "debugUnlockTitle": "Strumenti pilota",
-    "debugUnlockBody": "La scheda Debug è ora disponibile in fondo alla barra.",
+    "debugUnlockTitle": "Modalità sviluppatore",
+    "debugUnlockBody": "Accesso consentito.",
     "sectionLegal": "Informazioni",
     "legalNav": "Informazioni e note legali",
     "voice": {
@@ -531,5 +537,9 @@
     "allyPreview": "Voce: {{voice}} · Tono: {{tone}} · Lingua IA: {{lang}}",
     "alarmPermissionTitle": "Notifiche necessarie",
     "alarmPermissionBody": "Senza permesso notifiche, l’agente locale non può programmare gli allarmi del rail sul dispositivo. Abilita notifiche (e sveglie su Android) per questa app nelle impostazioni di sistema."
+  },
+  "common": {
+    "habits": "Abitudini",
+    "projects": "Progetti"
   }
 }

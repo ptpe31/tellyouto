@@ -1,5 +1,7 @@
 {
-  "app": { "name": "TellYouTo" },
+  "app": {
+    "name": "TellYouTo"
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Temps",
@@ -301,6 +303,7 @@
   "debug": {
     "pilotTitle": "Outils de Pilotage",
     "note": "Outil interne — interface volontairement brute.",
+    "firebaseProjectIdButton": "Voir projectId Firebase (SDK vs .env)",
     "soundSectionTitle": "Paramètres sonores",
     "soundHelp": "Choisit le fichier .wav bundlé pour les alarmes rail (rebuild natif si tu ajoutes des sons). Sous Android, un canal de notification par variante permet au système de jouer réellement le son choisi.",
     "soundDefault": "Défaut",
@@ -386,7 +389,10 @@
     "demoIntent4Title": "Revue des jalons",
     "demoIntent4Desc": "Alignement mi-journée sur les prochaines étapes.",
     "demoIntent5Title": "Tableau de suivi",
-    "demoIntent5Desc": "Mise à jour des indicateurs et de la charge."
+    "demoIntent5Desc": "Mise à jour des indicateurs et de la charge.",
+    "semantic_tags": "Tags sémantiques",
+    "user_profile_sync_success": "Profil utilisateur mis a jour avec succes.",
+    "user_profile_sync_error": "Echec de mise a jour du profil utilisateur."
   },
   "legal": {
     "screenTitle": "À propos",
@@ -504,8 +510,8 @@
     "openSettings": "Réglages",
     "externalHelp": "En savoir plus sur le focus (web)",
     "versionLabel": "Version {{version}}",
-    "debugUnlockTitle": "Outils pilote",
-    "debugUnlockBody": "L’onglet Debug est disponible en fin de barre d’onglets.",
+    "debugUnlockTitle": "Mode Développeur",
+    "debugUnlockBody": "Accès autorisé.",
     "sectionLegal": "Informations",
     "legalNav": "À propos et mentions légales",
     "voice": {
@@ -549,5 +555,9 @@
     "allyPreview": "Voix : {{voice}} · Tonalité : {{tone}} · Langue IA : {{lang}}",
     "alarmPermissionTitle": "Notifications nécessaires",
     "alarmPermissionBody": "L’agent IA local ne peut pas faire sonner le téléphone pour les alarmes Rail sans l’autorisation notifications (et alarmes sur Android). Active-les pour cette app dans les réglages système."
+  },
+  "common": {
+    "habits": "Habitudes",
+    "projects": "Projets"
   }
 }

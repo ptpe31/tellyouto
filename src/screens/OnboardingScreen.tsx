@@ -1,11 +1,6 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  AppState,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,47 +8,30 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Button, Portal, TextInput, useTheme } from 'react-native-paper';
+import { Button, TextInput, useTheme } from 'react-native-paper';
 import {
   applyDelta,
   initialOnboardingWeights,
   normalizeSpectrumWeights,
   ONBOARDING_SITUATIONS,
 } from '../data/onboardingSituations';
-import { ONBOARDING_CHANNELS_SKIPPED_KEY } from '../data/onboardingFlags';
-import { savePrivateChannelChoice } from '../data/privateChannels';
-import { NeumorphicCard, NeumorphicSurface, TelegramMissingDialog } from '../components';
+import { NeumorphicCard, NeumorphicSurface } from '../components';
 import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { TELEGRAM_BRAND_BLUE } from '../config/telegramBrand';
-import {
-  getAppLinkForConnector,
-  buildTelegramStartLink,
-  getTelegramAllyWelcomeMessage,
-} from '../services/connectorLinks';
 import {
   AD_FREE_UNTIL_MS_FIRESTORE_DEFAULT,
   pushDeviceProfileToFirestore,
   pushUserEntitlementsToFirestore,
 } from '../api/userProfile';
-import { getOrCreateDeviceId } from '../api/syncService';
-import {
-  canOpenTelegramNative,
-  openTelegramStore,
-} from '../utils/linkingHelper';
-import { ChannelsPrivacyFootnote } from './ChannelsScreen';
 
 type Props = {
   onComplete: () => void;
 };
 
 const SITUATION_COUNT = ONBOARDING_SITUATIONS.length;
-/** 0 = prénom, 1..SITUATION_COUNT = situations, puis canal Telegram (si installé) */
+/** 0 = prénom, 1..SITUATION_COUNT = situations */
 const FIRST_NAME_STEP = 0;
-const PRIVATE_CHANNEL_STEP = 1 + SITUATION_COUNT;
-/** Étapes visibles sans l’écran canaux (prénom + cartes diagnostic). */
 const DIAGNOSTIC_STEPS = 1 + SITUATION_COUNT;
-const TOTAL_STEPS_WITH_CHANNEL = DIAGNOSTIC_STEPS + 1;
 
 export function OnboardingScreen({ onComplete }: Props) {
   const { t } = useTranslation();
@@ -65,37 +43,13 @@ export function OnboardingScreen({ onComplete }: Props) {
     setLocale,
     persist,
     spectrum,
-    grantAdFreeDays,
   } = useUserSpectrum();
 
   const [step, setStep] = useState(FIRST_NAME_STEP);
   const [firstNameInput, setFirstNameInput] = useState('');
   const [weights, setWeights] = useState(initialOnboardingWeights);
-  const [initCopied, setInitCopied] = useState(false);
-  const [telegramInstalled, setTelegramInstalled] = useState<boolean | null>(
-    null,
-  );
-  const [showTelegramReward, setShowTelegramReward] = useState(false);
-  const [telegramMissingVisible, setTelegramMissingVisible] = useState(false);
-  const [channelGatePending, setChannelGatePending] = useState(false);
-  const pendingTelegramInstallReward = useRef(false);
-  /** Retour store après « Installer » depuis la boîte CTA — relance connexion + fin onboarding. */
-  const pendingResumeTelegramConnect = useRef(false);
   const weightsRef = useRef(weights);
   weightsRef.current = weights;
-
-  const checkTelegramInstalled = useCallback(async () => {
-    try {
-      const can = await Linking.canOpenURL('tg://');
-      setTelegramInstalled(can);
-    } catch {
-      setTelegramInstalled(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void checkTelegramInstalled();
-  }, [checkTelegramInstalled]);
 
   const finishOnboarding = useCallback(
     async (finalWeights?: typeof weights) => {
@@ -140,48 +94,6 @@ export function OnboardingScreen({ onComplete }: Props) {
     [applyWeightsAndPersist, setLocale, persist, language, firstNameInput, spectrum, onComplete],
   );
 
-  const runTelegramConnectAndFinish = useCallback(async () => {
-    const uid = await getOrCreateDeviceId();
-    const url = buildTelegramStartLink(uid);
-    await savePrivateChannelChoice('telegram', url);
-    await AsyncStorage.removeItem(ONBOARDING_CHANNELS_SKIPPED_KEY);
-    try {
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert(
-        t('onboarding.privateChannel.whatsappErrorTitle'),
-        t('onboarding.privateChannel.genericOpenErrorBody'),
-      );
-    }
-    void finishOnboarding();
-  }, [t, finishOnboarding]);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next !== 'active') return;
-      void (async () => {
-        await checkTelegramInstalled();
-        const can = await canOpenTelegramNative();
-        if (!can) return;
-
-        if (pendingResumeTelegramConnect.current) {
-          pendingResumeTelegramConnect.current = false;
-          pendingTelegramInstallReward.current = false;
-          await grantAdFreeDays(15);
-          await runTelegramConnectAndFinish();
-          return;
-        }
-
-        if (pendingTelegramInstallReward.current) {
-          pendingTelegramInstallReward.current = false;
-          setTelegramInstalled(true);
-          await grantAdFreeDays(15);
-          setShowTelegramReward(true);
-        }
-      })();
-    });
-    return () => sub.remove();
-  }, [checkTelegramInstalled, grantAdFreeDays, runTelegramConnectAndFinish]);
 
   const onContinueFirstName = async () => {
     const trimmed = firstNameInput.trim();
@@ -190,20 +102,6 @@ export function OnboardingScreen({ onComplete }: Props) {
     await persist();
     setStep(1);
   };
-
-  if (channelGatePending) {
-    return (
-      <View
-        style={[
-          styles.flex,
-          styles.waitingWrap,
-          { backgroundColor: theme.colors.background },
-        ]}
-      >
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
-  }
 
   if (step === FIRST_NAME_STEP) {
     return (
@@ -250,198 +148,6 @@ export function OnboardingScreen({ onComplete }: Props) {
     );
   }
 
-  if (step === PRIVATE_CHANNEL_STEP) {
-    const appLink = getAppLinkForConnector('radar');
-    const nameForBot = spectrum.first_name || firstNameInput.trim();
-    const initMsg = getTelegramAllyWelcomeMessage(language, nameForBot, appLink);
-
-    return (
-      <>
-        <ScrollView
-          style={[styles.flex, { backgroundColor: theme.colors.background }]}
-          contentContainerStyle={styles.pad}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={[styles.kicker, { color: theme.colors.primary }]}>
-            {t('onboarding.progress', {
-              current: TOTAL_STEPS_WITH_CHANNEL,
-              total: TOTAL_STEPS_WITH_CHANNEL,
-            })}
-          </Text>
-          <Text style={[styles.title, { color: theme.colors.onBackground }]}>
-            {t('onboarding.privateChannel.title')}
-          </Text>
-          <Text style={[styles.sub, { color: theme.colors.onSurfaceVariant }]}>
-            {t('onboarding.privateChannel.subtitle')}
-          </Text>
-          <Text style={[styles.explain, { color: theme.colors.onSurfaceVariant }]}>
-            {t('onboarding.privateChannel.telegramPitch')}
-          </Text>
-          {telegramInstalled === false ? (
-            <View
-              style={[
-                styles.giftBadge,
-                {
-                  borderColor: '#C9A227',
-                  backgroundColor: 'rgba(255, 193, 7, 0.2)',
-                },
-              ]}
-            >
-              <Text
-                style={[styles.giftBadgeText, { color: theme.colors.onSurface }]}
-              >
-                {t('onboarding.privateChannel.telegramGiftBadge')}
-              </Text>
-            </View>
-          ) : telegramInstalled === true ? (
-            <Text
-              style={[styles.telegramReady, { color: theme.colors.primary }]}
-            >
-              {t('onboarding.privateChannel.telegramReady')}
-            </Text>
-          ) : null}
-
-          <NeumorphicCard style={styles.card}>
-            <View style={styles.telegramOnlyRow}>
-              <Text style={[styles.telegramOnlyTitle, { color: theme.colors.onSurface }]}>
-                {t('channelCatalog.names.telegram')}
-              </Text>
-              <View style={styles.telegramOnlyPills}>
-                <View
-                  style={[
-                    styles.miniPill,
-                    { backgroundColor: theme.colors.secondaryContainer },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.miniPillText,
-                      { color: theme.colors.onSecondaryContainer },
-                    ]}
-                  >
-                    {t('channelCatalog.freeBadge')}
-                  </Text>
-                </View>
-                <View style={[styles.miniPill, { backgroundColor: TELEGRAM_BRAND_BLUE }]}>
-                  <Text style={[styles.miniPillText, { color: '#fff' }]}>
-                    {t('channelCatalog.recommendedBadge')}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <Text
-              style={[styles.initLabel, { color: theme.colors.onSurfaceVariant }]}
-            >
-              {t('onboarding.privateChannel.initMessageLabel')}
-            </Text>
-            <Text
-              style={[styles.initBody, { color: theme.colors.onSurface }]}
-              selectable
-            >
-              {initMsg}
-            </Text>
-            <Button
-              mode="outlined"
-              style={styles.channelCta}
-              onPress={async () => {
-                await Clipboard.setStringAsync(initMsg);
-                setInitCopied(true);
-                setTimeout(() => setInitCopied(false), 2500);
-              }}
-            >
-              {initCopied
-                ? t('onboarding.privateChannel.copied')
-                : t('onboarding.privateChannel.copyInit')}
-            </Button>
-
-            <ChannelsPrivacyFootnote style={styles.channelFoot} />
-
-            {telegramInstalled === false ? (
-              <Button
-                mode="contained-tonal"
-                icon="gift"
-                style={styles.installTelegramBtn}
-                buttonColor="rgba(201, 162, 39, 0.35)"
-                textColor={theme.colors.onSurface}
-                onPress={() => {
-                  pendingTelegramInstallReward.current = true;
-                  void openTelegramStore();
-                }}
-              >
-                {t('onboarding.privateChannel.installTelegram')}
-              </Button>
-            ) : null}
-
-            <Button
-              mode="contained"
-              style={styles.channelCta}
-              buttonColor={TELEGRAM_BRAND_BLUE}
-              textColor="#ffffff"
-              onPress={async () => {
-                const can = await canOpenTelegramNative();
-                if (!can) {
-                  setTelegramMissingVisible(true);
-                  return;
-                }
-                await runTelegramConnectAndFinish();
-              }}
-            >
-              {t('onboarding.privateChannel.cta')}
-            </Button>
-
-            <Button
-              mode="text"
-              compact
-              onPress={async () => {
-                await AsyncStorage.removeItem(ONBOARDING_CHANNELS_SKIPPED_KEY);
-                void finishOnboarding();
-              }}
-            >
-              {t('onboarding.privateChannel.skip')}
-            </Button>
-          </NeumorphicCard>
-        </ScrollView>
-        <TelegramMissingDialog
-          visible={telegramMissingVisible}
-          onDismiss={() => setTelegramMissingVisible(false)}
-          onInstall={() => {
-            pendingResumeTelegramConnect.current = true;
-            setTelegramMissingVisible(false);
-            void openTelegramStore();
-          }}
-        />
-
-        <Portal>
-          {showTelegramReward ? (
-            <View style={styles.rewardOverlay}>
-              <NeumorphicCard style={styles.rewardCard}>
-                <Text
-                  style={[styles.rewardTitle, { color: theme.colors.primary }]}
-                >
-                  {t('onboarding.privateChannel.rewardTitle')}
-                </Text>
-                <Text
-                  style={[styles.rewardBody, { color: theme.colors.onSurface }]}
-                >
-                  {t('onboarding.privateChannel.rewardBody')}
-                </Text>
-                <Button
-                  mode="contained"
-                  style={styles.channelCta}
-                  buttonColor={TELEGRAM_BRAND_BLUE}
-                  textColor="#ffffff"
-                  onPress={() => setShowTelegramReward(false)}
-                >
-                  {t('onboarding.privateChannel.rewardDismiss')}
-                </Button>
-              </NeumorphicCard>
-            </View>
-          ) : null}
-        </Portal>
-      </>
-    );
-  }
 
   const situation = ONBOARDING_SITUATIONS[step - 1];
   const titleKey = `onboarding.situations.${situation.id}.title`;
@@ -460,22 +166,7 @@ export function OnboardingScreen({ onComplete }: Props) {
     }
 
     void (async () => {
-      setChannelGatePending(true);
-      try {
-        const canTg = await Linking.canOpenURL('tg://');
-        if (!canTg) {
-          await AsyncStorage.setItem(ONBOARDING_CHANNELS_SKIPPED_KEY, 'true');
-          await finishOnboarding(next);
-          return;
-        }
-        await AsyncStorage.removeItem(ONBOARDING_CHANNELS_SKIPPED_KEY);
-        setStep(PRIVATE_CHANNEL_STEP);
-      } catch {
-        await AsyncStorage.setItem(ONBOARDING_CHANNELS_SKIPPED_KEY, 'true');
-        await finishOnboarding(next);
-      } finally {
-        setChannelGatePending(false);
-      }
+      await finishOnboarding(next);
     })();
   };
 
@@ -543,64 +234,11 @@ const styles = StyleSheet.create({
   kicker: { fontSize: 13, fontWeight: '600', letterSpacing: 0.5, marginBottom: 6 },
   title: { fontSize: 24, fontWeight: '700' },
   sub: { marginTop: 8, fontSize: 15, lineHeight: 22 },
-  explain: { marginTop: 10, fontSize: 14, lineHeight: 21 },
   card: { marginTop: 16 },
+  channelCta: { marginTop: 8, alignSelf: 'stretch' },
   situationTitle: { fontSize: 18, fontWeight: '600', lineHeight: 26, marginBottom: 16 },
   answers: { gap: 12 },
   answerSurface: { paddingVertical: 14, paddingHorizontal: 14 },
   answerText: { fontSize: 15, lineHeight: 22 },
   hint: { marginTop: 16, fontSize: 13, lineHeight: 18 },
-  channelHint: { fontSize: 12, marginTop: 10, lineHeight: 17 },
-  channelFoot: {
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 12,
-    marginBottom: 4,
-    fontStyle: 'italic',
-  },
-  telegramOnlyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    flexWrap: 'wrap',
-    marginBottom: 8,
-  },
-  telegramOnlyTitle: { fontSize: 17, fontWeight: '700' },
-  telegramOnlyPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  miniPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  miniPillText: { fontSize: 11, fontWeight: '700' },
-  giftBadge: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  giftBadgeText: { fontSize: 14, lineHeight: 20, fontWeight: '600' },
-  telegramReady: { fontSize: 14, fontWeight: '600', marginBottom: 10 },
-  installTelegramBtn: { marginBottom: 8, alignSelf: 'stretch' },
-  rewardOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    padding: 24,
-    zIndex: 50,
-  },
-  rewardCard: { paddingVertical: 20 },
-  rewardTitle: { fontSize: 18, fontWeight: '700', marginBottom: 10 },
-  rewardBody: { fontSize: 15, lineHeight: 22, marginBottom: 16 },
-  channelCta: { marginTop: 8, alignSelf: 'stretch' },
-  initLabel: { fontSize: 12, fontWeight: '700', marginBottom: 8 },
-  initBody: { fontSize: 14, lineHeight: 21, marginBottom: 12 },
-  waitingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  waitingText: { marginTop: 20, fontSize: 16, textAlign: 'center' },
 });

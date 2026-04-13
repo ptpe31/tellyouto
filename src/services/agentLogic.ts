@@ -526,14 +526,16 @@ export function extractClockMinutesFromText(
 
   result = clampMinuteOfDay(result);
 
-  console.log(
-    '[UNIVERSAL-TIME] Locale: ' +
-      systemLocale +
-      " | Raw: '" +
-      pick.label +
-      "' -> FixedMinutes: " +
-      result,
-  );
+  if (__DEV__) {
+    console.log(
+      '[UNIVERSAL-TIME] Locale: ' +
+        systemLocale +
+        " | Raw: '" +
+        pick.label +
+        "' -> FixedMinutes: " +
+        result,
+    );
+  }
 
   return result;
 }
@@ -827,6 +829,12 @@ export function previewManualIntentionOverlapsHardRoutine(
     energy_score: null,
     local_notification_id: null,
     recurrence_rrule: null,
+    type: 'task',
+    parent_id: null,
+    semantic_cluster_id: null,
+    semantic_tags: [],
+    sentiment_score: null,
+    ping_history: [],
   };
 
   const pool = pending.filter((r) => r.status !== 'done');

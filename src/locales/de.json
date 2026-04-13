@@ -1,5 +1,7 @@
 {
-  "app": { "name": "TellYouTo" },
+  "app": {
+    "name": "TellYouTo"
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Zeit",
@@ -288,6 +290,7 @@
   "debug": {
     "pilotTitle": "Steuerungswerkzeuge",
     "note": "Internes Tool — absichtlich schlicht.",
+    "firebaseProjectIdButton": "Firebase projectId anzeigen (SDK vs .env)",
     "calendarSection": "Systemkalender",
     "calendarConnect": "Systemkalender verbinden",
     "calendarConnectHelp": "Nur lokal — keine Ereignistitel zu Firebase.",
@@ -368,7 +371,10 @@
     "demoIntent4Title": "Meilenstein-Review",
     "demoIntent4Desc": "Mittags-Abgleich der nächsten Schritte.",
     "demoIntent5Title": "Tracking-Board",
-    "demoIntent5Desc": "Kennzahlen und Auslastung aktualisieren."
+    "demoIntent5Desc": "Kennzahlen und Auslastung aktualisieren.",
+    "semantic_tags": "Semantische Tags",
+    "user_profile_sync_success": "Benutzerprofil erfolgreich aktualisiert.",
+    "user_profile_sync_error": "Benutzerprofil konnte nicht aktualisiert werden."
   },
   "legal": {
     "screenTitle": "Über die App",
@@ -486,8 +492,8 @@
     "openSettings": "Einstellungen",
     "externalHelp": "Mehr zum Fokus (Web)",
     "versionLabel": "Version {{version}}",
-    "debugUnlockTitle": "Pilot-Werkzeuge",
-    "debugUnlockBody": "Der Debug-Reiter ist jetzt am Ende der Leiste verfügbar.",
+    "debugUnlockTitle": "Entwicklermodus",
+    "debugUnlockBody": "Zugriff gewährt.",
     "sectionLegal": "Informationen",
     "legalNav": "Über die App & Rechtliches",
     "voice": {
@@ -531,5 +537,9 @@
     "allyPreview": "Stimme: {{voice}} · Ton: {{tone}} · KI-Sprache: {{lang}}",
     "alarmPermissionTitle": "Benachrichtigungen erforderlich",
     "alarmPermissionBody": "Ohne Benachrichtigungsberechtigung kann der lokale Agent keine Rail-Alarme auf dem Gerät auslösen. Aktiviere Benachrichtigungen (und Alarme unter Android) in den Systemeinstellungen für diese App."
+  },
+  "common": {
+    "habits": "Gewohnheiten",
+    "projects": "Projekte"
   }
 }

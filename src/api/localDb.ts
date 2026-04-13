@@ -118,15 +118,15 @@ let pragmasApplied = false;
 /** Après le premier `execAsync(SCHEMA)` réussi de la session — évite de re-parser le DDL à chaque accès. */
 let sessionSchemaPrimed = false;
 
-export const DB_FILE_NAME = 'tellyouto.db';
+export const DB_FILE_NAME = 'talkndone.db';
 
 /** Émis après DROP + recréation du schéma — ex. Radar recharge la liste. */
-export const LOCAL_DB_RESET_EVENT = 'tellyouto/local_db_reset';
+export const LOCAL_DB_RESET_EVENT = 'talkndone/local_db_reset';
 
 /**
  * Émis après un reset usine complet (DB + AsyncStorage nettoyés) — réinitialise les contextes en mémoire.
  */
-export const DATABASE_RESET_COMPLETE_EVENT = 'tellyouto/database_reset_complete';
+export const DATABASE_RESET_COMPLETE_EVENT = 'talkndone/database_reset_complete';
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sync_queue (
@@ -161,7 +161,13 @@ const SCHEMA = `
     raw_transcript TEXT,
     energy_score REAL,
     local_notification_id TEXT,
-    recurrence_rrule TEXT
+    recurrence_rrule TEXT,
+    type TEXT NOT NULL DEFAULT 'task',
+    parent_id TEXT,
+    semantic_cluster_id TEXT,
+    semantic_tags TEXT NOT NULL DEFAULT '[]',
+    sentiment_score REAL,
+    ping_history TEXT NOT NULL DEFAULT '[]'
   );
 
   CREATE TABLE IF NOT EXISTS routines (
@@ -197,6 +203,17 @@ const SCHEMA = `
     key TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS user_profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    user_tier TEXT NOT NULL DEFAULT 'free',
+    ai_token_quota INTEGER NOT NULL DEFAULT 5,
+    is_ad_free INTEGER NOT NULL DEFAULT 0,
+    chronotype_data TEXT NOT NULL DEFAULT '{}'
+  );
+
+  INSERT OR IGNORE INTO user_profile (id, user_tier, ai_token_quota, is_ad_free, chronotype_data)
+  VALUES (1, 'free', 5, 0, '{}');
 `;
 
 function getPhysicalDatabasePaths(): string[] {
@@ -347,6 +364,34 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
       `ALTER TABLE intentions ADD COLUMN is_flexible INTEGER NOT NULL DEFAULT 1`,
     );
   }
+  if (!names.has('type')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN type TEXT NOT NULL DEFAULT 'task'`,
+    );
+  }
+  if (!names.has('parent_id')) {
+    await database.execAsync(`ALTER TABLE intentions ADD COLUMN parent_id TEXT`);
+  }
+  if (!names.has('semantic_cluster_id')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN semantic_cluster_id TEXT`,
+    );
+  }
+  if (!names.has('semantic_tags')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN semantic_tags TEXT NOT NULL DEFAULT '[]'`,
+    );
+  }
+  if (!names.has('sentiment_score')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN sentiment_score REAL`,
+    );
+  }
+  if (!names.has('ping_history')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN ping_history TEXT NOT NULL DEFAULT '[]'`,
+    );
+  }
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS routines (
       id TEXT PRIMARY KEY NOT NULL,
@@ -376,6 +421,45 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
   `);
 }
 
+async function migrateUserProfileColumns(database: SQLite.SQLiteDatabase): Promise<void> {
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS user_profile (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      user_tier TEXT NOT NULL DEFAULT 'free',
+      ai_token_quota INTEGER NOT NULL DEFAULT 5,
+      is_ad_free INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  const rows = await database.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(user_profile)`,
+  );
+  const names = new Set(rows.map((r) => r.name));
+  if (!names.has('user_tier')) {
+    await database.execAsync(
+      `ALTER TABLE user_profile ADD COLUMN user_tier TEXT NOT NULL DEFAULT 'free'`,
+    );
+  }
+  if (!names.has('ai_token_quota')) {
+    await database.execAsync(
+      `ALTER TABLE user_profile ADD COLUMN ai_token_quota INTEGER NOT NULL DEFAULT 5`,
+    );
+  }
+  if (!names.has('is_ad_free')) {
+    await database.execAsync(
+      `ALTER TABLE user_profile ADD COLUMN is_ad_free INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  if (!names.has('chronotype_data')) {
+    await database.execAsync(
+      `ALTER TABLE user_profile ADD COLUMN chronotype_data TEXT NOT NULL DEFAULT '{}'`,
+    );
+  }
+  await database.runAsync(
+    `INSERT OR IGNORE INTO user_profile (id, user_tier, ai_token_quota, is_ad_free, chronotype_data)
+     VALUES (1, 'free', 5, 0, '{}')`,
+  );
+}
+
 /**
  * Ouvre la base si besoin, applique schéma + migrations + PRAGMAs (WAL / busy_timeout sur mobile).
  * À n’appeler que depuis `runSerializedSqlite` ou `withLocalDatabase`.
@@ -397,6 +481,7 @@ async function ensureDbReady(): Promise<SQLite.SQLiteDatabase> {
     sessionSchemaPrimed = true;
   }
   await migrateIntentionsColumns(db);
+  await migrateUserProfileColumns(db);
   if (!pragmasApplied && Platform.OS !== 'web') {
     try {
       await db.execAsync('PRAGMA journal_mode=WAL;');
@@ -487,6 +572,18 @@ export type IntentionRow = {
   local_notification_id: string | null;
   /** Partie RRULE seule (ex. FREQ=WEEKLY;BYDAY=MO) — DTSTART = anchor_date_ymd + fixed_start_minutes */
   recurrence_rrule: string | null;
+  /** Type d'item pour graphe sémantique (task, project, habit, note...). */
+  type: string;
+  /** Parent hiérarchique éventuel (objectif/projet). */
+  parent_id: string | null;
+  /** Cluster sémantique attribué par le moteur IA. */
+  semantic_cluster_id: string | null;
+  /** Tags sémantiques normalisés. */
+  semantic_tags: string[];
+  /** Polarité ressentie (-1..1) optionnelle. */
+  sentiment_score: number | null;
+  /** Historique des relances/pings associés. */
+  ping_history: string[];
 };
 
 export type RoutineRow = {
@@ -518,6 +615,28 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
   }
   const est = row.estimated_duration;
   const act = row.actual_duration;
+  let semanticTags: string[] = [];
+  if (typeof row.semantic_tags === 'string') {
+    try {
+      const parsed = JSON.parse(row.semantic_tags);
+      if (Array.isArray(parsed)) {
+        semanticTags = parsed.filter((v): v is string => typeof v === 'string');
+      }
+    } catch {
+      semanticTags = [];
+    }
+  }
+  let pingHistory: string[] = [];
+  if (typeof row.ping_history === 'string') {
+    try {
+      const parsed = JSON.parse(row.ping_history);
+      if (Array.isArray(parsed)) {
+        pingHistory = parsed.filter((v): v is string => typeof v === 'string');
+      }
+    } catch {
+      pingHistory = [];
+    }
+  }
   return {
     id: row.id as string,
     title: row.title as string,
@@ -567,6 +686,20 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
       typeof row.recurrence_rrule === 'string' && row.recurrence_rrule.trim()
         ? row.recurrence_rrule.trim()
         : null,
+    type: typeof row.type === 'string' && row.type.trim() ? row.type.trim() : 'task',
+    parent_id: typeof row.parent_id === 'string' && row.parent_id.trim()
+      ? row.parent_id.trim()
+      : null,
+    semantic_cluster_id:
+      typeof row.semantic_cluster_id === 'string' && row.semantic_cluster_id.trim()
+        ? row.semantic_cluster_id.trim()
+        : null,
+    semantic_tags: semanticTags,
+    sentiment_score:
+      typeof row.sentiment_score === 'number' && Number.isFinite(row.sentiment_score)
+        ? row.sentiment_score
+        : null,
+    ping_history: pingHistory,
   };
 }
 
@@ -627,6 +760,12 @@ export async function insertIntention(input: {
   raw_transcript?: string | null;
   energy_score?: number | null;
   recurrence_rrule?: string | null;
+  type?: string;
+  parent_id?: string | null;
+  semantic_cluster_id?: string | null;
+  semantic_tags?: string[];
+  sentiment_score?: number | null;
+  ping_history?: string[];
 }): Promise<void> {
   try {
     const norm = normalizeFlexAlarmForInsert({
@@ -650,8 +789,9 @@ export async function insertIntention(input: {
       estimated_duration, actual_duration, completed_at,
       user_forced_urgent, is_late_night, alarm_enabled, is_flexible, is_micro_habit,
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
-      raw_transcript, energy_score, local_notification_id, recurrence_rrule
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      raw_transcript, energy_score, local_notification_id, recurrence_rrule,
+      type, parent_id, semantic_cluster_id, semantic_tags, sentiment_score, ping_history
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
         [
           input.id,
           input.title,
@@ -675,6 +815,12 @@ export async function insertIntention(input: {
           input.raw_transcript ?? null,
           input.energy_score ?? null,
           input.recurrence_rrule?.trim() ?? null,
+          input.type?.trim() || 'task',
+          input.parent_id ?? null,
+          input.semantic_cluster_id ?? null,
+          JSON.stringify(input.semantic_tags ?? []),
+          input.sentiment_score ?? null,
+          JSON.stringify(input.ping_history ?? []),
         ],
       );
     });
@@ -689,6 +835,70 @@ export async function insertIntention(input: {
     }
     throw e;
   }
+}
+
+export const createIntention = insertIntention;
+
+export async function updateIntention(input: {
+  id: string;
+  title?: string;
+  description?: string;
+  status?: IntentionStatus;
+  priority?: number;
+  estimated_duration?: number;
+  actual_duration?: number | null;
+  completed_at?: number | null;
+  is_flexible?: boolean;
+  alarm_enabled?: boolean;
+  type?: string;
+  parent_id?: string | null;
+  semantic_cluster_id?: string | null;
+  semantic_tags?: string[];
+  sentiment_score?: number | null;
+  ping_history?: string[];
+}): Promise<void> {
+  await runSerializedSqlite(async () => {
+    const database = await ensureDbReady();
+    await database.runAsync(
+      `UPDATE intentions
+       SET title = COALESCE(?, title),
+           description = COALESCE(?, description),
+           status = COALESCE(?, status),
+           priority = COALESCE(?, priority),
+           estimated_duration = COALESCE(?, estimated_duration),
+           actual_duration = COALESCE(?, actual_duration),
+           completed_at = COALESCE(?, completed_at),
+           is_flexible = COALESCE(?, is_flexible),
+           alarm_enabled = COALESCE(?, alarm_enabled),
+           type = COALESCE(?, type),
+           parent_id = COALESCE(?, parent_id),
+           semantic_cluster_id = COALESCE(?, semantic_cluster_id),
+           semantic_tags = COALESCE(?, semantic_tags),
+           sentiment_score = COALESCE(?, sentiment_score),
+           ping_history = COALESCE(?, ping_history),
+           synced = 0
+       WHERE id = ?`,
+      [
+        input.title ?? null,
+        input.description ?? null,
+        input.status ?? null,
+        input.priority ?? null,
+        input.estimated_duration ?? null,
+        input.actual_duration ?? null,
+        input.completed_at ?? null,
+        input.is_flexible == null ? null : input.is_flexible ? 1 : 0,
+        input.alarm_enabled == null ? null : input.alarm_enabled ? 1 : 0,
+        input.type ?? null,
+        input.parent_id ?? null,
+        input.semantic_cluster_id ?? null,
+        input.semantic_tags ? JSON.stringify(input.semantic_tags) : null,
+        input.sentiment_score ?? null,
+        input.ping_history ? JSON.stringify(input.ping_history) : null,
+        input.id,
+      ],
+    );
+  });
+  await syncNativeRailAlarmsAfterIntentionWrite('updateIntention');
 }
 
 /** Session déjà terminée (démo / outils pilote) — conserve durées réelles pour les stats. */
@@ -708,6 +918,12 @@ export async function insertCompletedIntention(input: {
   is_late_night?: boolean;
   alarm_enabled?: boolean;
   is_micro_habit?: boolean;
+  type?: string;
+  parent_id?: string | null;
+  semantic_cluster_id?: string | null;
+  semantic_tags?: string[];
+  sentiment_score?: number | null;
+  ping_history?: string[];
 }): Promise<void> {
   await runSerializedSqlite(async () => {
     const database = await ensureDbReady();
@@ -722,8 +938,9 @@ export async function insertCompletedIntention(input: {
       estimated_duration, actual_duration, completed_at,
       user_forced_urgent, is_late_night, alarm_enabled, is_flexible, is_micro_habit,
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
-      raw_transcript, energy_score, local_notification_id, recurrence_rrule
-    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
+      raw_transcript, energy_score, local_notification_id, recurrence_rrule,
+      type, parent_id, semantic_cluster_id, semantic_tags, sentiment_score, ping_history
+    ) VALUES (?, ?, ?, 'done', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
       [
         input.id,
         input.title,
@@ -741,6 +958,12 @@ export async function insertCompletedIntention(input: {
         alarm,
         1,
         micro,
+        input.type?.trim() || 'task',
+        input.parent_id ?? null,
+        input.semantic_cluster_id ?? null,
+        JSON.stringify(input.semantic_tags ?? []),
+        input.sentiment_score ?? null,
+        JSON.stringify(input.ping_history ?? []),
       ],
     );
   });
@@ -1167,8 +1390,9 @@ export async function ensureRoutineIntentionInstancesForHorizon(
         estimated_duration, actual_duration, completed_at,
         user_forced_urgent, is_late_night, alarm_enabled, is_flexible, is_micro_habit,
         is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
-        raw_transcript, energy_score, local_notification_id, recurrence_rrule
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 1, 0, 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
+        raw_transcript, energy_score, local_notification_id, recurrence_rrule,
+        type, parent_id, semantic_cluster_id, semantic_tags, sentiment_score, ping_history
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 1, 0, 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 'routine_instance', NULL, NULL, '[]', NULL, '[]')`,
         [
           intentionId,
           routine.title,
@@ -1212,9 +1436,9 @@ export async function checkpointLocalDatabase(): Promise<void> {
 
 /**
  * Aligné sur `INTENTIONS_CHANGED_EVENT` (`externalIntentIngest`) — évite import circulaire.
- * Tous les écrans qui écoutent `tellyouto/intentions_changed` sont notifiés.
+ * Tous les écrans qui écoutent `talkndone/intentions_changed` sont notifiés.
  */
-export const INTENTIONS_CHANGED_EVENT_NAME = 'tellyouto/intentions_changed';
+export const INTENTIONS_CHANGED_EVENT_NAME = 'talkndone/intentions_changed';
 
 /**
  * Supprime toutes les intentions locales (+ contrôles micro-habitudes) — tests Debug / profils.

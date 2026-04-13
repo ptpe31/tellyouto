@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Localization from 'expo-localization';
 import { randomUUID } from 'expo-crypto';
 import { useNavigation } from '@react-navigation/native';
@@ -74,16 +73,11 @@ import {
   getQuickCompleteStreak,
   recordQuickCompleteWithoutCapsule,
 } from '../services/focusHabits';
-import { useWhatsAppInitCelebration } from '../hooks/useWhatsAppInitCelebration';
 import { Platform } from '../utils/rnPlatform';
 import {
   alertNativeModuleMissing,
   isLikelyMissingNativeModuleError,
 } from '../utils/nativeModuleErrorAlert';
-import {
-  ONBOARDING_CHANNELS_SKIPPED_KEY,
-  RADAR_CHANNELS_NUDGE_DISMISSED_KEY,
-} from '../data/onboardingFlags';
 import type { AppTabParamList } from '../navigation/types';
 
 type RadarRowProps = {
@@ -224,18 +218,6 @@ export function RadarScreen() {
   const [hardRoutineConflictOpen, setHardRoutineConflictOpen] = useState(false);
   const [hardBlockingRoutineName, setHardBlockingRoutineName] = useState('');
   const [railSlots, setRailSlots] = useState<TimelineSlot[]>([]);
-  const { visible: celebrateWa, dismiss: dismissCelebrateWa } =
-    useWhatsAppInitCelebration('radar');
-
-  const [showChannelsNudge, setShowChannelsNudge] = useState(false);
-
-  const refreshChannelsNudge = useCallback(async () => {
-    const [skipped, dismissed] = await Promise.all([
-      AsyncStorage.getItem(ONBOARDING_CHANNELS_SKIPPED_KEY),
-      AsyncStorage.getItem(RADAR_CHANNELS_NUDGE_DISMISSED_KEY),
-    ]);
-    setShowChannelsNudge(skipped === 'true' && dismissed !== 'true');
-  }, []);
 
   const load = useCallback(async () => {
     const list = await listIntentionsDescending();
@@ -245,13 +227,12 @@ export function RadarScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-      void refreshChannelsNudge();
       if (connectEnabled) void refreshBusy();
       void getQuickCompleteStreak().then(setQuickStreak);
       setAllyTick((n) => n + 1);
       const id = setInterval(() => setAllyTick((n) => n + 1), 60_000);
       return () => clearInterval(id);
-    }, [load, connectEnabled, refreshBusy, refreshChannelsNudge]),
+    }, [load, connectEnabled, refreshBusy]),
   );
 
   useEffect(() => {
@@ -452,6 +433,12 @@ export function RadarScreen() {
             energy_score: null,
             local_notification_id: null,
             recurrence_rrule: null,
+            type: 'task',
+            parent_id: null,
+            semantic_cluster_id: null,
+            semantic_tags: [],
+            sentiment_score: null,
+            ping_history: [],
           };
           const { anchor_date_ymd, fixed_start_minutes } =
             computeRailAnchorAndFixedStartForNewIntention({
@@ -594,66 +581,6 @@ export function RadarScreen() {
   const listHeader = useMemo(
     () => (
       <>
-        {celebrateWa ? (
-          <NeumorphicCard
-            style={[
-              styles.celebrationCard,
-              { borderColor: theme.colors.primary },
-            ]}
-          >
-            <Text
-              style={[styles.celebrationText, { color: theme.colors.primary }]}
-            >
-              {t('connector.whatsappInitCelebration')}
-            </Text>
-            <Button mode="text" compact onPress={dismissCelebrateWa}>
-              {t('health.dismiss')}
-            </Button>
-          </NeumorphicCard>
-        ) : null}
-        {showChannelsNudge ? (
-          <NeumorphicCard
-            style={[
-              styles.channelsNudgeCard,
-              { borderColor: theme.colors.tertiary },
-            ]}
-          >
-            <Text
-              style={[styles.channelsNudgeTitle, { color: theme.colors.onSurface }]}
-            >
-              {t('radar.channelsNudgeTitle')}
-            </Text>
-            <Text
-              style={[
-                styles.channelsNudgeBody,
-                { color: theme.colors.onSurfaceVariant },
-              ]}
-            >
-              {t('radar.channelsNudgeBody')}
-            </Text>
-            <View style={styles.channelsNudgeActions}>
-              <Button
-                mode="contained-tonal"
-                compact
-                onPress={() => {
-                  void AsyncStorage.setItem(RADAR_CHANNELS_NUDGE_DISMISSED_KEY, 'true');
-                  setShowChannelsNudge(false);
-                }}
-              >
-                {t('radar.channelsNudgeDismiss')}
-              </Button>
-              <Button
-                mode="contained"
-                compact
-                onPress={() =>
-                  navigation.navigate('AgentIA', { screen: 'AgentSettings' })
-                }
-              >
-                {t('radar.channelsNudgeCta')}
-              </Button>
-            </View>
-          </NeumorphicCard>
-        ) : null}
         {activeIntention ? (
           <NeumorphicCard style={styles.activeCard}>
             <View style={styles.activeRow}>
@@ -761,9 +688,6 @@ export function RadarScreen() {
       spectrum.isProUser,
       spectrum.lastMessengerUserId,
       spectrum.lastMessengerChannel,
-      celebrateWa,
-      dismissCelebrateWa,
-      showChannelsNudge,
       navigation,
       openActiveCapsule,
       t,
@@ -1044,27 +968,6 @@ export function RadarScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   listPad: { padding: 16, paddingBottom: 8 },
-  celebrationCard: {
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-  },
-  celebrationText: { fontSize: 15, fontWeight: '600', lineHeight: 22 },
-  channelsNudgeCard: {
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-  },
-  channelsNudgeTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
-  channelsNudgeBody: { fontSize: 14, lineHeight: 21, marginBottom: 12 },
-  channelsNudgeActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'flex-end',
-  },
   activeCard: { marginBottom: 12, paddingVertical: 12 },
   activeRow: {
     flexDirection: 'row',

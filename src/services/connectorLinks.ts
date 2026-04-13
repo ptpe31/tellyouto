@@ -1,66 +1,11 @@
 import * as Linking from 'expo-linking';
 
 import type { AppLanguage } from '../context/LanguageContext';
-import { DEBUG_BOT_NUMBER } from '../config/debugConfig';
 import i18n from '../locales/i18n';
 
-const DEFAULT_TELEGRAM_BOT = 'TellYouToBot';
-
-/**
- * Nom du bot sans @ (`EXPO_PUBLIC_TELEGRAM_BOT_USERNAME`).
- * Repli explicite si la variable est absente ou vide — le lien `t.me` exige un identifiant valide.
- */
-export function getTelegramBotUsername(): string {
-  const raw =
-    process.env.EXPO_PUBLIC_TELEGRAM_BOT_NAME?.trim() ||
-    process.env.EXPO_PUBLIC_TELEGRAM_BOT_USERNAME?.trim();
-  if (!raw) return DEFAULT_TELEGRAM_BOT;
-  const u = raw.replace(/^@/, '');
-  return u.length > 0 ? u : DEFAULT_TELEGRAM_BOT;
-}
-
-/**
- * Lien https://t.me/{bot}?start=… — affiche le bouton « Démarrer » dans Telegram.
- * @see https://core.telegram.org/bots#deep-linking
- */
-export function buildTelegramStartLink(userId: string): string {
-  const bot = getTelegramBotUsername();
-  const start = encodeURIComponent(userId.trim());
-  return `https://t.me/${bot}?start=${start}`;
-}
-
-/** Numéro WhatsApp du bot (sans +) — EXPO_PUBLIC_WHATSAPP_BOT_NUMBER ou repli debug. */
-export function getWhatsAppBotNumber(): string {
-  const raw = process.env.EXPO_PUBLIC_WHATSAPP_BOT_NUMBER?.replace(/\D/g, '') ?? '';
-  if (raw.length > 0) return raw;
-  return DEBUG_BOT_NUMBER.replace(/\D/g, '');
-}
-
-/**
- * Lien WhatsApp de liaison : message court `Start-{deviceId}` (aligné webhook `railHandshake`).
- */
-export function buildWhatsAppStartLink(userId: string): string {
-  const num = getWhatsAppBotNumber();
-  const text = `Start-${userId.trim()}`;
-  return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
-}
-
-/**
- * Lien WhatsApp (dev) avec message de liaison au Rail (prénom + identifiant appareil).
- * @deprecated Préférer `buildWhatsAppStartLink` pour la liaison catalogue ; conservé pour compat.
- */
-export function buildWhatsAppRailDeepLink(
-  firstName: string,
-  userUid: string,
-): string {
-  const safeName = firstName.trim() || 'toi';
-  const safeUid = userUid.trim();
-  const message = `Hello ! C'est ${safeName}. Connecte-moi à mon Rail ID: ${safeUid}.`;
-  return `https://wa.me/${getWhatsAppBotNumber()}?text=${encodeURIComponent(message)}`;
-}
 
 /** Doit correspondre à `scheme` dans app.json */
-export const APP_SCHEME = 'tellyouto';
+export const APP_SCHEME = 'talkndone';
 
 export type AppDeepLinkTab = 'radar' | 'timeline' | 'recharge';
 
@@ -79,8 +24,8 @@ export function buildAppDeepLink(
   return url;
 }
 
-/** Parse `tellyouto://radar?from=…` (host = onglet). */
-export function parseTellyoutoDeepLink(
+/** Parse `talkndone://radar?from=…` (host = onglet). */
+export function parseTalkndoneDeepLink(
   url: string | null | undefined,
 ): { tab: string; query: Record<string, string> } | null {
   if (!url || !url.startsWith(`${APP_SCHEME}:`)) return null;
@@ -93,6 +38,7 @@ export function parseTellyoutoDeepLink(
     return null;
   }
 }
+
 
 /**
  * URL utilisable dans les messages bots (copie manuelle si l’app messagerie n’est pas installée).
@@ -128,23 +74,6 @@ export function getBotInitializationMessage(
     firstName.trim() ||
     (t('connector.defaultFirstName', { defaultValue: '' }) as string);
   return t('connector.botWelcomeMessage', {
-    firstName: name,
-    appLink,
-  }) as string;
-}
-
-/** Message d’accueil Allié pour Telegram (script prioritaire). */
-export function getTelegramAllyWelcomeMessage(
-  language: string,
-  firstName: string,
-  appLink: string,
-): string {
-  const lng = normalizeLang(language);
-  const t = i18n.getFixedT(lng);
-  const name =
-    firstName.trim() ||
-    (t('connector.defaultFirstName', { defaultValue: '' }) as string);
-  return t('connector.telegramAllyWelcome', {
     firstName: name,
     appLink,
   }) as string;

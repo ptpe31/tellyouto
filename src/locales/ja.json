@@ -1,5 +1,7 @@
 {
-  "app": { "name": "TellYouTo" },
+  "app": {
+    "name": "TellYouTo"
+  },
   "tabs": {
     "radar": "レーダー",
     "timeline": "タイムライン",
@@ -288,6 +290,7 @@
   "debug": {
     "pilotTitle": "操作用ツール",
     "note": "内部向け — 最低限のUI。",
+    "firebaseProjectIdButton": "Firebase projectId を表示（SDK と .env）",
     "calendarSection": "システムカレンダー",
     "calendarConnect": "システムカレンダーを接続",
     "calendarConnectHelp": "端末内のみ — イベント名は Firebase に送りません。",
@@ -368,7 +371,10 @@
     "demoIntent4Title": "マイルストーン確認",
     "demoIntent4Desc": "昼過ぎの次の一歩のすり合わせ。",
     "demoIntent5Title": "トラッキングボード",
-    "demoIntent5Desc": "指標と負荷の更新。"
+    "demoIntent5Desc": "指標と負荷の更新。",
+    "semantic_tags": "セマンティックタグ",
+    "user_profile_sync_success": "ユーザープロファイルを更新しました。",
+    "user_profile_sync_error": "ユーザープロファイルの更新に失敗しました。"
   },
   "legal": {
     "screenTitle": "について",
@@ -486,8 +492,8 @@
     "openSettings": "設定",
     "externalHelp": "フォーカスについて（Web）",
     "versionLabel": "バージョン {{version}}",
-    "debugUnlockTitle": "パイロットツール",
-    "debugUnlockBody": "デバッグタブがタブバーの末尾に表示されます。",
+    "debugUnlockTitle": "開発者モード",
+    "debugUnlockBody": "アクセスが許可されました。",
     "sectionLegal": "情報",
     "legalNav": "アプリについて・法的表示",
     "voice": {
@@ -531,5 +537,9 @@
     "allyPreview": "声: {{voice}} · トーン: {{tone}} · AI言語: {{lang}}",
     "alarmPermissionTitle": "通知が必要です",
     "alarmPermissionBody": "通知の許可がないと、ローカルAIエージェントはレールのアラームを端末に設定できません。システム設定でこのアプリの通知（Androidではアラーム）を有効にしてください。"
+  },
+  "common": {
+    "habits": "習慣",
+    "projects": "プロジェクト"
   }
 }

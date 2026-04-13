@@ -6,6 +6,7 @@ export {
 export { getFirebaseApp, getFirestoreDb } from './firebase';
 export {
   withLocalDatabase,
+  createIntention,
   insertIntention,
   listCompletedSessionsBetween,
   listIntentionsDescending,
@@ -13,6 +14,7 @@ export {
   listUnsyncedIntentions,
   markIntentionActive,
   markIntentionSynced,
+  updateIntention,
 } from './localDb';
 export type { IntentionRow, IntentionStatus } from './localDb';
 export { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';
@@ -31,5 +33,4 @@ export {
   connectorRegistry,
   getConnectorById,
   LineConnector,
-  WhatsAppConnector,
 } from './connectors';

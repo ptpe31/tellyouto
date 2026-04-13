@@ -1,5 +1,7 @@
 {
-  "app": { "name": "TellYouTo" },
+  "app": {
+    "name": "TellYouTo"
+  },
   "tabs": {
     "radar": "雷达",
     "timeline": "时间线",
@@ -288,6 +290,7 @@
   "debug": {
     "pilotTitle": "驾驶舱工具",
     "note": "内部工具 — 界面从简。",
+    "firebaseProjectIdButton": "查看 Firebase projectId（SDK 与 .env）",
     "calendarSection": "系统日历",
     "calendarConnect": "连接系统日历",
     "calendarConnectHelp": "仅本地读取 — 不向 Firebase 发送事件标题。",
@@ -368,7 +371,10 @@
     "demoIntent4Title": "里程碑回顾",
     "demoIntent4Desc": "午间对齐下一步。",
     "demoIntent5Title": "跟踪看板",
-    "demoIntent5Desc": "更新指标与负荷。"
+    "demoIntent5Desc": "更新指标与负荷。",
+    "semantic_tags": "语义标签",
+    "user_profile_sync_success": "用户资料更新成功。",
+    "user_profile_sync_error": "用户资料更新失败。"
   },
   "legal": {
     "screenTitle": "关于",
@@ -486,8 +492,8 @@
     "openSettings": "设置",
     "externalHelp": "了解专注（网页）",
     "versionLabel": "版本 {{version}}",
-    "debugUnlockTitle": "驾驶舱工具",
-    "debugUnlockBody": "调试标签已显示在标签栏末尾。",
+    "debugUnlockTitle": "开发者模式",
+    "debugUnlockBody": "已授权访问。",
     "sectionLegal": "信息",
     "legalNav": "关于与法律声明",
     "voice": {
@@ -531,5 +537,9 @@
     "allyPreview": "声音：{{voice}} · 语气：{{tone}} · AI 语言：{{lang}}",
     "alarmPermissionTitle": "需要通知权限",
     "alarmPermissionBody": "没有通知权限，本地智能体无法在本机设置轨道闹钟。请在系统设置中为本应用开启通知（Android 上包括闹钟相关权限）。"
+  },
+  "common": {
+    "habits": "习惯",
+    "projects": "项目"
   }
 }

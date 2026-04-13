@@ -15,7 +15,8 @@ import { Button, SegmentedButtons, Switch, useTheme } from 'react-native-paper';
 import { collection, getDocs, limit, query } from 'firebase/firestore';
 
 import { CalendarGranularSection } from '../components';
-import { LineConnector, WhatsAppConnector } from '../api/connectors';
+import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
+import { LineConnector } from '../api/connectors';
 import {
   deleteAllIntentions,
   insertIntention,
@@ -206,15 +207,15 @@ export function DebugScreen() {
   }, [runFactoryReset, t]);
 
   const externalSenderId =
-    spectrum.platform_user_id?.trim() || 'tellyouto_local_sim';
+    spectrum.platform_user_id?.trim() || 'talkndone_local_sim';
 
-  const onSimWhatsApp = useCallback(async () => {
+  const onSimMessage = useCallback(async () => {
     setLastError(null);
     setBusy('sim');
     try {
       const res = await ingestExternalRawMessage({
         raw: t('debug.simSampleRaw'),
-        connector: WhatsAppConnector,
+        connector: LineConnector,
         externalUserId: externalSenderId,
         spectrum,
       });
@@ -435,6 +436,13 @@ export function DebugScreen() {
       <Text style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>
         {t('debug.note')}
       </Text>
+      <Button
+        mode="outlined"
+        onPress={showFirebaseProjectIdDebugAlert}
+        style={styles.btn}
+      >
+        {t('debug.firebaseProjectIdButton')}
+      </Button>
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
@@ -489,7 +497,7 @@ export function DebugScreen() {
         </Text>
         <Button
           mode="contained"
-          onPress={onSimWhatsApp}
+          onPress={onSimMessage}
           disabled={busy !== null}
           style={styles.btn}
           buttonColor={palette.teal}

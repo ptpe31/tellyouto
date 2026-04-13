@@ -1,5 +1,7 @@
 {
-  "app": { "name": "TellYouTo" },
+  "app": {
+    "name": "TellYouTo"
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Timeline",
@@ -301,6 +303,7 @@
   "debug": {
     "pilotTitle": "Piloting tools",
     "note": "Internal tool — minimal UI polish.",
+    "firebaseProjectIdButton": "Show Firebase projectId (SDK vs .env)",
     "soundSectionTitle": "Sound settings",
     "soundHelp": "Selects the bundled .wav for rail alarms (native rebuild after adding files). Android uses one notification channel per variant so the OS actually plays the selected sound.",
     "soundDefault": "Default",
@@ -386,7 +389,10 @@
     "demoIntent4Title": "Milestone review",
     "demoIntent4Desc": "Mid-day alignment on next steps.",
     "demoIntent5Title": "Tracking board",
-    "demoIntent5Desc": "Update metrics and workload."
+    "demoIntent5Desc": "Update metrics and workload.",
+    "semantic_tags": "Semantic tags",
+    "user_profile_sync_success": "User profile updated successfully.",
+    "user_profile_sync_error": "Failed to update user profile."
   },
   "legal": {
     "screenTitle": "About",
@@ -504,8 +510,8 @@
     "openSettings": "Settings",
     "externalHelp": "Learn about focus & calm (web)",
     "versionLabel": "Version {{version}}",
-    "debugUnlockTitle": "Pilot tools",
-    "debugUnlockBody": "The Debug tab is now available at the end of the tab bar.",
+    "debugUnlockTitle": "Developer mode",
+    "debugUnlockBody": "Access granted.",
     "sectionLegal": "Information",
     "legalNav": "About & legal",
     "voice": {
@@ -549,5 +555,9 @@
     "allyPreview": "Voice: {{voice}} · Tone: {{tone}} · AI language: {{lang}}",
     "alarmPermissionTitle": "Notifications required",
     "alarmPermissionBody": "The local AI agent cannot ring rail alarms on this device without notification permission. Enable notifications (and alarms on Android) for this app in system settings."
+  },
+  "common": {
+    "habits": "Habits",
+    "projects": "Projects"
   }
 }

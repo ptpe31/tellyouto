@@ -42,7 +42,6 @@ import {
 } from '../services/agentLogic';
 import { INTENTIONS_CHANGED_EVENT } from '../services/externalIntentIngest';
 import { recordQuickCompleteWithoutCapsule } from '../services/focusHabits';
-import { useWhatsAppInitCelebration } from '../hooks/useWhatsAppInitCelebration';
 import { syncRailReminderScheduleFromSlots } from '../services/railReminderSchedule';
 import {
   cancelIntentionRailAlarm,
@@ -277,8 +276,6 @@ export function TimelineScreen() {
     row: IntentionRow;
     mode: FocusCapsuleMode;
   } | null>(null);
-  const { visible: celebrateWa, dismiss: dismissCelebrateWa } =
-    useWhatsAppInitCelebration('timeline');
 
   const load = useCallback(async () => {
     const rows = (await listIntentionsDescending()).filter(
@@ -335,7 +332,7 @@ export function TimelineScreen() {
         const ok = await requestAlarmPermissionIfNeeded();
         if (!ok && __DEV__) {
           console.warn(
-            '[TellYouTo] Permission notifications refusée — préférence alarme enregistrée quand même (Réglages système pour activer).',
+            '[TalkNDone] Permission notifications refusée — préférence alarme enregistrée quand même (Réglages système pour activer).',
           );
         }
       } else {
@@ -393,23 +390,6 @@ export function TimelineScreen() {
   const listHeader = useMemo(
     () => (
       <View style={styles.header}>
-        {celebrateWa ? (
-          <NeumorphicCard
-            style={[
-              styles.celebrationCard,
-              { borderColor: theme.colors.primary },
-            ]}
-          >
-            <Text
-              style={[styles.celebrationText, { color: theme.colors.primary }]}
-            >
-              {t('connector.whatsappInitCelebration')}
-            </Text>
-            <Button mode="text" compact onPress={dismissCelebrateWa}>
-              {t('health.dismiss')}
-            </Button>
-          </NeumorphicCard>
-        ) : null}
         <Text style={[styles.title, { color: theme.colors.onBackground }]}>
           {t('tabs.timeline')}
         </Text>
@@ -427,8 +407,6 @@ export function TimelineScreen() {
       </View>
     ),
     [
-      celebrateWa,
-      dismissCelebrateWa,
       t,
       theme.colors.onBackground,
       theme.colors.onSurfaceVariant,
@@ -553,13 +531,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   listPad: { padding: 16 },
   header: { marginBottom: 8 },
-  celebrationCard: {
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-  },
-  celebrationText: { fontSize: 15, fontWeight: '600', lineHeight: 22 },
   externalCard: {
     marginBottom: 10,
     paddingVertical: 10,

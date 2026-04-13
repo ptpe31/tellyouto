@@ -9,7 +9,6 @@ export type ConnectorId =
   | 'calendar'
   | 'mail'
   | 'tasks'
-  | 'whatsapp'
   | 'line';
 
 export type ConnectorStatus = 'disconnected' | 'connecting' | 'ready' | 'error';
@@ -57,25 +56,6 @@ function splitTitleBody(raw: string): { title: string; description: string } {
 }
 
 /**
- * Simulateur WhatsApp — texte libre, priorité via mots-clés + spectre.
- */
-export const WhatsAppConnector: PlatformConnector = {
-  id: 'whatsapp',
-  labelKey: 'connectors.whatsapp',
-  parseMessageToIntention(raw, spectrum) {
-    const { title, description } = splitTitleBody(raw);
-    const safeTitle = title || normalizeWhitespace(raw).slice(0, 80) || 'Intention';
-    const desc = description;
-    const now = new Date();
-    return {
-      title: safeTitle,
-      description: desc,
-      suggestedPriority: computeIntentionPriority(safeTitle, desc, spectrum, now),
-    };
-  },
-};
-
-/**
  * Simulateur LINE — même logique de découpe, tonalité orientée messages courts.
  */
 export const LineConnector: PlatformConnector = {
@@ -96,7 +76,6 @@ export const LineConnector: PlatformConnector = {
 };
 
 export const connectorRegistry: PlatformConnector[] = [
-  WhatsAppConnector,
   LineConnector,
 ];
 
