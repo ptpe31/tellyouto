@@ -10,7 +10,7 @@ import {
   useSpeechRecognitionEvent,
   type ExpoSpeechRecognitionErrorEvent,
 } from 'expo-speech-recognition';
-import { Pencil, UserCircle2, Waves } from 'lucide-react-native';
+import { Check, Pencil, UserCircle2, Waves, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RewardToast } from '../components/RewardToast';
 import {
@@ -597,7 +597,7 @@ export function TalkHomeScreen() {
       setMicroToast(
         orchestration.decision === 'LOCAL'
           ? STRINGS.CAPTURE.LOCAL_MAX
-          : "Scénario B prêt : clique sur 'Appeler l'Expert' si besoin.",
+          : t('talkHome.scenarioComplexHint'),
       );
     } catch (e: unknown) {
       const message = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
@@ -884,7 +884,6 @@ export function TalkHomeScreen() {
           <Text style={styles.noText}>{t('talkHome.no')}</Text>
         </Pressable>
       </View>
-      <Text style={styles.privacyHint}>{t('talkHome.localPrivacyHint')}</Text>
     </>
   );
 
@@ -1042,24 +1041,30 @@ export function TalkHomeScreen() {
 
         <View style={styles.voiceActionRow}>
           <Pressable
-            style={[styles.voiceActionBtn, styles.voiceCancelBtn]}
+            style={[styles.voiceActionBtn, styles.voiceNoteBtn]}
             onPress={() => {
               void onCancelVoice();
             }}
             disabled={isBusy}
           >
-            <Text style={styles.voiceCancelText}>{t('talkHome.voiceCancel')}</Text>
+            <View style={styles.voiceActionContent}>
+              <X size={16} color="#6a7270" />
+              <Text style={styles.voiceNoteText}>{t('talkHome.voiceNote')}</Text>
+            </View>
           </Pressable>
           <Pressable
-            style={[styles.voiceActionBtn, styles.voiceProcessBtn]}
+            style={[styles.voiceActionBtn, styles.voiceValidateBtn]}
             onPress={() => {
               void onProcessVoice();
             }}
             disabled={isBusy}
           >
-            <Text style={styles.voiceProcessText}>
-              {routeDecision === 'LOCAL' ? t('talkHome.voiceProcess') : t('talkHome.voiceCallExpert')}
-            </Text>
+            <View style={styles.voiceActionContent}>
+              <Check size={16} color="#f2fefd" />
+              <Text style={styles.voiceValidateText}>
+                {routeDecision === 'LOCAL' ? t('talkHome.voiceValidate') : t('talkHome.voiceCallExpert')}
+              </Text>
+            </View>
           </Pressable>
         </View>
       </>
@@ -1094,25 +1099,21 @@ export function TalkHomeScreen() {
       </View>
 
       <View style={styles.contentFlow}>
-        {voiceConfirm || isPostCaptureAnalyzing || isRecording ? (
+        {true ? (
           <View style={styles.semanticModalZone}>
-            <BlurView intensity={38} tint="light" style={styles.pingCard}>
-              {voiceConfirm
-                ? renderConfirmCard()
-                : isPostCaptureAnalyzing
-                  ? renderAnalyzingCard()
-                  : renderLiveSpeechCard()}
-            </BlurView>
+            <View style={styles.oledModalFrame}>
+              <BlurView intensity={18} tint="light" style={styles.pingCard}>
+                {voiceConfirm
+                  ? renderConfirmCard()
+                  : isPostCaptureAnalyzing
+                    ? renderAnalyzingCard()
+                    : isRecording
+                      ? renderLiveSpeechCard()
+                      : renderPingCard()}
+              </BlurView>
+            </View>
           </View>
         ) : null}
-
-        <View style={styles.progressCard}>
-          <Text style={styles.progressLabel}>{t('talkHome.progressCurrent')}</Text>
-          <Text style={styles.progressLabel}>{t('talkHome.progressNextAnchor')}</Text>
-          <View style={styles.progressTrack}>
-            <View style={styles.progressFill} />
-          </View>
-        </View>
 
         <View style={styles.talkWrap}>
           <Animated.View style={[styles.ghostTouchLayer, { transform: [{ scale: micScale }] }]}>
@@ -1164,6 +1165,7 @@ const styles = StyleSheet.create({
   },
   talkieBgImage: {
     opacity: 0.98,
+    transform: [{ scale: 1.14 }, { translateY: 28 }],
   },
   talkieBgTint: {
     ...StyleSheet.absoluteFillObject,
@@ -1197,27 +1199,40 @@ const styles = StyleSheet.create({
   },
   semanticModalZone: {
     position: 'absolute',
-    top: '34%',
+    top: '32.3%',
     left: 0,
     right: 0,
     alignItems: 'center',
     zIndex: 5,
   },
-  pingCard: {
-    width: '56%',
-    maxWidth: 300,
-    minHeight: 150,
-    borderRadius: 22,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
+  oledModalFrame: {
+    width: '59%',
+    maxWidth: 326,
+    minWidth: 264,
+    aspectRatio: 0.9,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 27,
+    borderBottomLeftRadius: 34,
+    borderBottomRightRadius: 31,
     overflow: 'hidden',
-    backgroundColor: 'rgba(236, 246, 246, 0.36)',
+  },
+  pingCard: {
+    width: '100%',
+    height: '100%',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 23,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 27,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(247, 249, 242, 0.9)',
     borderWidth: 0,
-    shadowColor: '#5f7a79',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 22,
-    elevation: 6,
+    shadowColor: '#4f6c71',
+    shadowOpacity: 0.16,
+    shadowOffset: { width: 0, height: 9 },
+    shadowRadius: 20,
+    elevation: 5,
   },
   priorityBadge: {
     textAlign: 'center',
@@ -1280,11 +1295,11 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   confirmScenarioLine: {
-    marginTop: -6,
+    marginTop: -7,
     marginBottom: 12,
     fontSize: 12,
-    fontWeight: '700',
-    color: '#2f7b7d',
+    fontWeight: '600',
+    color: 'rgba(42, 101, 108, 0.92)',
     textAlign: 'left',
   },
   confirmMetaLabel: {
@@ -1380,7 +1395,8 @@ const styles = StyleSheet.create({
   voiceActionRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 8,
+    marginTop: 10,
+    alignItems: 'center',
   },
   tagRow: {
     flexDirection: 'row',
@@ -1410,24 +1426,36 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    shadowColor: '#4e6967',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
   },
-  voiceCancelBtn: {
-    backgroundColor: '#e8e7e4',
+  voiceActionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  voiceCancelText: {
-    color: '#5c5f62',
+  voiceNoteBtn: {
+    backgroundColor: 'rgba(245, 247, 246, 0.55)',
+    borderColor: 'rgba(161, 178, 175, 0.38)',
+  },
+  voiceNoteText: {
+    color: '#67706d',
+    fontWeight: '700',
+    fontSize: 14,
+    letterSpacing: 0.6,
+  },
+  voiceValidateBtn: {
+    backgroundColor: 'rgba(34, 126, 128, 0.78)',
+    borderColor: 'rgba(202, 245, 239, 0.42)',
+  },
+  voiceValidateText: {
+    color: '#f2fefd',
     fontWeight: '800',
-    fontSize: 15,
-    letterSpacing: 0.5,
-  },
-  voiceProcessBtn: {
-    backgroundColor: '#008080',
-  },
-  voiceProcessText: {
-    color: '#f5fffe',
-    fontWeight: '800',
-    fontSize: 15,
-    letterSpacing: 0.5,
+    fontSize: 14,
+    letterSpacing: 0.7,
   },
   progressCard: {
     marginTop: 252,

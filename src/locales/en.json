@@ -21,6 +21,18 @@
     "pileCount": "{{count}} note(s)",
     "dismiss": "Continue"
   },
+  "eveningRitual": {
+    "title": "Star Ritual",
+    "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
+    "victoryLabel": "Victory of the day",
+    "tomorrowPlaceholder": "One thought for tomorrow?",
+    "cta": "One thought for tomorrow?",
+    "saving": "Anchoring...",
+    "bonusHint": "Star Bonus: +5 Flower Boosts",
+    "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
+    "gratitudeLine2": "Every step counts. Your sky opens this evening.",
+    "gratitudeLine3": "Your consistency lights your path. Beautiful close."
+  },
   "zenGarden": {
     "screenTitle": "Zen Garden",
     "levelShort": "LVL {{level}}",
@@ -688,7 +700,13 @@
     "voiceWebUnsupportedTitle": "Speech recognition",
     "voiceWebUnsupportedBody": "Native dictation is not available on the web. Use the iOS or Android app.",
     "voiceProcess": "PROCESS",
+    "voiceCallExpert": "CALL EXPERT",
     "voiceCancel": "CANCEL",
+    "voiceValidate": "VALIDATE",
+    "voiceNote": "NOTE",
+    "scenarioLocal": "Scenario A · Quick local validation",
+    "scenarioComplex": "Scenario B · Expert refinement on demand",
+    "scenarioComplexHint": "Scenario B ready: call the expert if needed.",
     "transcriptionUnclearTitle": "Transcription",
     "transcriptionUnclearBody": "Sorry, I did not understand.",
     "titleRequiredTitle": "Title required",

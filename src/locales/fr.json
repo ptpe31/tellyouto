@@ -21,6 +21,18 @@
     "pileCount": "{{count}} note(s)",
     "dismiss": "Continuer"
   },
+  "eveningRitual": {
+    "title": "Rituel des Etoiles",
+    "summary": "Aujourd'hui, tu as libere ton esprit de {{count}} pensees. Ton ciel est magnifique.",
+    "victoryLabel": "Victoire du jour",
+    "tomorrowPlaceholder": "Une pensee pour demain ?",
+    "cta": "Une pensee pour demain ?",
+    "saving": "Ancrage en cours...",
+    "bonusHint": "Bonus Etoile: +5 Boosts Fleurs",
+    "gratitudeLine1": "Tu as avance avec clarte. Le calme t'accompagne.",
+    "gratitudeLine2": "Chaque pas compte. Ton ciel s'ouvre ce soir.",
+    "gratitudeLine3": "Ta constance illumine ta trajectoire. Belle fermeture."
+  },
   "zenGarden": {
     "screenTitle": "Jardin Zen",
     "levelShort": "NIV. {{level}}",
@@ -688,7 +700,13 @@
     "voiceWebUnsupportedTitle": "Reconnaissance vocale",
     "voiceWebUnsupportedBody": "La dictée native n’est pas disponible sur le web. Utilise l’app iOS ou Android.",
     "voiceProcess": "TRAITER",
+    "voiceCallExpert": "APPELER L'EXPERT",
     "voiceCancel": "ANNULER",
+    "voiceValidate": "VALIDER",
+    "voiceNote": "NOTE",
+    "scenarioLocal": "Scénario A · Validation rapide (Local)",
+    "scenarioComplex": "Scénario B · Affinage Expert sur demande",
+    "scenarioComplexHint": "Scénario B prêt : Appeler l'Expert si besoin.",
     "transcriptionUnclearTitle": "Transcription",
     "transcriptionUnclearBody": "Désolé, je n'ai pas compris.",
     "titleRequiredTitle": "Titre requis",
