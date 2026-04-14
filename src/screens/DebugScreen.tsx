@@ -17,6 +17,11 @@ import { collection, getDocs, limit, query } from 'firebase/firestore';
 import { CalendarGranularSection } from '../components';
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
 import {
+  getTrankilV2UserStats,
+  setAdState,
+  setDebugSpawnFlies,
+} from '../api/trankilV2Db';
+import {
   deleteAllIntentions,
   insertIntention,
   intentionRowToDebugSnapshot,
@@ -39,6 +44,7 @@ import { seedDemoTypicalDay } from '../services/demoTypicalDay';
 import { scheduleDebugAgentDirectAlarmIn10Minutes } from '../services/alarmManager';
 import type { RailAlarmSoundId } from '../services/railAlarmSound';
 import { palette } from '../theme/colors';
+import { STRINGS } from '../constants/Strings';
 
 export function DebugScreen() {
   const { t } = useTranslation();
@@ -71,6 +77,31 @@ export function DebugScreen() {
   const [talkCaptureLog, setTalkCaptureLog] = useState<TalkCaptureDebugPayload | null>(
     null,
   );
+  const [kpis, setKpis] = useState({
+    marginRatio: 0,
+    geminiCalls: 0,
+    adEfficiency: 0,
+    bioScore: 0,
+  });
+
+  const refreshKpis = useCallback(async () => {
+    const stats = await getTrankilV2UserStats();
+    const marginRatio =
+      stats.expert_validated_count <= 0
+        ? stats.local_validated_count
+        : stats.local_validated_count / stats.expert_validated_count;
+    const adEfficiency =
+      stats.intentions_created_total <= 0
+        ? stats.ad_videos_watched
+        : stats.ad_videos_watched / stats.intentions_created_total;
+    const bioScore = (stats.aesthetic_score + stats.utility_score) / 2;
+    setKpis({
+      marginRatio,
+      geminiCalls: stats.expert_validated_count,
+      adEfficiency,
+      bioScore,
+    });
+  }, []);
 
   const refreshSyncPurge = useCallback(async () => {
     setSyncPurgeBusy(true);
@@ -125,6 +156,7 @@ export function DebugScreen() {
   useEffect(() => {
     void refreshRawIntentions();
     void refreshSyncPurge();
+    void refreshKpis();
     const subIntentions = DeviceEventEmitter.addListener(
       INTENTIONS_CHANGED_EVENT_NAME,
       () => {
@@ -147,7 +179,25 @@ export function DebugScreen() {
       subReset.remove();
       subTalkCapture.remove();
     };
-  }, [refreshRawIntentions, refreshSyncPurge]);
+  }, [refreshRawIntentions, refreshSyncPurge, refreshKpis]);
+
+  const onForceMorning = useCallback(() => {
+    DeviceEventEmitter.emit('DEBUG_FORCE_MORNING');
+  }, []);
+
+  const onForceEvening = useCallback(() => {
+    DeviceEventEmitter.emit('DEBUG_FORCE_EVENING');
+  }, []);
+
+  const onSpawnFlies = useCallback(async () => {
+    await setDebugSpawnFlies(10);
+    Alert.alert(STRINGS.admin.title, STRINGS.admin.spawnDone);
+  }, []);
+
+  const onResetCredits = useCallback(async () => {
+    await setAdState({ remaining_intents: 0 });
+    Alert.alert(STRINGS.admin.title, STRINGS.admin.resetDone);
+  }, []);
 
   const onResetProfile = useCallback(async () => {
     setLastError(null);
@@ -440,6 +490,37 @@ export function DebugScreen() {
       <Text style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>
         {t('debug.note')}
       </Text>
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>{STRINGS.admin.title}</Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {STRINGS.admin.kpiMargin}: {kpis.marginRatio.toFixed(2)}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {STRINGS.admin.kpiTokens}: {kpis.geminiCalls}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {STRINGS.admin.kpiAds}: {kpis.adEfficiency.toFixed(2)}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {STRINGS.admin.kpiBio}: {kpis.bioScore.toFixed(2)}
+        </Text>
+        <View style={styles.godRow}>
+          <Button mode="contained-tonal" onPress={onForceMorning} style={styles.btnCompact}>
+            {STRINGS.admin.forceMorning}
+          </Button>
+          <Button mode="contained-tonal" onPress={onForceEvening} style={styles.btnCompact}>
+            {STRINGS.admin.forceEvening}
+          </Button>
+        </View>
+        <View style={styles.godRow}>
+          <Button mode="contained-tonal" onPress={() => void onSpawnFlies()} style={styles.btnCompact}>
+            {STRINGS.admin.spawnFlies}
+          </Button>
+          <Button mode="contained-tonal" onPress={() => void onResetCredits()} style={styles.btnCompact}>
+            {STRINGS.admin.resetCredits}
+          </Button>
+        </View>
+      </View>
       <Button
         mode="outlined"
         onPress={showFirebaseProjectIdDebugAlert}
@@ -765,6 +846,8 @@ const styles = StyleSheet.create({
   btnSecond: { marginTop: 12 },
   help: { fontSize: 12, marginTop: 8, maxWidth: '100%' },
   segment: { marginTop: 10, alignSelf: 'stretch' },
+  godRow: { marginTop: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  btnCompact: { marginTop: 4 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -18,3 +18,5 @@ export { NeumorphicSurface } from './NeumorphicSurface';
 export { SafeExternalLink } from './SafeExternalLink';
 export { TimeIndicator } from './TimeIndicator';
 export { StartupPerfBanner } from './StartupPerfBanner';
+export { LifeFlower } from './LifeFlower';
+export { RewardToast } from './RewardToast';

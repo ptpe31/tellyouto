@@ -9,6 +9,7 @@
 import Constants from 'expo-constants';
 
 import i18n from '../locales/i18n';
+import { getTrankilV2UserStats } from '../api/trankilV2Db';
 
 /**
  * Dans Expo Go (SDK 53+), le module notifications est limité et log ERROR/WARN au chargement.
@@ -79,12 +80,35 @@ export async function notifyExternalIntentionCaptured(
 ): Promise<void> {
   const n = getNotifications();
   if (!n) return;
+  try {
+    const stats = await getTrankilV2UserStats();
+    if (
+      stats.notifications_quiet_until_at != null &&
+      Date.now() < stats.notifications_quiet_until_at
+    ) {
+      return;
+    }
+  } catch {
+    /* ignore quiet mode read failures */
+  }
   await n.scheduleNotificationAsync({
     content: {
       title: i18n.t('notifications.externalIntentionTitle'),
       body: i18n.t('notifications.externalIntentionBody', {
         title: intentionTitle,
       }),
+    },
+    trigger: null,
+  });
+}
+
+export async function notifyChargingEveningPrompt(body: string): Promise<void> {
+  const n = getNotifications();
+  if (!n) return;
+  await n.scheduleNotificationAsync({
+    content: {
+      title: 'Trankil',
+      body,
     },
     trigger: null,
   });

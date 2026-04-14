@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { palette } from '../theme/colors';
 import { reloadApplication } from '../utils/reloadApp';
+import { saveEmergencyLog } from '../api/trankilV2Db';
 
 type Props = { children: ReactNode };
 
@@ -23,6 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    void saveEmergencyLog(error?.message ?? 'Unknown error', info.componentStack ?? '');
     if (__DEV__) {
       console.error('[ErrorBoundary]', error, info.componentStack);
     }

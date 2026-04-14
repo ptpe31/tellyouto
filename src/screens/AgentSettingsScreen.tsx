@@ -55,6 +55,22 @@ export function AgentSettingsScreen() {
     });
   }, [t, unlock]);
 
+  const onVersionLongPress = useCallback(() => {
+    void unlock().then(() => {
+      if (rootNavigationRef.isReady()) {
+        rootNavigationRef.dispatch(
+          CommonActions.navigate({
+            name: 'App',
+            params: { screen: 'Tabs', params: { screen: 'Debug' } },
+          } as never),
+        );
+      }
+      if (IS_PRODUCTION) {
+        Alert.alert(t('ally.debugUnlockTitle'), t('ally.debugUnlockBody'));
+      }
+    });
+  }, [t, unlock]);
+
   const voiceOptions: { value: AllyVoice; label: string }[] = [
     { value: 'balanced', label: t('ally.voice.balanced') },
     { value: 'warm', label: t('ally.voice.warm') },
@@ -178,6 +194,8 @@ export function AgentSettingsScreen() {
 
         <Pressable
           onPress={onVersionPress}
+          onLongPress={onVersionLongPress}
+          delayLongPress={3000}
           style={styles.versionTap}
           accessibilityRole="button"
           accessibilityLabel={t('ally.versionLabel', { version })}

@@ -1,450 +1,492 @@
-import { randomUUID } from 'expo-crypto';
-import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  BookOpen,
-  Briefcase,
-  Car,
-  Coffee,
-  Gift,
-  Heart,
-  Home,
-  Leaf,
-  Moon,
-  Music,
-  Plane,
-  Sparkles,
-  Star,
-  Sun,
-  Target,
-  Zap,
-} from 'lucide-react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { Accelerometer } from 'expo-sensors';
+import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
-  Dimensions,
-  Platform,
+  Animated,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import Animated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withSpring,
-  withTiming,
-  type SharedValue,
-} from 'react-native-reanimated';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  applyMelimeloGrouping,
-  getUserStatus,
-  listUnclusteredPendingIntentions,
-  updateUserStatus,
-  type IntentionRow,
-} from '../api/localDb';
-import { useMagicShake } from '../hooks/useMagicShake';
-import type { AppTabParamList } from '../navigation/types';
-import {
-  geminiMelimeloClusterNotes,
-  getGeminiApiKey,
-  type MelimeloGeminiGroup,
-} from '../services/geminiSemanticLab';
+  consumeTrankilV2IntentCredit,
+  deleteTrankilV2IntentionById,
+  getTrankilV2UserStats,
+  incrementBehaviorScores,
+  growthPointsForType,
+  listTrankilV2OrganizedIntentions,
+  listTrankilV2UnorganizedIntentions,
+  markTrankilV2IntentionDone,
+  updateGrowth,
+  updateTrankilV2IntentionOrganization,
+  updateTrankilV2IntentionQuick,
+  type TrankilV2IntentionRow,
+} from '../api/trankilV2Db';
+import { LifeFlower } from '../components/LifeFlower';
+import { STRINGS } from '../constants/Strings';
+import { useSaturation } from '../context/SaturationContext';
+import { askGeminiExpert } from '../services/GeminiExpert';
 
-const { width: SW, height: SH } = Dimensions.get('window');
-const BUBBLE_W = 108;
-const BUBBLE_H = 72;
-const CHAOS_TOP = 88;
-const CHAOS_H = Math.min(SH * 0.38, 280);
-
-const ICON_MAP: Record<
-  string,
-  React.ComponentType<{ size: number; color: string }>
-> = {
-  briefcase: Briefcase,
-  home: Home,
-  heart: Heart,
-  star: Star,
-  book: BookOpen,
-  leaf: Leaf,
-  zap: Zap,
-  coffee: Coffee,
-  music: Music,
-  moon: Moon,
-  sun: Sun,
-  car: Car,
-  plane: Plane,
-  target: Target,
-  gift: Gift,
+const TYPE_ICON: Record<string, string> = {
+  TASK: '🔨',
+  HABIT: '🔄',
+  NOTE: '💡',
+  AUDIO: '🎙️',
+  PROJECT: '💡',
 };
 
-function hashSeed(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i += 1) {
-    h = (h * 31 + id.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
+const FOCUS_CIRCLES = [
+  { id: 'maison', emoji: '🏠', label: 'Maison' },
+  { id: 'travail', emoji: '📈', label: 'Travail' },
+  { id: 'sante', emoji: '🥗', label: 'Santé' },
+  { id: 'projets', emoji: '💡', label: 'Projets' },
+  { id: 'zen', emoji: '🧘', label: 'Zen' },
+] as const;
+
+const PASTELS = ['#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#ede9fe', '#ffe4e6'];
+const SHAKE_THRESHOLD = 2.05;
+const SHAKE_HIT_WINDOW_MS = 700;
+const SHAKE_REQUIRED_HITS = 4;
+const SHAKE_COOLDOWN_MS = 2400;
+
+type ViewMode = 'vrac' | 'focus';
+
+function pastelFromCategory(category: string | null): string {
+  const key = (category || 'default').toLowerCase();
+  let n = 0;
+  for (let i = 0; i < key.length; i += 1) n = (n + key.charCodeAt(i) * 13) % 997;
+  return PASTELS[n % PASTELS.length];
 }
 
-function chaosPosition(id: string): { left: number; top: number; rotate: string } {
-  const s = hashSeed(id);
-  const left = (s % 68) * 0.01 * (SW - BUBBLE_W - 16) + 8;
-  const top = CHAOS_TOP + ((s >> 5) % 72) * 0.01 * (CHAOS_H - BUBBLE_H - 12) + 6;
-  const deg = ((s % 19) - 9) * 1.1;
-  return { left, top, rotate: `${deg}deg` };
+function looksIncomplete(item: TrankilV2IntentionRow): boolean {
+  const title = item.title?.trim() || '';
+  const category = item.category_id?.trim() || '';
+  return title.length < 4 || !category;
 }
 
-type Phase = 'chaos' | 'thinking' | 'crystallizing' | 'sorted';
+function normalizeCategory(category: string | null): string {
+  return (category || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
 
-type SortedPile = MelimeloGeminiGroup & { clusterId: string };
-
-function MeliBubble({
-  item,
-  chaosLeft,
-  chaosTop,
-  rotateDeg,
-  intensitySV,
-  phase,
-  targetX,
-  targetY,
-}: {
-  item: IntentionRow;
-  chaosLeft: number;
-  chaosTop: number;
-  rotateDeg: string;
-  intensitySV: SharedValue<number>;
-  phase: Phase;
-  targetX: number;
-  targetY: number;
-}) {
-  const tx = useSharedValue(0);
-  const ty = useSharedValue(0);
-  const jx = useSharedValue(0);
-  const jy = useSharedValue(0);
-
-  useEffect(() => {
-    if (phase === 'thinking') {
-      jx.value = withRepeat(
-        withSequence(
-          withTiming(1, { duration: 95 }),
-          withTiming(-1, { duration: 95 }),
-          withTiming(0.6, { duration: 70 }),
-          withTiming(-0.8, { duration: 80 }),
-        ),
-        -1,
-        false,
-      );
-      jy.value = withRepeat(
-        withSequence(
-          withTiming(-0.7, { duration: 110 }),
-          withTiming(0.9, { duration: 100 }),
-        ),
-        -1,
-        false,
-      );
-    } else {
-      cancelAnimation(jx);
-      cancelAnimation(jy);
-      jx.value = withTiming(0, { duration: 160 });
-      jy.value = withTiming(0, { duration: 160 });
-    }
-  }, [phase, jx, jy]);
-
-  useEffect(() => {
-    if (phase === 'crystallizing') {
-      const dx = targetX - chaosLeft;
-      const dy = targetY - chaosTop;
-      tx.value = withSpring(dx, { damping: 17, stiffness: 210, mass: 0.85 });
-      ty.value = withSpring(dy, { damping: 17, stiffness: 210, mass: 0.85 });
-    } else if (phase === 'chaos') {
-      tx.value = 0;
-      ty.value = 0;
-    }
-  }, [phase, targetX, targetY, chaosLeft, chaosTop, tx, ty]);
-
-  const line = (item.title || item.description || '…').trim();
-  const preview = line.length > 56 ? `${line.slice(0, 54)}…` : line;
-
-  const anim = useAnimatedStyle(() => {
-    const amp = 6 + 14 * intensitySV.value;
-    return {
-      transform: [
-        { translateX: tx.value + jx.value * amp },
-        { translateY: ty.value + jy.value * amp },
-        { rotate: rotateDeg },
-      ],
-    };
-  });
-
-  return (
-    <Animated.View
-      style={[
-        styles.bubble,
-        {
-          left: chaosLeft,
-          top: chaosTop,
-        },
-        anim,
-      ]}
-    >
-      <Text style={styles.bubbleText} numberOfLines={3}>
-        {preview}
-      </Text>
-    </Animated.View>
-  );
+function matchesCircle(item: TrankilV2IntentionRow, circleId: string): boolean {
+  const c = normalizeCategory(item.category_id);
+  if (!c) return circleId === 'projets';
+  if (circleId === 'maison') return /maison|home|famille/.test(c);
+  if (circleId === 'travail') return /travail|work|pro/.test(c);
+  if (circleId === 'sante') return /sante|health|sport|forme/.test(c);
+  if (circleId === 'zen') return /zen|calme|mind|serenite/.test(c);
+  return true;
 }
 
 export function MeliMeloScreen() {
-  const { t, i18n } = useTranslation();
+  const { isSaturated, runWithWeight } = useSaturation();
+  const [saturationToast, setSaturationToast] = useState('');
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const navigation =
-    useNavigation<BottomTabNavigationProp<AppTabParamList, 'MeliMelo'>>();
-  const [items, setItems] = useState<IntentionRow[]>([]);
-  const [frozenItems, setFrozenItems] = useState<IntentionRow[]>([]);
-  const [phase, setPhase] = useState<Phase>('chaos');
-  const [sortedPiles, setSortedPiles] = useState<SortedPile[]>([]);
-  const [credits, setCredits] = useState(0);
-  const intensitySV = useSharedValue(0);
-  const gateOpenRef = useRef(true);
+  const [items, setItems] = useState<TrankilV2IntentionRow[]>([]);
+  const [organizedItems, setOrganizedItems] = useState<TrankilV2IntentionRow[]>([]);
+  const [editing, setEditing] = useState<TrankilV2IntentionRow | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [remainingCredits, setRemainingCredits] = useState(0);
+  const [showShakeConfirm, setShowShakeConfirm] = useState(false);
+  const [isSorting, setIsSorting] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('vrac');
+  const [selectedCircle, setSelectedCircle] = useState<(typeof FOCUS_CIRCLES)[number]['id']>('maison');
+  const [growthScore, setGrowthScore] = useState(0);
+  const [flowerPulseKey, setFlowerPulseKey] = useState(0);
+  const [morningFocusId, setMorningFocusId] = useState<string | null>(null);
+
+  const flyAnim = useRef(new Animated.Value(0)).current;
+  const shakeHitsRef = useRef<number[]>([]);
+  const lastShakeAtRef = useRef(0);
 
   const reload = useCallback(async () => {
-    const [rows, status] = await Promise.all([
-      listUnclusteredPendingIntentions(),
-      getUserStatus(),
+    const [rows, organized, stats] = await Promise.all([
+      listTrankilV2UnorganizedIntentions(),
+      listTrankilV2OrganizedIntentions(),
+      getTrankilV2UserStats(),
     ]);
     setItems(rows);
-    setCredits(status.credits_projet_ia);
+    setOrganizedItems(organized);
+    setRemainingCredits(stats.remaining_intents);
+    setGrowthScore(stats.growth_score);
+    setMorningFocusId(stats.morning_focus_item_id ?? null);
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       void reload();
-      gateOpenRef.current = true;
-      setPhase('chaos');
-      setSortedPiles([]);
-      setFrozenItems([]);
     }, [reload]),
   );
 
-  const bubbleRows =
-    frozenItems.length > 0 ? frozenItems : items;
-
-  const chaosMap = useMemo(() => {
-    const m = new Map<string, { left: number; top: number; rotate: string }>();
-    for (const it of bubbleRows) {
-      m.set(it.id, chaosPosition(it.id));
-    }
-    return m;
-  }, [bubbleRows]);
-
-  const targetsById = useMemo(() => {
-    const m = new Map<string, { x: number; y: number }>();
-    if (sortedPiles.length === 0) return m;
-    const gCount = sortedPiles.length;
-    const baseY = CHAOS_TOP + CHAOS_H + 36;
-    sortedPiles.forEach((pile, gi) => {
-      const colX = (SW / (gCount + 1)) * (gi + 1) - BUBBLE_W / 2;
-      pile.noteIds.forEach((id, idx) => {
-        m.set(id, { x: colX, y: baseY + idx * 58 });
-      });
+  useEffect(() => {
+    Accelerometer.setUpdateInterval(110);
+    const sub = Accelerometer.addListener(({ x, y, z }) => {
+      if (isSorting || showShakeConfirm || items.length === 0 || viewMode !== 'vrac') return;
+      const mag = Math.hypot(x, y, z);
+      const norm = Math.abs(mag - 1);
+      const now = Date.now();
+      if (norm > SHAKE_THRESHOLD) {
+        shakeHitsRef.current.push(now);
+        shakeHitsRef.current = shakeHitsRef.current.filter((ts) => now - ts < SHAKE_HIT_WINDOW_MS);
+        const cooledDown = now - lastShakeAtRef.current > SHAKE_COOLDOWN_MS;
+        if (cooledDown && shakeHitsRef.current.length >= SHAKE_REQUIRED_HITS) {
+          shakeHitsRef.current = [];
+          lastShakeAtRef.current = now;
+          setShowShakeConfirm(true);
+        }
+      }
     });
-    return m;
-  }, [sortedPiles]);
+    return () => sub.remove();
+  }, [isSorting, showShakeConfirm, items.length, viewMode]);
 
-  const handleSustainedShake = useCallback(() => {
-    if (!gateOpenRef.current) return;
+  const mentalLoad = useMemo(() => {
+    if (items.length === 0) return STRINGS.GARDEN_RITUALS.ALL_CLEAR;
+    if (items.length > 5) return STRINGS.GARDEN_RITUALS.SWARM_WARNING;
+    return `${STRINGS.GARDEN_RITUALS.IN_PROGRESS}: ${items.length} brouillon(s).`;
+  }, [items.length]);
 
-    if (items.length === 0) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
-
-    if (credits <= 0) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      gateOpenRef.current = false;
-      setTimeout(() => {
-        gateOpenRef.current = true;
-      }, 2200);
-      Alert.alert(t('sorting.noCreditTitle'), t('sorting.noCreditBody'), [
-        { text: t('sorting.noCreditCancel'), style: 'cancel' },
+  const onDelete = useCallback(
+    (id: string) => {
+      Alert.alert(STRINGS.GARDEN_RITUALS.DELETE_DRAFT_TITLE, STRINGS.GARDEN_RITUALS.DELETE_DRAFT_BODY, [
+        { text: STRINGS.COMMON.CANCEL, style: 'cancel' },
         {
-          text: t('sorting.goZenGarden'),
-          onPress: () => navigation.navigate('ZenGarden'),
+          text: STRINGS.COMMON.DELETE,
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              await deleteTrankilV2IntentionById(id);
+              await reload();
+            })();
+          },
         },
       ]);
+    },
+    [reload],
+  );
+
+  const openEdit = useCallback((item: TrankilV2IntentionRow) => {
+    setEditing(item);
+    setEditTitle(item.title);
+    setEditCategory(item.category_id ?? '');
+  }, []);
+
+  const saveEdit = useCallback(async () => {
+    if (!editing) return;
+    await updateTrankilV2IntentionQuick(editing.id, {
+      title: editTitle.trim() || editing.title,
+      category_id: editCategory.trim() || null,
+    });
+    setEditing(null);
+    await reload();
+  }, [editing, editTitle, editCategory, reload]);
+
+  const runMagicSort = useCallback(async () => {
+    if (items.length === 0) return;
+    if (remainingCredits <= 0) {
+      Alert.alert(
+        STRINGS.GARDEN_RITUALS.INSUFFICIENT_CREDITS,
+        STRINGS.GARDEN_RITUALS.INSUFFICIENT_CREDITS_BODY,
+      );
       return;
     }
 
-    if (!getGeminiApiKey()) {
-      Alert.alert(t('sorting.noApiKeyTitle'), t('sorting.noApiKeyBody'));
-      return;
-    }
+    setIsSorting(true);
+    Animated.timing(flyAnim, {
+      toValue: 1,
+      duration: 420,
+      useNativeDriver: true,
+    }).start();
 
-    gateOpenRef.current = false;
-    setFrozenItems([...items]);
-    setPhase('thinking');
+    try {
+      await consumeTrankilV2IntentCredit();
+      await incrementBehaviorScores({ utilityDelta: 1 });
+      setRemainingCredits((c) => Math.max(0, c - 1));
 
-    const notes = items.map((row) => ({
-      id: row.id,
-      text: [row.title, row.description, row.raw_transcript]
-        .filter(Boolean)
-        .join('\n')
-        .trim(),
-    }));
+      for (const item of items) {
+        if (!looksIncomplete(item)) {
+          await updateTrankilV2IntentionOrganization(item.id, { is_organized: 1 });
+          continue;
+        }
 
-    void (async () => {
-      try {
-        const { groups } = await geminiMelimeloClusterNotes(notes, {
-          uiLanguage: i18n.language || 'fr',
-          orphanTitle: t('sorting.orphanGroup'),
+        const prompt = [item.title, item.content_raw].filter(Boolean).join('\n').trim();
+        const expert = await askGeminiExpert(prompt || 'Intention à clarifier');
+        const first = expert[0];
+
+        await updateTrankilV2IntentionOrganization(item.id, {
+          is_organized: 1,
+          title: first?.title?.trim() || item.title,
+          category_id: first?.suggested_category?.trim() || item.category_id || 'projets',
         });
-
-        const piles: SortedPile[] = groups.map((g) => ({
-          ...g,
-          clusterId: randomUUID(),
-        }));
-
-        setSortedPiles(piles);
-        setPhase('crystallizing');
-
-        await new Promise((r) => setTimeout(r, 920));
-
-        await applyMelimeloGrouping(
-          piles.map((p) => ({
-            clusterId: p.clusterId,
-            themeLabel: p.title,
-            intentionIds: p.noteIds,
-          })),
-        );
-
-        const st = await getUserStatus();
-        await updateUserStatus({
-          credits_projet_ia: Math.max(0, st.credits_projet_ia - 1),
-        });
-
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setPhase('sorted');
-        setCredits((c) => Math.max(0, c - 1));
-        await reload();
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        Alert.alert(t('sorting.errorTitle'), msg);
-        setPhase('chaos');
-        setSortedPiles([]);
-        setFrozenItems([]);
-        gateOpenRef.current = true;
       }
-    })();
-  }, [items, credits, t, i18n.language, navigation, reload]);
 
-  useMagicShake({
-    enabled:
-      Platform.OS !== 'web' &&
-      (phase === 'chaos' || phase === 'thinking'),
-    intensitySV,
-    gateOpenRef,
-    onSustainedShake: handleSustainedShake,
-  });
-
-  useEffect(() => {
-    if (phase === 'thinking') {
-      gateOpenRef.current = false;
+      await reload();
+      setViewMode('focus');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(STRINGS.GARDEN_RITUALS.MAGIC_SHAKE_ERROR, msg);
+    } finally {
+      flyAnim.setValue(0);
+      setIsSorting(false);
     }
-  }, [phase]);
+  }, [items, remainingCredits, flyAnim, reload]);
 
-  const onDismissSorted = useCallback(() => {
-    setSortedPiles([]);
-    setFrozenItems([]);
-    setPhase('chaos');
-    gateOpenRef.current = true;
-    void reload();
-  }, [reload]);
+  const focusItems = useMemo(
+    () => organizedItems.filter((it) => matchesCircle(it, selectedCircle)),
+    [organizedItems, selectedCircle],
+  );
+
+  const actionItems = focusItems.filter((it) => it.type === 'TASK' || it.type === 'PROJECT');
+  const ritualItems = focusItems.filter((it) => it.type === 'HABIT');
+  const noteItems = focusItems.filter((it) => it.type === 'NOTE');
+  const audioItems = focusItems.filter((it) => it.type === 'AUDIO');
+
+  const completeItem = useCallback(
+    async (item: TrankilV2IntentionRow) => {
+      if (item.status === 'DONE') return;
+      await markTrankilV2IntentionDone(item.id);
+      const points = growthPointsForType(item.type);
+      if (points > 0) {
+        const next = await updateGrowth(points);
+        setGrowthScore(next.growth_score);
+        setFlowerPulseKey((k) => k + 1);
+      }
+      await reload();
+    },
+    [reload],
+  );
+
+  const animatedCardStyle = {
+    transform: [
+      {
+        translateY: flyAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -90] }),
+      },
+    ],
+    opacity: flyAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+  } as const;
 
   return (
     <LinearGradient
       colors={['#e8ebe4', '#f2f0ea', '#f7f5f0']}
       start={{ x: 0.2, y: 0 }}
       end={{ x: 0.8, y: 1 }}
-      style={[styles.root, { paddingTop: insets.top + 6 }]}
+      style={[styles.root, { paddingTop: insets.top + 8 }]}
     >
       <View style={styles.titleRow}>
-        <Sparkles size={22} color="#2d6f70" />
-        <Text style={styles.title}>{t('sorting.screenTitle')}</Text>
+        <Text style={styles.title}>{t('sorting.screenTitle')} · Organisation</Text>
+        <Text style={styles.creditBadge}>{remainingCredits} crédit(s)</Text>
       </View>
 
-      <View style={[styles.chaosZone, { height: CHAOS_H }]}>
-        {items.length === 0 && phase === 'chaos' ? (
-          <Text style={styles.empty}>{t('sorting.empty')}</Text>
-        ) : null}
-        {bubbleRows.map((it) => {
-          const c = chaosMap.get(it.id);
-          if (!c) return null;
-          const tgt = targetsById.get(it.id) ?? {
-            x: c.left,
-            y: c.top,
-          };
-          return (
-            <MeliBubble
-              key={it.id}
-              item={it}
-              chaosLeft={c.left}
-              chaosTop={c.top}
-              rotateDeg={c.rotate}
-              intensitySV={intensitySV}
-              phase={phase}
-              targetX={tgt.x}
-              targetY={tgt.y}
-            />
-          );
-        })}
-      </View>
-
-      {phase === 'sorted' && sortedPiles.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.pilesScroll}
-        >
-          {sortedPiles.map((pile) => {
-            const Icon = ICON_MAP[pile.icon] ?? Leaf;
-            return (
-              <View key={pile.clusterId} style={styles.pileCol}>
-                <View style={styles.pileHeader}>
-                  <Icon size={16} color="#2e5f68" />
-                  <Text style={styles.pileTitle} numberOfLines={2}>
-                    {pile.title}
-                  </Text>
-                </View>
-                <Text style={styles.pileMeta}>
-                  {t('sorting.pileCount', { count: pile.noteIds.length })}
-                </Text>
-              </View>
-            );
-          })}
-        </ScrollView>
-      ) : null}
-
-      {phase === 'sorted' ? (
-        <Pressable style={styles.dismissBtn} onPress={onDismissSorted}>
-          <Text style={styles.dismissText}>{t('sorting.dismiss')}</Text>
+      <View style={styles.modeRow}>
+        <Pressable style={[styles.modeBtn, viewMode === 'vrac' ? styles.modeBtnActive : null]} onPress={() => setViewMode('vrac')}>
+          <Text style={[styles.modeBtnText, viewMode === 'vrac' ? styles.modeBtnTextActive : null]}>
+            {STRINGS.GARDEN_RITUALS.VRAC}
+          </Text>
         </Pressable>
-      ) : null}
+        <Pressable style={[styles.modeBtn, viewMode === 'focus' ? styles.modeBtnActive : null]} onPress={() => setViewMode('focus')}>
+          <Text style={[styles.modeBtnText, viewMode === 'focus' ? styles.modeBtnTextActive : null]}>
+            {STRINGS.GARDEN_RITUALS.FOCUS_CIRCLES}
+          </Text>
+        </Pressable>
+      </View>
 
-      <View style={styles.flexSpacer} />
-      <Text style={styles.shakeHint}>
-        {Platform.OS === 'web'
-          ? t('sorting.webNoShake')
-          : t('sorting.shakeInstruction')}
-      </Text>
+      {viewMode === 'vrac' ? (
+        <>
+          <Text style={styles.mentalLoad}>{mentalLoad}</Text>
+          <ScrollView contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 24 }]}> 
+            {items.map((item) => {
+              const bg = pastelFromCategory(item.category_id);
+              const icon = TYPE_ICON[item.type] ?? '📌';
+              return (
+                <Swipeable
+                  key={item.id}
+                  enabled={!isSorting}
+                  renderRightActions={() => (
+                    <Pressable style={styles.deleteAction} onPress={() => onDelete(item.id)}>
+                      <Text style={styles.deleteActionText}>{STRINGS.COMMON.DELETE}</Text>
+                    </Pressable>
+                  )}
+                >
+                  <Animated.View style={animatedCardStyle}>
+                    <Pressable
+                      style={[styles.card, { backgroundColor: bg }]}
+                      onPress={() => openEdit(item)}
+                      disabled={isSorting}
+                    >
+                      <View style={styles.titleWithEco}>
+                        <Text style={styles.cardTitle}>{icon} {item.title}</Text>
+                        {item.is_local_processed === 1 ? (
+                          <Text style={styles.ecoBadge}>🍃 {STRINGS.LOCAL_ECO_LABEL}</Text>
+                        ) : null}
+                      </View>
+                      <Text style={styles.cardMeta}>{item.type} · {item.category_id || 'sans-categorie'}</Text>
+                      <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleString()}</Text>
+                    </Pressable>
+                  </Animated.View>
+                </Swipeable>
+              );
+            })}
+            {items.length === 0 ? (
+              <Text style={styles.empty}>{STRINGS.GARDEN_RITUALS.EMPTY_DRAFTS}</Text>
+            ) : null}
+          </ScrollView>
+        </>
+      ) : (
+        <>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.circlesRow}>
+            {FOCUS_CIRCLES.map((circle) => {
+              const selected = selectedCircle === circle.id;
+              return (
+                <Pressable
+                  key={circle.id}
+                  style={[styles.circle, selected ? styles.circleSelected : null]}
+                  onPress={() =>
+                    runWithWeight(() => {
+                      if (isSaturated) {
+                        setSaturationToast(STRINGS.saturation.overloadedToast);
+                        setTimeout(() => setSaturationToast(''), 1500);
+                        return;
+                      }
+                      setSelectedCircle(circle.id);
+                    })
+                  }
+                >
+                  <Text style={styles.circleEmoji}>{circle.emoji}</Text>
+                  <Text style={styles.circleLabel}>{circle.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.lifeCard}>
+            <View style={styles.lifeHeader}>
+              <Text style={styles.lifeTitle}>
+                {STRINGS.GARDEN_RITUALS.LIFE_CARD} · {FOCUS_CIRCLES.find((c) => c.id === selectedCircle)?.label}
+              </Text>
+              <LifeFlower growthStage={growthScore} pulseKey={flowerPulseKey} size={82} />
+            </View>
+
+            {focusItems.length === 0 ? (
+              <Text style={styles.poeticEmpty}>{STRINGS.GARDEN_RITUALS.CALM_EMPTY}</Text>
+            ) : (
+              <ScrollView style={styles.lifeScroll}>
+                {actionItems.length > 0 ? (
+                  <View style={styles.sectionBlock}>
+                    <Text style={styles.sectionTitle}>🔨 {STRINGS.GARDEN_RITUALS.ACTIONS}</Text>
+                    {actionItems.map((item) => (
+                      <Pressable key={item.id} style={[styles.rowItem, item.id === morningFocusId ? styles.focusGlow : null]} onPress={() => void completeItem(item)}>
+                        <Text style={styles.checkbox}>{item.status === 'DONE' ? '☑️' : '⬜️'}</Text>
+                        <Text style={[styles.rowText, item.status === 'DONE' ? styles.doneText : null]}>
+                          {item.title}
+                        </Text>
+                        {item.is_local_processed === 1 ? <Text style={styles.ecoMini}>🍃</Text> : null}
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+
+                {ritualItems.length > 0 ? (
+                  <View style={styles.sectionBlock}>
+                    <Text style={styles.sectionTitle}>🔄 {STRINGS.GARDEN_RITUALS.RITUALS}</Text>
+                    {ritualItems.map((item) => (
+                      <Pressable key={item.id} style={[styles.rowItem, item.id === morningFocusId ? styles.focusGlow : null]} onPress={() => void completeItem(item)}>
+                        <Text style={styles.checkbox}>{item.status === 'DONE' ? '☑️' : '⬜️'}</Text>
+                        <View style={styles.ritualCol}>
+                          <Text style={[styles.rowText, item.status === 'DONE' ? styles.doneText : null]}>{item.title}</Text>
+                          {item.is_local_processed === 1 ? <Text style={styles.ecoMini}>🍃</Text> : null}
+                          <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${growthScore}%` }]} /></View>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+
+                {noteItems.length > 0 ? (
+                  <View style={styles.sectionBlock}>
+                    <Text style={styles.sectionTitle}>💡 {STRINGS.GARDEN_RITUALS.REFLECTIONS}</Text>
+                    {noteItems.map((item) => (
+                      <View key={item.id} style={styles.noteBox}>
+                        <Text style={styles.noteText}>{item.title}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                {audioItems.length > 0 ? (
+                  <View style={styles.sectionBlock}>
+                    <Text style={styles.sectionTitle}>🎙️ {STRINGS.GARDEN_RITUALS.AUDIOS}</Text>
+                    {audioItems.map((item) => (
+                      <View key={item.id} style={styles.audioMini}>
+                        <Text style={styles.audioPlay}>▶︎</Text>
+                        <Text style={styles.audioText}>{item.title || STRINGS.GARDEN_RITUALS.RAW_AUDIO}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </ScrollView>
+            )}
+          </View>
+        </>
+      )}
+
+      <Modal visible={showShakeConfirm} transparent animationType="fade" onRequestClose={() => setShowShakeConfirm(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {STRINGS.GARDEN_RITUALS.SHAKE_CONFIRM_TITLE} {items.length} elements ? ({STRINGS.GARDEN_RITUALS.SHAKE_CONFIRM_COST})
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable style={[styles.modalBtn, styles.modalCancel]} onPress={() => setShowShakeConfirm(false)}>
+                <Text style={styles.modalCancelText}>{STRINGS.COMMON.CANCEL}</Text>
+              </Pressable>
+              <Pressable style={[styles.modalBtn, styles.modalSave]} onPress={() => { setShowShakeConfirm(false); void runMagicSort(); }}>
+                <Text style={styles.modalSaveText}>
+                  {isSorting ? STRINGS.GARDEN_RITUALS.SHAKE_SORTING : STRINGS.GARDEN_RITUALS.SHAKE_SORT}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={Boolean(editing)} animationType="slide" transparent onRequestClose={() => setEditing(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{STRINGS.GARDEN_RITUALS.QUICK_EDIT}</Text>
+            <TextInput
+              value={editTitle}
+              onChangeText={setEditTitle}
+              placeholder={STRINGS.GARDEN_RITUALS.TITLE_PLACEHOLDER}
+              style={styles.input}
+            />
+            <TextInput
+              value={editCategory}
+              onChangeText={setEditCategory}
+              placeholder={STRINGS.GARDEN_RITUALS.CATEGORY_PLACEHOLDER}
+              style={styles.input}
+            />
+            <View style={styles.modalActions}>
+              <Pressable style={[styles.modalBtn, styles.modalCancel]} onPress={() => setEditing(null)}>
+                <Text style={styles.modalCancelText}>{STRINGS.COMMON.CANCEL}</Text>
+              </Pressable>
+              <Pressable style={[styles.modalBtn, styles.modalSave]} onPress={() => void saveEdit()}>
+                <Text style={styles.modalSaveText}>{STRINGS.COMMON.SAVE}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {saturationToast ? <Text style={styles.saturationToast}>{saturationToast}</Text> : null}
     </LinearGradient>
   );
 }
@@ -454,104 +496,144 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
     paddingHorizontal: 10,
     marginBottom: 8,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#2e5f68',
-  },
-  chaosZone: {
-    position: 'relative',
-    marginHorizontal: 4,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    borderWidth: 1,
-    borderColor: 'rgba(45, 111, 112, 0.1)',
-    overflow: 'hidden',
-  },
-  empty: {
-    position: 'absolute',
-    alignSelf: 'center',
-    top: '42%',
-    fontSize: 14,
-    color: 'rgba(46, 95, 104, 0.45)',
-    fontWeight: '600',
-    textAlign: 'center',
-    paddingHorizontal: 24,
-  },
-  bubble: {
-    position: 'absolute',
-    width: BUBBLE_W,
-    minHeight: BUBBLE_H,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 252, 248, 0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 128, 128, 0.18)',
-    shadowColor: '#334',
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  bubbleText: {
+  title: { fontSize: 20, fontWeight: '700', color: '#2e5f68' },
+  creditBadge: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#2a4540',
-    lineHeight: 15,
-  },
-  pilesScroll: {
-    paddingVertical: 12,
+    color: '#2e5f68',
+    fontWeight: '700',
+    backgroundColor: 'rgba(255,255,255,0.66)',
+    borderRadius: 8,
     paddingHorizontal: 8,
-    gap: 12,
+    paddingVertical: 4,
   },
-  pileCol: {
-    width: 120,
-    marginRight: 10,
-    padding: 10,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.55)',
+  modeRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 10, marginBottom: 10 },
+  modeBtn: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.65)' },
+  modeBtnActive: { backgroundColor: '#dbeafe', borderWidth: 1, borderColor: 'rgba(45,111,112,0.35)' },
+  modeBtnText: { color: '#4b5563', fontWeight: '700', fontSize: 12 },
+  modeBtnTextActive: { color: '#155e75' },
+  mentalLoad: { marginHorizontal: 12, marginBottom: 10, fontSize: 13, color: '#51635f', fontWeight: '600' },
+  list: { gap: 10, paddingHorizontal: 4 },
+  card: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
     borderWidth: 1,
-    borderColor: 'rgba(45, 111, 112, 0.12)',
+    borderColor: 'rgba(31,41,55,0.12)',
+    marginBottom: 8,
   },
-  pileHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pileTitle: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#2e5f68',
-  },
-  pileMeta: {
-    marginTop: 6,
+  cardTitle: { fontSize: 15, fontWeight: '700', color: '#24333a' },
+  cardMeta: { marginTop: 4, fontSize: 12, color: '#4b5563' },
+  cardDate: { marginTop: 2, fontSize: 11, color: '#6b7280' },
+  titleWithEco: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  ecoBadge: {
     fontSize: 10,
-    fontWeight: '600',
-    color: 'rgba(46, 95, 104, 0.5)',
-  },
-  dismissBtn: {
-    alignSelf: 'center',
-    marginTop: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 22,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 128, 128, 0.14)',
-  },
-  dismissText: {
-    fontSize: 13,
+    color: '#166534',
     fontWeight: '700',
-    color: '#0f766e',
+    backgroundColor: 'rgba(187,247,208,0.62)',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  flexSpacer: { flex: 1, minHeight: 8 },
-  shakeHint: {
-    marginBottom: 18,
-    textAlign: 'center',
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(46, 95, 104, 0.38)',
-    letterSpacing: 0.3,
+  empty: { fontSize: 14, color: 'rgba(46, 95, 104, 0.45)', fontWeight: '600', textAlign: 'center', marginTop: 20 },
+  deleteAction: {
+    width: 96,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#dc2626',
+    borderRadius: 12,
+    marginVertical: 2,
+  },
+  deleteActionText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  circlesRow: { paddingHorizontal: 8, gap: 10, paddingBottom: 10 },
+  circle: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(107,114,128,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  circleSelected: {
+    transform: [{ scale: 1.05 }],
+    borderColor: '#008080',
+    borderWidth: 2,
+  },
+  circleEmoji: { fontSize: 22 },
+  circleLabel: { marginTop: 4, fontSize: 11, fontWeight: '700', color: '#334155' },
+  lifeCard: {
+    flex: 1,
+    borderRadius: 20,
+    marginHorizontal: 8,
+    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.72)',
+  },
+  lifeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  lifeTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: '#2f4f5a', marginRight: 8 },
+  poeticEmpty: { marginTop: 16, textAlign: 'center', color: '#5b6b67', fontSize: 13, fontStyle: 'italic' },
+  lifeScroll: { marginTop: 8 },
+  sectionBlock: { marginBottom: 14 },
+  sectionTitle: { fontSize: 12, fontWeight: '800', color: '#2e5f68', marginBottom: 6 },
+  rowItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  focusGlow: {
+    backgroundColor: 'rgba(253,224,71,0.18)',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  checkbox: { fontSize: 17, marginRight: 8 },
+  rowText: { flex: 1, color: '#24333a', fontSize: 13, fontWeight: '600' },
+  ecoMini: { marginLeft: 6, fontSize: 12, color: '#166534' },
+  doneText: { textDecorationLine: 'line-through', color: '#94a3b8' },
+  ritualCol: { flex: 1 },
+  progressTrack: { marginTop: 4, height: 7, borderRadius: 4, backgroundColor: '#dbe7e2', overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: '#34d399' },
+  noteBox: { borderRadius: 10, backgroundColor: 'rgba(250,250,250,0.7)', padding: 10, marginBottom: 6 },
+  noteText: { color: '#334155', fontSize: 13, lineHeight: 18 },
+  audioMini: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, padding: 10, backgroundColor: 'rgba(250,250,250,0.75)', marginBottom: 6 },
+  audioPlay: { fontSize: 16, marginRight: 8, color: '#0f766e' },
+  audioText: { color: '#334155', fontWeight: '600', fontSize: 13 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
     paddingHorizontal: 20,
+  },
+  modalCard: { backgroundColor: '#fff', borderRadius: 16, padding: 14 },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1f2937', marginBottom: 10 },
+  input: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginBottom: 10,
+  },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
+  modalBtn: { borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12 },
+  modalCancel: { backgroundColor: '#e5e7eb' },
+  modalSave: { backgroundColor: '#008080' },
+  modalCancelText: { color: '#111827', fontWeight: '700' },
+  modalSaveText: { color: '#fff', fontWeight: '700' },
+  saturationToast: {
+    position: 'absolute',
+    bottom: 16,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(15,23,42,0.78)',
+    color: '#f8fafc',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    maxWidth: '90%',
+    textAlign: 'center',
   },
 });

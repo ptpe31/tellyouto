@@ -27,6 +27,14 @@
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production"
       }
+    },
+    "production-apk": {
+      "channel": "production",
+      "autoIncrement": true,
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production"
+      }
     }
   },
   "submit": {

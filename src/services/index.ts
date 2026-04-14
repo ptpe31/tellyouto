@@ -20,3 +20,17 @@ export {
   orderIntentionsBySpectrum,
 } from './agentLogic';
 export type { ComputePriorityOptions, TimelineSlot } from './agentLogic';
+export { askGeminiExpert } from './GeminiExpert';
+export {
+  getOptimalReward,
+  onLocalAiValidated,
+  recordBonusReaction,
+  resetLocalStreakOnExpert,
+  triggerOptimalBonus,
+} from './BonusEngine';
+export {
+  applyAdReward,
+  canRunAdSession,
+  getSuggestedAdRewardType,
+  showRewardedAd,
+} from './AdManager';

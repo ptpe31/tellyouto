@@ -3,5 +3,5 @@
   "compilerOptions": {
     "strict": true
   },
-  "exclude": ["functions"]
+  "exclude": ["functions", "babel.config.js"]
 }

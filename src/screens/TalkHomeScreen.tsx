@@ -1,16 +1,16 @@
 import { Audio } from 'expo-av';
+import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
 import * as Localization from 'expo-localization';
-import { BlurView } from 'expo-blur';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
   type ExpoSpeechRecognitionErrorEvent,
 } from 'expo-speech-recognition';
-import { Check, Pencil, UserCircle2, Waves, X } from 'lucide-react-native';
+import { Check, Folder, Pencil, Target, UserCircle2, Waves, X, Zap } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RewardToast } from '../components/RewardToast';
 import {
@@ -20,7 +20,6 @@ import {
   DeviceEventEmitter,
   Easing,
   Linking,
-  ImageBackground,
   Platform,
   Pressable,
   StyleSheet,
@@ -31,6 +30,7 @@ import {
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ensureRoutineIntentionInstancesForHorizon,
   insertIntention,
@@ -87,6 +87,23 @@ import {
 } from '../utils/nativeModuleErrorAlert';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
 
+/** Texte flottant sur l’OLED (verre dépoli du fond) — aligné brief produit */
+const OLED_TEXT = '#2C3E50';
+const TALKIE_BG_BASE = { width: 571, height: 1076 } as const;
+/** Zone écran OLED sur l’asset de référence (571×1076) — alignée au carré central du talkie */
+const TALKIE_OLED = { x: 78, y: 248, w: 416, h: 368 } as const;
+const TALKIE_BTN_LAYOUT = {
+  left: { cx: 122, cy: 888, diameter: 66 },
+  center: { cx: 286, cy: 878, diameter: 92 },
+  right: { cx: 450, cy: 888, diameter: 66 },
+} as const;
+
+function ratioPct(value: number, total: number): `${number}%` {
+  return `${((value / total) * 100).toFixed(2)}%` as `${number}%`;
+}
+
+type CaptureChannel = 'intention' | 'quick_note' | 'projet';
+
 type VoiceConfirmState = {
   rawTranscript: string;
   kind: VoiceIntentKind;
@@ -96,7 +113,17 @@ type VoiceConfirmState = {
   routeDecision: OrchestratorDecision;
   localType: 'TASK' | 'HABIT' | 'NOTE';
   isEditing: boolean;
+  captureChannel?: CaptureChannel;
 };
+
+const BottomStatus = React.memo(function BottomStatus({
+  microToast,
+}: {
+  microToast: string;
+}) {
+  if (!microToast) return null;
+  return <Text style={styles.microToast}>{microToast}</Text>;
+});
 
 function mapInteractionToGeminiPrompt(lang: AppLanguage): GeminiAnalysisPromptLanguage {
   return lang === 'fr' ? 'fr' : 'en';
@@ -217,6 +244,7 @@ function speechContinuousForHold(): boolean {
 
 export function TalkHomeScreen() {
   const { t, i18n } = useTranslation();
+  const insets = useSafeAreaInsets();
   const tRef = useRef(t);
   tRef.current = t;
   useTheme();
@@ -241,6 +269,7 @@ export function TalkHomeScreen() {
   const voiceActiveRef = useRef(false);
   const stopAfterStartRef = useRef(false);
   const stopQuickCaptureRef = useRef<null | (() => Promise<void>)>(null);
+  const captureChannelRef = useRef<CaptureChannel | null>(null);
   const startedAtRef = useRef<number>(0);
   const partialTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
@@ -549,6 +578,28 @@ export function TalkHomeScreen() {
         );
         return;
       }
+
+      const channel: CaptureChannel = captureChannelRef.current ?? 'intention';
+      captureChannelRef.current = null;
+
+      if (channel === 'quick_note') {
+        const title =
+          text.length > 200 ? `${text.slice(0, 197)}…` : text;
+        setVoiceConfirm({
+          rawTranscript: text,
+          kind: 'task',
+          editedTitle: title.trim() || t('talkHome.confirmEmptyTitle'),
+          editedTime: '',
+          suggestedTags: [STRINGS.TAG_KEYS.A_TRIER],
+          routeDecision: 'LOCAL',
+          localType: 'NOTE',
+          isEditing: false,
+          captureChannel: 'quick_note',
+        });
+        setMicroToast('');
+        return;
+      }
+
       const orchestration = await runIntentOrchestration({
         fallbackText: text,
         locale: i18n.language,
@@ -593,6 +644,7 @@ export function TalkHomeScreen() {
         routeDecision: orchestration.decision,
         localType: orchestration.localType,
         isEditing: false,
+        captureChannel: 'intention',
       });
       setMicroToast(
         orchestration.decision === 'LOCAL'
@@ -603,6 +655,7 @@ export function TalkHomeScreen() {
       const message = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
       Alert.alert(t('talkHome.recordingErrorTitle'), message);
     } finally {
+      captureChannelRef.current = null;
       stopAfterStartRef.current = false;
       setIsExpertLoading(false);
       speechErrorRef.current = false;
@@ -688,6 +741,7 @@ export function TalkHomeScreen() {
         routeDecision: 'COMPLEX',
         localType: 'NOTE',
         isEditing: false,
+        captureChannel: 'projet',
       });
     } catch (e: unknown) {
       setIsRecording(false);
@@ -721,6 +775,7 @@ export function TalkHomeScreen() {
     if (voiceActiveRef.current || avRecordingRef.current) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     stopAfterStartRef.current = false;
+    captureChannelRef.current = 'intention';
     void startQuickCapture();
   }, [
     isBusy,
@@ -743,7 +798,6 @@ export function TalkHomeScreen() {
 
   const onProjectPress = useCallback(() => {
     if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     if (avRecordingRef.current) {
       void stopDeepCapture();
       return;
@@ -758,8 +812,8 @@ export function TalkHomeScreen() {
   const onQuickNotePress = useCallback(() => {
     if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
     if (voiceActiveRef.current || avRecordingRef.current) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     stopAfterStartRef.current = false;
+    captureChannelRef.current = 'quick_note';
     void startQuickCapture();
     setTimeout(() => {
       if (voiceActiveRef.current) {
@@ -782,10 +836,42 @@ export function TalkHomeScreen() {
     }
     const desc = voiceConfirm.editedTime.trim();
     const rawTranscript = voiceConfirm.rawTranscript.trim();
-    const kind = voiceConfirm.kind;
     const routeDecision = voiceConfirm.routeDecision;
     setIsBusy(true);
     try {
+      if (voiceConfirm.captureChannel === 'quick_note') {
+        await insertTrankilV2Intention({
+          id: newTalkEntityId(),
+          type: 'NOTE',
+          title: trimmedTitle,
+          content_raw: rawTranscript,
+          metadata_json: JSON.stringify(
+            {
+              timeMarker: desc,
+              source: 'quick_note_raw',
+              plain: true,
+            },
+            null,
+            2,
+          ),
+          suggested_tags: JSON.stringify(
+            voiceConfirm.suggestedTags.length
+              ? voiceConfirm.suggestedTags
+              : [STRINGS.TAG_KEYS.A_TRIER],
+          ),
+          category_id: (voiceConfirm.suggestedTags[0] ?? STRINGS.TAG_KEYS.A_TRIER).toLowerCase(),
+          parent_id: null,
+          status: 'TODO',
+          is_organized: 0,
+          is_local_processed: 0,
+          complexity_level: 0,
+          created_at: Date.now(),
+        });
+        resetVoiceConfirm();
+        setMicroToast('');
+        return;
+      }
+
       if (routeDecision === 'COMPLEX') {
         await resetLocalStreakOnExpert();
         setIsExpertLoading(true);
@@ -872,20 +958,7 @@ export function TalkHomeScreen() {
   const intentTypeLabel = (k: VoiceIntentKind) =>
     t(`talkHome.intentType.${k}` as const);
 
-  const renderPingCard = () => (
-    <>
-      <Text style={styles.priorityBadge}>{t('talkHome.priorityHigh')}</Text>
-      <Text style={styles.question}>{t('talkHome.questionHydration')}</Text>
-      <View style={styles.answerRow}>
-        <Pressable style={[styles.answerBtn, styles.yesBtn]}>
-          <Text style={styles.yesText}>{t('talkHome.yes')}</Text>
-        </Pressable>
-        <Pressable style={[styles.answerBtn, styles.noBtn]}>
-          <Text style={styles.noText}>{t('talkHome.no')}</Text>
-        </Pressable>
-      </View>
-    </>
-  );
+  const renderPingCard = () => null;
 
   /** Quick : texte ASR partiel/final. Deep : consigne mains libres (pas de preview .m4a). */
   const renderLiveSpeechCard = () => {
@@ -921,8 +994,26 @@ export function TalkHomeScreen() {
 
   const renderConfirmCard = () => {
     if (!voiceConfirm) return null;
-    const { editedTitle, editedTime, isEditing, kind, suggestedTags, routeDecision } = voiceConfirm;
+    const {
+      editedTitle,
+      editedTime,
+      isEditing,
+      kind,
+      suggestedTags,
+      routeDecision,
+      captureChannel,
+    } = voiceConfirm;
     const timeDisplay = editedTime.trim() ? editedTime.trim() : t('talkHome.timeUnspecified');
+    const scenarioLine =
+      captureChannel === 'quick_note'
+        ? t('talkHome.scenarioQuickNote')
+        : routeDecision === 'LOCAL'
+          ? t('talkHome.scenarioLocal')
+          : t('talkHome.scenarioComplex');
+    const typeLabel =
+      captureChannel === 'quick_note' ? t('talkHome.intentType.note') : intentTypeLabel(kind);
+    const validateCta =
+      routeDecision === 'COMPLEX' ? t('talkHome.voiceCallExpert') : t('talkHome.voiceValidate');
 
     return (
       <>
@@ -938,17 +1029,15 @@ export function TalkHomeScreen() {
               );
             }}
           >
-            <Pencil size={20} color="#2d6f70" />
+            <Pencil size={20} color={OLED_TEXT} />
           </Pressable>
         </View>
 
         <View style={styles.typeRow}>
           <Text style={styles.confirmMetaLabel}>{t('talkHome.confirmTypePrefix')}</Text>
-          <Text style={styles.typeValue}>{intentTypeLabel(kind)}</Text>
+          <Text style={styles.typeValue}>{typeLabel}</Text>
         </View>
-        <Text style={styles.confirmScenarioLine}>
-          {routeDecision === 'LOCAL' ? t('talkHome.scenarioLocal') : t('talkHome.scenarioComplex')}
-        </Text>
+        <Text style={styles.confirmScenarioLine}>{scenarioLine}</Text>
 
         <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmActionLabel')}</Text>
         {isEditing ? (
@@ -959,7 +1048,7 @@ export function TalkHomeScreen() {
             }}
             style={styles.editTitleInput}
             multiline
-            placeholderTextColor="#8a9390"
+            placeholderTextColor="rgba(44,62,80,0.45)"
           />
         ) : (
           <View style={styles.titleHeroWrap}>
@@ -979,7 +1068,7 @@ export function TalkHomeScreen() {
               }}
               style={styles.editTimeInput}
               placeholder={t('talkHome.timeUnspecified')}
-              placeholderTextColor="#8a9390"
+              placeholderTextColor="rgba(44,62,80,0.45)"
             />
           ) : (
             <View style={styles.timeValueWrap}>
@@ -1048,7 +1137,7 @@ export function TalkHomeScreen() {
             disabled={isBusy}
           >
             <View style={styles.voiceActionContent}>
-              <X size={16} color="#6a7270" />
+              <X size={16} color="#2C3E50" />
               <Text style={styles.voiceNoteText}>{t('talkHome.voiceNote')}</Text>
             </View>
           </Pressable>
@@ -1061,9 +1150,7 @@ export function TalkHomeScreen() {
           >
             <View style={styles.voiceActionContent}>
               <Check size={16} color="#f2fefd" />
-              <Text style={styles.voiceValidateText}>
-                {routeDecision === 'LOCAL' ? t('talkHome.voiceValidate') : t('talkHome.voiceCallExpert')}
-              </Text>
+              <Text style={styles.voiceValidateText}>{validateCta}</Text>
             </View>
           </Pressable>
         </View>
@@ -1072,13 +1159,14 @@ export function TalkHomeScreen() {
   };
 
   return (
-    <ImageBackground
-      source={require('../../assets/background_talkie_vierge.png')}
-      resizeMode="cover"
-      style={styles.root}
-      imageStyle={styles.talkieBgImage}
-    >
-      <View style={styles.talkieBgTint} />
+    <View style={styles.root}>
+      <Image
+        source={require('../../assets/background_talkie_v2.webp')}
+        style={styles.backgroundImage}
+        contentFit="cover"
+        cachePolicy="disk"
+        transition={300}
+      />
       <RewardToast visible={Boolean(rewardToast)} message={rewardToast} />
       <View style={styles.header}>
         <View style={styles.brandRow}>
@@ -1098,59 +1186,101 @@ export function TalkHomeScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.contentFlow}>
-        {true ? (
-          <View style={styles.semanticModalZone}>
-            <View style={styles.oledModalFrame}>
-              <BlurView intensity={18} tint="light" style={styles.pingCard}>
-                {voiceConfirm
-                  ? renderConfirmCard()
-                  : isPostCaptureAnalyzing
-                    ? renderAnalyzingCard()
-                    : isRecording
-                      ? renderLiveSpeechCard()
-                      : renderPingCard()}
-              </BlurView>
+      <View style={styles.bodySpacer} />
+
+      <View
+        style={[styles.bottomHud, { bottom: insets.bottom + 118 }]}
+        pointerEvents="none"
+      >
+        <BottomStatus microToast={microToast} />
+      </View>
+
+      <View style={styles.talkieGhostDeck} pointerEvents="box-none">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('talkHome.a11yTalkieProjet')}
+          accessibilityHint={t('talkHome.talkieProjet')}
+          onPress={onProjectPress}
+          onPressIn={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          }}
+          disabled={
+            isBusy || voiceConfirm !== null || Platform.OS === 'web' || isPostCaptureAnalyzing
+          }
+          hitSlop={12}
+          android_ripple={{ color: 'rgba(44,62,80,0.12)', borderless: true }}
+          style={[styles.ghostSide, styles.ghostSideLeft]}
+        >
+          {({ pressed }) => (
+            <View style={[styles.ghostBtnInner, { opacity: pressed ? 0.5 : 0.8 }]}>
+              <Folder size={28} color="#2C3E50" />
+              <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieProjet')}</Text>
             </View>
+          )}
+        </Pressable>
+        <Animated.View style={[styles.ghostMainWrap, { transform: [{ scale: micScale }] }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={micA11yLabel}
+            accessibilityHint={t('talkHome.talkieIntention')}
+            onPressIn={onMicPressIn}
+            onPressOut={onMicPressOut}
+            disabled={
+              isBusy ||
+              voiceConfirm !== null ||
+              Platform.OS === 'web' ||
+              isPostCaptureAnalyzing
+            }
+            hitSlop={14}
+            android_ripple={{ color: 'rgba(0,128,128,0.14)', borderless: true }}
+            style={styles.ghostMain}
+          >
+            {({ pressed }) => (
+              <View style={[styles.ghostMainInner, { opacity: pressed ? 0.5 : 0.8 }]}>
+                <Target size={38} color="#2C3E50" />
+                <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieIntention')}</Text>
+              </View>
+            )}
+          </Pressable>
+        </Animated.View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('talkHome.a11yTalkieQuickNote')}
+          accessibilityHint={t('talkHome.talkieQuickNote')}
+          onPress={onQuickNotePress}
+          onPressIn={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          }}
+          disabled={
+            isBusy || voiceConfirm !== null || Platform.OS === 'web' || isPostCaptureAnalyzing
+          }
+          hitSlop={12}
+          android_ripple={{ color: 'rgba(44,62,80,0.12)', borderless: true }}
+          style={[styles.ghostSide, styles.ghostSideRight]}
+        >
+          {({ pressed }) => (
+            <View style={[styles.ghostBtnInner, { opacity: pressed ? 0.5 : 0.8 }]}>
+              <Zap size={28} color="#2C3E50" />
+              <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieQuickNote')}</Text>
+            </View>
+          )}
+        </Pressable>
+      </View>
+
+      <View style={styles.semanticModalZone} pointerEvents="box-none">
+        <View style={styles.oledModalFrame}>
+          <View style={styles.pingCard}>
+            {voiceConfirm
+              ? renderConfirmCard()
+              : isPostCaptureAnalyzing
+                ? renderAnalyzingCard()
+                : isRecording
+                  ? renderLiveSpeechCard()
+                  : renderPingCard()}
           </View>
-        ) : null}
-
-        <View style={styles.talkWrap}>
-          <Animated.View style={[styles.ghostTouchLayer, { transform: [{ scale: micScale }] }]}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Projet"
-              onPress={onProjectPress}
-              disabled={isBusy || voiceConfirm !== null || Platform.OS === 'web' || isPostCaptureAnalyzing}
-              style={[styles.ghostZone, styles.ghostZoneLeft]}
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={micA11yLabel}
-              onPressIn={onMicPressIn}
-              onPressOut={onMicPressOut}
-              disabled={
-                isBusy ||
-                voiceConfirm !== null ||
-                Platform.OS === 'web' ||
-                isPostCaptureAnalyzing
-              }
-              style={[styles.ghostZone, styles.ghostZoneCenter]}
-            />
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Quick note"
-              onPress={onQuickNotePress}
-              disabled={isBusy || voiceConfirm !== null || Platform.OS === 'web' || isPostCaptureAnalyzing}
-              style={[styles.ghostZone, styles.ghostZoneRight]}
-            />
-          </Animated.View>
-          {microToast ? <Text style={styles.microToast}>{microToast}</Text> : null}
-          <Text style={styles.creditLine}>{Math.max(0, remainingIntents)}/10 Intents</Text>
         </View>
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 
@@ -1163,13 +1293,10 @@ const styles = StyleSheet.create({
     paddingTop: 62,
     paddingBottom: 22,
   },
-  talkieBgImage: {
-    opacity: 0.98,
-    transform: [{ scale: 1.14 }, { translateY: 28 }],
-  },
-  talkieBgTint: {
+  backgroundImage: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(246, 247, 244, 0.1)',
+    opacity: 0.98,
+    transform: [{ scale: 1.04 }, { translateY: 10 }],
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -1179,7 +1306,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    backgroundColor: 'transparent',
   },
   brandName: { fontSize: 34, fontWeight: '700', color: '#2e5f68' },
   profileBtn: {
@@ -1188,60 +1315,135 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'transparent',
   },
-  contentFlow: {
+  bodySpacer: {
     flex: 1,
-    flexDirection: 'column',
-    justifyContent: 'space-around',
-    paddingTop: 14,
-    paddingBottom: 16,
+  },
+  bottomHud: {
+    position: 'absolute',
+    left: 22,
+    right: 22,
+    alignItems: 'center',
+    zIndex: 11,
+  },
+  /** Zones tactiles invisibles, alignées sur les 3 boutons physiques du talkie (fond image) */
+  talkieGhostDeck: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 20,
+    elevation: 20,
+  },
+  ghostSide: {
+    position: 'absolute',
+    width: ratioPct(TALKIE_BTN_LAYOUT.left.diameter, TALKIE_BG_BASE.width),
+    height: ratioPct(TALKIE_BTN_LAYOUT.left.diameter, TALKIE_BG_BASE.width),
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0)',
+  },
+  ghostSideLeft: {
+    left: ratioPct(
+      TALKIE_BTN_LAYOUT.left.cx - TALKIE_BTN_LAYOUT.left.diameter / 2,
+      TALKIE_BG_BASE.width,
+    ),
+    top: ratioPct(
+      TALKIE_BTN_LAYOUT.left.cy - TALKIE_BTN_LAYOUT.left.diameter / 2,
+      TALKIE_BG_BASE.height,
+    ),
+  },
+  ghostSideRight: {
+    left: ratioPct(
+      TALKIE_BTN_LAYOUT.right.cx - TALKIE_BTN_LAYOUT.right.diameter / 2,
+      TALKIE_BG_BASE.width,
+    ),
+    top: ratioPct(
+      TALKIE_BTN_LAYOUT.right.cy - TALKIE_BTN_LAYOUT.right.diameter / 2,
+      TALKIE_BG_BASE.height,
+    ),
+  },
+  ghostMainWrap: {
+    position: 'absolute',
+    left: ratioPct(
+      TALKIE_BTN_LAYOUT.center.cx - TALKIE_BTN_LAYOUT.center.diameter / 2,
+      TALKIE_BG_BASE.width,
+    ),
+    top: ratioPct(
+      TALKIE_BTN_LAYOUT.center.cy - TALKIE_BTN_LAYOUT.center.diameter / 2,
+      TALKIE_BG_BASE.height,
+    ),
+    width: ratioPct(TALKIE_BTN_LAYOUT.center.diameter, TALKIE_BG_BASE.width),
+    height: ratioPct(TALKIE_BTN_LAYOUT.center.diameter, TALKIE_BG_BASE.width),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ghostMain: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0)',
+  },
+  ghostBtnInner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  ghostMainInner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  ghostBtnLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#2C3E50',
+    letterSpacing: 0.3,
+    textAlign: 'center',
   },
   semanticModalZone: {
     position: 'absolute',
-    top: '32.3%',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 5,
+    left: ratioPct(TALKIE_OLED.x, TALKIE_BG_BASE.width),
+    top: ratioPct(TALKIE_OLED.y, TALKIE_BG_BASE.height),
+    width: ratioPct(TALKIE_OLED.w, TALKIE_BG_BASE.width),
+    height: ratioPct(TALKIE_OLED.h, TALKIE_BG_BASE.height),
+    zIndex: 10,
+    elevation: 10,
   },
   oledModalFrame: {
-    width: '59%',
-    maxWidth: 326,
-    minWidth: 264,
-    aspectRatio: 0.9,
+    width: '100%',
+    height: '100%',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 27,
     borderBottomLeftRadius: 34,
     borderBottomRightRadius: 31,
     overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0)',
   },
   pingCard: {
+    flex: 1,
     width: '100%',
     height: '100%',
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 23,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 27,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 27,
+    borderBottomLeftRadius: 34,
+    borderBottomRightRadius: 31,
     paddingHorizontal: 14,
     paddingVertical: 12,
     overflow: 'hidden',
-    backgroundColor: 'rgba(247, 249, 242, 0.9)',
-    borderWidth: 0,
-    shadowColor: '#4f6c71',
-    shadowOpacity: 0.16,
-    shadowOffset: { width: 0, height: 9 },
-    shadowRadius: 20,
-    elevation: 5,
+    backgroundColor: 'rgba(0,0,0,0)',
   },
   priorityBadge: {
     textAlign: 'center',
-    color: '#c17357',
+    color: '#2C3E50',
     fontWeight: '700',
     marginBottom: 8,
     fontSize: 17,
   },
-  question: { textAlign: 'center', fontSize: 34, fontWeight: '600', color: '#2f4f5a' },
+  question: { textAlign: 'center', fontSize: 34, fontWeight: '600', color: '#2C3E50' },
   answerRow: { marginTop: 16, flexDirection: 'row', gap: 12 },
   answerBtn: {
     flex: 1,
@@ -1253,7 +1455,7 @@ const styles = StyleSheet.create({
   yesBtn: { backgroundColor: '#6fad7e' },
   noBtn: { backgroundColor: '#d9d8d5' },
   yesText: { color: '#f7fff7', fontWeight: '700', fontSize: 24 },
-  noText: { color: '#6e7174', fontWeight: '700', fontSize: 24 },
+  noText: { color: '#2C3E50', fontWeight: '700', fontSize: 24 },
   privacyHint: {
     marginTop: 12,
     textAlign: 'center',
@@ -1263,7 +1465,7 @@ const styles = StyleSheet.create({
   },
   liveSpeechLead: {
     textAlign: 'center',
-    color: '#3b6b60',
+    color: '#2C3E50',
     fontSize: 15,
     fontWeight: '700',
     marginBottom: 12,
@@ -1277,7 +1479,7 @@ const styles = StyleSheet.create({
   },
   confirmIntro: {
     flex: 1,
-    color: '#3d524d',
+    color: '#2C3E50',
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
@@ -1285,7 +1487,7 @@ const styles = StyleSheet.create({
   editIconBtn: {
     padding: 8,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.65)',
+    backgroundColor: 'rgba(44,62,80,0.06)',
   },
   typeRow: {
     flexDirection: 'row',
@@ -1299,21 +1501,21 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 12,
     fontWeight: '600',
-    color: 'rgba(42, 101, 108, 0.92)',
+    color: '#2C3E50',
     textAlign: 'left',
   },
   confirmMetaLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#6e7a75',
+    color: 'rgba(44,62,80,0.75)',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   typeValue: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#0f766e',
-    backgroundColor: 'rgba(16, 185, 129, 0.14)',
+    color: '#2C3E50',
+    backgroundColor: 'rgba(44, 62, 80, 0.08)',
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 10,
@@ -1322,46 +1524,46 @@ const styles = StyleSheet.create({
   confirmBlockLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#7a8680',
+    color: 'rgba(44,62,80,0.72)',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 6,
   },
   titleHeroWrap: {
-    backgroundColor: 'rgba(255,255,255,0.72)',
+    backgroundColor: 'rgba(0,0,0,0)',
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 14,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(45, 111, 112, 0.12)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(44, 62, 80, 0.18)',
   },
   titleHero: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#1e3d42',
+    color: '#2C3E50',
     lineHeight: 28,
   },
   liveStatusLead: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#0f766e',
+    color: '#2C3E50',
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 8,
     textAlign: 'center',
   },
   editTitleInput: {
-    backgroundColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: 'rgba(44,62,80,0.06)',
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 14,
     marginBottom: 16,
     fontSize: 20,
     fontWeight: '600',
-    color: '#1e3d42',
+    color: '#2C3E50',
     borderWidth: 1,
-    borderColor: 'rgba(45, 111, 112, 0.2)',
+    borderColor: 'rgba(44, 62, 80, 0.22)',
     minHeight: 56,
     textAlignVertical: 'top',
   },
@@ -1369,28 +1571,28 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   timeValueWrap: {
-    backgroundColor: 'rgba(245, 248, 246, 0.95)',
+    backgroundColor: 'rgba(44,62,80,0.06)',
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderLeftWidth: 4,
-    borderLeftColor: '#008080',
+    borderLeftColor: 'rgba(0, 128, 128, 0.65)',
   },
   timeValue: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2a4a52',
+    color: '#2C3E50',
   },
   editTimeInput: {
-    backgroundColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: 'rgba(44,62,80,0.06)',
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     fontSize: 16,
     fontWeight: '600',
-    color: '#2a4a52',
+    color: '#2C3E50',
     borderWidth: 1,
-    borderColor: 'rgba(0, 128, 128, 0.25)',
+    borderColor: 'rgba(44, 62, 80, 0.22)',
   },
   voiceActionRow: {
     flexDirection: 'row',
@@ -1406,11 +1608,11 @@ const styles = StyleSheet.create({
   },
   tagChip: {
     borderRadius: 10,
-    backgroundColor: 'rgba(16,185,129,0.14)',
+    backgroundColor: 'rgba(44,62,80,0.08)',
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  tagChipText: { color: '#065f46', fontSize: 12, fontWeight: '700' },
+  tagChipText: { color: '#2C3E50', fontSize: 12, fontWeight: '700' },
   tagQuickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
   tagQuickBtn: {
     borderRadius: 8,
@@ -1419,7 +1621,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  tagQuickBtnText: { color: '#2f4f5a', fontSize: 11, fontWeight: '600' },
+  tagQuickBtnText: { color: '#2C3E50', fontSize: 11, fontWeight: '600' },
   voiceActionBtn: {
     flex: 1,
     height: 48,
@@ -1442,7 +1644,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(161, 178, 175, 0.38)',
   },
   voiceNoteText: {
-    color: '#67706d',
+    color: '#2C3E50',
     fontWeight: '700',
     fontSize: 14,
     letterSpacing: 0.6,
@@ -1479,56 +1681,18 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: { width: '38%', height: '100%', backgroundColor: '#78ad92' },
-  talkWrap: {
-    marginTop: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ghostTouchLayer: {
-    width: '79%',
-    maxWidth: 360,
-    minWidth: 280,
-    height: 108,
-    position: 'relative',
-  },
-  ghostZone: {
-    position: 'absolute',
-    backgroundColor: 'transparent',
-  },
-  ghostZoneLeft: {
-    left: '7%',
-    bottom: 19,
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-  },
-  ghostZoneCenter: {
-    left: '50%',
-    bottom: 7,
-    marginLeft: -43,
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-  },
-  ghostZoneRight: {
-    right: '7%',
-    bottom: 19,
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-  },
   creditLine: {
-    marginTop: 10,
+    marginTop: 6,
     fontSize: 12,
-    color: '#4f5f5a',
+    color: '#2C3E50',
     letterSpacing: 0.5,
     fontWeight: '600',
     textAlign: 'center',
   },
   microToast: {
-    marginTop: 8,
+    marginTop: 4,
     fontSize: 12,
-    color: '#0f766e',
+    color: '#2C3E50',
     fontWeight: '700',
     textAlign: 'center',
   },

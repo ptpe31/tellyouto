@@ -1,9 +1,12 @@
+import { BlurView } from 'expo-blur';
 import { Droplets, Flower2, Play, Sparkles } from 'lucide-react-native';
 import React from 'react';
 import {
+  Platform,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type ViewStyle,
 } from 'react-native';
@@ -20,6 +23,7 @@ type Props = {
   panelTitle: string;
   quotaText: string;
   quotaAccessibilityLabel: string;
+  onQuotaPress?: () => void;
 };
 
 function QuotaBubbles({
@@ -54,123 +58,156 @@ export function RewardedActionPanel({
   panelTitle,
   quotaText,
   quotaAccessibilityLabel,
+  onQuotaPress,
 }: Props) {
+  const { width: w, height: h } = useWindowDimensions();
+  const padH = Math.max(14, w * 0.042);
+  const padV = Math.max(18, h * 0.022);
+  const cardMinH = Math.max(120, h * 0.14);
+
   return (
-    <NeumorphicSurface style={styles.panel}>
-      <Text style={styles.panelTitle}>{panelTitle}</Text>
-      <View style={styles.cardsRow}>
-        <Pressable
-          style={({ pressed }) => [styles.card, styles.cardBoost, pressed && styles.pressed]}
-          onPress={onBoostPress}
-          accessibilityRole="button"
-          accessibilityLabel={boostLabel}
-        >
-          <View style={styles.iconRow}>
-            <Droplets size={22} color="#0e7490" />
-            <View style={styles.iconFade}>
-              <Flower2 size={18} color="#9ca3af" />
-            </View>
-            <Text style={styles.iconArrow}>→</Text>
-            <Flower2 size={22} color="#7c3aed" />
-          </View>
-          <Text style={styles.cardLabel}>{boostLabel}</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.card, styles.cardVideo, pressed && styles.pressed]}
-          onPress={onVideoPress}
-          accessibilityRole="button"
-          accessibilityLabel={videoLabel}
-        >
-          <View style={styles.iconRow}>
-            <View style={styles.playFrame}>
-              <Play size={20} color="#f8fafc" fill="#f8fafc" />
-            </View>
-            <View style={styles.projectOrb}>
-              <Sparkles size={14} color="#fef9c3" />
-            </View>
-          </View>
-          <Text style={styles.cardLabelVideo}>{videoLabel}</Text>
-        </Pressable>
-      </View>
-      <View
-        style={styles.quotaFooter}
-        accessibilityLabel={quotaAccessibilityLabel}
+    <BlurView
+      intensity={Platform.OS === 'ios' ? 48 : 32}
+      tint="light"
+      style={[styles.blurOuter, { width: '100%', maxWidth: 420 }]}
+    >
+      <NeumorphicSurface
+        style={[
+          styles.panel,
+          {
+            paddingVertical: padV,
+            paddingHorizontal: padH,
+            backgroundColor: 'rgba(245, 245, 240, 0.58)',
+          },
+        ]}
       >
-        <QuotaBubbles current={projectCreditsCurrent} max={projectCreditsMax} />
-        <Text style={styles.quotaDigits}>{quotaText}</Text>
-      </View>
-    </NeumorphicSurface>
+        <Text style={styles.panelTitle}>{panelTitle}</Text>
+        <View style={styles.cardsRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.card,
+              styles.cardBoost,
+              { minHeight: cardMinH },
+              pressed && styles.pressed,
+            ]}
+            onPress={onBoostPress}
+            accessibilityRole="button"
+            accessibilityLabel={boostLabel}
+          >
+            <View style={styles.iconRow}>
+              <Droplets size={24} color="#0e7490" />
+              <View style={styles.iconFade}>
+                <Flower2 size={20} color="#9ca3af" />
+              </View>
+              <Text style={styles.iconArrow}>→</Text>
+              <Flower2 size={24} color="#7c3aed" />
+            </View>
+            <Text style={styles.cardLabel}>{boostLabel}</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.card,
+              styles.cardVideo,
+              { minHeight: cardMinH },
+              pressed && styles.pressed,
+            ]}
+            onPress={onVideoPress}
+            accessibilityRole="button"
+            accessibilityLabel={videoLabel}
+          >
+            <View style={styles.iconRow}>
+              <View style={styles.playFrame}>
+                <Play size={22} color="#f8fafc" fill="#f8fafc" />
+              </View>
+              <View style={styles.projectOrb}>
+                <Sparkles size={15} color="#fef9c3" />
+              </View>
+            </View>
+            <Text style={styles.cardLabelVideo}>{videoLabel}</Text>
+          </Pressable>
+        </View>
+        <Pressable
+          style={styles.quotaFooter}
+          accessibilityLabel={quotaAccessibilityLabel}
+          onPress={onQuotaPress}
+        >
+          <QuotaBubbles current={projectCreditsCurrent} max={projectCreditsMax} />
+          <Text style={styles.quotaDigits}>{quotaText}</Text>
+        </Pressable>
+      </NeumorphicSurface>
+    </BlurView>
   );
 }
 
 const styles = StyleSheet.create({
+  blurOuter: {
+    borderRadius: 26,
+    overflow: 'hidden',
+  },
   panel: {
     borderRadius: 22,
-    paddingVertical: 16,
-    paddingHorizontal: 14,
   },
   panelTitle: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1.4,
+    letterSpacing: 1.6,
     color: '#2e5f68',
     textAlign: 'center',
-    marginBottom: 14,
-    opacity: 0.85,
+    marginBottom: 16,
+    opacity: 0.88,
   },
   cardsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   card: {
     flex: 1,
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 10,
-    minHeight: 112,
+    borderRadius: 20,
+    paddingVertical: '4%',
+    paddingHorizontal: 12,
     justifyContent: 'space-between',
   },
   cardBoost: {
-    backgroundColor: 'rgba(14, 116, 144, 0.12)',
+    backgroundColor: 'rgba(14, 116, 144, 0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(14, 116, 144, 0.22)',
+    borderColor: 'rgba(14, 116, 144, 0.24)',
   },
   cardVideo: {
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    backgroundColor: 'rgba(255, 255, 255, 0.78)',
     borderWidth: 1,
-    borderColor: 'rgba(45, 111, 112, 0.14)',
+    borderColor: 'rgba(45, 111, 112, 0.16)',
   },
   pressed: { opacity: 0.88 },
   iconRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
     flexWrap: 'wrap',
   },
   iconFade: { opacity: 0.62 },
   iconArrow: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#64748b',
     fontWeight: '700',
   },
   playFrame: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: '#0d9488',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#0f766e',
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+    shadowOpacity: 0.38,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   projectOrb: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#ca8a04',
     alignItems: 'center',
     justifyContent: 'center',
@@ -178,23 +215,23 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.45)',
   },
   cardLabel: {
-    marginTop: 10,
-    fontSize: 11,
+    marginTop: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#134e4a',
     textAlign: 'center',
-    lineHeight: 15,
+    lineHeight: 18,
   },
   cardLabelVideo: {
-    marginTop: 10,
-    fontSize: 11,
+    marginTop: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#2e5f68',
     textAlign: 'center',
-    lineHeight: 15,
+    lineHeight: 18,
   },
   quotaFooter: {
-    marginTop: 16,
+    marginTop: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -223,7 +260,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(120, 140, 130, 0.25)',
   },
   quotaDigits: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     color: 'rgba(46, 95, 104, 0.55)',
     letterSpacing: 0.5,

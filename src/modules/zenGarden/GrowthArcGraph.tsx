@@ -1,132 +1,132 @@
-import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Svg, {
-  Circle,
   Defs,
   LinearGradient as SvgLinearGradient,
   Path,
   Stop,
 } from 'react-native-svg';
 
+import { palette } from '../../theme';
+
 type Props = {
-  /** 0–1 (ex. 780/1000). */
-  progress: number;
-  levelLabel: string;
-  growthXpLabel: string;
+  levelLine: string;
+  growthLine: string;
+  xpIntoLevel: number;
+  xpForNext: number;
 };
 
-const W = 248;
-const H = 118;
-const CX = W / 2;
-const CY = 102;
-const R = 78;
-
-/** Arc supérieur : gauche → droite, courbure vers le haut. */
-const ARC_D = `M ${CX - R} ${CY} A ${R} ${R} 0 0 0 ${CX + R} ${CY}`;
-
 export function GrowthArcGraph({
-  progress,
-  levelLabel,
-  growthXpLabel,
+  levelLine,
+  growthLine,
+  xpIntoLevel,
+  xpForNext,
 }: Props) {
-  const p = Math.min(1, Math.max(0, progress));
-  const arcLen = Math.PI * R;
-  const dashOffset = arcLen * (1 - p);
-
-  const beadAngle = useMemo(() => Math.PI - p * Math.PI, [p]);
-  const beadX = CX + R * Math.cos(beadAngle);
-  const beadY = CY - R * Math.sin(beadAngle);
+  const { width: screenW } = useWindowDimensions();
+  const arcW = Math.min(screenW * 0.92, 380);
+  const arcH = arcW * 0.5;
+  const R = arcW * 0.38;
+  const CX = arcW / 2;
+  const CY = arcH * 0.82;
+  const sweep = Math.PI * 0.78;
+  const start = Math.PI + (Math.PI - sweep) / 2;
+  const t = xpForNext > 0 ? Math.min(1, xpIntoLevel / xpForNext) : 1;
+  const end = start + sweep * t;
+  const sx = CX + R * Math.cos(start);
+  const sy = CY + R * Math.sin(start);
+  const ex = CX + R * Math.cos(end);
+  const ey = CY + R * Math.sin(end);
+  const exFull = CX + R * Math.cos(start + sweep);
+  const eyFull = CY + R * Math.sin(start + sweep);
+  const largeArcFg = end - start > Math.PI ? 1 : 0;
+  const dFg = `M ${sx} ${sy} A ${R} ${R} 0 ${largeArcFg} 1 ${ex} ${ey}`;
+  const largeArcBg = sweep > Math.PI ? 1 : 0;
+  const dBg = `M ${sx} ${sy} A ${R} ${R} 0 ${largeArcBg} 1 ${exFull} ${eyFull}`;
 
   return (
-    <View style={styles.wrap} accessibilityRole="summary">
-      <Svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
-        <Defs>
-          <SvgLinearGradient id="zenArcGlow" x1="0%" y1="0%" x2="100%" y2="0%">
-            <Stop offset="0%" stopColor="rgba(255,255,255,0.35)" />
-            <Stop offset="45%" stopColor="rgba(255,255,255,0.95)" />
-            <Stop offset="100%" stopColor="rgba(200,230,220,0.55)" />
-          </SvgLinearGradient>
-          <SvgLinearGradient id="zenArcTrack" x1="0%" y1="0%" x2="0%" y2="100%">
-            <Stop offset="0%" stopColor="rgba(255,255,255,0.5)" />
-            <Stop offset="100%" stopColor="rgba(120,150,140,0.25)" />
-          </SvgLinearGradient>
-        </Defs>
-        <Path
-          d={ARC_D}
-          stroke="url(#zenArcTrack)"
-          strokeWidth={5}
-          strokeLinecap="round"
-          fill="none"
-        />
-        <Path
-          d={ARC_D}
-          stroke="url(#zenArcGlow)"
-          strokeWidth={4}
-          strokeLinecap="round"
-          fill="none"
-          strokeDasharray={`${arcLen}`}
-          strokeDashoffset={dashOffset}
-        />
-        <Circle
-          cx={beadX}
-          cy={beadY}
-          r={7}
-          fill="rgba(255,255,255,0.95)"
-          opacity={0.95}
-        />
-        <Circle
-          cx={beadX}
-          cy={beadY}
-          r={11}
-          fill="none"
-          stroke="rgba(255,255,255,0.45)"
-          strokeWidth={2}
-        />
-      </Svg>
-      <View style={styles.badges}>
-        <View style={styles.levelPill}>
-          <Text style={styles.levelText}>{levelLabel}</Text>
+    <View style={styles.wrap}>
+      <View style={styles.badgesRow}>
+        <View style={[styles.badge, styles.badgeLevel]}>
+          <Text style={styles.badgeLine} numberOfLines={2}>
+            {levelLine}
+          </Text>
         </View>
-        <View style={styles.xpPill}>
-          <Text style={styles.xpText}>{growthXpLabel}</Text>
+        <View style={[styles.badge, styles.badgeGrowth]}>
+          <Text style={styles.badgeLineGrowth} numberOfLines={3}>
+            {growthLine}
+          </Text>
         </View>
+      </View>
+      <View style={[styles.svgBox, { width: arcW, height: arcH }]}>
+        <Svg width="100%" height="100%" viewBox={`0 0 ${arcW} ${arcH}`}>
+          <Defs>
+            <SvgLinearGradient id="arcFill" x1="0%" y1="0%" x2="100%" y2="0%">
+              <Stop offset="0%" stopColor={palette.teal} stopOpacity={0.95} />
+              <Stop offset="100%" stopColor={palette.orange} stopOpacity={0.9} />
+            </SvgLinearGradient>
+          </Defs>
+          <Path
+            d={dBg}
+            stroke="rgba(45,111,112,0.18)"
+            strokeWidth={10}
+            fill="none"
+            strokeLinecap="round"
+          />
+          <Path
+            d={dFg}
+            stroke="url(#arcFill)"
+            strokeWidth={10}
+            fill="none"
+            strokeLinecap="round"
+          />
+        </Svg>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignItems: 'center' },
-  badges: {
-    marginTop: -4,
-    alignItems: 'center',
-    gap: 6,
+  wrap: { alignItems: 'center', width: '100%' },
+  badgesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '88%',
+    maxWidth: 360,
+    marginBottom: 2,
   },
-  levelPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 5,
+  badge: {
     borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.52)',
-    borderWidth: 1,
-    borderColor: 'rgba(45, 111, 112, 0.12)',
-  },
-  levelText: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: '#2e5f68',
-  },
-  xpPill: {
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    backgroundColor: 'rgba(245, 248, 246, 0.85)',
+    minWidth: '42%',
+    flex: 1,
+    maxWidth: '48%',
     borderWidth: 1,
-    borderColor: 'rgba(0, 128, 128, 0.15)',
+    justifyContent: 'center',
   },
-  xpText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#3d5c55',
+  badgeLevel: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderColor: 'rgba(45,111,112,0.2)',
+    marginRight: 6,
   },
+  badgeGrowth: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderColor: 'rgba(255,140,0,0.22)',
+    marginLeft: 6,
+  },
+  badgeLine: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: palette.textOnLight,
+    letterSpacing: 0.2,
+    textAlign: 'center',
+  },
+  badgeLineGrowth: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: palette.textOnLight,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  svgBox: { alignSelf: 'center' },
 });

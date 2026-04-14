@@ -626,6 +626,12 @@
   },
   "talkHome": {
     "brandName": "TalkNDone",
+    "talkieProjet": "PROJET",
+    "talkieIntention": "INTENTION",
+    "talkieQuickNote": "QUICK NOTE",
+    "a11yTalkieProjet": "Projet — enregistrement expert pour atomiser une idée complexe",
+    "a11yTalkieIntention": "Intention — maintiens pour capturer, relâche pour triage local",
+    "a11yTalkieQuickNote": "Quick note — capture brute sans analyse",
     "profileButton": "Ouvrir le profil",
     "priorityHigh": "High-priorité",
     "questionHydration": "Boire un verre d'eau ?",
@@ -693,7 +699,8 @@
     "intentType": {
       "habit": "Habitude",
       "task": "Tâche",
-      "project": "Projet"
+      "project": "Projet",
+      "note": "Note"
     },
     "editIntentA11y": "Modifier l’action et le moment",
     "voiceLivePlaceholder": "…",
@@ -706,6 +713,7 @@
     "voiceNote": "NOTE",
     "scenarioLocal": "Scénario A · Validation rapide (Local)",
     "scenarioComplex": "Scénario B · Affinage Expert sur demande",
+    "scenarioQuickNote": "Capture brute · Vide-poche (sans triage)",
     "scenarioComplexHint": "Scénario B prêt : Appeler l'Expert si besoin.",
     "transcriptionUnclearTitle": "Transcription",
     "transcriptionUnclearBody": "Désolé, je n'ai pas compris.",

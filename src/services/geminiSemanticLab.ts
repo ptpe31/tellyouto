@@ -2,18 +2,35 @@
  * Appels directs Google AI (Gemini Flash) pour le lab sémantique.
  * Clé : EXPO_PUBLIC_GEMINI_API_KEY — réservée aux builds de test (exposée client).
  * Modèle : EXPO_PUBLIC_GEMINI_MODEL (défaut gemini-2.0-flash).
+ *
+ * Résolution : `expo.extra` (injecté par app.config.js depuis .env / env) puis process.env.
  */
+
+import Constants from 'expo-constants';
 
 const DEFAULT_MODEL = 'gemini-2.0-flash';
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
+type GeminiExtra = {
+  geminiApiKey?: string;
+  geminiModel?: string;
+};
+
+function readGeminiExtra(): GeminiExtra {
+  return (Constants.expoConfig?.extra ?? {}) as GeminiExtra;
+}
+
 export function getGeminiApiKey(): string | undefined {
-  const k = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
+  const fromExtra = readGeminiExtra().geminiApiKey?.trim();
+  const fromEnv = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
+  const k = fromExtra || fromEnv;
   return k || undefined;
 }
 
 export function getGeminiModelId(): string {
-  return process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  const fromExtra = readGeminiExtra().geminiModel?.trim();
+  const fromEnv = process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim();
+  return fromExtra || fromEnv || DEFAULT_MODEL;
 }
 
 export type GeminiLabAnalysis = {
@@ -26,7 +43,9 @@ export type GeminiLabAnalysis = {
 function buildGenerateUrl(): string {
   const key = getGeminiApiKey();
   if (!key) {
-    throw new Error('EXPO_PUBLIC_GEMINI_API_KEY manquant');
+    throw new Error(
+      'Gemini: clé absente. Définis EXPO_PUBLIC_GEMINI_API_KEY dans .env ou env à la racine, puis `npx expo prebuild` ou relance Metro avec cache vidé.',
+    );
   }
   const model = getGeminiModelId();
   return `${BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`;

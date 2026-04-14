@@ -529,8 +529,10 @@ export async function withLocalDatabase<T>(
 
 /**
  * Lecture minimale sur `intentions` pour valider que SQLite est prêt.
- * Ne charge pas toute la table. Appelé après le premier rendu (RootNavigator) pour ne pas
- * bloquer le TTI sur la file `runSerializedSqlite`.
+ * Ne charge pas toute la table.
+ *
+ * **Chemin critique TTI** : à appeler depuis `InteractionManager.runAfterInteractions`
+ * (éventuellement + petit délai), pas au montage synchrone — voir `RootNavigator`.
  */
 export async function touchLocalDatabaseForStartup(): Promise<void> {
   await runSerializedSqlite(async () => {

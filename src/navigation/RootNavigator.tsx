@@ -4,29 +4,45 @@ import {
 } from '@react-navigation/native-stack';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, InteractionManager, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { ProSubscriptionScreen } from '../screens';
 import { MainStack } from './MainStack';
 import type { RootStackParamList } from './types';
 import { touchLocalDatabaseForStartup } from '../api/localDb';
 import { markAppInteractive } from '../services/performance';
+import { useSaturation } from '../context/SaturationContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function RootNavigatorInner() {
   const theme = useTheme();
+  const { animationMultiplier } = useSaturation();
   const [ready, setReady] = useState(false);
 
   const refreshRoute = useCallback(async () => {
     await AsyncStorage.setItem('@tellyouto/onboarding_complete', 'true');
     setReady(true);
-    void touchLocalDatabaseForStartup().catch(() => undefined);
   }, []);
 
   useEffect(() => {
     void refreshRoute();
   }, [refreshRoute]);
+
+  /** SQLite après première frame interactive + léger délai pour ne pas concurrencer le TTI */
+  useEffect(() => {
+    if (!ready) return;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      timeoutId = setTimeout(() => {
+        void touchLocalDatabaseForStartup().catch(() => undefined);
+      }, 500);
+    });
+    return () => {
+      task.cancel();
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -59,6 +75,7 @@ function RootNavigatorInner() {
           presentation: 'modal',
           headerShown: false,
           animation: 'slide_from_bottom',
+          animationDuration: Math.round(380 * animationMultiplier),
         }}
       />
     </Stack.Navigator>

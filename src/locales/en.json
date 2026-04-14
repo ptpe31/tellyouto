@@ -626,6 +626,12 @@
   },
   "talkHome": {
     "brandName": "TalkNDone",
+    "talkieProjet": "PROJECT",
+    "talkieIntention": "INTENTION",
+    "talkieQuickNote": "QUICK NOTE",
+    "a11yTalkieProjet": "Project — expert capture to break down a complex idea",
+    "a11yTalkieIntention": "Intention — hold to capture, release for on-device triage",
+    "a11yTalkieQuickNote": "Quick note — raw capture with no analysis",
     "profileButton": "Open profile",
     "priorityHigh": "High-priority",
     "questionHydration": "Drink a glass of water?",
@@ -693,7 +699,8 @@
     "intentType": {
       "habit": "Habit",
       "task": "Task",
-      "project": "Project"
+      "project": "Project",
+      "note": "Note"
     },
     "editIntentA11y": "Edit action and moment",
     "voiceLivePlaceholder": "…",
@@ -706,6 +713,7 @@
     "voiceNote": "NOTE",
     "scenarioLocal": "Scenario A · Quick local validation",
     "scenarioComplex": "Scenario B · Expert refinement on demand",
+    "scenarioQuickNote": "Raw capture · Inbox (no triage)",
     "scenarioComplexHint": "Scenario B ready: call the expert if needed.",
     "transcriptionUnclearTitle": "Transcription",
     "transcriptionUnclearBody": "Sorry, I did not understand.",

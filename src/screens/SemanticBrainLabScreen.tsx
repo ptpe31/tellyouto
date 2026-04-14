@@ -1,5 +1,5 @@
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { TFunction } from 'i18next';
 import React, { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
