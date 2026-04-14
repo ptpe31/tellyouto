@@ -1,27 +1,26 @@
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import { useFocusEffect } from '@react-navigation/native';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
 import * as Localization from 'expo-localization';
+import { BlurView } from 'expo-blur';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
   type ExpoSpeechRecognitionErrorEvent,
 } from 'expo-speech-recognition';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Mic, Pencil, UserCircle2, Waves } from 'lucide-react-native';
+import { Pencil, UserCircle2, Waves } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RewardToast } from '../components/RewardToast';
 import {
-  IntentionOrbital,
-  type IntentionOrbitalRef,
-  type OrbitalSlot,
-} from '../components/IntentionOrbital';
-import {
+  ActivityIndicator,
   Alert,
   Animated,
   DeviceEventEmitter,
   Easing,
   Linking,
+  ImageBackground,
   Platform,
   Pressable,
   StyleSheet,
@@ -40,6 +39,15 @@ import {
   listIntentionsDescending,
   type IntentionRow,
 } from '../api/localDb';
+import {
+  applyGrowthDecayIfNeeded,
+  consumeTrankilV2IntentCredit,
+  getTrankilV2UserStats,
+  growthPointsForType,
+  insertTrankilV2Intention,
+  getLocalEcoScore,
+  updateGrowth,
+} from '../api/trankilV2Db';
 import { syncPendingIntentions } from '../api/syncService';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
@@ -68,6 +76,11 @@ import {
   reformulateStructuredIntent,
   type VoiceIntentKind,
 } from '../services/TranscriptionService';
+import { askGeminiExpert, type GeminiExpertIntention } from '../services/GeminiExpert';
+import { transcribeWithWhisperLocal } from '../services/WhisperAdapter';
+import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusEngine';
+import { runIntentOrchestration, type OrchestratorDecision } from '../services/IntentOrchestrator';
+import { STRINGS } from '../constants/Strings';
 import {
   alertNativeModuleMissing,
   isLikelyMissingNativeModuleError,
@@ -79,6 +92,9 @@ type VoiceConfirmState = {
   kind: VoiceIntentKind;
   editedTitle: string;
   editedTime: string;
+  suggestedTags: string[];
+  routeDecision: OrchestratorDecision;
+  localType: 'TASK' | 'HABIT' | 'NOTE';
   isEditing: boolean;
 };
 
@@ -91,6 +107,54 @@ function newTalkEntityId(): string {
     return randomUUID();
   } catch {
     return `tlk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`;
+  }
+}
+
+function mapVoiceKindToIntentType(kind: VoiceIntentKind): 'TASK' | 'HABIT' | 'PROJECT' {
+  if (kind === 'habit') return 'HABIT';
+  if (kind === 'project') return 'PROJECT';
+  return 'TASK';
+}
+
+function localTypeToVoiceKind(localType: 'TASK' | 'HABIT' | 'NOTE'): VoiceIntentKind {
+  if (localType === 'HABIT') return 'habit';
+  if (localType === 'TASK') return 'task';
+  return 'task';
+}
+
+function growthPointsFromExpertRows(rows: GeminiExpertIntention[]): number {
+  if (rows.some((r) => r.type === 'PROJECT')) return growthPointsForType('PROJECT');
+  if (rows.some((r) => r.type === 'HABIT')) return growthPointsForType('HABIT');
+  if (rows.some((r) => r.type === 'TASK')) return growthPointsForType('TASK');
+  return 0;
+}
+
+async function persistGeminiExpertRows(
+  rawInput: string,
+  rows: GeminiExpertIntention[],
+): Promise<void> {
+  let currentParentId: string | null = null;
+  for (const row of rows) {
+    const id = newTalkEntityId();
+    if (row.type === 'PROJECT') {
+      currentParentId = id;
+    }
+    await insertTrankilV2Intention({
+      id,
+      type: row.type,
+      title: row.title,
+      content_raw: rawInput,
+      metadata_json: JSON.stringify(row.metadata ?? {}, null, 2),
+      suggested_tags: JSON.stringify(
+        row.suggested_category ? [row.suggested_category.trim()] : [STRINGS.TAG_KEYS.A_TRIER],
+      ),
+      category_id: row.suggested_category || null,
+      parent_id: row.type === 'PROJECT' ? null : currentParentId,
+      status: 'TODO',
+      is_organized: 0,
+      complexity_level: 2,
+      created_at: Date.now(),
+    });
   }
 }
 
@@ -160,26 +224,29 @@ export function TalkHomeScreen() {
   const { interactionLanguage } = useLanguage();
   const { connectEnabled, busyIntervals } = useCalendarIntegration();
 
-  const [orbitalSlot, setOrbitalSlot] = useState<OrbitalSlot>('neutral');
-  const orbitalRef = useRef<IntentionOrbitalRef>(null);
-  const onOrbitalSlotChange = useCallback((slot: OrbitalSlot) => {
-    setOrbitalSlot(slot);
-  }, []);
-
   const [captureMode, setCaptureMode] = useState<'idle' | 'quick' | 'deep'>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [isPostCaptureAnalyzing, setIsPostCaptureAnalyzing] = useState(false);
+  const [isExpertLoading, setIsExpertLoading] = useState(false);
   const [voiceConfirm, setVoiceConfirm] = useState<VoiceConfirmState | null>(null);
   const [livePartial, setLivePartial] = useState('');
+  const [remainingIntents, setRemainingIntents] = useState(10);
+  const [microToast, setMicroToast] = useState('');
+  const [rewardToast, setRewardToast] = useState('');
+  const [growthScore, setGrowthScore] = useState(0);
+  const [flowerPulseKey, setFlowerPulseKey] = useState(0);
+  const [flowerNeedsAttention, setFlowerNeedsAttention] = useState(false);
+  const [localEcoScore, setLocalEcoScore] = useState(0);
   const voiceActiveRef = useRef(false);
+  const stopAfterStartRef = useRef(false);
+  const stopQuickCaptureRef = useRef<null | (() => Promise<void>)>(null);
   const startedAtRef = useRef<number>(0);
   const partialTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
   const speechErrorRef = useRef(false);
   const avRecordingRef = useRef<Audio.Recording | null>(null);
-  const ringPulse = useRef(new Animated.Value(0)).current;
-  const wavePulse = useRef(new Animated.Value(0)).current;
+  const micScale = useRef(new Animated.Value(1)).current;
 
   const unloadAvRecording = useCallback(async () => {
     const rec = avRecordingRef.current;
@@ -205,46 +272,44 @@ export function TalkHomeScreen() {
     setVoiceConfirm(null);
   }, []);
 
-  useEffect(() => {
-    if (!isRecording) {
-      ringPulse.stopAnimation();
-      ringPulse.setValue(0);
-      wavePulse.stopAnimation();
-      wavePulse.setValue(0);
-      return;
+  const refreshRemainingIntents = useCallback(async () => {
+    try {
+      const before = await getTrankilV2UserStats();
+      const stale =
+        before.last_nudge_at != null &&
+        Date.now() - before.last_nudge_at > 24 * 60 * 60 * 1000;
+      setFlowerNeedsAttention(stale);
+      await applyGrowthDecayIfNeeded();
+      const stats = await getTrankilV2UserStats();
+      setRemainingIntents(stats.remaining_intents);
+      setGrowthScore(stats.growth_score);
+      setLocalEcoScore(await getLocalEcoScore());
+    } catch {
+      setRemainingIntents(10);
+      setGrowthScore(0);
+      setFlowerNeedsAttention(false);
+      setLocalEcoScore(0);
     }
-    const ringLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(ringPulse, {
-          toValue: 1,
-          duration: 720,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: false,
-        }),
-        Animated.timing(ringPulse, {
-          toValue: 0,
-          duration: 720,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: false,
-        }),
-      ]),
-    );
-    const waveLoop = Animated.loop(
-      Animated.timing(wavePulse, {
-        toValue: 1,
-        duration: 1300,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: false,
-      }),
-      { resetBeforeIteration: true },
-    );
-    ringLoop.start();
-    waveLoop.start();
-    return () => {
-      ringLoop.stop();
-      waveLoop.stop();
-    };
-  }, [isRecording, ringPulse, wavePulse]);
+  }, []);
+
+  useEffect(() => {
+    void refreshRemainingIntents();
+  }, [refreshRemainingIntents]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRemainingIntents();
+    }, [refreshRemainingIntents]),
+  );
+
+  useEffect(() => {
+    Animated.timing(micScale, {
+      toValue: isRecording ? 1.05 : 1,
+      duration: isRecording ? 180 : 160,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  }, [isRecording, micScale]);
 
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results[0]?.transcript ?? '';
@@ -356,6 +421,10 @@ export function TalkHomeScreen() {
       voiceActiveRef.current = true;
       setCaptureMode('quick');
       setIsRecording(true);
+      if (stopAfterStartRef.current) {
+        stopAfterStartRef.current = false;
+        void stopQuickCaptureRef.current?.();
+      }
     } catch (e: unknown) {
       voiceActiveRef.current = false;
       setIsRecording(false);
@@ -442,7 +511,9 @@ export function TalkHomeScreen() {
 
   const stopQuickCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') return;
-    if (!voiceActiveRef.current) return;
+    if (!voiceActiveRef.current) {
+      return;
+    }
     voiceActiveRef.current = false;
     setIsPostCaptureAnalyzing(true);
     setIsBusy(true);
@@ -456,6 +527,11 @@ export function TalkHomeScreen() {
           /* ignore */
         }
       }
+      // UI must exit recording state immediately after release,
+      // even if post-processing fails later.
+      setIsRecording(false);
+      setCaptureMode('idle');
+      setLivePartial('');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await new Promise<void>((r) => setTimeout(r, 480));
       const text = (
@@ -465,9 +541,6 @@ export function TalkHomeScreen() {
       ).trim();
       partialTranscriptRef.current = '';
       finalTranscriptRef.current = '';
-      setIsRecording(false);
-      setCaptureMode('idle');
-      setLivePartial('');
       if (!text) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Alert.alert(
@@ -476,43 +549,74 @@ export function TalkHomeScreen() {
         );
         return;
       }
-      const draft = reformulateStructuredIntent(text);
-      const title = draft.title.trim() || text;
-      const freq = inferLocalFrequencyLabel(text, draft);
+      const orchestration = await runIntentOrchestration({
+        fallbackText: text,
+        locale: i18n.language,
+      });
+      if (!orchestration.rawText.trim()) {
+        Alert.alert(STRINGS.CAPTURE.NOISE_WARNING);
+        return;
+      }
+      const draft = reformulateStructuredIntent(orchestration.rawText);
+      const title = draft.title.trim() || orchestration.rawText;
+      const freq = inferLocalFrequencyLabel(orchestration.rawText, draft);
       emitTalkDebug({
         mode: 'quick',
         at: Date.now(),
-        rawTranscript: text,
+        rawTranscript: orchestration.rawText,
         localStructuredJson: JSON.stringify(
           {
             kind: draft.kind,
             title: draft.title,
             timeMarker: draft.timeMarker,
             localFrequencyLabel: freq,
+            decision: orchestration.decision,
+            localType: orchestration.localType,
+            confidence: orchestration.confidence,
+            suggestedTags: orchestration.suggestedTags,
+            reason: orchestration.reason,
           },
           null,
           2,
         ),
       });
       setVoiceConfirm({
-        rawTranscript: text,
-        kind: draft.kind,
+        rawTranscript: orchestration.rawText,
+        kind: localTypeToVoiceKind(
+          orchestration.localType === 'NOTE' ? 'TASK' : orchestration.localType,
+        ),
         editedTitle: title,
         editedTime: draft.timeMarker,
+        suggestedTags: orchestration.suggestedTags.length
+          ? orchestration.suggestedTags
+          : [STRINGS.TAG_KEYS.A_TRIER],
+        routeDecision: orchestration.decision,
+        localType: orchestration.localType,
         isEditing: false,
       });
-    } catch {
-      setIsRecording(false);
-      setCaptureMode('idle');
-      setLivePartial('');
-      Alert.alert(t('talkHome.recordingErrorTitle'), t('talkHome.recordingErrorStop'));
+      setMicroToast(
+        orchestration.decision === 'LOCAL'
+          ? STRINGS.CAPTURE.LOCAL_MAX
+          : "Scénario B prêt : clique sur 'Appeler l'Expert' si besoin.",
+      );
+    } catch (e: unknown) {
+      const message = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      Alert.alert(t('talkHome.recordingErrorTitle'), message);
     } finally {
+      stopAfterStartRef.current = false;
+      setIsExpertLoading(false);
       speechErrorRef.current = false;
       setIsBusy(false);
       setIsPostCaptureAnalyzing(false);
-      orbitalRef.current?.resetToNeutral();
     }
-  }, [emitTalkDebug, t]);
+  }, [emitTalkDebug, i18n.language, t]);
+
+  useEffect(() => {
+    stopQuickCaptureRef.current = stopQuickCapture;
+    return () => {
+      stopQuickCaptureRef.current = null;
+    };
+  }, [stopQuickCapture]);
 
   const stopDeepCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') return;
@@ -550,8 +654,13 @@ export function TalkHomeScreen() {
         return;
       }
 
-      const b64 = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
-      const transcript = await geminiTranscribeAudioBase64(b64, 'audio/mp4');
+      const whisperTranscript = await transcribeWithWhisperLocal(audioUri);
+      const transcript =
+        whisperTranscript ??
+        (await (async () => {
+          const b64 = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
+          return geminiTranscribeAudioBase64(b64, 'audio/mp4');
+        })());
       const { parsed, rawResponseText } = await geminiDeepIntentionFromTranscript(transcript, {
         promptLanguage: mapInteractionToGeminiPrompt(interactionLanguage),
       });
@@ -575,6 +684,9 @@ export function TalkHomeScreen() {
         kind: parsed.type,
         editedTitle: title,
         editedTime: timing,
+        suggestedTags: [STRINGS.TAG_KEYS.A_TRIER],
+        routeDecision: 'COMPLEX',
+        localType: 'NOTE',
         isEditing: false,
       });
     } catch (e: unknown) {
@@ -601,30 +713,19 @@ export function TalkHomeScreen() {
       }
       setIsBusy(false);
       setIsPostCaptureAnalyzing(false);
-      orbitalRef.current?.resetToNeutral();
     }
   }, [emitTalkDebug, interactionLanguage, t, unloadAvRecording]);
 
   const onMicPressIn = useCallback(() => {
     if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
     if (voiceActiveRef.current || avRecordingRef.current) return;
-    if (orbitalSlot === 'neutral') {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      Alert.alert(t('talkHome.orbital.pickTitle'), t('talkHome.orbital.pickBody'));
-      return;
-    }
-    if (orbitalSlot === 'quick') {
-      void startQuickCapture();
-      return;
-    }
-    void startDeepCapture();
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    stopAfterStartRef.current = false;
+    void startQuickCapture();
   }, [
     isBusy,
     isPostCaptureAnalyzing,
-    orbitalSlot,
-    startDeepCapture,
     startQuickCapture,
-    t,
     voiceConfirm,
   ]);
 
@@ -637,8 +738,35 @@ export function TalkHomeScreen() {
       void stopDeepCapture();
       return;
     }
-    orbitalRef.current?.resetToNeutral();
+    stopAfterStartRef.current = true;
   }, [stopDeepCapture, stopQuickCapture]);
+
+  const onProjectPress = useCallback(() => {
+    if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    if (avRecordingRef.current) {
+      void stopDeepCapture();
+      return;
+    }
+    if (voiceActiveRef.current) {
+      void stopQuickCapture();
+      return;
+    }
+    void startDeepCapture();
+  }, [isBusy, isPostCaptureAnalyzing, startDeepCapture, stopDeepCapture, stopQuickCapture, voiceConfirm]);
+
+  const onQuickNotePress = useCallback(() => {
+    if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
+    if (voiceActiveRef.current || avRecordingRef.current) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    stopAfterStartRef.current = false;
+    void startQuickCapture();
+    setTimeout(() => {
+      if (voiceActiveRef.current) {
+        void stopQuickCapture();
+      }
+    }, 1150);
+  }, [isBusy, isPostCaptureAnalyzing, startQuickCapture, stopQuickCapture, voiceConfirm]);
 
   const onCancelVoice = useCallback(() => {
     if (!voiceConfirm) return;
@@ -653,200 +781,90 @@ export function TalkHomeScreen() {
       return;
     }
     const desc = voiceConfirm.editedTime.trim();
-    const rawTranscript = voiceConfirm.rawTranscript;
+    const rawTranscript = voiceConfirm.rawTranscript.trim();
     const kind = voiceConfirm.kind;
+    const routeDecision = voiceConfirm.routeDecision;
     setIsBusy(true);
     try {
-      const graph = await finalizeIntentWithCloudSemanticGraph({
-        kind,
-        title: trimmedTitle,
-        timeMarker: desc,
-        rawTranscript,
-      });
-
-      const now = new Date();
-      const systemLocale =
-        Localization.getLocales()[0]?.languageTag ??
-        Intl.DateTimeFormat().resolvedOptions().locale;
-      const timeExtractOpts = {
-        systemLocale,
-        aiLanguage: spectrum.locale?.trim() || interactionLanguage,
-        now,
-      };
-      const uid = spectrum.platform_user_id?.trim() || '';
-      const pending = (await listIntentionsDescending()).filter((r) => r.status !== 'done');
-      const busyForAgent: BusyInterval[] = connectEnabled ? busyIntervals : [];
-
-      const overlap = previewManualIntentionOverlapsHardRoutine(
-        pending,
-        trimmedTitle,
-        desc,
-        spectrum,
-        now,
-        busyForAgent,
-        uid,
-        timeExtractOpts,
-      );
-      if (overlap.overlaps) {
-        Alert.alert(
-          t('radar.hardRoutineConflictTitle'),
-          t('radar.hardRoutineConflictBody', {
-            name: overlap.blockingTitle ?? t('talkHome.confirmEmptyTitle'),
-          }),
-        );
-        throw new Error('HARD_ROUTINE_OVERLAP');
-      }
-
-      const {
-        priority,
-        isLateNight: is_late_night,
-        isHardConstraint,
-      } = analyzeNewIntentionSemantics(trimmedTitle, desc, spectrum, now, {
-        systemLocale,
-        aiLanguage: interactionLanguage,
-      });
-      const estimated_duration = estimateDurationMinutes(trimmedTitle, desc, spectrum);
-
-      const persistToLocalDb = async () => {
-        const id = newTalkEntityId();
-        const weights = {
-          structure: spectrum.structure,
-          momentum: spectrum.momentum,
-          zen: spectrum.zen,
-          stats: spectrum.stats,
-        };
-        const titlePinnedMinutes = extractClockMinutesFromText(
-          `${trimmedTitle}\n${desc}`,
-          timeExtractOpts,
-        );
-        const isTitleTimePinned = titlePinnedMinutes != null;
-        const candidate: IntentionRow = {
-          id,
-          title: trimmedTitle,
-          description: desc,
-          status: 'pending',
-          priority,
-          weights,
-          platform_type: 'none',
-          platform_user_id: uid,
-          created_at: Date.now(),
-          synced: 0,
-          estimated_duration,
-          actual_duration: null,
-          completed_at: null,
-          user_forced_urgent: false,
-          is_late_night,
-          alarm_enabled: false,
-          is_flexible: isTitleTimePinned ? false : true,
-          is_micro_habit: kind === 'habit',
-          is_hard_constraint: isHardConstraint,
-          routine_id: null,
-          anchor_date_ymd: null,
-          fixed_start_minutes: titlePinnedMinutes,
-          raw_transcript: rawTranscript,
-          energy_score: null,
-          local_notification_id: null,
-          recurrence_rrule: null,
-          type: kind,
-          parent_id: null,
-          semantic_cluster_id: graph.semantic_cluster_id,
-          semantic_tags: graph.semantic_tags,
-          sentiment_score: graph.sentiment_score,
-          ping_history: [],
-        };
-        const { anchor_date_ymd, fixed_start_minutes } =
-          computeRailAnchorAndFixedStartForNewIntention({
-            pendingOthers: pending,
-            candidate,
-            spectrum: weights,
-            now,
-            busyIntervals: busyForAgent,
-            systemLocale,
-            aiLanguage: interactionLanguage,
-          });
-
-        const insertRadarPendingIntention = async () => {
-          await insertIntention({
-            id,
-            title: trimmedTitle,
-            description: desc,
-            status: 'pending',
-            priority,
-            weights,
-            platform_type: 'none',
-            platform_user_id: uid,
-            created_at: Date.now(),
-            estimated_duration,
-            user_forced_urgent: false,
-            is_late_night,
-            alarm_enabled: false,
-            is_flexible: isTitleTimePinned ? false : true,
-            is_micro_habit: kind === 'habit',
-            is_hard_constraint: isHardConstraint,
-            anchor_date_ymd,
-            fixed_start_minutes,
-            raw_transcript: rawTranscript,
-            type: kind,
-            semantic_cluster_id: graph.semantic_cluster_id,
-            semantic_tags: graph.semantic_tags,
-            sentiment_score: graph.sentiment_score,
-          });
-        };
-
-        if (isHardConstraint) {
-          const plan = inferStructuralRoutinePlan(
-            trimmedTitle,
-            desc,
-            spectrum,
-            now,
-            timeExtractOpts,
-          );
-          if (plan) {
-            const routineId = newTalkEntityId();
-            await insertRoutine({
-              id: routineId,
-              title: trimmedTitle,
-              description: desc,
-              weekday: plan.weekday,
-              start_minutes: plan.startMinutes,
-              duration_min: plan.durationMin,
-              weights,
-              priority,
-              platform_type: 'none',
-              platform_user_id: uid,
-              created_at: Date.now(),
-            });
-            await ensureRoutineIntentionInstancesForHorizon(routineId, uid);
-          } else {
-            await insertRadarPendingIntention();
+      if (routeDecision === 'COMPLEX') {
+        await resetLocalStreakOnExpert();
+        setIsExpertLoading(true);
+        const expertRows = await askGeminiExpert(rawTranscript);
+        if (expertRows.length > 0) {
+          await persistGeminiExpertRows(rawTranscript, expertRows);
+          const expertPoints = growthPointsFromExpertRows(expertRows);
+          if (expertPoints > 0) {
+            const next = await updateGrowth(expertPoints);
+            setGrowthScore(next.growth_score);
+            setFlowerPulseKey((k) => k + 1);
+            setFlowerNeedsAttention(false);
           }
-        } else {
-          await insertRadarPendingIntention();
         }
-      };
-
-      await persistToLocalDb();
+        const afterConsume = await consumeTrankilV2IntentCredit();
+        setRemainingIntents(afterConsume.remaining_intents);
+      } else {
+        await insertTrankilV2Intention({
+          id: newTalkEntityId(),
+          type:
+            voiceConfirm.localType === 'NOTE'
+              ? 'NOTE'
+              : mapVoiceKindToIntentType(localTypeToVoiceKind(voiceConfirm.localType)),
+          title: trimmedTitle,
+          content_raw: rawTranscript,
+          metadata_json: JSON.stringify(
+            {
+              timeMarker: desc,
+              source: 'orchestrator_local',
+            },
+            null,
+            2,
+          ),
+          suggested_tags: JSON.stringify(
+            voiceConfirm.suggestedTags.length
+              ? voiceConfirm.suggestedTags
+              : [STRINGS.TAG_KEYS.A_TRIER],
+          ),
+          category_id: (voiceConfirm.suggestedTags[0] ?? STRINGS.TAG_KEYS.A_TRIER).toLowerCase(),
+          parent_id: null,
+          status: 'TODO',
+          is_organized: 0,
+          is_local_processed: 1,
+          complexity_level: 1,
+          created_at: Date.now(),
+        });
+        const localPoints =
+          voiceConfirm.localType === 'HABIT'
+            ? growthPointsForType('HABIT')
+            : voiceConfirm.localType === 'TASK'
+              ? growthPointsForType('TASK')
+              : 0;
+        if (localPoints > 0) {
+          const next = await updateGrowth(localPoints);
+          setGrowthScore(next.growth_score);
+          setFlowerPulseKey((k) => k + 1);
+          setFlowerNeedsAttention(false);
+        }
+        const localBonus = await onLocalAiValidated();
+        if (localBonus.superBonusGranted && localBonus.message) {
+          setRewardToast(localBonus.message);
+          setTimeout(() => setRewardToast(''), 2300);
+        }
+      }
       resetVoiceConfirm();
-      void syncPendingIntentions();
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      setMicroToast('');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg !== 'HARD_ROUTINE_OVERLAP') {
-        if (isLikelyMissingNativeModuleError(e)) {
-          alertNativeModuleMissing('nativeModule.contextTalkHomePersist', e);
-        } else {
-          Alert.alert(t('talkHome.voicePersistErrorTitle'), t('talkHome.voicePersistErrorBody'));
-        }
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('nativeModule.contextTalkHomePersist', e);
+      } else {
+        Alert.alert(t('talkHome.voicePersistErrorTitle'), msg || t('talkHome.voicePersistErrorBody'));
       }
     } finally {
+      setIsExpertLoading(false);
       setIsBusy(false);
     }
   }, [
     voiceConfirm,
-    spectrum,
-    interactionLanguage,
-    connectEnabled,
-    busyIntervals,
     t,
     resetVoiceConfirm,
   ]);
@@ -897,27 +915,14 @@ export function TalkHomeScreen() {
     </View>
   );
 
-  const micGradientColors = useMemo((): readonly [string, string] => {
-    if (isRecording) {
-      return captureMode === 'deep'
-        ? (['#ca8a04', '#a16207'] as const)
-        : (['#2563eb', '#1d4ed8'] as const);
-    }
-    if (orbitalSlot === 'quick') return ['#60a5fa', '#2563eb'] as const;
-    if (orbitalSlot === 'deep') return ['#facc15', '#ca8a04'] as const;
-    return ['#64748b', '#475569'] as const;
-  }, [captureMode, isRecording, orbitalSlot]);
-
   const micA11yLabel = useMemo(() => {
     if (isRecording) return t('talkHome.orbital.holdRelease');
-    if (orbitalSlot === 'quick') return t('talkHome.a11yMicQuick');
-    if (orbitalSlot === 'deep') return t('talkHome.a11yMicDeep');
-    return t('talkHome.a11yMicNeutral');
-  }, [isRecording, orbitalSlot, t]);
+    return t('talkHome.a11yMicQuick');
+  }, [isRecording, t]);
 
   const renderConfirmCard = () => {
     if (!voiceConfirm) return null;
-    const { editedTitle, editedTime, isEditing, kind } = voiceConfirm;
+    const { editedTitle, editedTime, isEditing, kind, suggestedTags, routeDecision } = voiceConfirm;
     const timeDisplay = editedTime.trim() ? editedTime.trim() : t('talkHome.timeUnspecified');
 
     return (
@@ -942,6 +947,9 @@ export function TalkHomeScreen() {
           <Text style={styles.confirmMetaLabel}>{t('talkHome.confirmTypePrefix')}</Text>
           <Text style={styles.typeValue}>{intentTypeLabel(kind)}</Text>
         </View>
+        <Text style={styles.confirmScenarioLine}>
+          {routeDecision === 'LOCAL' ? t('talkHome.scenarioLocal') : t('talkHome.scenarioComplex')}
+        </Text>
 
         <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmActionLabel')}</Text>
         {isEditing ? (
@@ -981,6 +989,57 @@ export function TalkHomeScreen() {
           )}
         </View>
 
+        <Text style={styles.confirmBlockLabel}>{STRINGS.TAG_EDITOR.title}</Text>
+        <View style={styles.tagRow}>
+          {suggestedTags.map((tag) => (
+            <Pressable
+              key={tag}
+              style={styles.tagChip}
+              onPress={() => {
+                setVoiceConfirm((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        suggestedTags:
+                          prev.suggestedTags.filter((t) => t !== tag).length > 0
+                            ? prev.suggestedTags.filter((t) => t !== tag)
+                            : [STRINGS.TAG_KEYS.A_TRIER],
+                      }
+                    : prev,
+                );
+              }}
+            >
+              <Text style={styles.tagChipText}>
+                #{STRINGS.TAG_LABELS[tag as keyof typeof STRINGS.TAG_LABELS] ?? tag}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.tagQuickRow}>
+          {(Object.keys(STRINGS.TAG_LABELS) as Array<keyof typeof STRINGS.TAG_LABELS>).map((tag) => (
+            <Pressable
+              key={`quick-${tag}`}
+              style={styles.tagQuickBtn}
+              onPress={() => {
+                setVoiceConfirm((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        suggestedTags: prev.suggestedTags.includes(tag)
+                          ? prev.suggestedTags
+                          : [...prev.suggestedTags, tag],
+                      }
+                    : prev,
+                );
+              }}
+            >
+              <Text style={styles.tagQuickBtnText}>
+                {STRINGS.TAG_LABELS[tag]}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         <View style={styles.voiceActionRow}>
           <Pressable
             style={[styles.voiceActionBtn, styles.voiceCancelBtn]}
@@ -998,7 +1057,9 @@ export function TalkHomeScreen() {
             }}
             disabled={isBusy}
           >
-            <Text style={styles.voiceProcessText}>{t('talkHome.voiceProcess')}</Text>
+            <Text style={styles.voiceProcessText}>
+              {routeDecision === 'LOCAL' ? t('talkHome.voiceProcess') : t('talkHome.voiceCallExpert')}
+            </Text>
           </Pressable>
         </View>
       </>
@@ -1006,12 +1067,14 @@ export function TalkHomeScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={['#d7e6dc', '#f7f4eb']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
+    <ImageBackground
+      source={require('../../assets/background_talkie_vierge.png')}
+      resizeMode="cover"
       style={styles.root}
+      imageStyle={styles.talkieBgImage}
     >
+      <View style={styles.talkieBgTint} />
+      <RewardToast visible={Boolean(rewardToast)} message={rewardToast} />
       <View style={styles.header}>
         <View style={styles.brandRow}>
           <View style={styles.logoWrap}>
@@ -1031,15 +1094,17 @@ export function TalkHomeScreen() {
       </View>
 
       <View style={styles.contentFlow}>
-        <View style={styles.pingCard}>
-          {voiceConfirm
-            ? renderConfirmCard()
-            : isPostCaptureAnalyzing
-              ? renderAnalyzingCard()
-              : isRecording
-                ? renderLiveSpeechCard()
-                : renderPingCard()}
-        </View>
+        {voiceConfirm || isPostCaptureAnalyzing || isRecording ? (
+          <View style={styles.semanticModalZone}>
+            <BlurView intensity={38} tint="light" style={styles.pingCard}>
+              {voiceConfirm
+                ? renderConfirmCard()
+                : isPostCaptureAnalyzing
+                  ? renderAnalyzingCard()
+                  : renderLiveSpeechCard()}
+            </BlurView>
+          </View>
+        ) : null}
 
         <View style={styles.progressCard}>
           <Text style={styles.progressLabel}>{t('talkHome.progressCurrent')}</Text>
@@ -1050,100 +1115,41 @@ export function TalkHomeScreen() {
         </View>
 
         <View style={styles.talkWrap}>
-          <View style={styles.orbitalStack}>
-            <IntentionOrbital
-              ref={orbitalRef}
-              radius={115}
+          <Animated.View style={[styles.ghostTouchLayer, { transform: [{ scale: micScale }] }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Projet"
+              onPress={onProjectPress}
+              disabled={isBusy || voiceConfirm !== null || Platform.OS === 'web' || isPostCaptureAnalyzing}
+              style={[styles.ghostZone, styles.ghostZoneLeft]}
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={micA11yLabel}
+              onPressIn={onMicPressIn}
+              onPressOut={onMicPressOut}
               disabled={
                 isBusy ||
                 voiceConfirm !== null ||
-                isPostCaptureAnalyzing ||
-                isRecording ||
-                Platform.OS === 'web'
+                Platform.OS === 'web' ||
+                isPostCaptureAnalyzing
               }
-              onSlotChange={onOrbitalSlotChange}
-              labelQuick={t('talkHome.intentType.task')}
-              labelDeep={t('talkHome.intentType.project')}
+              style={[styles.ghostZone, styles.ghostZoneCenter]}
             />
-            <Animated.View
-              style={[
-                styles.micOuterPulse,
-                {
-                  opacity: ringPulse.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.88, 1],
-                  }),
-                },
-              ]}
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={micA11yLabel}
-                onPressIn={onMicPressIn}
-                onPressOut={onMicPressOut}
-                disabled={
-                  isBusy ||
-                  voiceConfirm !== null ||
-                  Platform.OS === 'web' ||
-                  isPostCaptureAnalyzing
-                }
-                style={styles.micPressable}
-              >
-                <LinearGradient
-                  colors={[micGradientColors[0], micGradientColors[1]]}
-                  start={{ x: 0.15, y: 0.05 }}
-                  end={{ x: 0.95, y: 0.95 }}
-                  style={[styles.talkButton, isRecording ? styles.talkButtonRecording : null]}
-                >
-                  {isRecording ? (
-                    <>
-                      <Text style={styles.modeHint}>
-                        {captureMode === 'deep'
-                          ? t('talkHome.label.deepIntent')
-                          : t('talkHome.label.quickIntent')}
-                      </Text>
-                      <Text style={styles.holdLabel}>{t('talkHome.orbital.holdRelease')}</Text>
-                    </>
-                  ) : (
-                    <Text style={styles.holdLabel}>{t('talkHome.holdToTalk')}</Text>
-                  )}
-                  <View style={styles.micCore}>
-                    <Mic size={30} color="#ffffff" />
-                  </View>
-                  {isRecording ? (
-                    <Animated.View
-                      pointerEvents="none"
-                      style={[
-                        styles.waveHalo,
-                        {
-                          transform: [
-                            {
-                              scale: wavePulse.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [0.95, 1.34],
-                              }),
-                            },
-                          ],
-                          opacity: wavePulse.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.35, 0],
-                          }),
-                        },
-                      ]}
-                    />
-                  ) : null}
-                </LinearGradient>
-              </Pressable>
-            </Animated.View>
-          </View>
-          {!isRecording && !voiceConfirm ? (
-            <View style={styles.tapHints}>
-              <Text style={styles.tapHintLine}>{t('talkHome.orbital.hintSlide')}</Text>
-            </View>
-          ) : null}
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Quick note"
+              onPress={onQuickNotePress}
+              disabled={isBusy || voiceConfirm !== null || Platform.OS === 'web' || isPostCaptureAnalyzing}
+              style={[styles.ghostZone, styles.ghostZoneRight]}
+            />
+          </Animated.View>
+          {microToast ? <Text style={styles.microToast}>{microToast}</Text> : null}
+          <Text style={styles.creditLine}>{Math.max(0, remainingIntents)}/10 Intents</Text>
         </View>
       </View>
-    </LinearGradient>
+    </ImageBackground>
   );
 }
 
@@ -1155,6 +1161,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 62,
     paddingBottom: 22,
+  },
+  talkieBgImage: {
+    opacity: 0.98,
+  },
+  talkieBgTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(246, 247, 244, 0.1)',
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -1182,16 +1195,29 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 16,
   },
+  semanticModalZone: {
+    position: 'absolute',
+    top: '34%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 5,
+  },
   pingCard: {
-    borderRadius: 20,
+    width: '56%',
+    maxWidth: 300,
+    minHeight: 150,
+    borderRadius: 22,
     paddingHorizontal: 18,
     paddingVertical: 18,
-    backgroundColor: '#fbf8f3',
-    shadowColor: '#707b75',
-    shadowOpacity: 0.14,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(236, 246, 246, 0.36)',
+    borderWidth: 0,
+    shadowColor: '#5f7a79',
+    shadowOpacity: 0.12,
     shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 18,
-    elevation: 7,
+    shadowRadius: 22,
+    elevation: 6,
   },
   priorityBadge: {
     textAlign: 'center',
@@ -1252,6 +1278,14 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
     marginBottom: 14,
+  },
+  confirmScenarioLine: {
+    marginTop: -6,
+    marginBottom: 12,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2f7b7d',
+    textAlign: 'left',
   },
   confirmMetaLabel: {
     fontSize: 12,
@@ -1348,6 +1382,28 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 8,
   },
+  tagRow: {
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+    marginBottom: 10,
+  },
+  tagChip: {
+    borderRadius: 10,
+    backgroundColor: 'rgba(16,185,129,0.14)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  tagChipText: { color: '#065f46', fontSize: 12, fontWeight: '700' },
+  tagQuickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
+  tagQuickBtn: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(45,111,112,0.25)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  tagQuickBtnText: { color: '#2f4f5a', fontSize: 11, fontWeight: '600' },
   voiceActionBtn: {
     flex: 1,
     height: 48,
@@ -1374,11 +1430,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   progressCard: {
-    marginTop: 8,
+    marginTop: 252,
     alignSelf: 'center',
     width: '80%',
     borderRadius: 14,
-    backgroundColor: '#f8f8f6',
+    backgroundColor: 'rgba(248, 248, 246, 0.9)',
     paddingHorizontal: 12,
     paddingVertical: 9,
     shadowColor: '#8f8f8f',
@@ -1396,84 +1452,56 @@ const styles = StyleSheet.create({
   },
   progressFill: { width: '38%', height: '100%', backgroundColor: '#78ad92' },
   talkWrap: {
-    marginTop: 28,
+    marginTop: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  orbitalStack: {
-    width: 302,
-    height: 302,
-    alignItems: 'center',
-    justifyContent: 'center',
+  ghostTouchLayer: {
+    width: '79%',
+    maxWidth: 360,
+    minWidth: 280,
+    height: 108,
+    position: 'relative',
   },
-  micOuterPulse: {
+  ghostZone: {
     position: 'absolute',
-    left: 51,
-    top: 51,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    zIndex: 4,
+    backgroundColor: 'transparent',
   },
-  micPressable: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    overflow: 'hidden',
+  ghostZoneLeft: {
+    left: '7%',
+    bottom: 19,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
   },
-  talkButton: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
+  ghostZoneCenter: {
+    left: '50%',
+    bottom: 7,
+    marginLeft: -43,
+    width: 86,
+    height: 86,
+    borderRadius: 43,
   },
-  talkButtonRecording: {
-    opacity: 0.96,
+  ghostZoneRight: {
+    right: '7%',
+    bottom: 19,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
   },
-  holdLabel: {
-    color: '#eff8f8',
-    fontSize: 19,
-    letterSpacing: 2,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  modeHint: {
-    color: 'rgba(255,255,255,0.88)',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  tapHints: {
-    marginTop: 18,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-  },
-  tapHintLine: {
+  creditLine: {
+    marginTop: 10,
     fontSize: 12,
-    color: '#5a6d68',
+    color: '#4f5f5a',
+    letterSpacing: 0.5,
+    fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 18,
   },
-  micCore: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(245, 255, 251, 0.22)',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.5)',
-  },
-  waveHalo: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    borderWidth: 4,
-    borderColor: 'rgba(219, 255, 246, 0.8)',
+  microToast: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#0f766e',
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });
