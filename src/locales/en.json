@@ -19,7 +19,8 @@
     "errorTitle": "Sorting stumbled",
     "orphanGroup": "Misc",
     "pileCount": "{{count}} note(s)",
-    "dismiss": "Continue"
+    "dismiss": "Continue",
+    "organization": "Organization"
   },
   "eveningRitual": {
     "title": "Star Ritual",
@@ -28,20 +29,12 @@
     "tomorrowPlaceholder": "One thought for tomorrow?",
     "cta": "One thought for tomorrow?",
     "saving": "Anchoring...",
-    "bonusHint": "Star Bonus: +5 Flower Boosts",
     "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
     "gratitudeLine2": "Every step counts. Your sky opens this evening.",
     "gratitudeLine3": "Your consistency lights your path. Beautiful close."
   },
   "zenGarden": {
-    "screenTitle": "Zen Garden",
-    "levelShort": "LVL {{level}}",
-    "growthXp": "Growth: {{current}} / {{total}} XP",
-    "actionZoneTitle": "FEED YOUR INTENTIONS",
-    "actionBoost": "Boost my plant",
-    "actionVideoReward": "Watch a video (3 Projects)",
-    "quotaA11y": "Project credits: {{current}} of {{total}}",
-    "plantA11y": "Your intention state on the stone pedestal",
+    "screenTitle": "Zen Dashboard",
     "whisper": "One gentle move, lasting clarity."
   },
   "tabs": {
@@ -622,7 +615,11 @@
     "habits": "Habits",
     "projects": "Projects",
     "premiumQuota": "Premium quota",
-    "premiumQuotaRemaining": "Premium quota remaining: {{count}}"
+    "premiumQuotaRemaining": "Premium quota remaining: {{count}}",
+    "later": "Later",
+    "tryAgainSoon": "Try again in a moment.",
+    "active": "Active",
+    "inactive": "Inactive"
   },
   "talkHome": {
     "brandName": "TalkNDone",
@@ -721,7 +718,14 @@
     "titleRequiredBody": "Add a short title before processing.",
     "voicePersistErrorTitle": "Could not save",
     "voicePersistErrorBody": "This intention could not be saved. Please try again shortly.",
-    "confirmEmptyTitle": "—"
+    "confirmEmptyTitle": "—",
+    "frequencyLabel": "Frequency",
+    "whenLabel": "When?",
+    "habitFrequencyPlaceholder": "Daily, Week, Weekend",
+    "whenPlaceholder": "Optional (e.g. tomorrow, 6pm...)",
+    "frequencyDaily": "Daily",
+    "frequencyWeek": "Week",
+    "frequencyWeekend": "Weekend"
   },
   "errorBoundary": {
     "brand": "TalkNDone",
@@ -779,5 +783,57 @@
   },
   "navigation": {
     "semanticBrainLabHeader": "Semantic Brain Lab"
+  },
+  "economy": {
+    "labels": {
+      "zenPoints": "Zen Points",
+      "aiCredits": "AI Credits"
+    },
+    "aiCreditsCount": "{{count}} AI Credits",
+    "balanceInsufficientTitle": "Insufficient balance",
+    "recharge": {
+      "modalTitle": "AI Recharge",
+      "modalBody": "Your Ad-Free mode is active, but AI still needs fuel. Watch one video for +5 credits.",
+      "watchVideoCta": "Watch a video",
+      "dailyCapReached": "Daily recharge limit reached. Let your AI rest until tomorrow!",
+      "cooldown": "Please wait 60 seconds between recharge videos.",
+      "unavailableTitle": "Recharge unavailable",
+      "rewardToast": "+5 AI Credits"
+    },
+    "shop": {
+      "title": "Time Shop",
+      "zenModeActive": "Zen Mode Active",
+      "adFreeState": "Ad-free status: {{state}}.",
+      "serenityDescription": "Removes intrusive banners and ads. Note: manual AI video recharge stays available to fuel your projects.",
+      "buySerenity": "24h of Serenity - 500Z",
+      "buyBoost": "Intelligence Boost (+5 AI) - 300Z",
+      "purchaseSuccessTitle": "Purchase confirmed",
+      "serenityInsufficientBody": "You need 500Z to activate 24h of serenity.",
+      "boostInsufficientBody": "You need 300Z to buy this boost.",
+      "serenitySuccessBody": "24h of serenity activated.",
+      "boostSuccessBody": "+5 AI Credits added."
+    },
+    "debugAddZen": "+10 Zen",
+    "debugAddAiCredit": "+1 AI Credit"
+  },
+  "quests": {
+    "notReadyTitle": "Quest not ready",
+    "notReadyBody": "Requirements are not met yet.",
+    "bonusReceivedTitle": "Bonus received",
+    "claimedToast": "Quest completed +{{gain}}Z",
+    "dailyTitle": "Quest of the Day - {{title}}",
+    "progress": "Progress: {{current}}/{{target}}",
+    "alreadyClaimed": "Bonus already claimed",
+    "claimCta": "Claim my bonus"
+  },
+  "horizons": {
+    "rearbitrate": "To re-arbitrate",
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "thisWeek": "This week",
+    "noPressure": "No pressure",
+    "optionalNoPressure": "Optional (No pressure)",
+    "rebalanceToToday": "Move to Today",
+    "rebalanceToNoPressure": "Move to No pressure"
   }
 }

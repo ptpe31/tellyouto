@@ -74,11 +74,11 @@ export function ZenGardenScreen() {
     try {
       const claim = await claimDailyQuestBonus();
       if (!claim.ok) {
-        Alert.alert('Quete non prete', 'Objectif non atteint.');
+        Alert.alert(t('quests.notReadyTitle'), t('quests.notReadyBody'));
         return;
       }
       await syncPendingIntentions();
-      Alert.alert('Bonus recu', `+${claim.gain} Points Zen`);
+      Alert.alert(t('quests.bonusReceivedTitle'), t('quests.claimedToast', { gain: claim.gain }));
       await load();
     } finally {
       setBusy(false);
@@ -91,13 +91,13 @@ export function ZenGardenScreen() {
     try {
       const spent = await spendZenPoints(500);
       if (!spent.ok) {
-        Alert.alert('Solde insuffisant', 'Il faut 500Z pour activer 24h de serenite.');
+        Alert.alert(t('economy.balanceInsufficientTitle'), t('economy.shop.serenityInsufficientBody'));
         return;
       }
       await grantAdFreeDays(1);
       await syncPendingIntentions();
       await load();
-      Alert.alert('Achat valide', '24h de serenite activees.');
+      Alert.alert(t('economy.shop.purchaseSuccessTitle'), t('economy.shop.serenitySuccessBody'));
     } finally {
       setBusy(false);
     }
@@ -109,13 +109,13 @@ export function ZenGardenScreen() {
     try {
       const spent = await spendZenPoints(300);
       if (!spent.ok) {
-        Alert.alert('Solde insuffisant', 'Il faut 300Z pour acheter ce boost.');
+        Alert.alert(t('economy.balanceInsufficientTitle'), t('economy.shop.boostInsufficientBody'));
         return;
       }
       await addIaCredits(5);
       await syncPendingIntentions();
       await load();
-      Alert.alert('Achat valide', '+5 credits IA ajoutes.');
+      Alert.alert(t('economy.shop.purchaseSuccessTitle'), t('economy.shop.boostSuccessBody'));
     } finally {
       setBusy(false);
     }
@@ -137,58 +137,58 @@ export function ZenGardenScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
       <Text style={styles.title}>{t('zenGarden.screenTitle')}</Text>
-      {adFreeActive ? <Text style={styles.zenModeBadge}>Mode Zen Actif</Text> : null}
+      {adFreeActive ? <Text style={styles.zenModeBadge}>{t('economy.shop.zenModeActive')}</Text> : null}
 
       <View style={styles.card}>
-        <Text style={styles.cardLabel}>Points Zen</Text>
+        <Text style={styles.cardLabel}>{t('economy.labels.zenPoints')}</Text>
         <Text style={styles.cardValue}>{zenPoints}</Text>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardLabel}>Credits IA</Text>
+        <Text style={styles.cardLabel}>{t('economy.labels.aiCredits')}</Text>
         <Text style={styles.cardValue}>{iaCredits}</Text>
       </View>
 
       <View style={styles.shopCard}>
-        <Text style={styles.shopTitle}>Boutique de Temps (bientot)</Text>
+        <Text style={styles.shopTitle}>{t('economy.shop.title')}</Text>
         <Text style={styles.shopText}>
-          Etat ad-free: {adFreeActive ? 'Actif' : 'Inactif'}.
+          {t('economy.shop.adFreeState', { state: adFreeActive ? t('common.active') : t('common.inactive') })}
         </Text>
         <Text style={styles.shopText}>
-          Supprime les bannieres et publicites intrusives. Note : La recharge manuelle de l'IA via video reste disponible pour alimenter tes projets.
+          {t('economy.shop.serenityDescription')}
         </Text>
         <Pressable
           onPress={() => void onBuySerenity()}
           style={[styles.buyBtn, busy ? styles.debugBtnDisabled : null]}
           disabled={busy}
         >
-          <Text style={styles.buyBtnText}>24h de Serenite - 500Z</Text>
+          <Text style={styles.buyBtnText}>{t('economy.shop.buySerenity')}</Text>
         </Pressable>
         <Pressable
           onPress={() => void onBuyBoost()}
           style={[styles.buyBtn, busy ? styles.debugBtnDisabled : null]}
           disabled={busy}
         >
-          <Text style={styles.buyBtnText}>Boost Intelligence (+5 IA) - 300Z</Text>
+          <Text style={styles.buyBtnText}>{t('economy.shop.buyBoost')}</Text>
         </Pressable>
       </View>
 
       {dailyQuest ? (
         <View style={styles.questCard}>
-          <Text style={styles.questTitle}>Quete du Jour - {dailyQuest.title}</Text>
+          <Text style={styles.questTitle}>{t('quests.dailyTitle', { title: dailyQuest.title })}</Text>
           <Text style={styles.questDesc}>{dailyQuest.description}</Text>
           <Text style={styles.questProgress}>
-            Progression: {Math.min(questProgress, questTarget)}/{questTarget}
+            {t('quests.progress', { current: Math.min(questProgress, questTarget), target: questTarget })}
           </Text>
           {questClaimed ? (
-            <Text style={styles.questClaimed}>Bonus deja reclame</Text>
+            <Text style={styles.questClaimed}>{t('quests.alreadyClaimed')}</Text>
           ) : (
             <Pressable
               onPress={() => void onClaimQuest()}
               disabled={!questCanClaim || busy}
               style={[styles.questClaimBtn, (!questCanClaim || busy) ? styles.debugBtnDisabled : null]}
             >
-              <Text style={styles.questClaimText}>Reclamer mon bonus</Text>
+              <Text style={styles.questClaimText}>{t('quests.claimCta')}</Text>
             </Pressable>
           )}
         </View>
@@ -201,14 +201,14 @@ export function ZenGardenScreen() {
             style={[styles.debugBtn, busy ? styles.debugBtnDisabled : null]}
             disabled={busy}
           >
-            <Text style={styles.debugBtnText}>+10 Zen</Text>
+            <Text style={styles.debugBtnText}>{t('economy.debugAddZen')}</Text>
           </Pressable>
           <Pressable
             onPress={() => void onDebugAddCredits()}
             style={[styles.debugBtn, busy ? styles.debugBtnDisabled : null]}
             disabled={busy}
           >
-            <Text style={styles.debugBtnText}>+1 Credit IA</Text>
+            <Text style={styles.debugBtnText}>{t('economy.debugAddAiCredit')}</Text>
           </Pressable>
         </View>
       ) : null}

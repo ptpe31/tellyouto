@@ -545,8 +545,8 @@ export function MeliMeloScreen() {
       style={[styles.root, { paddingTop: insets.top + 8 }]}
     >
       <View style={styles.titleRow}>
-        <Text style={styles.title}>{t('sorting.screenTitle')} · Organisation</Text>
-        <Text style={styles.creditBadge}>{remainingCredits} crédit(s)</Text>
+        <Text style={styles.title}>{t('sorting.screenTitle')} · {t('sorting.organization')}</Text>
+        <Text style={styles.creditBadge}>{t('economy.aiCreditsCount', { count: remainingCredits })}</Text>
       </View>
 
       <View style={styles.modeRow}>
@@ -573,7 +573,7 @@ export function MeliMeloScreen() {
               return (
                 <View key={hKey} style={styles.horizonSection}>
                   <Text style={styles.horizonTitle}>
-                    {horizonLabel.emoji} {horizonLabel.label}
+                    {horizonLabel.emoji} {t(horizonLabel.labelKey)}
                   </Text>
                   {rows.map((item) => {
                     const bg = pastelFromCategory(item.category_id);
@@ -614,7 +614,7 @@ export function MeliMeloScreen() {
                                     void quickRebalance(item, 'TODAY');
                                   }}
                                 >
-                                  <Text style={styles.rearbBtnText}>Reporter à Aujourd&apos;hui</Text>
+                                  <Text style={styles.rearbBtnText}>{t('horizons.rebalanceToToday')}</Text>
                                 </Pressable>
                                 <Pressable
                                   style={styles.rearbBtn}
@@ -622,7 +622,7 @@ export function MeliMeloScreen() {
                                     void quickRebalance(item, 'NO_PRESSURE');
                                   }}
                                 >
-                                  <Text style={styles.rearbBtnText}>Basculer Sans pression</Text>
+                                  <Text style={styles.rearbBtnText}>{t('horizons.rebalanceToNoPressure')}</Text>
                                 </Pressable>
                               </View>
                             ) : null}

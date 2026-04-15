@@ -7,12 +7,12 @@ export type TimeHorizonKey =
   | 'WEEK'
   | 'NO_PRESSURE';
 
-export const TIME_HORIZON_META: Record<TimeHorizonKey, { label: string; emoji: string }> = {
-  REARBITRATE: { label: 'À ré-arbitrer', emoji: '⌛' },
-  TODAY: { label: "Aujourd'hui", emoji: '☀️' },
-  TOMORROW: { label: 'Demain', emoji: '📅' },
-  WEEK: { label: 'Cette semaine', emoji: '🗓️' },
-  NO_PRESSURE: { label: 'Sans pression', emoji: '🌊' },
+export const TIME_HORIZON_META: Record<TimeHorizonKey, { labelKey: string; emoji: string }> = {
+  REARBITRATE: { labelKey: 'horizons.rearbitrate', emoji: '⌛' },
+  TODAY: { labelKey: 'horizons.today', emoji: '☀️' },
+  TOMORROW: { labelKey: 'horizons.tomorrow', emoji: '📅' },
+  WEEK: { labelKey: 'horizons.thisWeek', emoji: '🗓️' },
+  NO_PRESSURE: { labelKey: 'horizons.noPressure', emoji: '🌊' },
 };
 
 export function formatYmdLocal(date: Date): string {

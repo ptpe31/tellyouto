@@ -531,39 +531,45 @@ export function TalkHomeScreen() {
     try {
       const claim = await claimDailyQuestBonus();
       if (!claim.ok) {
-        Alert.alert('Quete non prete', 'Les conditions ne sont pas encore remplies.');
+        Alert.alert(t('quests.notReadyTitle'), t('quests.notReadyBody'));
         return;
       }
       await syncPendingIntentions();
-      setRewardToast(`Quete validee +${claim.gain}Z`);
+      setRewardToast(t('quests.claimedToast', { gain: claim.gain }));
       setTimeout(() => setRewardToast(''), 2200);
       await refreshRemainingIntents();
     } finally {
       setIsBusy(false);
     }
-  }, [dailyQuestCanClaim, isBusy, refreshRemainingIntents]);
+  }, [dailyQuestCanClaim, isBusy, refreshRemainingIntents, t]);
 
   const adFreeActive = isAdFreeModeActive(spectrum);
 
   const promptIaRechargeModal = useCallback(() => {
     Alert.alert(
-      'Recharge IA',
-      'Ton mode Sans-Pub est actif, mais l\'IA a besoin de carburant. Regarde une video pour +5 credits.',
+      t('economy.recharge.modalTitle'),
+      t('economy.recharge.modalBody'),
       [
-        { text: 'Plus tard', style: 'cancel' },
+        { text: t('common.later'), style: 'cancel' },
         {
-          text: 'Regarder une vidéo',
+          text: t('economy.recharge.watchVideoCta'),
           onPress: () => {
             void (async () => {
               setIsBusy(true);
               try {
                 const res = await runManualIaRechargeVideo();
                 if (!res.ok) {
-                  Alert.alert('Recharge indisponible', res.reason || 'Réessaie dans un instant.');
+                  const reason =
+                    res.reason === 'daily_limit_reached'
+                      ? t('economy.recharge.dailyCapReached')
+                      : res.reason === 'recharge_cooldown'
+                        ? t('economy.recharge.cooldown')
+                        : t('common.tryAgainSoon');
+                  Alert.alert(t('economy.recharge.unavailableTitle'), reason);
                   return;
                 }
                 setRemainingIntents(res.creditsAfter);
-                setMicroToast('+5 crédits IA');
+                setMicroToast(t('economy.recharge.rewardToast'));
                 await refreshRemainingIntents();
               } finally {
                 setIsBusy(false);
@@ -573,7 +579,7 @@ export function TalkHomeScreen() {
         },
       ],
     );
-  }, [refreshRemainingIntents]);
+  }, [refreshRemainingIntents, t]);
 
   useEffect(() => {
     void refreshRemainingIntents();
@@ -2208,11 +2214,11 @@ export function TalkHomeScreen() {
         <View style={styles.timeSection}>
           <View style={styles.whenHeaderRow}>
             <Text style={styles.confirmBlockLabel}>
-              {voiceConfirm.localType === 'HABIT' ? 'Frequence' : 'Quand ?'}
+              {voiceConfirm.localType === 'HABIT' ? t('talkHome.frequencyLabel') : t('talkHome.whenLabel')}
             </Text>
             <View style={styles.whenBadge}>
               <Text style={styles.whenBadgeText}>
-                {horizonMeta.emoji} {horizonMeta.label}
+                {horizonMeta.emoji} {t(horizonMeta.labelKey)}
               </Text>
             </View>
           </View>
@@ -2236,8 +2242,8 @@ export function TalkHomeScreen() {
                 style={styles.editTimeInput}
                 placeholder={
                   voiceConfirm.localType === 'HABIT'
-                    ? 'Quotidien, Semaine, Week-end'
-                    : 'Facultatif (ex: demain, 18h...)'
+                    ? t('talkHome.habitFrequencyPlaceholder')
+                    : t('talkHome.whenPlaceholder')
                 }
                 placeholderTextColor="rgba(44,62,80,0.45)"
               />
@@ -2254,13 +2260,13 @@ export function TalkHomeScreen() {
           ) : (
             <View style={styles.timeValueWrap}>
               <Text style={styles.timeValue}>
-                {timeDisplay || 'Facultatif (Sans pression)'}
+                {timeDisplay || t('horizons.optionalNoPressure')}
               </Text>
             </View>
           )}
           {voiceConfirm.localType === 'HABIT' && isEditing ? (
             <View style={styles.freqRow}>
-              {['Quotidien', 'Semaine', 'Week-end'].map((preset) => (
+              {[t('talkHome.frequencyDaily'), t('talkHome.frequencyWeek'), t('talkHome.frequencyWeekend')].map((preset) => (
                 <Pressable
                   key={preset}
                   onPress={() => {

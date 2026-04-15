@@ -14,7 +14,8 @@
     "stats": "Stats",
     "debug": "Debug",
     "meliMelo": "Méli-Mélo",
-    "zenGarden": "Garten"
+    "zenGarden": "Garten",
+    "talkHome": "Talk"
   },
   "messaging": {
     "lead": "TellYouTo-Deep-Links — App direkt auf Radar, Timeline oder Aufladestation öffnen.",
@@ -78,7 +79,18 @@
     "screenSubtitle": "Multi-Kanal, werbefrei, Support mit Priorität.",
     "devNote": "Dev-Build: Der Button simuliert das Abo ohne Zahlung.",
     "subscribeGold": "Abonnieren — 9,99 € / Monat",
-    "back": "Schließen"
+    "back": "Schließen",
+    "linkRequiredTitle": "Account required",
+    "linkRequiredBody": "To keep your Pro subscription across phones, link Google or Apple (same Firebase identity).",
+    "linkGoogle": "Continue with Google",
+    "linkApple": "Continue with Apple",
+    "linkLater": "Not now",
+    "linkGoogleOnly": "Link Google only",
+    "linkAppleOnly": "Link Apple only",
+    "linkErrorTitle": "Linking failed",
+    "configureGoogleTitle": "Google configuration",
+    "configureGoogleBody": "Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (and iOS/Android client IDs if needed) in .env, then restart Metro.",
+    "googleMissingEnv": "Missing Google Web client ID: OAuth linking will not work until EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID is set."
   },
   "channelCatalog": {
     "proBadge": "PRO",
@@ -216,7 +228,9 @@
       "pending": "Ausstehend",
       "active": "Aktiv",
       "done": "Erledigt"
-    }
+    },
+    "saveTimeoutTitle": "Timed out",
+    "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
   },
   "timeline": {
     "subtitle": "Tages-Schiene — vorgeschlagene Fenster nach Spektrum (hohes Momentum → tiefere Blöcke).",
@@ -290,7 +304,10 @@
     "insightClarity": "Klarheit liegt bei etwa {{score}}% — wie nah die reale Zeit an deinen Schätzungen war.",
     "insightShort": "Schon ein oder zwei kurze Blöcke erzählen eine freundliche Geschichte.",
     "insightEnergyLow": "Deine Energie wirkt leise; morgen reichen kleine Schritte.",
-    "insightEnergyOk": "Die Energie wirkt ausreichend für das, was du als Nächstes wählst."
+    "insightEnergyOk": "Die Energie wirkt ausreichend für das, was du als Nächstes wählst.",
+    "semanticLabTitle": "Semantic Brain Lab",
+    "semanticLabHint": "Audio .m4a → Gemini Flash + comparison with local AI (no DB persistence).",
+    "semanticLabOpen": "Open test lab"
   },
   "debug": {
     "pilotTitle": "Steuerungswerkzeuge",
@@ -379,7 +396,25 @@
     "demoIntent5Desc": "Kennzahlen und Auslastung aktualisieren.",
     "semantic_tags": "Semantische Tags",
     "user_profile_sync_success": "Benutzerprofil erfolgreich aktualisiert.",
-    "user_profile_sync_error": "Benutzerprofil konnte nicht aktualisiert werden."
+    "user_profile_sync_error": "Benutzerprofil konnte nicht aktualisiert werden.",
+    "soundSectionTitle": "Sound settings",
+    "soundHelp": "Selects the bundled .wav for rail alarms (native rebuild after adding files). Android uses one notification channel per variant so the OS actually plays the selected sound.",
+    "soundDefault": "Default",
+    "soundZen": "Zen",
+    "soundDigital": "Digital",
+    "firebaseProjectIdTitle": "Firebase — projectId (debug)",
+    "firebaseProjectIdBody": "SDK (app.options.projectId):\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID:\n{{env}}",
+    "firebaseSdkNullLabel": "(getFirebaseApp = null)",
+    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* missing)",
+    "testWhatsAppTitle": "Test WhatsApp",
+    "testWhatsAppRaw": "Test WhatsApp (debug simulation)",
+    "talkCaptureSectionTitle": "Talk monitor (Quick / Deep)",
+    "talkCaptureEmpty": "No recent capture — use the Talk tab.",
+    "talkCaptureModeQuick": "Quick mode",
+    "talkCaptureModeDeep": "Deep mode",
+    "talkCaptureRawLabel": "Raw transcript",
+    "talkCaptureLocalLabel": "Local triage (JSON)",
+    "talkCaptureGeminiLabel": "Gemini (full JSON)"
   },
   "legal": {
     "screenTitle": "Über die App",
@@ -541,10 +576,264 @@
     "agentPool": "Co-Pilot-Zeitreserve: {{seconds}} s",
     "allyPreview": "Stimme: {{voice}} · Ton: {{tone}} · KI-Sprache: {{lang}}",
     "alarmPermissionTitle": "Benachrichtigungen erforderlich",
-    "alarmPermissionBody": "Ohne Benachrichtigungsberechtigung kann der lokale Agent keine Rail-Alarme auf dem Gerät auslösen. Aktiviere Benachrichtigungen (und Alarme unter Android) in den Systemeinstellungen für diese App."
+    "alarmPermissionBody": "Ohne Benachrichtigungsberechtigung kann der lokale Agent keine Rail-Alarme auf dem Gerät auslösen. Aktiviere Benachrichtigungen (und Alarme unter Android) in den Systemeinstellungen für diese App.",
+    "railChannelName": "TellYouTo · Rail ({{soundId}})"
   },
   "common": {
     "habits": "Gewohnheiten",
-    "projects": "Projekte"
+    "projects": "Projekte",
+    "later": "Later",
+    "tryAgainSoon": "Try again in a moment.",
+    "active": "Active",
+    "inactive": "Inactive",
+    "premiumQuota": "Premium quota",
+    "premiumQuotaRemaining": "Premium quota remaining: {{count}}"
+  },
+  "zenGarden": {
+    "screenTitle": "Zen Garden",
+    "whisper": "One gentle move, lasting clarity."
+  },
+  "eveningRitual": {
+    "title": "Star Ritual",
+    "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
+    "victoryLabel": "Victory of the day",
+    "tomorrowPlaceholder": "One thought for tomorrow?",
+    "cta": "One thought for tomorrow?",
+    "saving": "Anchoring...",
+    "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
+    "gratitudeLine2": "Every step counts. Your sky opens this evening.",
+    "gratitudeLine3": "Your consistency lights your path. Beautiful close."
+  },
+  "sorting": {
+    "organization": "Organization",
+    "screenTitle": "Méli-Mélo",
+    "shakeInstruction": "Shake to clear your mind",
+    "webNoShake": "Shake sorting runs on device — open Méli-Mélo on your phone.",
+    "empty": "Nothing waiting to sort — your open intentions will appear here.",
+    "noCreditTitle": "Project momentum",
+    "noCreditBody": "A quick visit to the Zen Garden refills your Project credits for this magic sort.",
+    "noCreditCancel": "OK",
+    "goZenGarden": "Open Zen Garden",
+    "noApiKeyTitle": "Gemini key",
+    "noApiKeyBody": "Add EXPO_PUBLIC_GEMINI_API_KEY to enable smart sorting.",
+    "errorTitle": "Sorting stumbled",
+    "orphanGroup": "Misc",
+    "pileCount": "{{count}} note(s)",
+    "dismiss": "Continue"
+  },
+  "economy": {
+    "labels": {
+      "zenPoints": "Zen Points",
+      "aiCredits": "AI Credits"
+    },
+    "aiCreditsCount": "{{count}} AI Credits",
+    "balanceInsufficientTitle": "Insufficient balance",
+    "recharge": {
+      "modalTitle": "AI Recharge",
+      "modalBody": "Your Ad-Free mode is active, but AI still needs fuel. Watch one video for +5 credits.",
+      "watchVideoCta": "Watch a video",
+      "dailyCapReached": "Daily recharge limit reached. Let your AI rest until tomorrow!",
+      "cooldown": "Please wait 60 seconds between recharge videos.",
+      "unavailableTitle": "Recharge unavailable",
+      "rewardToast": "+5 AI Credits"
+    },
+    "shop": {
+      "title": "Time Shop",
+      "zenModeActive": "Zen Mode Active",
+      "adFreeState": "Ad-free status: {{state}}.",
+      "serenityDescription": "Removes intrusive banners and ads. Note: manual AI video recharge stays available to fuel your projects.",
+      "buySerenity": "24h of Serenity - 500Z",
+      "buyBoost": "Intelligence Boost (+5 AI) - 300Z",
+      "purchaseSuccessTitle": "Purchase confirmed",
+      "serenityInsufficientBody": "You need 500Z to activate 24h of serenity.",
+      "boostInsufficientBody": "You need 300Z to buy this boost.",
+      "serenitySuccessBody": "24h of serenity activated.",
+      "boostSuccessBody": "+5 AI Credits added."
+    },
+    "debugAddZen": "+10 Zen",
+    "debugAddAiCredit": "+1 AI Credit"
+  },
+  "quests": {
+    "notReadyTitle": "Quest not ready",
+    "notReadyBody": "Requirements are not met yet.",
+    "bonusReceivedTitle": "Bonus received",
+    "claimedToast": "Quest completed +{{gain}}Z",
+    "dailyTitle": "Quest of the Day - {{title}}",
+    "progress": "Progress: {{current}}/{{target}}",
+    "alreadyClaimed": "Bonus already claimed",
+    "claimCta": "Claim my bonus"
+  },
+  "horizons": {
+    "rearbitrate": "To re-arbitrate",
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "thisWeek": "This week",
+    "noPressure": "No pressure",
+    "optionalNoPressure": "Optional (No pressure)",
+    "rebalanceToToday": "Move to Today",
+    "rebalanceToNoPressure": "Move to No pressure"
+  },
+  "talkHome": {
+    "frequencyLabel": "Frequency",
+    "whenLabel": "When?",
+    "habitFrequencyPlaceholder": "Daily, Week, Weekend",
+    "whenPlaceholder": "Optional (e.g. tomorrow, 6pm...)",
+    "frequencyDaily": "Daily",
+    "frequencyWeek": "Week",
+    "frequencyWeekend": "Weekend",
+    "brandName": "TalkNDone",
+    "talkieProjet": "PROJECT",
+    "talkieIntention": "INTENTION",
+    "talkieQuickNote": "QUICK NOTE",
+    "a11yTalkieProjet": "Project — expert capture to break down a complex idea",
+    "a11yTalkieIntention": "Intention — hold to capture, release for on-device triage",
+    "a11yTalkieQuickNote": "Quick note — raw capture with no analysis",
+    "profileButton": "Open profile",
+    "priorityHigh": "High-priority",
+    "questionHydration": "Drink a glass of water?",
+    "yes": "YES",
+    "no": "NO",
+    "localPrivacyHint": "Managed by local AI • Total Privacy",
+    "progressCurrent": "Current task: 1/3",
+    "progressNextAnchor": "Next anchor: Meditation (evening)",
+    "holdToTalk": "Hold to speak",
+    "status": {
+      "listening": "Listening",
+      "analyzing": "Analyzing…"
+    },
+    "button": {
+      "stop": "STOP"
+    },
+    "label": {
+      "quickIntent": "Quick mode — on-device",
+      "deepIntent": "Deep mode — Gemini"
+    },
+    "hintTapQuick": "Short tap: quick intent (on-device recognition).",
+    "hintHoldDeep": "Hold to unlock: hands-free recording, then STOP → Gemini.",
+    "a11yMainIdle": "Short tap for on-device speech, or hold for hands-free Gemini capture",
+    "a11yStopQuick": "Stop listening and analyze locally",
+    "a11yStopDeep": "Stop recording and send to Gemini",
+    "deepNoApiKeyTitle": "Gemini API key",
+    "deepNoApiKeyBody": "Set EXPO_PUBLIC_GEMINI_API_KEY in .env and restart Metro for Deep mode.",
+    "orbital": {
+      "hintSlide": "Slide the bead to Task (right) or Project (left), then hold the mic.",
+      "holdRelease": "Release to finish",
+      "pickTitle": "Choose a mode",
+      "pickBody": "Snap the bead to Task or Project before speaking."
+    },
+    "a11yMicNeutral": "Mic: slide the bead to Task or Project first, then hold to speak",
+    "a11yMicQuick": "Mic: hold for on-device dictation (Task)",
+    "a11yMicDeep": "Mic: hold for Project recording sent to Gemini",
+    "microphonePermissionTitle": "Microphone access required",
+    "microphonePermissionBody": "Allow microphone access to record your voice with TalkNDone.",
+    "microphonePermissionDeniedTitle": "Microphone blocked",
+    "microphonePermissionDeniedBody": "Voice input cannot start without microphone access. Open system settings and allow the microphone for TalkNDone.",
+    "speechRecognitionUnavailableTitle": "Speech recognition unavailable",
+    "speechRecognitionUnavailableBody": "This device has no usable system speech recognizer (on Android this is often tied to the Google app and speech services). Install or update the Google app, check your system language, then try again.",
+    "speechErrorNotAllowed": "Microphone or speech recognition is denied for TalkNDone. Open system settings and allow access.",
+    "speechErrorService": "The system speech recognizer is not available. Check that Google Speech Services (Android) or Dictation (iOS) is enabled.",
+    "speechErrorNetwork": "Recognition failed due to a network issue. Try again or check your connection.",
+    "speechErrorNoSpeech": "No speech detected. Speak a little louder or closer to the microphone.",
+    "speechErrorClient": "Recognizer engine error. Please try again shortly.",
+    "speechErrorInterrupted": "Recognition was interrupted (call, Siri, or another audio app). Try again when audio is free.",
+    "speechErrorGeneric": "{{message}}",
+    "speechDebugTitle": "Technical detail (dev)",
+    "speechDebugBody": "{{detail}}",
+    "recordingErrorTitle": "Recording",
+    "recordingErrorStart": "Unable to start recording.",
+    "recordingErrorStop": "Unable to stop recording.",
+    "recordingErrorMissingFile": "Audio file not found after recording.",
+    "recordingTooShortTitle": "Recording too short",
+    "recordingTooShortBody": "Hold the button a little longer to capture audio.",
+    "transcriptionTitle": "Local transcription",
+    "listeningNow": "I'm listening...",
+    "confirmIntro": "Confirm to take this into account:",
+    "confirmTypePrefix": "Type",
+    "confirmActionLabel": "Action",
+    "confirmMomentLabel": "Moment",
+    "timeUnspecified": "Not specified",
+    "intentType": {
+      "habit": "Habit",
+      "task": "Task",
+      "project": "Project",
+      "note": "Note"
+    },
+    "editIntentA11y": "Edit action and moment",
+    "voiceLivePlaceholder": "…",
+    "voiceWebUnsupportedTitle": "Speech recognition",
+    "voiceWebUnsupportedBody": "Native dictation is not available on the web. Use the iOS or Android app.",
+    "voiceProcess": "PROCESS",
+    "voiceCallExpert": "CALL EXPERT",
+    "voiceCancel": "CANCEL",
+    "voiceValidate": "VALIDATE",
+    "voiceNote": "NOTE",
+    "scenarioLocal": "Scenario A · Quick local validation",
+    "scenarioComplex": "Scenario B · Expert refinement on demand",
+    "scenarioQuickNote": "Raw capture · Inbox (no triage)",
+    "scenarioComplexHint": "Scenario B ready: call the expert if needed.",
+    "transcriptionUnclearTitle": "Transcription",
+    "transcriptionUnclearBody": "Sorry, I did not understand.",
+    "titleRequiredTitle": "Title required",
+    "titleRequiredBody": "Add a short title before processing.",
+    "voicePersistErrorTitle": "Could not save",
+    "voicePersistErrorBody": "This intention could not be saved. Please try again shortly.",
+    "confirmEmptyTitle": "—"
+  },
+  "errorBoundary": {
+    "brand": "TalkNDone",
+    "title": "A moment without a blank screen",
+    "body": "A tiny snag in the gears — nothing serious. Breathe; you can restart when you’re ready.",
+    "restartA11y": "Restart the app",
+    "restart": "Restart"
+  },
+  "nativeModule": {
+    "missingTitle": "Native module error",
+    "missingBody": "{{name}} is missing or not linked to the current binary.\nContext: {{context}}\n→ Android rebuild required (npx expo prebuild --clean --platform android, then compile).\n\n{{detail}}",
+    "unknownModuleName": "(unknown module)",
+    "contextTalkHomeSpeech": "Talk · speech recognition",
+    "contextTalkHomePersist": "Talk · voice intention (local DB)",
+    "contextRadarSave": "Radar · save (local DB / notifications / alarms)",
+    "contextInsertIntention": "Insert intention (SQLite / notifications)"
+  },
+  "semanticLab": {
+    "kind": {
+      "habit": "Habit",
+      "task": "Task",
+      "project": "Project"
+    },
+    "yes": "yes",
+    "no": "no",
+    "alertWebUnsupportedTitle": "Not supported",
+    "alertWebUnsupportedBody": "expo-av recording: iOS / Android only.",
+    "alertMicTitle": "Microphone",
+    "alertMicDeniedBody": "Microphone permission denied.",
+    "alertRecordingTitle": "Recording",
+    "alertRecordingNoActiveBody": "No active recording — tap START first.",
+    "alertApiKeyTitle": "API key",
+    "alertApiKeyBody": "Set EXPO_PUBLIC_GEMINI_API_KEY in .env, then restart Metro.",
+    "pipelineErrorExpoAvRebuild": "Native expo-av module missing: rebuild required (npx expo prebuild + run:android / run:ios).",
+    "errorUriAfterStop": ".m4a file URI missing after stop.",
+    "webUnsupportedMessage": "Web not supported — use iOS or Android (expo-av).",
+    "lead": "Pipeline: .m4a (source of truth) → Gemini Flash transcription → [LOCAL AI] vs [GEMINI]. No SQLite / Firestore writes.",
+    "btnStart": "START (.m4a)",
+    "btnStopPipeline": "STOP & PIPELINE",
+    "btnReset": "RESET (memory + file)",
+    "loaderLabel": "Transcription + analysis…",
+    "sectionRaw": "— RAW TEXT (Gemini transcription)",
+    "sectionLocal": "— [LOCAL AI] (reformulateStructuredIntent + frequency)",
+    "sectionGemini": "— [GEMINI FLASH] (structured JSON)",
+    "sectionSynth": "— SUMMARY (comparison)",
+    "emptyPlaceholder": "—",
+    "localLineType": "Type: {{kind}} ({{kindCode}})",
+    "localLineFrequency": "Frequency: {{value}}",
+    "localLineTitle": "Title (cleaned): {{value}}",
+    "localLineTimeMarker": "timeMarker: {{value}}",
+    "synthNoGeminiHeader": "(No Gemini analysis — see pipeline error above.)\n",
+    "synthLocalOnlyLine": "[LOCAL AI] only: {{kind}} — frequency: {{freq}}",
+    "synthAligned": "Types aligned: {{localLabel}} = Gemini \"{{geminiType}}\".\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}",
+    "synthMismatch": "Mismatch: [LOCAL AI] said « {{localLabel}} », [GEMINI FLASH] said « {{geminiType}} ».\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}\nComplex project (Gemini): {{complex}}\nWhy (Gemini): {{reasoning}}"
+  },
+  "navigation": {
+    "semanticBrainLabHeader": "Semantic Brain Lab"
   }
 }

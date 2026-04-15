@@ -19,7 +19,8 @@
     "errorTitle": "Le tri a chancelé",
     "orphanGroup": "Divers",
     "pileCount": "{{count}} note(s)",
-    "dismiss": "Continuer"
+    "dismiss": "Continuer",
+    "organization": "Organisation"
   },
   "eveningRitual": {
     "title": "Rituel des Etoiles",
@@ -28,20 +29,12 @@
     "tomorrowPlaceholder": "Une pensee pour demain ?",
     "cta": "Une pensee pour demain ?",
     "saving": "Ancrage en cours...",
-    "bonusHint": "Bonus Etoile: +5 Boosts Fleurs",
     "gratitudeLine1": "Tu as avance avec clarte. Le calme t'accompagne.",
     "gratitudeLine2": "Chaque pas compte. Ton ciel s'ouvre ce soir.",
     "gratitudeLine3": "Ta constance illumine ta trajectoire. Belle fermeture."
   },
   "zenGarden": {
     "screenTitle": "Jardin Zen",
-    "levelShort": "NIV. {{level}}",
-    "growthXp": "Croissance : {{current}} / {{total}} XP",
-    "actionZoneTitle": "NOURRIR LES INTENTIONS",
-    "actionBoost": "Booster ma plante",
-    "actionVideoReward": "Voir une vidéo (3 Projets)",
-    "quotaA11y": "Crédits projet : {{current}} sur {{total}}",
-    "plantA11y": "État visuel de ton intention sur le piédestal",
     "whisper": "Un geste simple, une clarté durable."
   },
   "tabs": {
@@ -622,7 +615,11 @@
     "habits": "Habitudes",
     "projects": "Projets",
     "premiumQuota": "Quota Premium",
-    "premiumQuotaRemaining": "Quota Premium restant : {{count}}"
+    "premiumQuotaRemaining": "Quota Premium restant : {{count}}",
+    "later": "Plus tard",
+    "tryAgainSoon": "Reessaie dans un instant.",
+    "active": "Actif",
+    "inactive": "Inactif"
   },
   "talkHome": {
     "brandName": "TalkNDone",
@@ -721,7 +718,14 @@
     "titleRequiredBody": "Ajoute un titre court avant de traiter.",
     "voicePersistErrorTitle": "Enregistrement impossible",
     "voicePersistErrorBody": "Impossible d’enregistrer cette intention. Réessaie dans un instant.",
-    "confirmEmptyTitle": "—"
+    "confirmEmptyTitle": "—",
+    "frequencyLabel": "Frequence",
+    "whenLabel": "Quand ?",
+    "habitFrequencyPlaceholder": "Quotidien, Semaine, Week-end",
+    "whenPlaceholder": "Facultatif (ex: demain, 18h...)",
+    "frequencyDaily": "Quotidien",
+    "frequencyWeek": "Semaine",
+    "frequencyWeekend": "Week-end"
   },
   "errorBoundary": {
     "brand": "TalkNDone",
@@ -779,5 +783,57 @@
   },
   "navigation": {
     "semanticBrainLabHeader": "Semantic Brain Lab"
+  },
+  "economy": {
+    "labels": {
+      "zenPoints": "Points Zen",
+      "aiCredits": "Credits IA"
+    },
+    "aiCreditsCount": "{{count}} Credits IA",
+    "balanceInsufficientTitle": "Solde insuffisant",
+    "recharge": {
+      "modalTitle": "Recharge IA",
+      "modalBody": "Ton mode Sans-Pub est actif, mais l'IA a besoin de carburant. Regarde une video pour +5 credits.",
+      "watchVideoCta": "Regarder une video",
+      "dailyCapReached": "Limite de recharge quotidienne atteinte. Laisse ton IA reposer jusqu'a demain !",
+      "cooldown": "Patiente 60 secondes entre deux recharges video.",
+      "unavailableTitle": "Recharge indisponible",
+      "rewardToast": "+5 credits IA"
+    },
+    "shop": {
+      "title": "Boutique de Temps",
+      "zenModeActive": "Mode Zen Actif",
+      "adFreeState": "Etat sans pub : {{state}}.",
+      "serenityDescription": "Supprime les bannieres et publicites intrusives. Note : la recharge manuelle de l'IA via video reste disponible pour alimenter tes projets.",
+      "buySerenity": "24h de Serenite - 500Z",
+      "buyBoost": "Boost Intelligence (+5 IA) - 300Z",
+      "purchaseSuccessTitle": "Achat valide",
+      "serenityInsufficientBody": "Il faut 500Z pour activer 24h de serenite.",
+      "boostInsufficientBody": "Il faut 300Z pour acheter ce boost.",
+      "serenitySuccessBody": "24h de serenite activees.",
+      "boostSuccessBody": "+5 credits IA ajoutes."
+    },
+    "debugAddZen": "+10 Zen",
+    "debugAddAiCredit": "+1 Credit IA"
+  },
+  "quests": {
+    "notReadyTitle": "Quete non prete",
+    "notReadyBody": "Les conditions ne sont pas encore remplies.",
+    "bonusReceivedTitle": "Bonus recu",
+    "claimedToast": "Quete validee +{{gain}}Z",
+    "dailyTitle": "Quete du Jour - {{title}}",
+    "progress": "Progression : {{current}}/{{target}}",
+    "alreadyClaimed": "Bonus deja reclame",
+    "claimCta": "Reclamer mon bonus"
+  },
+  "horizons": {
+    "rearbitrate": "A re-arbitrer",
+    "today": "Aujourd'hui",
+    "tomorrow": "Demain",
+    "thisWeek": "Cette semaine",
+    "noPressure": "Sans pression",
+    "optionalNoPressure": "Facultatif (Sans pression)",
+    "rebalanceToToday": "Reporter a Aujourd'hui",
+    "rebalanceToNoPressure": "Basculer Sans pression"
   }
 }
