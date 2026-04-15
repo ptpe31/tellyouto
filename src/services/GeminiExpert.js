@@ -296,9 +296,12 @@ function normalizeAtomizedPayload(raw) {
       const o = t && typeof t === 'object' ? t : {};
       const title = String(o.t || o.title || '').trim();
       if (!title) return null;
+      const dueDateRaw = String(o.d || '').trim();
+      const dueDate = /^\d{8}$/.test(dueDateRaw) ? dueDateRaw : null;
       return {
         title,
         suggestAlarm: Boolean(o.a ?? o.suggestAlarm ?? o.suggest_alarm),
+        dueDate,
       };
     })
     .filter(Boolean);
@@ -317,12 +320,14 @@ Schema JSON strict:
 {
   "projectTitle": "Titre court",
   "tasks": [
-    { "t": "Titre de la tache", "a": true }
+    { "t": "Titre tache", "a": true, "d": "YYYYMMDD" }
   ]
 }
 
 Règles:
 - Génère maximum 10 tâches pour rester concis et garantir un JSON complet.
+- Chaque tâche doit inclure "d" (date prévue) au format YYYYMMDD.
+- Répartis les dates "d" de façon logique entre la date du jour et la deadline donnée par l'utilisateur.
 - Chaque titre est actionnable seul (pas de sous-points dans le titre).
 - Si le texte est flou, déduis les étapes logiques les plus probables.
 - projectTitle : une seule ligne, pas un paragraphe.
@@ -386,7 +391,7 @@ ${audioText}`;
     ...norm.tasks.map((t) => ({
       type: 'TASK',
       title: t.title,
-      metadata: { suggest_alarm: t.suggestAlarm },
+      metadata: { suggest_alarm: t.suggestAlarm, due_date: t.dueDate },
       suggested_category: 'projets',
     })),
   ];

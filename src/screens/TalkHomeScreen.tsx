@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
 import * as Localization from 'expo-localization';
+import Share from 'react-native-share';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -140,6 +141,7 @@ type ProjectPlanPreviewState = {
   projectTitle: string;
   rawInput: string;
   rows: GeminiExpertIntention[];
+  selectedTaskIndexes: number[];
   taskAlarmIndexes: number[];
 };
 
@@ -148,6 +150,7 @@ type DeadlineCaptureState = {
   baseText: string;
   capturedText: string;
   isListening: boolean;
+  lastError: string;
 };
 
 const BottomStatus = React.memo(function BottomStatus({
@@ -190,15 +193,49 @@ function growthPointsFromExpertRows(rows: GeminiExpertIntention[]): number {
   return 0;
 }
 
+function parseYyyyMmDd(input: string): Date | null {
+  const raw = String(input || '').trim();
+  if (!/^\d{8}$/.test(raw)) return null;
+  const y = Number(raw.slice(0, 4));
+  const m = Number(raw.slice(4, 6));
+  const d = Number(raw.slice(6, 8));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const date = new Date(y, m - 1, d);
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function formatDueDateShort(input: string): string {
+  const date = parseYyyyMmDd(input);
+  if (!date) return '--';
+  try {
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale || undefined;
+    return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short' }).format(date);
+  } catch {
+    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }
+}
+
 async function persistGeminiExpertRows(
   rawInput: string,
   rows: GeminiExpertIntention[],
-  options?: { taskAlarmIndexes?: number[] },
+  options?: { taskAlarmIndexes?: number[]; selectedTaskIndexes?: number[] },
 ): Promise<void> {
   let currentParentId: string | null = null;
   let taskCursor = 0;
   const alarmSet = new Set(options?.taskAlarmIndexes ?? []);
+  const selectedSet = new Set(options?.selectedTaskIndexes ?? []);
   for (const row of rows) {
+    if (row.type === 'TASK' && selectedSet.size > 0 && !selectedSet.has(taskCursor)) {
+      taskCursor += 1;
+      continue;
+    }
     const id = newTalkEntityId();
     if (row.type === 'PROJECT') {
       currentParentId = id;
@@ -215,6 +252,10 @@ async function persistGeminiExpertRows(
       id,
       type: row.type,
       title: row.title,
+      due_date:
+        row.type === 'TASK'
+          ? String((row.metadata as { due_date?: unknown })?.due_date || '').trim() || null
+          : null,
       content_raw: rawInput,
       metadata_json: JSON.stringify(metadata, null, 2),
       suggested_tags: JSON.stringify(
@@ -310,6 +351,7 @@ export function TalkHomeScreen() {
     baseText: '',
     capturedText: '',
     isListening: false,
+    lastError: '',
   });
   const [uiMode, setUiMode] = useState<UiMode>('IDLE');
   const [isProjectHoldActive, setIsProjectHoldActive] = useState(false);
@@ -399,7 +441,7 @@ export function TalkHomeScreen() {
   const cancelProjectRefine = useCallback(async () => {
     const uri = projectRefine?.audioUri ?? null;
     setProjectRefine(null);
-    setDeadlineCapture({ visible: false, baseText: '', capturedText: '', isListening: false });
+    setDeadlineCapture({ visible: false, baseText: '', capturedText: '', isListening: false, lastError: '' });
     await clearProjectAudioFile(uri);
   }, [clearProjectAudioFile, projectRefine]);
 
@@ -1439,6 +1481,7 @@ export function TalkHomeScreen() {
         const taskCount = expertRows.filter((row) => row.type === 'TASK').length;
         const projectTitle =
           expertRows.find((row) => row.type === 'PROJECT')?.title?.trim() || baseText.slice(0, 80);
+        const selectedTaskIndexes = Array.from({ length: taskCount }, (_, i) => i);
         let taskIdx = -1;
         const taskAlarmIndexes = expertRows
           .map((row) => {
@@ -1453,13 +1496,20 @@ export function TalkHomeScreen() {
           projectTitle,
           rawInput: `${baseText}\nDeadline: ${cleanedDeadline}`,
           rows: expertRows,
+          selectedTaskIndexes,
           taskAlarmIndexes,
         });
         setMicroToast(taskCount > 0 ? 'Plan IA pret a visualiser' : 'Aucune etape detectee');
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes('PLAN_JSON_PARSE_ERROR')) {
-          Alert.alert('Erreur de lecture du plan', 'Erreur de lecture du plan. Reessayer ?');
+          setDeadlineCapture((prev) => ({
+            ...prev,
+            visible: true,
+            capturedText: cleanedDeadline,
+            isListening: false,
+            lastError: 'Erreur de lecture du plan. Reessayer ?',
+          }));
         } else {
           Alert.alert(t('talkHome.voicePersistErrorTitle'), msg || t('talkHome.voicePersistErrorBody'));
         }
@@ -1483,13 +1533,14 @@ export function TalkHomeScreen() {
       baseText: text,
       capturedText: '',
       isListening: false,
+      lastError: '',
     });
     setMicroToast("Capture de deadline active");
   }, [projectRefine, t]);
 
   const closeDeadlineCapture = useCallback(async () => {
     await stopDeadlineCapture();
-    setDeadlineCapture((prev) => ({ ...prev, visible: false, capturedText: '', isListening: false }));
+    setDeadlineCapture((prev) => ({ ...prev, visible: false, capturedText: '', isListening: false, lastError: '' }));
     setMicroToast('');
   }, [stopDeadlineCapture]);
 
@@ -1518,6 +1569,65 @@ export function TalkHomeScreen() {
     });
   }, []);
 
+  const togglePlanTaskSelected = useCallback((taskIndex: number) => {
+    setProjectPlanPreview((prev) => {
+      if (!prev) return prev;
+      const has = prev.selectedTaskIndexes.includes(taskIndex);
+      return {
+        ...prev,
+        selectedTaskIndexes: has
+          ? prev.selectedTaskIndexes.filter((idx) => idx !== taskIndex)
+          : [...prev.selectedTaskIndexes, taskIndex],
+      };
+    });
+  }, []);
+
+  const onExportProjectPlanIcs = useCallback(async () => {
+    if (!projectPlanPreview) return;
+    const taskRows = projectPlanPreview.rows.filter((row) => row.type === 'TASK');
+    const selectedRows = taskRows.filter((_, idx) =>
+      projectPlanPreview.selectedTaskIndexes.includes(idx),
+    );
+    if (!selectedRows.length) {
+      Alert.alert('Aucune tâche cochée', 'Coche au moins une tâche avant export agenda.');
+      return;
+    }
+    const now = new Date();
+    const nowUtcStamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}${String(now.getUTCDate()).padStart(2, '0')}T${String(now.getUTCHours()).padStart(2, '0')}${String(now.getUTCMinutes()).padStart(2, '0')}${String(now.getUTCSeconds()).padStart(2, '0')}Z`;
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//TellYouTo//ProjectPlan//FR',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+    ];
+    selectedRows.forEach((row, idx) => {
+      const due = String((row.metadata as { due_date?: unknown })?.due_date || '').trim();
+      const date = /^\d{8}$/.test(due)
+        ? due
+        : `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:${Date.now()}-${idx}@tellyouto`);
+      lines.push(`DTSTAMP:${nowUtcStamp}`);
+      lines.push(`DTSTART;VALUE=DATE:${date}`);
+      lines.push(`SUMMARY:${row.title.replace(/\r?\n/g, ' ').slice(0, 180)}`);
+      lines.push(`DESCRIPTION:Projet ${projectPlanPreview.projectTitle}`.slice(0, 240));
+      lines.push('END:VEVENT');
+    });
+    lines.push('END:VCALENDAR');
+    const ics = `${lines.join('\r\n')}\r\n`;
+    const path = `${FileSystem.cacheDirectory}tellyouto-project-plan.ics`;
+    await FileSystem.writeAsStringAsync(path, ics, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+    await Share.open({
+      url: path,
+      type: 'text/calendar',
+      failOnCancel: false,
+      filename: 'tellyouto-project-plan',
+    });
+  }, [projectPlanPreview]);
+
   const onValidateProjectPlan = useCallback(async () => {
     if (!projectPlanPreview) return;
     if (remainingIntents <= 0) {
@@ -1529,6 +1639,7 @@ export function TalkHomeScreen() {
       await resetLocalStreakOnExpert();
       await persistGeminiExpertRows(projectPlanPreview.rawInput, projectPlanPreview.rows, {
         taskAlarmIndexes: projectPlanPreview.taskAlarmIndexes,
+        selectedTaskIndexes: projectPlanPreview.selectedTaskIndexes,
       });
       const expertPoints = growthPointsFromExpertRows(projectPlanPreview.rows);
       if (expertPoints > 0) {
@@ -1542,7 +1653,7 @@ export function TalkHomeScreen() {
       setProjectPlanPreview(null);
       await cancelProjectRefine();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setRewardToast('Plan valide et enregistre');
+      setRewardToast('Projet ancre et enregistre');
       setTimeout(() => setRewardToast(''), 2000);
       setMicroToast('');
     } catch (e: unknown) {
@@ -2097,6 +2208,20 @@ export function TalkHomeScreen() {
             <Text style={styles.deadlineSubtitle}>
               Ajoute une contrainte temporelle pour fiabiliser le plan.
             </Text>
+            {deadlineCapture.lastError ? (
+              <View style={styles.deadlineErrorBox}>
+                <Text style={styles.deadlineErrorText}>{deadlineCapture.lastError}</Text>
+                <Pressable
+                  style={styles.deadlineRetryBtn}
+                  onPress={() => {
+                    void submitProjectGenerationWithDeadline(deadlineCapture.capturedText);
+                  }}
+                  disabled={isBusy || !deadlineCapture.capturedText.trim()}
+                >
+                  <Text style={styles.deadlineRetryText}>Reessayer</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             <View style={styles.deadlineQuickRow}>
               {['Demain', '1 semaine', '1 mois'].map((choice) => (
@@ -2188,13 +2313,26 @@ export function TalkHomeScreen() {
                   .filter((row) => row.type === 'TASK')
                   .map((row) => {
                     taskIdx += 1;
+                    const selected = (projectPlanPreview?.selectedTaskIndexes ?? []).includes(taskIdx);
                     const enabled = (projectPlanPreview?.taskAlarmIndexes ?? []).includes(taskIdx);
+                    const dueDate = String((row.metadata as { due_date?: unknown })?.due_date || '').trim();
                     return (
                       <View key={`${row.title}-${taskIdx}`} style={styles.planTaskRow}>
+                        <Pressable
+                          style={styles.planCheckBtn}
+                          onPress={() => togglePlanTaskSelected(taskIdx)}
+                        >
+                          <Check size={16} color={selected ? '#008080' : 'rgba(44,62,80,0.35)'} />
+                        </Pressable>
                         <Pressable style={styles.planBellBtn} onPress={() => togglePlanTaskAlarm(taskIdx)}>
                           <Bell size={20} color={enabled ? '#FF8C00' : 'rgba(44,62,80,0.35)'} />
                         </Pressable>
-                        <Text style={styles.planTaskText}>{row.title}</Text>
+                        <View style={styles.planTaskMain}>
+                          <Text style={[styles.planTaskText, !selected ? styles.planTaskTextMuted : null]}>
+                            {row.title}
+                          </Text>
+                          <Text style={styles.planTaskDate}>{formatDueDateShort(dueDate)}</Text>
+                        </View>
                       </View>
                     );
                   });
@@ -2206,13 +2344,22 @@ export function TalkHomeScreen() {
                 <Text style={styles.planCancelText}>❌ ANNULER</Text>
               </Pressable>
               <Pressable
+                style={[styles.planActionBtn, styles.planExportBtn]}
+                onPress={() => {
+                  void onExportProjectPlanIcs();
+                }}
+                disabled={isBusy}
+              >
+                <Text style={styles.planExportText}>📅 EXPORTER VERS AGENDA</Text>
+              </Pressable>
+              <Pressable
                 style={[styles.planActionBtn, styles.planValidateBtn]}
                 onPress={() => {
                   void onValidateProjectPlan();
                 }}
                 disabled={isBusy}
               >
-                <Text style={styles.planValidateText}>✅ VALIDER LE PLAN</Text>
+                <Text style={styles.planValidateText}>✅ ANCRER LE PROJET</Text>
               </Pressable>
             </View>
           </View>
@@ -2835,6 +2982,34 @@ const styles = StyleSheet.create({
     color: 'rgba(44,62,80,0.72)',
     textAlign: 'center',
   },
+  deadlineErrorBox: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,140,0,0.35)',
+    backgroundColor: 'rgba(255,140,0,0.08)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  deadlineErrorText: {
+    color: '#7a4d00',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  deadlineRetryBtn: {
+    alignSelf: 'flex-start',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,128,128,0.4)',
+    backgroundColor: 'rgba(0,128,128,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  deadlineRetryText: {
+    color: '#2C3E50',
+    fontWeight: '800',
+    fontSize: 12,
+  },
   deadlineQuickRow: {
     flexDirection: 'row',
     gap: 8,
@@ -2968,11 +3143,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 10,
   },
+  planCheckBtn: {
+    width: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 2,
+  },
   planBellBtn: {
     width: 28,
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 2,
+  },
+  planTaskMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
   planTaskText: {
     flex: 1,
@@ -2980,6 +3168,17 @@ const styles = StyleSheet.create({
     color: '#2C3E50',
     lineHeight: 20,
     fontWeight: '600',
+  },
+  planTaskTextMuted: {
+    opacity: 0.5,
+    textDecorationLine: 'line-through',
+  },
+  planTaskDate: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#516a78',
+    minWidth: 54,
+    textAlign: 'right',
   },
   planPreviewActions: {
     flexDirection: 'row',
@@ -3002,6 +3201,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34, 126, 128, 0.86)',
     borderColor: 'rgba(202, 245, 239, 0.42)',
   },
+  planExportBtn: {
+    backgroundColor: 'rgba(255, 140, 0, 0.2)',
+    borderColor: 'rgba(255, 140, 0, 0.45)',
+  },
   planCancelText: {
     color: '#2C3E50',
     fontWeight: '700',
@@ -3011,6 +3214,11 @@ const styles = StyleSheet.create({
     color: '#f2fefd',
     fontWeight: '800',
     fontSize: 13,
+  },
+  planExportText: {
+    color: '#6b4200',
+    fontWeight: '800',
+    fontSize: 12,
   },
   progressCard: {
     marginTop: 252,

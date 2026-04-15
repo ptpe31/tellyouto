@@ -7,6 +7,7 @@ export type TrankilV2IntentionRow = {
   id: string;
   type: TrankilIntentType;
   title: string;
+  due_date?: string | null;
   content_raw: string;
   metadata_json: string;
   suggested_tags: string;
@@ -96,6 +97,7 @@ export async function initTrankilV2Schema(): Promise<void> {
       id TEXT PRIMARY KEY NOT NULL,
       type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT')),
       title TEXT NOT NULL,
+      due_date TEXT,
       content_raw TEXT NOT NULL DEFAULT '',
       metadata_json TEXT NOT NULL DEFAULT '{}',
       suggested_tags TEXT NOT NULL DEFAULT '[]',
@@ -200,6 +202,10 @@ export async function initTrankilV2Schema(): Promise<void> {
   if (!hasCategory) {
     await db.execAsync(`ALTER TABLE intentions ADD COLUMN category TEXT;`);
     await db.execAsync(`UPDATE intentions SET category = category_id WHERE category IS NULL;`);
+  }
+  const hasDueDate = cols.some((c) => c.name === 'due_date');
+  if (!hasDueDate) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN due_date TEXT;`);
   }
   const userStatsCols = await db.getAllAsync<{ name: string }>(
     `PRAGMA table_info(user_stats)`,
@@ -484,6 +490,7 @@ export type TrankilV2IntentionInsert = {
   id: string;
   type: TrankilIntentType;
   title: string;
+  due_date?: string | null;
   content_raw: string;
   metadata_json?: string;
   suggested_tags?: string;
@@ -503,12 +510,13 @@ export async function insertTrankilV2Intention(
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO intentions (
-      id, type, title, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.id,
       row.type,
       row.title,
+      row.due_date ?? null,
       row.content_raw,
       row.metadata_json ?? '{}',
       row.suggested_tags ?? '[]',
