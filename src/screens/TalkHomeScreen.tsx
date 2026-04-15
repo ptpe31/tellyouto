@@ -29,6 +29,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import {
+  PanGestureHandler,
+  State as GestureState,
+  type PanGestureHandlerStateChangeEvent,
+} from 'react-native-gesture-handler';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
@@ -304,6 +309,7 @@ export function TalkHomeScreen() {
   const [localEcoScore, setLocalEcoScore] = useState(0);
   const voiceActiveRef = useRef(false);
   const stopAfterStartRef = useRef(false);
+  const projectGestureHoldingRef = useRef(false);
   const stopQuickCaptureRef = useRef<null | (() => Promise<void>)>(null);
   const captureChannelRef = useRef<CaptureChannel | null>(null);
   const startedAtRef = useRef<number>(0);
@@ -409,6 +415,9 @@ export function TalkHomeScreen() {
     const silent =
       event.error === 'no-speech' || event.error === 'speech-timeout';
     if (silent) {
+      if (captureChannelRef.current === 'projet' && projectGestureHoldingRef.current) {
+        console.log('LOG [Audio-Capture] Signal d\'arrêt reçu : TIMEOUT/AUTRE');
+      }
       return;
     }
     alertSpeechRecognitionError(tRef.current, event);
@@ -656,6 +665,7 @@ export function TalkHomeScreen() {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
       });
       const recordingResult = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY,
@@ -666,7 +676,7 @@ export function TalkHomeScreen() {
         lang: resolveSpeechLangForSession(i18n.language),
         interimResults: true,
         maxAlternatives: 1,
-        continuous: speechContinuousForHold(),
+        continuous: true,
         requiresOnDeviceRecognition: false,
         addsPunctuation: true,
       });
@@ -708,7 +718,9 @@ export function TalkHomeScreen() {
   const stopProjectHoldCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') return;
     if (!voiceActiveRef.current) return;
+    console.log('LOG [Audio-Capture] Signal d\'arrêt reçu : RELÂCHEMENT PHYSIQUE');
     voiceActiveRef.current = false;
+    projectGestureHoldingRef.current = false;
     setIsBusy(true);
     setIsProjectHoldActive(false);
     let audioUri: string | null = null;
@@ -735,6 +747,7 @@ export function TalkHomeScreen() {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
       });
       setIsRecording(false);
       setCaptureMode('idle');
@@ -1043,14 +1056,37 @@ export function TalkHomeScreen() {
     if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
     if (voiceActiveRef.current || avRecordingRef.current || projectAudioRef.current) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    projectGestureHoldingRef.current = true;
     void startProjectHoldCapture();
   }, [isBusy, isPostCaptureAnalyzing, projectRefine, startProjectHoldCapture, voiceConfirm]);
 
   const onProjectPressOut = useCallback(() => {
+    projectGestureHoldingRef.current = false;
     if (voiceActiveRef.current) {
       void stopProjectHoldCapture();
     }
   }, [stopProjectHoldCapture]);
+
+  const onProjectGestureStateChange = useCallback(
+    (event: PanGestureHandlerStateChangeEvent) => {
+      const { state } = event.nativeEvent;
+      if (state === GestureState.ACTIVE) {
+        onProjectPressIn();
+        return;
+      }
+      if (
+        state === GestureState.END ||
+        state === GestureState.CANCELLED ||
+        state === GestureState.FAILED
+      ) {
+        if (state !== GestureState.END && projectGestureHoldingRef.current) {
+          console.log('LOG [Audio-Capture] Signal d\'arrêt reçu : TIMEOUT/AUTRE');
+        }
+        onProjectPressOut();
+      }
+    },
+    [onProjectPressIn, onProjectPressOut],
+  );
 
   const onQuickNotePress = useCallback(() => {
     if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
@@ -1688,30 +1724,37 @@ export function TalkHomeScreen() {
       </View>
 
       <View style={styles.talkieGhostDeck} pointerEvents="box-none">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('talkHome.a11yTalkieProjet')}
-          accessibilityHint={t('talkHome.talkieProjet')}
-          onPressIn={() => {
-            onProjectPressIn();
-          }}
-          onPressOut={onProjectPressOut}
-          disabled={
-            isBusy || voiceConfirm !== null || projectRefine !== null || Platform.OS === 'web' || isPostCaptureAnalyzing
+        <PanGestureHandler
+          enabled={
+            !(
+              isBusy ||
+              voiceConfirm !== null ||
+              projectRefine !== null ||
+              Platform.OS === 'web' ||
+              isPostCaptureAnalyzing
+            )
           }
-          hitSlop={12}
-          android_ripple={{ color: 'rgba(44,62,80,0.12)', borderless: true }}
-          style={[styles.ghostSide, styles.ghostSideLeft]}
+          activateAfterLongPress={160}
+          minPointers={1}
+          maxPointers={1}
+          shouldCancelWhenOutside={false}
+          onHandlerStateChange={onProjectGestureStateChange}
         >
-          {({ pressed }) => (
-            isProjectHoldActive || projectRefine ? null : (
-              <View style={[styles.ghostBtnInner, { opacity: pressed ? 0.5 : 0.8 }]}>
+          <View
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={t('talkHome.a11yTalkieProjet')}
+            accessibilityHint={t('talkHome.talkieProjet')}
+            style={[styles.ghostSide, styles.ghostSideLeft]}
+          >
+            {isProjectHoldActive || projectRefine ? null : (
+              <View style={[styles.ghostBtnInner, { opacity: 0.8 }]}>
                 <Folder size={28} color="#2C3E50" />
                 <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieProjet')}</Text>
               </View>
-            )
-          )}
-        </Pressable>
+            )}
+          </View>
+        </PanGestureHandler>
         <Animated.View style={[styles.ghostMainWrap, { transform: [{ scale: micScale }] }]}>
           <Pressable
             accessibilityRole="button"
