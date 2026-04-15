@@ -1,5 +1,4 @@
 import { Audio } from 'expo-av';
-import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
@@ -1688,13 +1687,6 @@ export function TalkHomeScreen() {
 
   return (
     <View style={styles.root}>
-      <Image
-        source={require('../../assets/background_talkie_v2.webp')}
-        style={styles.backgroundImage}
-        contentFit="cover"
-        cachePolicy="disk"
-        transition={300}
-      />
       <RewardToast visible={Boolean(rewardToast)} message={rewardToast} />
       <View style={styles.header}>
         <View style={styles.brandRow}>
@@ -1884,16 +1876,12 @@ export function TalkHomeScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: '#F5F5F0',
     flexDirection: 'column',
     justifyContent: 'space-between',
     paddingHorizontal: 22,
     paddingTop: 62,
     paddingBottom: 22,
-  },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.98,
-    transform: [{ scale: 1.04 }, { translateY: 10 }],
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
