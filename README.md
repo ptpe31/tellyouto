@@ -136,6 +136,139 @@ Commandes typiques : `npm run build:android:preview`, `npm run build:android`, `
 
 ---
 
+## Rapport technique - Flux "Bouton Projet" (A a Z)
+
+Ce chapitre documente le flux complet du bouton `PROJET` tel qu'implemente dans l'application (capture, IA, persistence, validation et export agenda). Il sert de reference pour les prochaines evolutions.
+
+### 1) Phase de capture et rebond deadline
+
+Le flux `PROJET` est gere dans `src/screens/TalkHomeScreen.tsx` avec un etat d'interface (`uiMode`) et un mode capture dictaphone en **toggle**:
+
+- **Toggle capture** : un tap demarre l'enregistrement, un tap "send" cloture la capture.
+- **Barre action 3 boutons** pendant la capture :
+  - `Trash` : annule la capture en cours.
+  - `Pause/Resume` : suspend/reprend sans perdre le debut.
+  - `Send` : stoppe la capture et passe en decision.
+- **Conservation du Vrac** : le texte transcrit brut est stocke dans l'etat de raffinement (`projectRefine.editedText`) et reste editable.
+- **Rebond deadline** : au clic `Generer plan`, on n'appelle pas l'IA tout de suite. Une modale "C'est pour quand ?" s'ouvre avec:
+  - boutons rapides (`Demain`, `1 semaine`, `1 mois`)
+  - capture libre micro
+  - champ texte (correction manuelle)
+- **Consolidation finale** : le prompt IA est construit avec `Vrac initial + deadline`.
+
+### 2) Intelligence artificielle (`GeminiExpert`)
+
+Le service est dans `src/services/GeminiExpert.js`.
+
+#### 2.1 Ancrage temporel anti-hallucination
+
+Avant l'appel API, la date systeme locale est injectee dans le prompt:
+
+- date de reference locale `YYYY-MM-DD`
+- consigne imperative: *"Aujourd'hui nous sommes le X. Toutes les dates d doivent etre calculees depuis cette date."*
+- si le texte contient une deadline relative (ex: `dans 4 jours`), une date calculee est ajoutee explicitement dans le prompt.
+
+Objectif: eviter les derives de mois (mai vs avril) et forcer un calcul calendaire coherent.
+
+#### 2.2 Schema JSON ultra-light
+
+Le schema demande a Gemini est volontairement minimal:
+
+```json
+{
+  "projectTitle": "...",
+  "tasks": [
+    { "t": "Titre tache", "a": true, "d": "YYYYMMDD" }
+  ]
+}
+```
+
+Pourquoi ce schema:
+
+- **fiabilite parse JSON** (moins de tokens, moins de risque de troncature)
+- **latence plus basse** (payload plus court)
+- **mapping UI/DB direct**:
+  - `t` -> titre de tache
+  - `a` -> suggestion alarme
+  - `d` -> date due en format compact
+
+#### 2.3 Repartition Today -> Deadline
+
+La repartition des dates est deleguee a Gemini, mais contrainte par prompt:
+
+- max 10 taches
+- dates `d` obligatoires
+- dates logiquement distribuees entre aujourd'hui et l'echeance utilisateur
+- conversion explicite des deadlines relatives en date calendrier.
+
+### 3) Pipeline de donnees
+
+#### 3.1 Parsing JSON et fallback
+
+Pipeline:
+
+1. reponse brute Gemini
+2. extraction bloc JSON
+3. `JSON.parse`
+4. normalisation metier
+
+Si le parse echoue:
+
+- erreur dediee `PLAN_JSON_PARSE_ERROR`
+- UI non bloquante: message explicite + bouton `Reessayer` dans la modale deadline.
+
+#### 3.2 Insertion SQLite et relation projet/taches
+
+La persistence se fait dans `persistGeminiExpertRows` (`TalkHomeScreen`), via `insertTrankilV2Intention` (`src/api/trankilV2Db.ts`):
+
+- une ligne `PROJECT` est inseree d'abord
+- les lignes `TASK` pointent le projet via `parent_id`
+- `due_date` est stocke sur les lignes taches
+- `metadata_json` conserve aussi les drapeaux (ex: `has_alarm`, `due_date`)
+- la selection utilisateur (taches cochees) est respectee a l'ancrage.
+
+### 4) Fonctionnalites de sortie
+
+#### 4.1 Modale de validation (souverainete utilisateur)
+
+La modale affiche le plan et permet:
+
+- cocher/decocher les taches a ancrer
+- activer/desactiver les alarmes par tache
+- visualiser la date locale de chaque tache (conversion `YYYYMMDD` via `Intl.DateTimeFormat`).
+
+Le bouton principal `ANCRER LE PROJET` n'insere que les taches cochees.
+
+#### 4.2 Export agenda ICS
+
+Bouton secondaire: `EXPORTER VERS AGENDA`.
+
+Processus:
+
+1. filtrer les taches cochees
+2. generer un `.ics` dynamique (`BEGIN:VCALENDAR`, `VEVENT`, `DTSTART;VALUE=DATE`)
+3. convertir `d=YYYYMMDD` en date evenement calendrier (all-day)
+4. partager le fichier via le module de partage natif (`react-native-share`) pour ouverture dans l'app calendrier.
+
+### 5) Maintenance et nettoyage
+
+Dans l'ecran `Debug` (`src/screens/DebugScreen.tsx`):
+
+- inspection SQLite avec compteurs rapides (`intentions`, `tasks`)
+- visualisation projets + sous-taches (accordion)
+- bouton `TEST LOG` pour logger la derniere ligne brute
+- purge securisee avec confirmation explicite
+- purge cascade `intentions` + `tasks` (si table `tasks` presente) pour eviter les orphelins.
+
+Recommandation maintenance:
+
+- garder le schema IA minimal (`t/a/d`)
+- ne jamais retirer l'ancrage date systeme du prompt
+- conserver la route de fallback parse error en UI
+- conserver la purge cascade pour les sessions debug longues.
+
+---
+
 ## Licence
 
 Projet privé — voir les mentions dans l’app (**À propos**).

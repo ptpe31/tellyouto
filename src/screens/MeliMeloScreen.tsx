@@ -6,12 +6,14 @@ import { useTranslation } from 'react-i18next';
 import {
   Alert,
   Animated,
+  LayoutAnimation,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -30,6 +32,7 @@ import {
   updateTrankilV2IntentionClassification,
   updateTrankilV2IntentionOrganization,
   updateTrankilV2IntentionQuick,
+  updateTrankilV2IntentionTemporal,
   type TrankilV2IntentionRow,
 } from '../api/trankilV2Db';
 import { LifeFlower } from '../components/LifeFlower';
@@ -37,6 +40,12 @@ import { STRINGS } from '../constants/Strings';
 import { useSaturation } from '../context/SaturationContext';
 import { askGeminiExpert } from '../services/GeminiExpert';
 import { analyzeLocally } from '../services/Gatekeeper';
+import {
+  formatYmdLocal,
+  groupIntentionsByTimeHorizon,
+  TIME_HORIZON_META,
+  type TimeHorizonKey,
+} from '../services/TimeSorter';
 
 const TYPE_ICON: Record<string, string> = {
   TASK: '🔨',
@@ -187,6 +196,12 @@ export function MeliMeloScreen() {
   const shakeHitsRef = useRef<number[]>([]);
   const lastShakeAtRef = useRef(0);
   const autoSortRunningRef = useRef(false);
+
+  useEffect(() => {
+    if (UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
 
   const reload = useCallback(async () => {
     const [rows, organized, stats] = await Promise.all([
@@ -440,6 +455,31 @@ export function MeliMeloScreen() {
     [organizedItems, selectedCircle],
   );
 
+  const horizonCandidates = useMemo(
+    () =>
+      [...items, ...organizedItems].filter(
+        (it) =>
+          it.status !== 'DONE' &&
+          (it.type === 'TASK' || it.type === 'HABIT' || it.type === 'PROJECT'),
+      ),
+    [items, organizedItems],
+  );
+
+  const parentTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of [...items, ...organizedItems]) {
+      if (row.type === 'PROJECT') {
+        map.set(row.id, row.title);
+      }
+    }
+    return map;
+  }, [items, organizedItems]);
+
+  const horizons = useMemo(
+    () => groupIntentionsByTimeHorizon(horizonCandidates),
+    [horizonCandidates],
+  );
+
   const actionItems = focusItems.filter((it) => it.type === 'TASK' || it.type === 'PROJECT');
   const ritualItems = focusItems.filter((it) => it.type === 'HABIT');
   const noteItems = focusItems.filter((it) => it.type === 'NOTE');
@@ -455,6 +495,32 @@ export function MeliMeloScreen() {
         setGrowthScore(next.growth_score);
         setFlowerPulseKey((k) => k + 1);
       }
+      await reload();
+    },
+    [reload],
+  );
+
+  const quickRebalance = useCallback(
+    async (item: TrankilV2IntentionRow, target: 'TODAY' | 'NO_PRESSURE') => {
+      const dueDate = target === 'TODAY' ? formatYmdLocal(new Date()) : null;
+      const category = target === 'TODAY' ? item.category_id : 'sans_pression';
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      const meta = safeJsonParse(item.metadata_json);
+      const nextMeta = JSON.stringify(
+        {
+          ...meta,
+          has_alarm: Boolean(dueDate),
+          due_date: dueDate,
+          rebalance_from: 'rearbitrate',
+        },
+        null,
+        2,
+      );
+      await updateTrankilV2IntentionTemporal(item.id, {
+        due_date: dueDate,
+        category_id: category,
+        metadata_json: nextMeta,
+      });
       await reload();
     },
     [reload],
@@ -498,39 +564,75 @@ export function MeliMeloScreen() {
         <>
           <Text style={styles.mentalLoad}>{mentalLoad}</Text>
           <ScrollView contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 24 }]}> 
-            {items.map((item) => {
-              const bg = pastelFromCategory(item.category_id);
-              const icon = TYPE_ICON[item.type] ?? '📌';
+            {(Object.keys(TIME_HORIZON_META) as TimeHorizonKey[]).map((hKey) => {
+              const rows = horizons[hKey];
+              if (!rows.length) return null;
+              const horizonLabel = TIME_HORIZON_META[hKey];
               return (
-                <Swipeable
-                  key={item.id}
-                  enabled={!isSorting}
-                  renderRightActions={() => (
-                    <Pressable style={styles.deleteAction} onPress={() => onDelete(item.id)}>
-                      <Text style={styles.deleteActionText}>{STRINGS.COMMON.DELETE}</Text>
-                    </Pressable>
-                  )}
-                >
-                  <Animated.View style={animatedCardStyle}>
-                    <Pressable
-                      style={[styles.card, { backgroundColor: bg }]}
-                      onPress={() => setActiveVracItem(item)}
-                      disabled={isSorting}
-                    >
-                      <View style={styles.titleWithEco}>
-                        <Text style={styles.cardTitle}>{icon} {item.title}</Text>
-                        {item.is_local_processed === 1 ? (
-                          <Text style={styles.ecoBadge}>🍃 {STRINGS.LOCAL_ECO_LABEL}</Text>
-                        ) : null}
-                      </View>
-                      <Text style={styles.cardMeta}>{item.type} · {item.category_id || 'sans-categorie'}</Text>
-                      <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleString()}</Text>
-                    </Pressable>
-                  </Animated.View>
-                </Swipeable>
+                <View key={hKey} style={styles.horizonSection}>
+                  <Text style={styles.horizonTitle}>
+                    {horizonLabel.emoji} {horizonLabel.label}
+                  </Text>
+                  {rows.map((item) => {
+                    const bg = pastelFromCategory(item.category_id);
+                    const icon = TYPE_ICON[item.type] ?? '📌';
+                    const parentProject = item.parent_id ? parentTitleById.get(item.parent_id) : null;
+                    return (
+                      <Swipeable
+                        key={item.id}
+                        enabled={!isSorting}
+                        renderRightActions={() => (
+                          <Pressable style={styles.deleteAction} onPress={() => onDelete(item.id)}>
+                            <Text style={styles.deleteActionText}>{STRINGS.COMMON.DELETE}</Text>
+                          </Pressable>
+                        )}
+                      >
+                        <Animated.View style={animatedCardStyle}>
+                          <Pressable
+                            style={[styles.card, { backgroundColor: bg }]}
+                            onPress={() => setActiveVracItem(item)}
+                            disabled={isSorting}
+                          >
+                            <View style={styles.titleWithEco}>
+                              <Text style={styles.cardTitle}>{icon} {item.title}</Text>
+                              {item.is_local_processed === 1 ? (
+                                <Text style={styles.ecoBadge}>🍃 {STRINGS.LOCAL_ECO_LABEL}</Text>
+                              ) : null}
+                            </View>
+                            {parentProject ? (
+                              <Text style={styles.parentProjectBadge}>🏗️ {parentProject}</Text>
+                            ) : null}
+                            <Text style={styles.cardMeta}>{item.type} · {item.category_id || 'sans-categorie'}</Text>
+                            <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleString()}</Text>
+                            {hKey === 'REARBITRATE' ? (
+                              <View style={styles.rearbRow}>
+                                <Pressable
+                                  style={styles.rearbBtn}
+                                  onPress={() => {
+                                    void quickRebalance(item, 'TODAY');
+                                  }}
+                                >
+                                  <Text style={styles.rearbBtnText}>Reporter à Aujourd&apos;hui</Text>
+                                </Pressable>
+                                <Pressable
+                                  style={styles.rearbBtn}
+                                  onPress={() => {
+                                    void quickRebalance(item, 'NO_PRESSURE');
+                                  }}
+                                >
+                                  <Text style={styles.rearbBtnText}>Basculer Sans pression</Text>
+                                </Pressable>
+                              </View>
+                            ) : null}
+                          </Pressable>
+                        </Animated.View>
+                      </Swipeable>
+                    );
+                  })}
+                </View>
               );
             })}
-            {items.length === 0 ? (
+            {horizonCandidates.length === 0 ? (
               <Text style={styles.empty}>{STRINGS.GARDEN_RITUALS.EMPTY_DRAFTS}</Text>
             ) : null}
           </ScrollView>
@@ -750,6 +852,16 @@ const styles = StyleSheet.create({
   modeBtnTextActive: { color: '#155e75' },
   mentalLoad: { marginHorizontal: 12, marginBottom: 10, fontSize: 13, color: '#51635f', fontWeight: '600' },
   list: { gap: 10, paddingHorizontal: 4 },
+  horizonSection: {
+    marginBottom: 10,
+  },
+  horizonTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#20525d',
+    marginBottom: 8,
+    marginLeft: 4,
+  },
   card: {
     borderRadius: 14,
     paddingHorizontal: 12,
@@ -761,6 +873,37 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#24333a' },
   cardMeta: { marginTop: 4, fontSize: 12, color: '#4b5563' },
   cardDate: { marginTop: 2, fontSize: 11, color: '#6b7280' },
+  parentProjectBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 5,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    fontSize: 11,
+    color: '#24535e',
+    fontWeight: '700',
+    backgroundColor: 'rgba(36,83,94,0.12)',
+  },
+  rearbRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  rearbBtn: {
+    flex: 1,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(36,83,94,0.28)',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
+  rearbBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1f3f47',
+    textAlign: 'center',
+  },
   titleWithEco: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   ecoBadge: {
     fontSize: 10,

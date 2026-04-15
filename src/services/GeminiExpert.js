@@ -182,6 +182,34 @@ function extractJsonBlock(raw) {
   return fence?.[1]?.trim() || t;
 }
 
+function isoDayLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function yyyymmddLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+function extractRelativeDaysHint(input) {
+  const text = String(input || '').toLowerCase();
+  const m =
+    text.match(/\bdans\s+(\d{1,3})\s*jours?\b/i) ||
+    text.match(/\bin\s+(\d{1,3})\s*days?\b/i);
+  if (!m) return null;
+  const days = Number(m[1]);
+  if (!Number.isFinite(days) || days < 0) return null;
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return { days, iso: isoDayLocal(date), ymd: yyyymmddLocal(date) };
+}
+
 function normalizeExpertArray(raw) {
   const list = Array.isArray(raw) ? raw : [];
   return list
@@ -311,10 +339,16 @@ function normalizeAtomizedPayload(raw) {
 /** Découpe une narration projet en périmètre + tâches concrètes (bouton PROJET). */
 export async function atomizeProject(audioText) {
   log('atomizeProject.start', { inputChars: audioText?.length ?? 0, model: getModelId() });
+  const today = isoDayLocal(new Date());
+  const relativeHint = extractRelativeDaysHint(audioText);
+  const relativeDeadlineRule = relativeHint
+    ? `- Si l'utilisateur dit "dans ${relativeHint.days} jours", la date de fin est donc le ${relativeHint.iso} (format d: ${relativeHint.ymd}).`
+    : '';
 
   const prompt = `SYSTEM:
 Tu es un planificateur d'exécution. L'utilisateur décrit un PROJET ou une intention large (voix transcrite).
 Réponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte autour).
+Aujourd'hui nous sommes le ${today}. Toutes les dates "d" que tu génères doivent être calculées à partir de cette date précise.
 
 Schema JSON strict:
 {
@@ -328,6 +362,9 @@ Règles:
 - Génère maximum 10 tâches pour rester concis et garantir un JSON complet.
 - Chaque tâche doit inclure "d" (date prévue) au format YYYYMMDD.
 - Répartis les dates "d" de façon logique entre la date du jour et la deadline donnée par l'utilisateur.
+- N'invente jamais un mois précédent/suivant si ce n'est pas cohérent avec la date de référence ci-dessus.
+- Si la deadline est relative (ex: "dans X jours"), convertis-la explicitement en date calendrier.
+${relativeDeadlineRule}
 - Chaque titre est actionnable seul (pas de sous-points dans le titre).
 - Si le texte est flou, déduis les étapes logiques les plus probables.
 - projectTitle : une seule ligne, pas un paragraphe.

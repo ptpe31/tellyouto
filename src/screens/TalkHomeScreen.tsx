@@ -5,12 +5,13 @@ import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
 import * as Localization from 'expo-localization';
 import Share from 'react-native-share';
+import * as chrono from 'chrono-node';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
   type ExpoSpeechRecognitionErrorEvent,
 } from 'expo-speech-recognition';
-import { Bell, Check, Lock, Pencil, UserCircle2, Waves, X } from 'lucide-react-native';
+import { Bell, Check, Lock, Mic, Pencil, UserCircle2, Waves, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RewardToast } from '../components/RewardToast';
 import {
@@ -87,6 +88,13 @@ import { transcribeWithWhisperLocal } from '../services/WhisperAdapter';
 import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusEngine';
 import { runIntentOrchestration, type OrchestratorDecision } from '../services/IntentOrchestrator';
 import {
+  addDaysYmd,
+  computeTimeHorizonFromDueDate,
+  formatYmdLocal,
+  TIME_HORIZON_META,
+  type TimeHorizonKey,
+} from '../services/TimeSorter';
+import {
   enqueueCaptureProcessingJob,
   startCaptureProcessingForeground,
   stopCaptureProcessingForeground,
@@ -122,10 +130,12 @@ type VoiceConfirmState = {
   kind: VoiceIntentKind;
   editedTitle: string;
   editedTime: string;
+  dueDateYmd: string | null;
   suggestedTags: string[];
   routeDecision: OrchestratorDecision;
   localType: 'TASK' | 'HABIT' | 'NOTE';
   isEditing: boolean;
+  isTimeListening?: boolean;
   captureChannel?: CaptureChannel;
 };
 
@@ -184,6 +194,40 @@ function localTypeToVoiceKind(localType: 'TASK' | 'HABIT' | 'NOTE'): VoiceIntent
   if (localType === 'HABIT') return 'habit';
   if (localType === 'TASK') return 'task';
   return 'task';
+}
+
+function resolveChronoParser(locale: string) {
+  const lang = (locale || 'fr').slice(0, 2).toLowerCase();
+  if (lang === 'fr') return chrono.fr;
+  if (lang === 'de') return chrono.de;
+  if (lang === 'it') return chrono.it;
+  if (lang === 'es') return chrono.es;
+  if (lang === 'ja') return chrono.ja;
+  if (lang === 'zh') return chrono.zh;
+  return chrono.en;
+}
+
+function computeDueDateFromWhenText(whenText: string, locale: string): string | null {
+  const cleaned = whenText.trim();
+  if (!cleaned) return null;
+  const direct = cleaned.match(/\b(\d{8})\b/);
+  if (direct?.[1]) return direct[1];
+  const parser = resolveChronoParser(locale);
+  const parsed = parser.parseDate(cleaned, new Date(), { forwardDate: true });
+  if (!parsed) return null;
+  return formatYmdLocal(parsed);
+}
+
+function buildTimeLabelFromDate(date: Date | null, locale: string): string {
+  if (!date) return '';
+  try {
+    const loc = locale || Intl.DateTimeFormat().resolvedOptions().locale || undefined;
+    const day = new Intl.DateTimeFormat(loc, { day: '2-digit', month: 'short' }).format(date);
+    const time = new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(date);
+    return `${day}, ${time}`;
+  } catch {
+    return date.toLocaleString();
+  }
 }
 
 function growthPointsFromExpertRows(rows: GeminiExpertIntention[]): number {
@@ -373,6 +417,7 @@ export function TalkHomeScreen() {
   const stopAfterStartRef = useRef(false);
   const projectGestureHoldingRef = useRef(false);
   const deadlineCaptureActiveRef = useRef(false);
+  const timeFieldCaptureActiveRef = useRef(false);
   const stopQuickCaptureRef = useRef<null | (() => Promise<void>)>(null);
   const captureChannelRef = useRef<CaptureChannel | null>(null);
   const startedAtRef = useRef<number>(0);
@@ -530,6 +575,22 @@ export function TalkHomeScreen() {
       );
       return;
     }
+    if (timeFieldCaptureActiveRef.current) {
+      setVoiceConfirm((prev) => {
+        if (!prev) return prev;
+        const dueDateYmd = computeDueDateFromWhenText(text, i18n.language) ?? prev.dueDateYmd;
+        if (event.isFinal) {
+          timeFieldCaptureActiveRef.current = false;
+        }
+        return {
+          ...prev,
+          editedTime: text,
+          dueDateYmd,
+          isTimeListening: !event.isFinal,
+        };
+      });
+      return;
+    }
     partialTranscriptRef.current = text;
     const len = text.length;
     const delta = Math.abs(len - lastPartialLenRef.current);
@@ -582,6 +643,10 @@ export function TalkHomeScreen() {
       setDeadlineCapture((prev) => (prev.visible ? { ...prev, isListening: false } : prev));
       return;
     }
+    if (timeFieldCaptureActiveRef.current) {
+      setVoiceConfirm((prev) => (prev ? { ...prev, isTimeListening: false } : prev));
+      return;
+    }
     if (event.error === 'aborted') {
       return;
     }
@@ -614,6 +679,7 @@ export function TalkHomeScreen() {
 
   useEffect(() => {
     return () => {
+      timeFieldCaptureActiveRef.current = false;
       if (debounceLiveTextTimerRef.current) {
         clearTimeout(debounceLiveTextTimerRef.current);
         debounceLiveTextTimerRef.current = null;
@@ -1021,6 +1087,7 @@ export function TalkHomeScreen() {
           kind: 'task',
           editedTitle: title.trim() || t('talkHome.confirmEmptyTitle'),
           editedTime: '',
+          dueDateYmd: null,
           suggestedTags: [STRINGS.TAG_KEYS.A_TRIER],
           routeDecision: 'LOCAL',
           localType: 'NOTE',
@@ -1042,6 +1109,9 @@ export function TalkHomeScreen() {
       const draft = reformulateStructuredIntent(orchestration.rawText);
       const title = draft.title.trim() || orchestration.rawText;
       const freq = inferLocalFrequencyLabel(orchestration.rawText, draft);
+      const scheduleDueYmd = orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null;
+      const detectedTimeLabel =
+        draft.timeMarker || buildTimeLabelFromDate(orchestration.schedule, i18n.language);
       emitTalkDebug({
         mode: 'quick',
         at: Date.now(),
@@ -1068,7 +1138,8 @@ export function TalkHomeScreen() {
           orchestration.localType === 'NOTE' ? 'TASK' : orchestration.localType,
         ),
         editedTitle: title,
-        editedTime: draft.timeMarker,
+        editedTime: detectedTimeLabel,
+        dueDateYmd: scheduleDueYmd,
         suggestedTags: orchestration.suggestedTags.length
           ? orchestration.suggestedTags
           : [STRINGS.TAG_KEYS.A_TRIER],
@@ -1171,6 +1242,7 @@ export function TalkHomeScreen() {
         kind: parsed.type,
         editedTitle: title,
         editedTime: timing,
+        dueDateYmd: computeDueDateFromWhenText(timing, i18n.language),
         suggestedTags: [STRINGS.TAG_KEYS.A_TRIER],
         routeDecision: 'COMPLEX',
         localType: 'NOTE',
@@ -1666,14 +1738,24 @@ export function TalkHomeScreen() {
 
   const onProcessVoice = useCallback(async () => {
     if (!voiceConfirm) return;
+    timeFieldCaptureActiveRef.current = false;
     const trimmedTitle = voiceConfirm.editedTitle.trim();
     if (!trimmedTitle) {
       Alert.alert(t('talkHome.titleRequiredTitle'), t('talkHome.titleRequiredBody'));
       return;
     }
     const desc = voiceConfirm.editedTime.trim();
+    const resolvedDueDate =
+      computeDueDateFromWhenText(desc, i18n.language) ?? voiceConfirm.dueDateYmd ?? null;
     const rawTranscript = voiceConfirm.rawTranscript.trim();
     const routeDecision = voiceConfirm.routeDecision;
+    console.log('[QuickTaskFlow] decision.start', {
+      routeDecision,
+      localType: voiceConfirm.localType,
+      title: trimmedTitle,
+      editedTime: desc,
+      resolvedDueDate,
+    });
     setIsBusy(true);
     try {
       if (voiceConfirm.captureChannel === 'quick_note') {
@@ -1729,6 +1811,19 @@ export function TalkHomeScreen() {
         const afterConsume = await consumeTrankilV2IntentCredit();
         setRemainingIntents(afterConsume.remaining_intents);
       } else {
+        const floatingCategory = 'sans_pression';
+        const nextCategory =
+          resolvedDueDate
+            ? (voiceConfirm.suggestedTags[0] ?? STRINGS.TAG_KEYS.A_TRIER).toLowerCase()
+            : floatingCategory;
+        const hasAlarm = Boolean(resolvedDueDate);
+        console.log('[QuickTaskFlow] sqlite.insert.payload', {
+          title: trimmedTitle,
+          type: voiceConfirm.localType,
+          due_date: resolvedDueDate,
+          has_alarm: hasAlarm,
+          category_id: nextCategory,
+        });
         await insertTrankilV2Intention({
           id: newTalkEntityId(),
           type:
@@ -1736,27 +1831,35 @@ export function TalkHomeScreen() {
               ? 'NOTE'
               : mapVoiceKindToIntentType(localTypeToVoiceKind(voiceConfirm.localType)),
           title: trimmedTitle,
+          due_date: resolvedDueDate,
           content_raw: rawTranscript,
           metadata_json: JSON.stringify(
             {
               timeMarker: desc,
               source: 'orchestrator_local',
+              has_alarm: hasAlarm,
+              due_date: resolvedDueDate,
             },
             null,
             2,
           ),
           suggested_tags: JSON.stringify(
-            voiceConfirm.suggestedTags.length
+            resolvedDueDate && voiceConfirm.suggestedTags.length
               ? voiceConfirm.suggestedTags
-              : [STRINGS.TAG_KEYS.A_TRIER],
+              : [floatingCategory],
           ),
-          category_id: (voiceConfirm.suggestedTags[0] ?? STRINGS.TAG_KEYS.A_TRIER).toLowerCase(),
+          category_id: nextCategory,
           parent_id: null,
           status: 'TODO',
           is_organized: 0,
           is_local_processed: 1,
           complexity_level: 1,
           created_at: Date.now(),
+        });
+        console.log('[QuickTaskFlow] sqlite.insert.success', {
+          title: trimmedTitle,
+          due_date: resolvedDueDate,
+          category_id: nextCategory,
         });
         const localPoints =
           voiceConfirm.localType === 'HABIT'
@@ -1790,10 +1893,31 @@ export function TalkHomeScreen() {
       setIsBusy(false);
     }
   }, [
+    i18n.language,
     voiceConfirm,
     t,
     resetVoiceConfirm,
   ]);
+
+  const onDictateWhenField = useCallback(async () => {
+    if (!voiceConfirm || voiceConfirm.captureChannel !== 'intention') return;
+    if (Platform.OS === 'web') return;
+    try {
+      timeFieldCaptureActiveRef.current = true;
+      setVoiceConfirm((prev) => (prev ? { ...prev, isTimeListening: true } : prev));
+      await ExpoSpeechRecognitionModule.start({
+        lang: resolveSpeechLangForSession(i18n.language),
+        interimResults: true,
+        maxAlternatives: 1,
+        continuous: false,
+        requiresOnDeviceRecognition: false,
+        addsPunctuation: true,
+      });
+    } catch {
+      timeFieldCaptureActiveRef.current = false;
+      setVoiceConfirm((prev) => (prev ? { ...prev, isTimeListening: false } : prev));
+    }
+  }, [i18n.language, voiceConfirm]);
 
   const intentTypeLabel = (k: VoiceIntentKind) =>
     t(`talkHome.intentType.${k}` as const);
@@ -1938,6 +2062,10 @@ export function TalkHomeScreen() {
       captureChannel,
     } = voiceConfirm;
     const timeDisplay = editedTime.trim() ? editedTime.trim() : t('talkHome.timeUnspecified');
+    const resolvedDueYmd =
+      computeDueDateFromWhenText(editedTime, i18n.language) ?? voiceConfirm.dueDateYmd ?? null;
+    const horizonKey = computeTimeHorizonFromDueDate(resolvedDueYmd);
+    const horizonMeta = TIME_HORIZON_META[horizonKey];
     const scenarioLine =
       captureChannel === 'quick_note'
         ? t('talkHome.scenarioQuickNote')
@@ -1993,22 +2121,74 @@ export function TalkHomeScreen() {
         )}
 
         <View style={styles.timeSection}>
-          <Text style={styles.confirmBlockLabel}>{t('talkHome.confirmMomentLabel')}</Text>
+          <View style={styles.whenHeaderRow}>
+            <Text style={styles.confirmBlockLabel}>
+              {voiceConfirm.localType === 'HABIT' ? 'Frequence' : 'Quand ?'}
+            </Text>
+            <View style={styles.whenBadge}>
+              <Text style={styles.whenBadgeText}>
+                {horizonMeta.emoji} {horizonMeta.label}
+              </Text>
+            </View>
+          </View>
           {isEditing ? (
-            <TextInput
-              value={editedTime}
-              onChangeText={(v) => {
-                setVoiceConfirm((prev) => (prev ? { ...prev, editedTime: v } : prev));
-              }}
-              style={styles.editTimeInput}
-              placeholder={t('talkHome.timeUnspecified')}
-              placeholderTextColor="rgba(44,62,80,0.45)"
-            />
+            <View style={styles.whenInputRow}>
+              <TextInput
+                value={editedTime}
+                onChangeText={(v) => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setVoiceConfirm((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          editedTime: v,
+                          dueDateYmd:
+                            computeDueDateFromWhenText(v, i18n.language) ?? prev.dueDateYmd ?? null,
+                        }
+                      : prev,
+                  );
+                }}
+                style={styles.editTimeInput}
+                placeholder={
+                  voiceConfirm.localType === 'HABIT'
+                    ? 'Quotidien, Semaine, Week-end'
+                    : 'Facultatif (ex: demain, 18h...)'
+                }
+                placeholderTextColor="rgba(44,62,80,0.45)"
+              />
+              <Pressable
+                onPress={() => {
+                  void onDictateWhenField();
+                }}
+                style={styles.whenMicBtn}
+                disabled={voiceConfirm.isTimeListening}
+              >
+                <Mic size={16} color="#2C3E50" />
+              </Pressable>
+            </View>
           ) : (
             <View style={styles.timeValueWrap}>
-              <Text style={styles.timeValue}>{timeDisplay}</Text>
+              <Text style={styles.timeValue}>
+                {timeDisplay || 'Facultatif (Sans pression)'}
+              </Text>
             </View>
           )}
+          {voiceConfirm.localType === 'HABIT' && isEditing ? (
+            <View style={styles.freqRow}>
+              {['Quotidien', 'Semaine', 'Week-end'].map((preset) => (
+                <Pressable
+                  key={preset}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setVoiceConfirm((prev) => (prev ? { ...prev, editedTime: preset, dueDateYmd: null } : prev));
+                  }}
+                  style={styles.freqPreset}
+                >
+                  <Text style={styles.freqPresetText}>{preset}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         <Text style={styles.confirmBlockLabel}>{STRINGS.TAG_EDITOR.title}</Text>
@@ -2768,6 +2948,29 @@ const styles = StyleSheet.create({
   timeSection: {
     marginBottom: 14,
   },
+  whenHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    gap: 8,
+  },
+  whenBadge: {
+    borderRadius: 999,
+    backgroundColor: 'rgba(0, 128, 128, 0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  whenBadgeText: {
+    color: '#14545c',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  whenInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   timeValueWrap: {
     backgroundColor: 'rgba(44,62,80,0.06)',
     borderRadius: 12,
@@ -2782,6 +2985,7 @@ const styles = StyleSheet.create({
     color: '#2C3E50',
   },
   editTimeInput: {
+    flex: 1,
     backgroundColor: 'rgba(44,62,80,0.06)',
     borderRadius: 12,
     paddingVertical: 10,
@@ -2791,6 +2995,34 @@ const styles = StyleSheet.create({
     color: '#2C3E50',
     borderWidth: 1,
     borderColor: 'rgba(44, 62, 80, 0.22)',
+  },
+  whenMicBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  freqRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  freqPreset: {
+    borderWidth: 1,
+    borderColor: 'rgba(0,128,128,0.32)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(0,128,128,0.08)',
+  },
+  freqPresetText: {
+    color: '#14545c',
+    fontSize: 12,
+    fontWeight: '700',
   },
   voiceActionRow: {
     flexDirection: 'row',

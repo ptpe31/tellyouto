@@ -319,6 +319,54 @@ export async function listTrankilV2Intentions(): Promise<TrankilV2IntentionRow[]
   );
 }
 
+export async function getTrankilV2IntentionTaskCounts(): Promise<{
+  intentionsCount: number;
+  tasksCount: number;
+}> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const intentionsRow = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM intentions`,
+  );
+  const tasksRow = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM intentions WHERE type = 'TASK'`,
+  );
+  return {
+    intentionsCount: Number(intentionsRow?.total ?? 0),
+    tasksCount: Number(tasksRow?.total ?? 0),
+  };
+}
+
+export async function getLastTrankilV2IntentionRaw(): Promise<TrankilV2IntentionRow | null> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return (
+    (await db.getFirstAsync<TrankilV2IntentionRow>(
+      `SELECT * FROM intentions ORDER BY created_at DESC LIMIT 1`,
+    )) ?? null
+  );
+}
+
+export async function purgeTrankilV2IntentionsCascade(): Promise<{
+  intentionsDeleted: number;
+  tasksDeleted: number;
+}> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const before = await getTrankilV2IntentionTaskCounts();
+  await db.execAsync(`DELETE FROM intentions;`);
+  const hasTasksTable = await db.getFirstAsync<{ name: string }>(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='tasks' LIMIT 1`,
+  );
+  if (hasTasksTable) {
+    await db.execAsync(`DELETE FROM tasks;`);
+  }
+  return {
+    intentionsDeleted: before.intentionsCount,
+    tasksDeleted: before.tasksCount,
+  };
+}
+
 export async function listTrankilV2UnorganizedIntentions(): Promise<TrankilV2IntentionRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();
@@ -554,6 +602,35 @@ export async function updateTrankilV2IntentionQuick(
       patch.title ?? current.title,
       patch.category_id ?? current.category_id,
       patch.category_id ?? current.category_id,
+      id,
+    ],
+  );
+}
+
+export async function updateTrankilV2IntentionTemporal(
+  id: string,
+  patch: { due_date?: string | null; category_id?: string | null; metadata_json?: string },
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const current = await db.getFirstAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions WHERE id = ?`,
+    [id],
+  );
+  if (!current) return;
+  const nextCategory = patch.category_id ?? current.category_id;
+  await db.runAsync(
+    `UPDATE intentions
+     SET due_date = ?,
+         category_id = ?,
+         category = ?,
+         metadata_json = ?
+     WHERE id = ?`,
+    [
+      patch.due_date ?? current.due_date ?? null,
+      nextCategory,
+      nextCategory,
+      patch.metadata_json ?? current.metadata_json,
       id,
     ],
   );

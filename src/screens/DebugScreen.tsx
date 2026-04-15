@@ -22,12 +22,15 @@ import { CalendarGranularSection } from '../components';
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
 import {
   consumeTrankilV2IntentCredit,
-  deleteTrankilV2IntentionById,
+  getLastTrankilV2IntentionRaw,
+  getTrankilV2IntentionTaskCounts,
   getTrankilV2UserStats,
   insertTrankilV2Intention,
   listTrankilV2Intentions,
+  purgeTrankilV2IntentionsCascade,
   setAdState,
   setDebugSpawnFlies,
+  type TrankilV2IntentionRow,
 } from '../api/trankilV2Db';
 import {
   deleteAllIntentions,
@@ -61,6 +64,26 @@ type ProjectPlanPreviewState = {
   rows: GeminiExpertIntention[];
   taskAlarmIndexes: number[];
 };
+
+function formatDueDateLocal(dueDate: string | null | undefined): string {
+  const raw = String(dueDate || '').trim();
+  if (!/^\d{8}$/.test(raw)) return '--';
+  const yyyy = Number(raw.slice(0, 4));
+  const mm = Number(raw.slice(4, 6));
+  const dd = Number(raw.slice(6, 8));
+  const date = new Date(yyyy, mm - 1, dd);
+  if (Number.isNaN(date.getTime())) return '--';
+  try {
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale || undefined;
+    return new Intl.DateTimeFormat(locale, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).format(date);
+  } catch {
+    return `${dd}/${mm}/${yyyy}`;
+  }
+}
 
 async function persistGeminiExpertRowsForDebug(
   rawInput: string,
@@ -151,6 +174,9 @@ export function DebugScreen() {
   const [debugProjectText, setDebugProjectText] = useState('');
   const [projectPlanPreview, setProjectPlanPreview] = useState<ProjectPlanPreviewState | null>(null);
   const [simLatencyMs, setSimLatencyMs] = useState<number | null>(null);
+  const [trankilRows, setTrankilRows] = useState<TrankilV2IntentionRow[]>([]);
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const [dbCounts, setDbCounts] = useState({ intentionsCount: 0, tasksCount: 0 });
 
   const refreshKpis = useCallback(async () => {
     const stats = await getTrankilV2UserStats();
@@ -221,14 +247,25 @@ export function DebugScreen() {
     }
   }, []);
 
+  const refreshTrankilIntentions = useCallback(async () => {
+    const [rows, counts] = await Promise.all([
+      listTrankilV2Intentions(),
+      getTrankilV2IntentionTaskCounts(),
+    ]);
+    setTrankilRows(rows);
+    setDbCounts(counts);
+  }, []);
+
   useEffect(() => {
     void refreshRawIntentions();
+    void refreshTrankilIntentions();
     void refreshSyncPurge();
     void refreshKpis();
     const subIntentions = DeviceEventEmitter.addListener(
       INTENTIONS_CHANGED_EVENT_NAME,
       () => {
         void refreshRawIntentions();
+        void refreshTrankilIntentions();
         void refreshSyncPurge();
       },
     );
@@ -247,7 +284,7 @@ export function DebugScreen() {
       subReset.remove();
       subTalkCapture.remove();
     };
-  }, [refreshRawIntentions, refreshSyncPurge, refreshKpis]);
+  }, [refreshKpis, refreshRawIntentions, refreshSyncPurge, refreshTrankilIntentions]);
 
   const onForceMorning = useCallback(() => {
     DeviceEventEmitter.emit('DEBUG_FORCE_MORNING');
@@ -588,18 +625,19 @@ export function DebugScreen() {
         `✅ SQLite OK\nID projet: ${saved.projectId ?? 'n/a'}\nLignes insérées: ${saved.insertedCount}\nCrédits restants: ${afterConsume.remaining_intents}`,
       );
       await refreshRawIntentions();
+      await refreshTrankilIntentions();
       await refreshKpis();
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
-  }, [projectPlanPreview, refreshKpis, refreshRawIntentions]);
+  }, [projectPlanPreview, refreshKpis, refreshRawIntentions, refreshTrankilIntentions]);
 
   const onPurgeTrankilIntentions = useCallback(() => {
     Alert.alert(
-      'Vider la table Intentions (Debug)',
-      'Cette action supprime toutes les intentions Trankil V2.',
+      'Vider Intentions + Taches (Debug)',
+      'Es-tu sur de vouloir tout effacer ? Cette action est irreversible.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -610,12 +648,13 @@ export function DebugScreen() {
               setLastError(null);
               setBusy('purgeTrankilIntentions');
               try {
-                const rows = await listTrankilV2Intentions();
-                for (const row of rows) {
-                  await deleteTrankilV2IntentionById(row.id);
-                }
-                Alert.alert('Debug', `Table intentions vidée (${rows.length}).`);
+                const deleted = await purgeTrankilV2IntentionsCascade();
+                Alert.alert(
+                  'Debug',
+                  `Suppression cascade OK\nIntentions: ${deleted.intentionsDeleted}\nTaches: ${deleted.tasksDeleted}`,
+                );
                 await refreshKpis();
+                await refreshTrankilIntentions();
               } catch (e) {
                 setLastError(e instanceof Error ? e.message : String(e));
               } finally {
@@ -626,7 +665,26 @@ export function DebugScreen() {
         },
       ],
     );
-  }, [refreshKpis]);
+  }, [refreshKpis, refreshTrankilIntentions]);
+
+  const onTestLogLastRaw = useCallback(async () => {
+    try {
+      const last = await getLastTrankilV2IntentionRaw();
+      if (!last) {
+        console.log('[Debug][TEST LOG] aucune ligne en base');
+        Alert.alert('TEST LOG', 'Aucune ligne en base.');
+        return;
+      }
+      console.log('[Debug][TEST LOG][LAST_ROW]', JSON.stringify(last, null, 2));
+      Alert.alert('TEST LOG', `Derniere ligne loggee: ${last.id}`);
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const toggleProjectExpanded = useCallback((projectId: string) => {
+    setExpandedProjects((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
+  }, []);
 
   const onForceAgentDirectAlarm = useCallback(async () => {
     setLastError(null);
@@ -857,6 +915,82 @@ export function DebugScreen() {
         >
           Vider la table Intentions (Debug)
         </Button>
+        <Button
+          mode="outlined"
+          onPress={() => void onTestLogLastRaw()}
+          disabled={busy !== null}
+          style={[styles.btn, styles.btnSecond]}
+        >
+          TEST LOG
+        </Button>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          Base SQLite Projets / Dates
+        </Text>
+        <Text style={[styles.mono, styles.countLine, { color: theme.colors.onSurfaceVariant }]}>
+          intentions={dbCounts.intentionsCount} | tasks={dbCounts.tasksCount}
+        </Text>
+        {trankilRows.map((row) => {
+          const isProject = row.type === 'PROJECT';
+          const isNote = row.type === 'NOTE';
+          const projectTasks = isProject
+            ? trankilRows.filter((r) => r.parent_id === row.id && r.type === 'TASK')
+            : [];
+          const expanded = Boolean(expandedProjects[row.id]);
+          return (
+            <View
+              key={row.id}
+              style={[
+                styles.dbRow,
+                isProject ? styles.dbRowProject : null,
+                isNote ? styles.dbRowNote : null,
+              ]}
+            >
+              <View style={styles.dbRowHead}>
+                <Text style={[styles.dbTypeBadge, isProject ? styles.badgeProject : styles.badgeNote]}>
+                  {row.type}
+                </Text>
+                <Text style={styles.dbTitle} numberOfLines={2}>
+                  {row.title}
+                </Text>
+              </View>
+              <Text style={styles.mono}>id: {row.id}</Text>
+              <Text style={styles.mono}>due_date: {formatDueDateLocal(row.due_date)}</Text>
+              {isProject ? (
+                <>
+                  <Pressable onPress={() => toggleProjectExpanded(row.id)} style={styles.accordionBtn}>
+                    <Text style={styles.accordionText}>
+                      [{projectTasks.length}] taches {expanded ? '▲' : '▼'}
+                    </Text>
+                  </Pressable>
+                  {expanded ? (
+                    <View style={styles.subTaskWrap}>
+                      {projectTasks.map((task) => {
+                        const meta = (() => {
+                          try {
+                            return JSON.parse(task.metadata_json || '{}') as { has_alarm?: boolean };
+                          } catch {
+                            return {};
+                          }
+                        })();
+                        return (
+                          <View key={task.id} style={styles.subTaskRow}>
+                            <Text style={styles.subTaskTitle} numberOfLines={2}>
+                              {task.title}
+                            </Text>
+                            <Text style={styles.mono}>a: {meta.has_alarm ? 'true' : 'false'}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+          );
+        })}
       </View>
 
       <View style={styles.section}>
@@ -1108,7 +1242,68 @@ const styles = StyleSheet.create({
   err: { marginBottom: 12, fontSize: 13 },
   blockTitle: { fontSize: 14, fontWeight: '600', marginTop: 16, marginBottom: 8 },
   mono: { fontFamily: 'monospace', fontSize: 11, lineHeight: 16 },
+  countLine: { marginTop: 2, marginBottom: 8 },
   rawJson: { marginTop: 10 },
+  dbRow: {
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.18)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginTop: 8,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+  },
+  dbRowProject: {
+    borderColor: 'rgba(0,128,128,0.45)',
+    backgroundColor: 'rgba(0,128,128,0.06)',
+  },
+  dbRowNote: {
+    borderColor: 'rgba(255,140,0,0.42)',
+    backgroundColor: 'rgba(255,140,0,0.06)',
+  },
+  dbRowHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  dbTypeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  badgeProject: {
+    backgroundColor: 'rgba(0,128,128,0.2)',
+    color: '#005f5f',
+  },
+  badgeNote: {
+    backgroundColor: 'rgba(255,140,0,0.2)',
+    color: '#7c4500',
+  },
+  dbTitle: { flex: 1, fontSize: 13, fontWeight: '700', color: '#2C3E50' },
+  accordionBtn: {
+    marginTop: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.22)',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    alignSelf: 'flex-start',
+  },
+  accordionText: { fontSize: 12, fontWeight: '700', color: '#2C3E50' },
+  subTaskWrap: { marginTop: 8, gap: 6 },
+  subTaskRow: {
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.16)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255,255,255,0.65)',
+  },
+  subTaskTitle: { color: '#2C3E50', fontSize: 12, fontWeight: '600', marginBottom: 2 },
   debugProjectInput: {
     marginTop: 6,
     borderWidth: 1,
