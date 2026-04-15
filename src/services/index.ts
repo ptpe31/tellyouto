@@ -20,7 +20,7 @@ export {
   orderIntentionsBySpectrum,
 } from './agentLogic';
 export type { ComputePriorityOptions, TimelineSlot } from './agentLogic';
-export { askGeminiExpert } from './GeminiExpert';
+export { askGeminiExpert, atomizeProject } from './GeminiExpert';
 export {
   getOptimalReward,
   onLocalAiValidated,

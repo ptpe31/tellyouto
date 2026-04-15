@@ -16,6 +16,7 @@
     "deploy:functions": "firebase deploy --only functions --project tellmeto-4f3c7"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "@nlpjs/lang-all": "^5.0.0-alpha.5",
     "@nlpjs/nlp": "^5.0.0-alpha.5",
     "@react-native-async-storage/async-storage": "2.2.0",

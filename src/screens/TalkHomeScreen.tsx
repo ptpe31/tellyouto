@@ -76,7 +76,7 @@ import {
   reformulateStructuredIntent,
   type VoiceIntentKind,
 } from '../services/TranscriptionService';
-import { askGeminiExpert, type GeminiExpertIntention } from '../services/GeminiExpert';
+import { askGeminiExpert, atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
 import { transcribeWithWhisperLocal } from '../services/WhisperAdapter';
 import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusEngine';
 import { runIntentOrchestration, type OrchestratorDecision } from '../services/IntentOrchestrator';
@@ -875,7 +875,10 @@ export function TalkHomeScreen() {
       if (routeDecision === 'COMPLEX') {
         await resetLocalStreakOnExpert();
         setIsExpertLoading(true);
-        const expertRows = await askGeminiExpert(rawTranscript);
+        const expertRows =
+          voiceConfirm.captureChannel === 'projet'
+            ? await atomizeProject(rawTranscript)
+            : await askGeminiExpert(rawTranscript);
         if (expertRows.length > 0) {
           await persistGeminiExpertRows(rawTranscript, expertRows);
           const expertPoints = growthPointsFromExpertRows(expertRows);
