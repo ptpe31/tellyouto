@@ -9,7 +9,7 @@ import {
   useSpeechRecognitionEvent,
   type ExpoSpeechRecognitionErrorEvent,
 } from 'expo-speech-recognition';
-import { Bell, Check, Folder, Pencil, Target, UserCircle2, Waves, X, Zap } from 'lucide-react-native';
+import { Bell, Check, Lock, Pencil, UserCircle2, Waves, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RewardToast } from '../components/RewardToast';
 import {
@@ -31,6 +31,7 @@ import {
 import {
   PanGestureHandler,
   State as GestureState,
+  type PanGestureHandlerGestureEvent,
   type PanGestureHandlerStateChangeEvent,
 } from 'react-native-gesture-handler';
 import type { TFunction } from 'i18next';
@@ -114,6 +115,12 @@ function ratioPct(value: number, total: number): `${number}%` {
 }
 
 type CaptureChannel = 'intention' | 'quick_note' | 'projet';
+type ConceptTarget = 'PROJECT' | 'TASK' | 'NOTE';
+const CONCEPT_META: Record<ConceptTarget, { title: string; subtitle: string }> = {
+  PROJECT: { title: '[GENERER PROJET]', subtitle: 'ATOMISER LA PENSEE EN ACTIONS' },
+  TASK: { title: '[CREER TACHE RAPIDE]', subtitle: 'UNE ACTION SIMPLE, UN RAPPEL' },
+  NOTE: { title: '[PRENDRE NOTE BRUTE]', subtitle: 'SIMPLE CAPTURE TEXTE OU AUDIO' },
+};
 
 type VoiceConfirmState = {
   rawTranscript: string;
@@ -298,7 +305,14 @@ export function TalkHomeScreen() {
   const [projectRefine, setProjectRefine] = useState<ProjectRefinementState | null>(null);
   const [projectPlanPreview, setProjectPlanPreview] = useState<ProjectPlanPreviewState | null>(null);
   const [isProjectHoldActive, setIsProjectHoldActive] = useState(false);
+  const [currentTarget, setCurrentTarget] = useState<ConceptTarget>('PROJECT');
+  const [isMicLocked, setIsMicLocked] = useState(false);
+  const [isMicGestureActive, setIsMicGestureActive] = useState(false);
+  const [micDrag, setMicDrag] = useState({ x: 0, y: 0 });
+  const [cancelSweepActive, setCancelSweepActive] = useState(false);
   const [livePartial, setLivePartial] = useState('');
+  const [audioLevel, setAudioLevel] = useState(0.16);
+  const [waveBars, setWaveBars] = useState<number[]>([8, 10, 13, 18, 24, 18, 13, 10, 8]);
   const [remainingIntents, setRemainingIntents] = useState(10);
   const [microToast, setMicroToast] = useState('');
   const [rewardToast, setRewardToast] = useState('');
@@ -309,12 +323,17 @@ export function TalkHomeScreen() {
   const voiceActiveRef = useRef(false);
   const stopAfterStartRef = useRef(false);
   const projectGestureHoldingRef = useRef(false);
+  const micCancelTriggeredRef = useRef(false);
   const stopQuickCaptureRef = useRef<null | (() => Promise<void>)>(null);
   const captureChannelRef = useRef<CaptureChannel | null>(null);
   const startedAtRef = useRef<number>(0);
   const partialTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
   const speechErrorRef = useRef(false);
+  const lastPartialLenRef = useRef(0);
+  const debounceLiveTextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastLiveTextPushAtRef = useRef(0);
+  const cancelSweepAnim = useRef(new Animated.Value(0)).current;
   const avRecordingRef = useRef<Audio.Recording | null>(null);
   const projectAudioRef = useRef<Audio.Recording | null>(null);
   const micScale = useRef(new Animated.Value(1)).current;
@@ -400,11 +419,47 @@ export function TalkHomeScreen() {
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results[0]?.transcript ?? '';
     partialTranscriptRef.current = text;
-    setLivePartial(text);
+    const len = text.length;
+    const delta = Math.abs(len - lastPartialLenRef.current);
+    lastPartialLenRef.current = len;
+    const derivedLevel = Math.min(1, 0.18 + delta / 22);
+    setAudioLevel(derivedLevel);
+    const now = Date.now();
+    const flush = () => {
+      lastLiveTextPushAtRef.current = Date.now();
+      setLivePartial(partialTranscriptRef.current);
+    };
+    if (now - lastLiveTextPushAtRef.current >= 300) {
+      flush();
+    } else if (!debounceLiveTextTimerRef.current) {
+      debounceLiveTextTimerRef.current = setTimeout(() => {
+        debounceLiveTextTimerRef.current = null;
+        flush();
+      }, 300 - (now - lastLiveTextPushAtRef.current));
+    }
     if (event.isFinal && text.trim()) {
       finalTranscriptRef.current = text.trim();
     }
   });
+
+  useEffect(() => {
+    if (!(isRecording || isMicLocked)) {
+      setWaveBars([8, 10, 13, 18, 24, 18, 13, 10, 8]);
+      return;
+    }
+    const id = setInterval(() => {
+      setAudioLevel((prev) => Math.max(0.1, prev * 0.87));
+      const amp = 7 + audioLevel * 34;
+      setWaveBars(
+        Array.from({ length: 9 }, (_, idx) => {
+          const center = 4 - Math.abs(4 - idx) * 0.8;
+          const jitter = 0.55 + Math.random() * 0.85;
+          return Math.max(6, center * amp * jitter);
+        }),
+      );
+    }, 120);
+    return () => clearInterval(id);
+  }, [audioLevel, isMicLocked, isRecording]);
 
   useSpeechRecognitionEvent('error', (event) => {
     if (event.error === 'aborted') {
@@ -439,6 +494,10 @@ export function TalkHomeScreen() {
 
   useEffect(() => {
     return () => {
+      if (debounceLiveTextTimerRef.current) {
+        clearTimeout(debounceLiveTextTimerRef.current);
+        debounceLiveTextTimerRef.current = null;
+      }
       try {
         ExpoSpeechRecognitionModule.abort();
       } catch {
@@ -1024,22 +1083,41 @@ export function TalkHomeScreen() {
     }
   }, [emitTalkDebug, i18n.language, interactionLanguage, t, unloadAvRecording]);
 
-  const onMicPressIn = useCallback(() => {
+  const startUniversalCapture = useCallback(() => {
     if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
-    if (voiceActiveRef.current || avRecordingRef.current) return;
+    if (voiceActiveRef.current || avRecordingRef.current || projectAudioRef.current) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setMicDrag({ x: 0, y: 0 });
+    micCancelTriggeredRef.current = false;
     stopAfterStartRef.current = false;
-    captureChannelRef.current = 'intention';
+    if (currentTarget === 'PROJECT') {
+      projectGestureHoldingRef.current = true;
+      setMicroToast('Mode PROJET · transcription en direct');
+      void startProjectHoldCapture();
+      return;
+    }
+    captureChannelRef.current = currentTarget === 'NOTE' ? 'quick_note' : 'intention';
+    setMicroToast(currentTarget === 'NOTE' ? 'Mode NOTE · capture brute' : 'Mode TACHE · tri local');
     void startQuickCapture();
   }, [
+    currentTarget,
     isBusy,
     isPostCaptureAnalyzing,
     projectRefine,
+    startProjectHoldCapture,
     startQuickCapture,
     voiceConfirm,
   ]);
 
-  const onMicPressOut = useCallback(() => {
+  const stopUniversalCapture = useCallback(() => {
+    setMicDrag({ x: 0, y: 0 });
+    setIsMicLocked(false);
+    setIsMicGestureActive(false);
+    projectGestureHoldingRef.current = false;
+    if (voiceActiveRef.current && currentTarget === 'PROJECT') {
+      void stopProjectHoldCapture();
+      return;
+    }
     if (voiceActiveRef.current) {
       void stopQuickCapture();
       return;
@@ -1049,56 +1127,94 @@ export function TalkHomeScreen() {
       return;
     }
     stopAfterStartRef.current = true;
-  }, [stopDeepCapture, stopQuickCapture]);
+  }, [currentTarget, stopDeepCapture, stopProjectHoldCapture, stopQuickCapture]);
 
-  const onProjectPressIn = useCallback(() => {
-    if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
-    if (voiceActiveRef.current || avRecordingRef.current || projectAudioRef.current) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    projectGestureHoldingRef.current = true;
-    void startProjectHoldCapture();
-  }, [isBusy, isPostCaptureAnalyzing, projectRefine, startProjectHoldCapture, voiceConfirm]);
-
-  const onProjectPressOut = useCallback(() => {
+  const cancelUniversalCapture = useCallback(async () => {
+    micCancelTriggeredRef.current = true;
+    setMicDrag({ x: 0, y: 0 });
+    setCancelSweepActive(true);
+    cancelSweepAnim.setValue(0);
+    await new Promise<void>((resolve) => {
+      Animated.timing(cancelSweepAnim, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => resolve());
+    });
+    setIsMicLocked(false);
+    setIsMicGestureActive(false);
+    captureChannelRef.current = null;
     projectGestureHoldingRef.current = false;
     if (voiceActiveRef.current) {
-      void stopProjectHoldCapture();
-    }
-  }, [stopProjectHoldCapture]);
-
-  const onProjectGestureStateChange = useCallback(
-    (event: PanGestureHandlerStateChangeEvent) => {
-      const { state } = event.nativeEvent;
-      if (state === GestureState.ACTIVE) {
-        onProjectPressIn();
-        return;
+      voiceActiveRef.current = false;
+      try {
+        ExpoSpeechRecognitionModule.abort();
+      } catch {
+        /* ignore */
       }
-      if (
-        state === GestureState.END ||
-        state === GestureState.CANCELLED ||
-        state === GestureState.FAILED
-      ) {
-        if (state !== GestureState.END && projectGestureHoldingRef.current) {
-          console.log('LOG [Audio-Capture] Signal d\'arrêt reçu : TIMEOUT/AUTRE');
+      const rec = projectAudioRef.current;
+      projectAudioRef.current = null;
+      if (rec) {
+        try {
+          await rec.stopAndUnloadAsync();
+        } catch {
+          /* ignore */
         }
-        onProjectPressOut();
+      }
+    }
+    partialTranscriptRef.current = '';
+    finalTranscriptRef.current = '';
+    setLivePartial('');
+    setIsProjectHoldActive(false);
+    setIsRecording(false);
+    setCaptureMode('idle');
+    setIsBusy(false);
+    setIsPostCaptureAnalyzing(false);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    setMicroToast('Capture annulee');
+    setTimeout(() => setMicroToast(''), 1000);
+    setCancelSweepActive(false);
+    cancelSweepAnim.setValue(0);
+  }, [cancelSweepAnim]);
+
+  const onUniversalMicGestureEvent = useCallback(
+    (event: PanGestureHandlerGestureEvent) => {
+      const { translationX, translationY } = event.nativeEvent;
+      if (!isMicGestureActive || micCancelTriggeredRef.current) return;
+      setMicDrag({ x: translationX, y: translationY });
+      if (!isMicLocked && translationY < -72) {
+        setIsMicLocked(true);
+        setMicroToast('Capture verrouillee');
+      }
+      if (translationX < -72 && !micCancelTriggeredRef.current) {
+        void cancelUniversalCapture();
       }
     },
-    [onProjectPressIn, onProjectPressOut],
+    [cancelUniversalCapture, isMicGestureActive, isMicLocked],
   );
 
-  const onQuickNotePress = useCallback(() => {
-    if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
-    if (voiceActiveRef.current || avRecordingRef.current) return;
-    stopAfterStartRef.current = false;
-    captureChannelRef.current = 'quick_note';
-    void startQuickCapture();
-    setTimeout(() => {
-      if (voiceActiveRef.current) {
-        void stopQuickCapture();
+  const onUniversalMicStateChange = useCallback(
+    (event: PanGestureHandlerStateChangeEvent) => {
+      const { state } = event.nativeEvent;
+      if (state === GestureState.BEGAN) {
+        setIsMicGestureActive(true);
+        void startUniversalCapture();
+        return;
       }
-    }, 1150);
-  }, [isBusy, isPostCaptureAnalyzing, projectRefine, startQuickCapture, stopQuickCapture, voiceConfirm]);
+      if (state === GestureState.END) {
+        setIsMicGestureActive(false);
+        if (!isMicLocked && !micCancelTriggeredRef.current) {
+          stopUniversalCapture();
+        }
+        return;
+      }
+      if (state === GestureState.CANCELLED || state === GestureState.FAILED) {
+        setIsMicGestureActive(false);
+      }
+    },
+    [isMicLocked, startUniversalCapture, stopUniversalCapture],
+  );
 
   const onCancelVoice = useCallback(() => {
     if (!voiceConfirm) return;
@@ -1394,14 +1510,47 @@ export function TalkHomeScreen() {
 
   /** Quick : texte ASR partiel/final. Deep : consigne mains libres (pas de preview .m4a). */
   const renderLiveSpeechCard = () => {
-    if (isProjectHoldActive) {
+    if (isProjectHoldActive || isRecording || isMicLocked) {
       const line = livePartial.trim()
         ? livePartial.trim()
         : t('talkHome.voiceLivePlaceholder');
+      const tokens = line.split(/\s+/).filter(Boolean);
+      const trailing = tokens.slice(-4).join(' ');
       return (
-        <View style={styles.titleHeroWrap}>
+        <Animated.View
+          style={[
+            styles.titleHeroWrap,
+            cancelSweepActive
+              ? {
+                  transform: [{ translateX: cancelSweepAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -180] }) }],
+                  opacity: cancelSweepAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+                }
+              : null,
+          ]}
+        >
+          {isMicLocked ? (
+            <View style={styles.liveLockBadge}>
+              <Lock size={13} color="#e8f6f6" />
+              <Text style={styles.liveLockBadgeText}>LOCK</Text>
+            </View>
+          ) : null}
+          <View style={styles.waveformRow}>
+            {waveBars.map((h, idx) => (
+              <View
+                key={`wave-${idx}`}
+                style={[
+                  styles.waveformBar,
+                  {
+                    height: h,
+                    opacity: 0.35 + (idx % 2 ? 0.25 : 0.4),
+                  },
+                ]}
+              />
+            ))}
+          </View>
           <Text style={styles.projectLiveTextMuted}>{line}</Text>
-        </View>
+          {trailing ? <Text style={styles.projectLiveTextTail}>{trailing}</Text> : null}
+        </Animated.View>
       );
     }
     if (captureMode === 'deep') {
@@ -1516,8 +1665,10 @@ export function TalkHomeScreen() {
 
   const micA11yLabel = useMemo(() => {
     if (isRecording) return t('talkHome.orbital.holdRelease');
+    if (currentTarget === 'PROJECT') return t('talkHome.a11yTalkieProjet');
+    if (currentTarget === 'NOTE') return t('talkHome.a11yTalkieQuickNote');
     return t('talkHome.a11yMicQuick');
-  }, [isRecording, t]);
+  }, [currentTarget, isRecording, t]);
 
   const renderConfirmCard = () => {
     if (!voiceConfirm) return null;
@@ -1709,96 +1860,81 @@ export function TalkHomeScreen() {
       <View style={styles.bodySpacer} />
 
       <View
-        style={[styles.bottomHud, { bottom: insets.bottom + 118 }]}
+        style={[styles.bottomHud, { bottom: insets.bottom + 132 }]}
         pointerEvents="none"
       >
         <BottomStatus microToast={microToast} />
       </View>
 
-      <View style={styles.talkieGhostDeck} pointerEvents="box-none">
+      <View style={styles.conceptBar}>
+        {(['PROJECT', 'TASK', 'NOTE'] as ConceptTarget[]).map((target) => {
+          const isActive = currentTarget === target;
+          return (
+            <Pressable
+              key={target}
+              style={[styles.conceptBtn, isActive ? styles.conceptBtnActive : null]}
+              onPress={() => setCurrentTarget(target)}
+              disabled={isRecording || isBusy || isPostCaptureAnalyzing}
+            >
+              <Text style={[styles.conceptBtnText, isActive ? styles.conceptBtnTextActive : null]}>
+                {CONCEPT_META[target].title}
+              </Text>
+              <Text style={[styles.conceptBtnSub, isActive ? styles.conceptBtnSubActive : null]}>
+                {CONCEPT_META[target].subtitle}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={[styles.universalMicDock, { bottom: insets.bottom + 26 }]}>
         <PanGestureHandler
-          enabled={
-            !(
-              isBusy ||
-              voiceConfirm !== null ||
-              projectRefine !== null ||
-              Platform.OS === 'web' ||
-              isPostCaptureAnalyzing
-            )
-          }
-          activateAfterLongPress={160}
-          minPointers={1}
-          maxPointers={1}
+          enabled={!isBusy && !isPostCaptureAnalyzing && voiceConfirm === null && projectRefine === null}
+          onGestureEvent={onUniversalMicGestureEvent}
+          onHandlerStateChange={onUniversalMicStateChange}
           shouldCancelWhenOutside={false}
-          onHandlerStateChange={onProjectGestureStateChange}
         >
-          <View
-            accessible
-            accessibilityRole="button"
-            accessibilityLabel={t('talkHome.a11yTalkieProjet')}
-            accessibilityHint={t('talkHome.talkieProjet')}
-            style={[styles.ghostSide, styles.ghostSideLeft]}
+          <Animated.View
+            style={[
+              styles.universalMicWrap,
+              {
+                transform: [
+                  { scale: isMicGestureActive || isMicLocked ? 1.08 : 1 },
+                  { translateX: Math.max(micDrag.x, -72) * 0.14 },
+                  { translateY: Math.min(micDrag.y, 0) * 0.14 },
+                ],
+              },
+            ]}
           >
-            {isProjectHoldActive || projectRefine ? null : (
-              <View style={[styles.ghostBtnInner, { opacity: 0.8 }]}>
-                <Folder size={28} color="#2C3E50" />
-                <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieProjet')}</Text>
-              </View>
-            )}
-          </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={micA11yLabel}
+              accessibilityHint="Maintenir pour enregistrer. Glisser haut pour verrouiller, gauche pour annuler."
+              style={[styles.universalMicBtn, isMicLocked ? styles.universalMicBtnLocked : null]}
+              onPress={() => {
+                if (isMicLocked) {
+                  stopUniversalCapture();
+                  setIsMicLocked(false);
+                }
+              }}
+            >
+              <Text style={styles.universalMicIcon}>🎤</Text>
+            </Pressable>
+          </Animated.View>
         </PanGestureHandler>
-        <Animated.View style={[styles.ghostMainWrap, { transform: [{ scale: micScale }] }]}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={micA11yLabel}
-            accessibilityHint={t('talkHome.talkieIntention')}
-            onPressIn={onMicPressIn}
-            onPressOut={onMicPressOut}
-            disabled={
-              isBusy ||
-              voiceConfirm !== null ||
-              projectRefine !== null ||
-              Platform.OS === 'web' ||
-              isPostCaptureAnalyzing
-            }
-            hitSlop={14}
-            android_ripple={{ color: 'rgba(0,128,128,0.14)', borderless: true }}
-            style={styles.ghostMain}
-          >
-            {({ pressed }) =>
-              isProjectHoldActive || projectRefine ? null : (
-                <View style={[styles.ghostMainInner, { opacity: pressed ? 0.5 : 0.8 }]}>
-                  <Target size={38} color="#2C3E50" />
-                  <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieIntention')}</Text>
-                </View>
-              )
-            }
-          </Pressable>
-        </Animated.View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('talkHome.a11yTalkieQuickNote')}
-          accessibilityHint={t('talkHome.talkieQuickNote')}
-          onPress={onQuickNotePress}
-          onPressIn={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          }}
-          disabled={
-            isBusy || voiceConfirm !== null || projectRefine !== null || Platform.OS === 'web' || isPostCaptureAnalyzing
-          }
-          hitSlop={12}
-          android_ripple={{ color: 'rgba(44,62,80,0.12)', borderless: true }}
-          style={[styles.ghostSide, styles.ghostSideRight]}
-        >
-          {({ pressed }) =>
-            isProjectHoldActive || projectRefine ? null : (
-              <View style={[styles.ghostBtnInner, { opacity: pressed ? 0.5 : 0.8 }]}>
-                <Zap size={28} color="#2C3E50" />
-                <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieQuickNote')}</Text>
+        {(isMicGestureActive || isMicLocked) && !voiceConfirm && !projectRefine ? (
+          <View style={styles.universalHintWrap}>
+            {isMicLocked ? (
+              <View style={styles.microLockPill}>
+                <Lock size={11} color="#b8fbff" />
+                <Text style={styles.microLockPillText}>LOCK</Text>
               </View>
-            )
-          }
-        </Pressable>
+            ) : null}
+            <Text style={styles.universalMicHint}>
+              {isMicLocked ? 'SWIPE UP TO LOCK' : 'SWIPE LEFT TO CANCEL'}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.semanticModalZone} pointerEvents="box-none">
@@ -1876,7 +2012,7 @@ export function TalkHomeScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#F5F5F0',
+    backgroundColor: '#0f1722',
     flexDirection: 'column',
     justifyContent: 'space-between',
     paddingHorizontal: 22,
@@ -1905,12 +2041,132 @@ const styles = StyleSheet.create({
   bodySpacer: {
     flex: 1,
   },
+  conceptBar: {
+    position: 'absolute',
+    top: 106,
+    left: 22,
+    right: 22,
+    flexDirection: 'row',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(168,179,197,0.28)',
+    backgroundColor: '#2a313d',
+    zIndex: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  conceptBtn: {
+    flex: 1,
+    minHeight: 76,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(54,63,79,0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(17,22,31,0.45)',
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+  },
+  conceptBtnActive: {
+    backgroundColor: 'rgba(40,57,52,0.95)',
+    borderColor: 'rgba(60, 234, 159, 0.45)',
+    shadowColor: '#3CEA9F',
+    shadowOpacity: 0.24,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  conceptBtnText: {
+    color: '#d7dbe1',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  conceptBtnTextActive: {
+    color: '#eafff4',
+  },
+  conceptBtnSub: {
+    marginTop: 2,
+    color: 'rgba(197,204,216,0.82)',
+    fontSize: 8,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  conceptBtnSubActive: {
+    color: 'rgba(216,255,233,0.86)',
+  },
   bottomHud: {
     position: 'absolute',
     left: 22,
     right: 22,
     alignItems: 'center',
     zIndex: 11,
+  },
+  universalMicDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 24,
+    alignItems: 'center',
+  },
+  universalMicWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  universalMicBtn: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(9, 225, 238, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(124, 247, 252, 0.45)',
+    shadowColor: '#08d9e5',
+    shadowOpacity: 0.42,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  universalMicBtnLocked: {
+    backgroundColor: 'rgba(7, 208, 224, 0.28)',
+    borderColor: 'rgba(173, 252, 255, 0.72)',
+  },
+  universalMicIcon: {
+    fontSize: 36,
+  },
+  universalHintWrap: {
+    marginTop: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  universalMicHint: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(214,221,232,0.85)',
+    letterSpacing: 0.6,
+  },
+  microLockPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: 'rgba(26, 206, 221, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(145, 244, 255, 0.35)',
+  },
+  microLockPillText: {
+    color: '#b8fbff',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   /** Zones tactiles invisibles, alignées sur les 3 boutons physiques du talkie (fond image) */
   talkieGhostDeck: {
@@ -1995,7 +2251,7 @@ const styles = StyleSheet.create({
     top: ratioPct(TALKIE_OLED.y, TALKIE_BG_BASE.height),
     width: ratioPct(TALKIE_OLED.w, TALKIE_BG_BASE.width),
     height: ratioPct(TALKIE_OLED.h, TALKIE_BG_BASE.height),
-    zIndex: 10,
+    zIndex: 9,
     elevation: 10,
   },
   oledModalFrame: {
@@ -2006,7 +2262,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 34,
     borderBottomRightRadius: 31,
     overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0)',
+    backgroundColor: 'rgba(12,16,24,0.9)',
   },
   pingCard: {
     flex: 1,
@@ -2019,7 +2275,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0)',
+    backgroundColor: 'rgba(9,13,20,0.84)',
   },
   priorityBadge: {
     textAlign: 'center',
@@ -2245,11 +2501,54 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
   },
   projectLiveTextMuted: {
-    color: 'rgba(44,62,80,0.62)',
-    fontSize: 22,
-    fontWeight: '600',
+    color: '#BDC3C7',
+    fontSize: 24,
+    fontWeight: '500',
     textAlign: 'center',
-    lineHeight: 30,
+    lineHeight: 34,
+    letterSpacing: 0.3,
+  },
+  projectLiveTextTail: {
+    marginTop: 4,
+    color: 'rgba(189,195,199,0.45)',
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  liveLockBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginBottom: 10,
+    backgroundColor: 'rgba(0,128,128,0.72)',
+  },
+  liveLockBadgeText: {
+    color: '#e8f6f6',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  waveformRow: {
+    marginBottom: 12,
+    height: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  waveformBar: {
+    width: 5,
+    borderRadius: 3,
+    backgroundColor: '#39e6f2',
+    shadowColor: '#17d8e5',
+    shadowOpacity: 0.32,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 4,
   },
   projectRefineScroll: {
     flex: 1,
