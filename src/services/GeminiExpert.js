@@ -292,15 +292,13 @@ function normalizeAtomizedPayload(raw) {
   const tasksRaw = raw.tasks;
   if (!Array.isArray(tasksRaw)) return null;
   const tasks = tasksRaw
-    .map((t, i) => {
+    .map((t) => {
       const o = t && typeof t === 'object' ? t : {};
-      const title = String(o.title || '').trim();
+      const title = String(o.t || o.title || '').trim();
       if (!title) return null;
       return {
         title,
-        order: typeof o.order === 'number' ? o.order : i + 1,
-        metadata:
-          o.metadata && typeof o.metadata === 'object' ? o.metadata : {},
+        suggestAlarm: Boolean(o.a ?? o.suggestAlarm ?? o.suggest_alarm),
       };
     })
     .filter(Boolean);
@@ -317,18 +315,14 @@ Réponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de texte aut
 
 Schema JSON strict:
 {
-  "projectTitle": "string (nom court du projet ou de l'objectif)",
+  "projectTitle": "Titre court",
   "tasks": [
-    {
-      "title": "string (action concrète, verbe d'action)",
-      "order": 1,
-      "metadata": { "estimate_minutes"?: number }
-    }
+    { "t": "Titre de la tache", "a": true }
   ]
 }
 
 Règles:
-- 3 à 12 tâches maximum, ordonnées (order croissant).
+- Génère maximum 10 tâches pour rester concis et garantir un JSON complet.
 - Chaque titre est actionnable seul (pas de sous-points dans le titre).
 - Si le texte est flou, déduis les étapes logiques les plus probables.
 - projectTitle : une seule ligne, pas un paragraphe.
@@ -366,7 +360,9 @@ ${audioText}`;
       message: e instanceof Error ? e.message : String(e),
       preview: rawText.slice(0, 320),
     });
-    throw e;
+    const parseError = new Error('PLAN_JSON_PARSE_ERROR');
+    parseError.name = 'PlanJsonParseError';
+    throw parseError;
   }
 
   const norm = normalizeAtomizedPayload(parsed);
@@ -390,7 +386,7 @@ ${audioText}`;
     ...norm.tasks.map((t) => ({
       type: 'TASK',
       title: t.title,
-      metadata: { ...t.metadata, order: t.order },
+      metadata: { suggest_alarm: t.suggestAlarm },
       suggested_category: 'projets',
     })),
   ];

@@ -18,6 +18,7 @@ import {
   Animated,
   DeviceEventEmitter,
   Easing,
+  LayoutAnimation,
   Linking,
   Modal,
   Platform,
@@ -26,14 +27,11 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
 } from 'react-native';
-import {
-  PanGestureHandler,
-  State as GestureState,
-  type PanGestureHandlerGestureEvent,
-  type PanGestureHandlerStateChangeEvent,
-} from 'react-native-gesture-handler';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MainInterface, type UiMode } from '../components/MainInterface';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
@@ -109,6 +107,7 @@ const TALKIE_BTN_LAYOUT = {
   center: { cx: 286, cy: 878, diameter: 92 },
   right: { cx: 450, cy: 888, diameter: 66 },
 } as const;
+const LIVE_TEXT_DEBOUNCE_MS = 280;
 
 function ratioPct(value: number, total: number): `${number}%` {
   return `${((value / total) * 100).toFixed(2)}%` as `${number}%`;
@@ -116,11 +115,6 @@ function ratioPct(value: number, total: number): `${number}%` {
 
 type CaptureChannel = 'intention' | 'quick_note' | 'projet';
 type ConceptTarget = 'PROJECT' | 'TASK' | 'NOTE';
-const CONCEPT_META: Record<ConceptTarget, { title: string; subtitle: string }> = {
-  PROJECT: { title: '[GENERER PROJET]', subtitle: 'ATOMISER LA PENSEE EN ACTIONS' },
-  TASK: { title: '[CREER TACHE RAPIDE]', subtitle: 'UNE ACTION SIMPLE, UN RAPPEL' },
-  NOTE: { title: '[PRENDRE NOTE BRUTE]', subtitle: 'SIMPLE CAPTURE TEXTE OU AUDIO' },
-};
 
 type VoiceConfirmState = {
   rawTranscript: string;
@@ -147,6 +141,13 @@ type ProjectPlanPreviewState = {
   rawInput: string;
   rows: GeminiExpertIntention[];
   taskAlarmIndexes: number[];
+};
+
+type DeadlineCaptureState = {
+  visible: boolean;
+  baseText: string;
+  capturedText: string;
+  isListening: boolean;
 };
 
 const BottomStatus = React.memo(function BottomStatus({
@@ -304,11 +305,17 @@ export function TalkHomeScreen() {
   const [voiceConfirm, setVoiceConfirm] = useState<VoiceConfirmState | null>(null);
   const [projectRefine, setProjectRefine] = useState<ProjectRefinementState | null>(null);
   const [projectPlanPreview, setProjectPlanPreview] = useState<ProjectPlanPreviewState | null>(null);
+  const [deadlineCapture, setDeadlineCapture] = useState<DeadlineCaptureState>({
+    visible: false,
+    baseText: '',
+    capturedText: '',
+    isListening: false,
+  });
+  const [uiMode, setUiMode] = useState<UiMode>('IDLE');
   const [isProjectHoldActive, setIsProjectHoldActive] = useState(false);
   const [currentTarget, setCurrentTarget] = useState<ConceptTarget>('PROJECT');
   const [isMicLocked, setIsMicLocked] = useState(false);
-  const [isMicGestureActive, setIsMicGestureActive] = useState(false);
-  const [micDrag, setMicDrag] = useState({ x: 0, y: 0 });
+  const [isCapturePaused, setIsCapturePaused] = useState(false);
   const [cancelSweepActive, setCancelSweepActive] = useState(false);
   const [livePartial, setLivePartial] = useState('');
   const [audioLevel, setAudioLevel] = useState(0.16);
@@ -323,7 +330,7 @@ export function TalkHomeScreen() {
   const voiceActiveRef = useRef(false);
   const stopAfterStartRef = useRef(false);
   const projectGestureHoldingRef = useRef(false);
-  const micCancelTriggeredRef = useRef(false);
+  const deadlineCaptureActiveRef = useRef(false);
   const stopQuickCaptureRef = useRef<null | (() => Promise<void>)>(null);
   const captureChannelRef = useRef<CaptureChannel | null>(null);
   const startedAtRef = useRef<number>(0);
@@ -337,6 +344,24 @@ export function TalkHomeScreen() {
   const avRecordingRef = useRef<Audio.Recording | null>(null);
   const projectAudioRef = useRef<Audio.Recording | null>(null);
   const micScale = useRef(new Animated.Value(1)).current;
+  const centerFade = useRef(new Animated.Value(0)).current;
+
+  const transitionUiMode = useCallback((next: UiMode) => {
+    setUiMode((prev) => {
+      if (prev === next) return prev;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      return next;
+    });
+  }, []);
+
+  const flushLiveTranscriptNow = useCallback(() => {
+    if (debounceLiveTextTimerRef.current) {
+      clearTimeout(debounceLiveTextTimerRef.current);
+      debounceLiveTextTimerRef.current = null;
+    }
+    lastLiveTextPushAtRef.current = Date.now();
+    setLivePartial(partialTranscriptRef.current);
+  }, []);
 
   const unloadAvRecording = useCallback(async () => {
     const rec = avRecordingRef.current;
@@ -374,6 +399,7 @@ export function TalkHomeScreen() {
   const cancelProjectRefine = useCallback(async () => {
     const uri = projectRefine?.audioUri ?? null;
     setProjectRefine(null);
+    setDeadlineCapture({ visible: false, baseText: '', capturedText: '', isListening: false });
     await clearProjectAudioFile(uri);
   }, [clearProjectAudioFile, projectRefine]);
 
@@ -408,6 +434,44 @@ export function TalkHomeScreen() {
   );
 
   useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    deadlineCaptureActiveRef.current = deadlineCapture.visible && deadlineCapture.isListening;
+  }, [deadlineCapture.isListening, deadlineCapture.visible]);
+
+  useEffect(() => {
+    if (projectRefine || voiceConfirm) {
+      transitionUiMode('DECISION');
+      return;
+    }
+    if (isRecording || isMicLocked || isProjectHoldActive) {
+      transitionUiMode('RECORDING');
+      return;
+    }
+    transitionUiMode('IDLE');
+  }, [
+    isMicLocked,
+    isProjectHoldActive,
+    isRecording,
+    projectRefine,
+    transitionUiMode,
+    voiceConfirm,
+  ]);
+
+  useEffect(() => {
+    Animated.timing(centerFade, {
+      toValue: uiMode === 'IDLE' ? 0 : 1,
+      duration: uiMode === 'IDLE' ? 120 : 220,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  }, [centerFade, uiMode]);
+
+  useEffect(() => {
     Animated.timing(micScale, {
       toValue: isRecording ? 1.05 : 1,
       duration: isRecording ? 180 : 160,
@@ -418,6 +482,12 @@ export function TalkHomeScreen() {
 
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results[0]?.transcript ?? '';
+    if (deadlineCaptureActiveRef.current) {
+      setDeadlineCapture((prev) =>
+        prev.visible ? { ...prev, capturedText: text, isListening: !event.isFinal } : prev,
+      );
+      return;
+    }
     partialTranscriptRef.current = text;
     const len = text.length;
     const delta = Math.abs(len - lastPartialLenRef.current);
@@ -429,13 +499,13 @@ export function TalkHomeScreen() {
       lastLiveTextPushAtRef.current = Date.now();
       setLivePartial(partialTranscriptRef.current);
     };
-    if (now - lastLiveTextPushAtRef.current >= 300) {
+    if (now - lastLiveTextPushAtRef.current >= LIVE_TEXT_DEBOUNCE_MS) {
       flush();
     } else if (!debounceLiveTextTimerRef.current) {
       debounceLiveTextTimerRef.current = setTimeout(() => {
         debounceLiveTextTimerRef.current = null;
         flush();
-      }, 300 - (now - lastLiveTextPushAtRef.current));
+      }, LIVE_TEXT_DEBOUNCE_MS - (now - lastLiveTextPushAtRef.current));
     }
     if (event.isFinal && text.trim()) {
       finalTranscriptRef.current = text.trim();
@@ -445,6 +515,10 @@ export function TalkHomeScreen() {
   useEffect(() => {
     if (!(isRecording || isMicLocked)) {
       setWaveBars([8, 10, 13, 18, 24, 18, 13, 10, 8]);
+      return;
+    }
+    if (isCapturePaused) {
+      setWaveBars([8, 8, 8, 8, 8, 8, 8, 8, 8]);
       return;
     }
     const id = setInterval(() => {
@@ -459,9 +533,13 @@ export function TalkHomeScreen() {
       );
     }, 120);
     return () => clearInterval(id);
-  }, [audioLevel, isMicLocked, isRecording]);
+  }, [audioLevel, isCapturePaused, isMicLocked, isRecording]);
 
   useSpeechRecognitionEvent('error', (event) => {
+    if (deadlineCaptureActiveRef.current) {
+      setDeadlineCapture((prev) => (prev.visible ? { ...prev, isListening: false } : prev));
+      return;
+    }
     if (event.error === 'aborted') {
       return;
     }
@@ -810,6 +888,7 @@ export function TalkHomeScreen() {
       setIsRecording(false);
       setCaptureMode('idle');
       await new Promise<void>((r) => setTimeout(r, 220));
+      flushLiveTranscriptNow();
       const text = (
         finalTranscriptRef.current ||
         partialTranscriptRef.current ||
@@ -843,7 +922,7 @@ export function TalkHomeScreen() {
       setIsBusy(false);
       setIsPostCaptureAnalyzing(false);
     }
-  }, [clearProjectAudioFile, t]);
+  }, [clearProjectAudioFile, flushLiveTranscriptNow, t]);
 
   const stopQuickCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') return;
@@ -871,6 +950,7 @@ export function TalkHomeScreen() {
       setLivePartial('');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await new Promise<void>((r) => setTimeout(r, 480));
+      flushLiveTranscriptNow();
       const text = (
         finalTranscriptRef.current ||
         partialTranscriptRef.current ||
@@ -972,7 +1052,7 @@ export function TalkHomeScreen() {
       setIsBusy(false);
       setIsPostCaptureAnalyzing(false);
     }
-  }, [emitTalkDebug, i18n.language, t]);
+  }, [emitTalkDebug, flushLiveTranscriptNow, i18n.language, t]);
 
   useEffect(() => {
     stopQuickCaptureRef.current = stopQuickCapture;
@@ -1087,9 +1167,9 @@ export function TalkHomeScreen() {
     if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
     if (voiceActiveRef.current || avRecordingRef.current || projectAudioRef.current) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setMicDrag({ x: 0, y: 0 });
-    micCancelTriggeredRef.current = false;
+    setIsCapturePaused(false);
     stopAfterStartRef.current = false;
+    transitionUiMode('RECORDING');
     if (currentTarget === 'PROJECT') {
       projectGestureHoldingRef.current = true;
       setMicroToast('Mode PROJET · transcription en direct');
@@ -1106,13 +1186,14 @@ export function TalkHomeScreen() {
     projectRefine,
     startProjectHoldCapture,
     startQuickCapture,
+    transitionUiMode,
     voiceConfirm,
   ]);
 
   const stopUniversalCapture = useCallback(() => {
-    setMicDrag({ x: 0, y: 0 });
     setIsMicLocked(false);
-    setIsMicGestureActive(false);
+    setIsCapturePaused(false);
+    transitionUiMode('DECISION');
     projectGestureHoldingRef.current = false;
     if (voiceActiveRef.current && currentTarget === 'PROJECT') {
       void stopProjectHoldCapture();
@@ -1127,11 +1208,9 @@ export function TalkHomeScreen() {
       return;
     }
     stopAfterStartRef.current = true;
-  }, [currentTarget, stopDeepCapture, stopProjectHoldCapture, stopQuickCapture]);
+  }, [currentTarget, stopDeepCapture, stopProjectHoldCapture, stopQuickCapture, transitionUiMode]);
 
   const cancelUniversalCapture = useCallback(async () => {
-    micCancelTriggeredRef.current = true;
-    setMicDrag({ x: 0, y: 0 });
     setCancelSweepActive(true);
     cancelSweepAnim.setValue(0);
     await new Promise<void>((resolve) => {
@@ -1143,7 +1222,7 @@ export function TalkHomeScreen() {
       }).start(() => resolve());
     });
     setIsMicLocked(false);
-    setIsMicGestureActive(false);
+    setIsCapturePaused(false);
     captureChannelRef.current = null;
     projectGestureHoldingRef.current = false;
     if (voiceActiveRef.current) {
@@ -1171,50 +1250,69 @@ export function TalkHomeScreen() {
     setCaptureMode('idle');
     setIsBusy(false);
     setIsPostCaptureAnalyzing(false);
+    transitionUiMode('IDLE');
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setMicroToast('Capture annulee');
     setTimeout(() => setMicroToast(''), 1000);
     setCancelSweepActive(false);
     cancelSweepAnim.setValue(0);
-  }, [cancelSweepAnim]);
+  }, [cancelSweepAnim, transitionUiMode]);
 
-  const onUniversalMicGestureEvent = useCallback(
-    (event: PanGestureHandlerGestureEvent) => {
-      const { translationX, translationY } = event.nativeEvent;
-      if (!isMicGestureActive || micCancelTriggeredRef.current) return;
-      setMicDrag({ x: translationX, y: translationY });
-      if (!isMicLocked && translationY < -72) {
-        setIsMicLocked(true);
-        setMicroToast('Capture verrouillee');
+  const togglePauseUniversalCapture = useCallback(async () => {
+    if (!voiceActiveRef.current) return;
+    if (!isCapturePaused) {
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch {
+        /* ignore */
       }
-      if (translationX < -72 && !micCancelTriggeredRef.current) {
-        void cancelUniversalCapture();
-      }
-    },
-    [cancelUniversalCapture, isMicGestureActive, isMicLocked],
-  );
-
-  const onUniversalMicStateChange = useCallback(
-    (event: PanGestureHandlerStateChangeEvent) => {
-      const { state } = event.nativeEvent;
-      if (state === GestureState.BEGAN) {
-        setIsMicGestureActive(true);
-        void startUniversalCapture();
-        return;
-      }
-      if (state === GestureState.END) {
-        setIsMicGestureActive(false);
-        if (!isMicLocked && !micCancelTriggeredRef.current) {
-          stopUniversalCapture();
+      if (currentTarget === 'PROJECT' && projectAudioRef.current) {
+        try {
+          await projectAudioRef.current.pauseAsync();
+        } catch {
+          /* ignore */
         }
-        return;
       }
-      if (state === GestureState.CANCELLED || state === GestureState.FAILED) {
-        setIsMicGestureActive(false);
+      setIsCapturePaused(true);
+      return;
+    }
+    if (currentTarget === 'PROJECT') {
+      if (projectAudioRef.current) {
+        try {
+          await projectAudioRef.current.startAsync();
+        } catch {
+          /* ignore */
+        }
       }
-    },
-    [isMicLocked, startUniversalCapture, stopUniversalCapture],
-  );
+      try {
+        await ExpoSpeechRecognitionModule.start({
+          lang: resolveSpeechLangForSession(i18n.language),
+          interimResults: true,
+          maxAlternatives: 1,
+          continuous: true,
+          requiresOnDeviceRecognition: false,
+          addsPunctuation: true,
+        });
+      } catch {
+        /* ignore */
+      }
+    } else {
+      try {
+        await ExpoSpeechRecognitionModule.start({
+          lang: resolveSpeechLangForSession(i18n.language),
+          interimResults: true,
+          continuous: true,
+          maxAlternatives: 1,
+          iosTaskHint: 'dictation',
+          iosVoiceProcessingEnabled: true,
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+    voiceActiveRef.current = true;
+    setIsCapturePaused(false);
+  }, [currentTarget, i18n.language, isCapturePaused]);
 
   const onCancelVoice = useCallback(() => {
     if (!voiceConfirm) return;
@@ -1290,39 +1388,122 @@ export function TalkHomeScreen() {
     void refreshRemainingIntents();
   }, [projectRefine, refreshRemainingIntents, t]);
 
-  const onProjectGeneratePlan = useCallback(async () => {
+  const stopDeadlineCapture = useCallback(async () => {
+    try {
+      ExpoSpeechRecognitionModule.stop();
+    } catch {
+      try {
+        ExpoSpeechRecognitionModule.abort();
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      setDeadlineCapture((prev) => (prev.visible ? { ...prev, isListening: false } : prev));
+    }
+  }, []);
+
+  const startDeadlineCapture = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    try {
+      await ExpoSpeechRecognitionModule.start({
+        lang: resolveSpeechLangForSession(i18n.language),
+        interimResults: true,
+        maxAlternatives: 1,
+        continuous: false,
+        requiresOnDeviceRecognition: false,
+        addsPunctuation: true,
+      });
+      setDeadlineCapture((prev) => (prev.visible ? { ...prev, isListening: true } : prev));
+    } catch {
+      setDeadlineCapture((prev) => (prev.visible ? { ...prev, isListening: false } : prev));
+    }
+  }, [i18n.language]);
+
+  const submitProjectGenerationWithDeadline = useCallback(
+    async (deadlineText: string) => {
+      if (!projectRefine) return;
+      const baseText = deadlineCapture.baseText.trim() || projectRefine.editedText.trim();
+      const cleanedDeadline = deadlineText.trim();
+      if (!baseText || !cleanedDeadline) return;
+      if (remainingIntents <= 0) {
+        Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+        return;
+      }
+      await stopDeadlineCapture();
+      setProjectRefine((prev) => (prev ? { ...prev, isGeneratingPlan: true } : prev));
+      setDeadlineCapture((prev) => ({ ...prev, visible: false, isListening: false }));
+      setIsBusy(true);
+      try {
+        const consolidatedPrompt = `Voici mon projet : ${baseText}. Je veux le terminer ${cleanedDeadline}. Genere un plan de taches structure en JSON.`;
+        const expertRows = await atomizeProject(consolidatedPrompt);
+        const taskCount = expertRows.filter((row) => row.type === 'TASK').length;
+        const projectTitle =
+          expertRows.find((row) => row.type === 'PROJECT')?.title?.trim() || baseText.slice(0, 80);
+        let taskIdx = -1;
+        const taskAlarmIndexes = expertRows
+          .map((row) => {
+            if (row.type !== 'TASK') return -1;
+            taskIdx += 1;
+            return Boolean((row.metadata as { suggest_alarm?: unknown })?.suggest_alarm)
+              ? taskIdx
+              : -1;
+          })
+          .filter((idx) => idx >= 0);
+        setProjectPlanPreview({
+          projectTitle,
+          rawInput: `${baseText}\nDeadline: ${cleanedDeadline}`,
+          rows: expertRows,
+          taskAlarmIndexes,
+        });
+        setMicroToast(taskCount > 0 ? 'Plan IA pret a visualiser' : 'Aucune etape detectee');
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes('PLAN_JSON_PARSE_ERROR')) {
+          Alert.alert('Erreur de lecture du plan', 'Erreur de lecture du plan. Reessayer ?');
+        } else {
+          Alert.alert(t('talkHome.voicePersistErrorTitle'), msg || t('talkHome.voicePersistErrorBody'));
+        }
+      } finally {
+        setProjectRefine((prev) => (prev ? { ...prev, isGeneratingPlan: false } : prev));
+        setIsBusy(false);
+      }
+    },
+    [deadlineCapture.baseText, projectRefine, remainingIntents, stopDeadlineCapture, t],
+  );
+
+  const openDeadlineCapture = useCallback(async () => {
     if (!projectRefine) return;
     const text = projectRefine.editedText.trim();
     if (!text) {
       Alert.alert(t('talkHome.titleRequiredTitle'), t('talkHome.titleRequiredBody'));
       return;
     }
-    if (remainingIntents <= 0) {
-      Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
-      return;
-    }
-    setProjectRefine((prev) => (prev ? { ...prev, isGeneratingPlan: true } : prev));
-    setIsBusy(true);
-    try {
-      const expertRows = await atomizeProject(text);
-      const taskCount = expertRows.filter((row) => row.type === 'TASK').length;
-      const projectTitle =
-        expertRows.find((row) => row.type === 'PROJECT')?.title?.trim() || text.slice(0, 80);
-      setProjectPlanPreview({
-        projectTitle,
-        rawInput: text,
-        rows: expertRows,
-        taskAlarmIndexes: [],
-      });
-      setMicroToast(taskCount > 0 ? 'Plan IA pret a visualiser' : 'Aucune etape detectee');
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert(t('talkHome.voicePersistErrorTitle'), msg || t('talkHome.voicePersistErrorBody'));
-    } finally {
-      setProjectRefine((prev) => (prev ? { ...prev, isGeneratingPlan: false } : prev));
-      setIsBusy(false);
-    }
-  }, [projectRefine, remainingIntents, t]);
+    setDeadlineCapture({
+      visible: true,
+      baseText: text,
+      capturedText: '',
+      isListening: false,
+    });
+    setMicroToast("Capture de deadline active");
+  }, [projectRefine, t]);
+
+  const closeDeadlineCapture = useCallback(async () => {
+    await stopDeadlineCapture();
+    setDeadlineCapture((prev) => ({ ...prev, visible: false, capturedText: '', isListening: false }));
+    setMicroToast('');
+  }, [stopDeadlineCapture]);
+
+  const onProjectGeneratePlan = useCallback(async () => {
+    await openDeadlineCapture();
+  }, [openDeadlineCapture]);
+
+  useEffect(() => {
+    if (!deadlineCapture.visible || Platform.OS === 'web') return;
+    void startDeadlineCapture();
+    return () => {
+      void stopDeadlineCapture();
+    };
+  }, [deadlineCapture.visible, startDeadlineCapture, stopDeadlineCapture]);
 
   const togglePlanTaskAlarm = useCallback((taskIndex: number) => {
     setProjectPlanPreview((prev) => {
@@ -1548,7 +1729,19 @@ export function TalkHomeScreen() {
               />
             ))}
           </View>
-          <Text style={styles.projectLiveTextMuted}>{line}</Text>
+          <View style={styles.liveTextMaskWrap}>
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(9,13,20,0.96)', 'rgba(9,13,20,0)']}
+              style={[styles.liveTextGradientMask, styles.liveTextGradientTop]}
+            />
+            <Text style={styles.projectLiveTextMuted}>{line}</Text>
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(9,13,20,0)', 'rgba(9,13,20,0.96)']}
+              style={[styles.liveTextGradientMask, styles.liveTextGradientBottom]}
+            />
+          </View>
           {trailing ? <Text style={styles.projectLiveTextTail}>{trailing}</Text> : null}
         </Animated.View>
       );
@@ -1583,82 +1776,34 @@ export function TalkHomeScreen() {
     const textValue = projectRefine.editedText.trim();
     return (
       <>
-        <ScrollView
-          style={styles.projectRefineScroll}
-          contentContainerStyle={styles.projectRefineContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.confirmBlockLabel}>Projet capture</Text>
-          {projectRefine.isEditing ? (
-            <TextInput
-              value={projectRefine.editedText}
-              onChangeText={(v) => {
-                setProjectRefine((prev) => (prev ? { ...prev, editedText: v } : prev));
-              }}
-              style={styles.editTitleInput}
-              multiline
-              autoFocus
-              placeholder={t('talkHome.voiceLivePlaceholder')}
-              placeholderTextColor="rgba(44,62,80,0.45)"
-            />
-          ) : (
-            <Pressable
-              style={styles.titleHeroWrap}
-              onPress={() => {
-                setProjectRefine((prev) => (prev ? { ...prev, isEditing: true } : prev));
-              }}
-            >
-              <Text style={styles.projectLiveTextMuted}>
-                {textValue || t('talkHome.voiceLivePlaceholder')}
-              </Text>
-            </Pressable>
-          )}
-
-          {projectRefine.isGeneratingPlan ? (
-            <Text style={styles.confirmScenarioLine}>Analyse Gemini...</Text>
-          ) : null}
-
-          <View style={styles.projectChoiceGrid}>
-            <Pressable
-              style={[styles.projectChoiceBtn, styles.voiceNoteBtn]}
-              onPress={() => {
-                void cancelProjectRefine();
-              }}
-              disabled={isBusy}
-            >
-              <Text style={styles.voiceNoteText}>❌ ANNULER</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.projectChoiceBtn, styles.voiceNoteBtn]}
-              onPress={() => {
-                void onProjectSaveAsNote();
-              }}
-              disabled={isBusy}
-            >
-              <Text style={styles.voiceNoteText}>💾 NOTE</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.projectChoiceBtn, styles.voiceNoteBtn]}
-              onPress={() => {
-                void onProjectSaveAsAudio();
-              }}
-              disabled={isBusy}
-            >
-              <Text style={styles.voiceNoteText}>🎙️ AUDIO</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.projectChoiceBtn, styles.voiceValidateBtn]}
-              onPress={() => {
-                void onProjectGeneratePlan();
-              }}
-              disabled={isBusy || projectRefine.isGeneratingPlan}
-            >
-              <Text style={styles.voiceValidateText}>✨ GENERER PLAN PROJET</Text>
-              <Text style={styles.projectCreditHint}>(1 💎)</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
+        <Text style={styles.confirmBlockLabel}>Projet capture</Text>
+        {projectRefine.isEditing ? (
+          <TextInput
+            value={projectRefine.editedText}
+            onChangeText={(v) => {
+              setProjectRefine((prev) => (prev ? { ...prev, editedText: v } : prev));
+            }}
+            style={styles.editTitleInput}
+            multiline
+            autoFocus
+            placeholder={t('talkHome.voiceLivePlaceholder')}
+            placeholderTextColor="rgba(44,62,80,0.45)"
+          />
+        ) : (
+          <Pressable
+            style={styles.titleHeroWrap}
+            onPress={() => {
+              setProjectRefine((prev) => (prev ? { ...prev, isEditing: true } : prev));
+            }}
+          >
+            <Text style={styles.projectLiveTextMuted}>
+              {textValue || t('talkHome.voiceLivePlaceholder')}
+            </Text>
+          </Pressable>
+        )}
+        <Text style={styles.confirmScenarioLine}>
+          {projectRefine.isGeneratingPlan ? 'Analyse Gemini...' : 'Phase decision — choisis une action en bas.'}
+        </Text>
       </>
     );
   };
@@ -1866,92 +2011,160 @@ export function TalkHomeScreen() {
         <BottomStatus microToast={microToast} />
       </View>
 
-      <View style={styles.conceptBar}>
-        {(['PROJECT', 'TASK', 'NOTE'] as ConceptTarget[]).map((target) => {
-          const isActive = currentTarget === target;
-          return (
-            <Pressable
-              key={target}
-              style={[styles.conceptBtn, isActive ? styles.conceptBtnActive : null]}
-              onPress={() => setCurrentTarget(target)}
-              disabled={isRecording || isBusy || isPostCaptureAnalyzing}
+      <MainInterface
+        uiMode={uiMode}
+        currentTarget={currentTarget}
+        onSelectTarget={setCurrentTarget}
+        bottomInset={insets.bottom}
+        micDisabled={!(!isBusy && !isPostCaptureAnalyzing && voiceConfirm === null && projectRefine === null)}
+        onMicStartPress={startUniversalCapture}
+        onCaptureCancel={() => {
+          void cancelUniversalCapture();
+        }}
+        onCapturePauseToggle={() => {
+          void togglePauseUniversalCapture();
+        }}
+        onCaptureSend={stopUniversalCapture}
+        isCapturePaused={isCapturePaused}
+        showDecisionActions={Boolean(projectRefine)}
+        decisionDisabled={isBusy || (projectRefine?.isGeneratingPlan ?? false)}
+        onDecisionCancel={() => {
+          void cancelProjectRefine();
+        }}
+        onDecisionSaveNote={() => {
+          void onProjectSaveAsNote();
+        }}
+        onDecisionSaveAudio={() => {
+          void onProjectSaveAsAudio();
+        }}
+        onDecisionGenerate={() => {
+          void onProjectGeneratePlan();
+        }}
+        centerContent={
+          uiMode === 'IDLE' ? null : (
+            <Animated.View
+              style={[
+                styles.semanticModalZone,
+                {
+                  opacity: centerFade,
+                  transform: [
+                    {
+                      scale: centerFade.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.97, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+              pointerEvents="box-none"
             >
-              <Text style={[styles.conceptBtnText, isActive ? styles.conceptBtnTextActive : null]}>
-                {CONCEPT_META[target].title}
-              </Text>
-              <Text style={[styles.conceptBtnSub, isActive ? styles.conceptBtnSubActive : null]}>
-                {CONCEPT_META[target].subtitle}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+              <LinearGradient
+                colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.02)']}
+                start={{ x: 0.1, y: 0 }}
+                end={{ x: 0.9, y: 1 }}
+                style={[
+                  styles.pingCard,
+                  uiMode === 'DECISION' ? styles.pingCardDecision : null,
+                ]}
+              >
+                {projectRefine
+                  ? renderProjectRefineCard()
+                  : voiceConfirm
+                    ? renderConfirmCard()
+                    : isPostCaptureAnalyzing
+                    ? renderAnalyzingCard()
+                    : isRecording || isMicLocked
+                      ? renderLiveSpeechCard()
+                      : renderPingCard()}
+              </LinearGradient>
+            </Animated.View>
+          )
+        }
+      />
 
-      <View style={[styles.universalMicDock, { bottom: insets.bottom + 26 }]}>
-        <PanGestureHandler
-          enabled={!isBusy && !isPostCaptureAnalyzing && voiceConfirm === null && projectRefine === null}
-          onGestureEvent={onUniversalMicGestureEvent}
-          onHandlerStateChange={onUniversalMicStateChange}
-          shouldCancelWhenOutside={false}
-        >
-          <Animated.View
-            style={[
-              styles.universalMicWrap,
-              {
-                transform: [
-                  { scale: isMicGestureActive || isMicLocked ? 1.08 : 1 },
-                  { translateX: Math.max(micDrag.x, -72) * 0.14 },
-                  { translateY: Math.min(micDrag.y, 0) * 0.14 },
-                ],
-              },
-            ]}
-          >
+      <Modal
+        visible={deadlineCapture.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          void closeDeadlineCapture();
+        }}
+      >
+        <View style={styles.deadlineBackdrop}>
+          <View style={styles.deadlineCard}>
+            <Text style={styles.deadlineTitle}>C&apos;est pour quand ?</Text>
+            <Text style={styles.deadlineSubtitle}>
+              Ajoute une contrainte temporelle pour fiabiliser le plan.
+            </Text>
+
+            <View style={styles.deadlineQuickRow}>
+              {['Demain', '1 semaine', '1 mois'].map((choice) => (
+                <Pressable
+                  key={choice}
+                  style={styles.deadlineQuickBtn}
+                  onPress={() => {
+                    void submitProjectGenerationWithDeadline(choice);
+                  }}
+                  disabled={isBusy}
+                >
+                  <Text style={styles.deadlineQuickText}>{choice}</Text>
+                </Pressable>
+              ))}
+            </View>
+
             <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={micA11yLabel}
-              accessibilityHint="Maintenir pour enregistrer. Glisser haut pour verrouiller, gauche pour annuler."
-              style={[styles.universalMicBtn, isMicLocked ? styles.universalMicBtnLocked : null]}
+              style={[
+                styles.deadlineMicBtn,
+                deadlineCapture.isListening ? styles.deadlineMicBtnActive : null,
+              ]}
               onPress={() => {
-                if (isMicLocked) {
-                  stopUniversalCapture();
-                  setIsMicLocked(false);
+                if (deadlineCapture.isListening) {
+                  void stopDeadlineCapture();
+                } else {
+                  void startDeadlineCapture();
                 }
               }}
+              disabled={isBusy}
             >
-              <Text style={styles.universalMicIcon}>🎤</Text>
+              <Text style={styles.deadlineMicText}>
+                {deadlineCapture.isListening ? '🎙️ Ecoute...' : '🎙️ Activer micro'}
+              </Text>
             </Pressable>
-          </Animated.View>
-        </PanGestureHandler>
-        {(isMicGestureActive || isMicLocked) && !voiceConfirm && !projectRefine ? (
-          <View style={styles.universalHintWrap}>
-            {isMicLocked ? (
-              <View style={styles.microLockPill}>
-                <Lock size={11} color="#b8fbff" />
-                <Text style={styles.microLockPillText}>LOCK</Text>
-              </View>
-            ) : null}
-            <Text style={styles.universalMicHint}>
-              {isMicLocked ? 'SWIPE UP TO LOCK' : 'SWIPE LEFT TO CANCEL'}
-            </Text>
-          </View>
-        ) : null}
-      </View>
 
-      <View style={styles.semanticModalZone} pointerEvents="box-none">
-        <View style={styles.oledModalFrame}>
-          <View style={styles.pingCard}>
-            {projectRefine
-              ? renderProjectRefineCard()
-              : voiceConfirm
-                ? renderConfirmCard()
-                : isPostCaptureAnalyzing
-                ? renderAnalyzingCard()
-                : isRecording
-                  ? renderLiveSpeechCard()
-                  : renderPingCard()}
+            <TextInput
+              value={deadlineCapture.capturedText}
+              onChangeText={(v) => {
+                setDeadlineCapture((prev) => ({ ...prev, capturedText: v }));
+              }}
+              placeholder="Ex: dans 2 mois, pour samedi, fin d'annee"
+              placeholderTextColor="rgba(44,62,80,0.45)"
+              style={styles.deadlineInput}
+            />
+
+            <View style={styles.deadlineActions}>
+              <Pressable
+                style={[styles.deadlineActionBtn, styles.deadlineCancelBtn]}
+                onPress={() => {
+                  void closeDeadlineCapture();
+                }}
+                disabled={isBusy}
+              >
+                <Text style={styles.deadlineCancelText}>❌ ANNULER</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.deadlineActionBtn, styles.deadlineConfirmBtn]}
+                onPress={() => {
+                  void submitProjectGenerationWithDeadline(deadlineCapture.capturedText);
+                }}
+                disabled={isBusy || !deadlineCapture.capturedText.trim()}
+              >
+                <Text style={styles.deadlineConfirmText}>✅ GENERER LE PLAN</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
-      </View>
+      </Modal>
 
       <Modal
         visible={Boolean(projectPlanPreview)}
@@ -2254,28 +2467,25 @@ const styles = StyleSheet.create({
     zIndex: 9,
     elevation: 10,
   },
-  oledModalFrame: {
-    width: '100%',
-    height: '100%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 27,
-    borderBottomLeftRadius: 34,
-    borderBottomRightRadius: 31,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(12,16,24,0.9)',
-  },
   pingCard: {
     flex: 1,
     width: '100%',
     height: '100%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 27,
-    borderBottomLeftRadius: 34,
-    borderBottomRightRadius: 31,
+    borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 12,
     overflow: 'hidden',
-    backgroundColor: 'rgba(9,13,20,0.84)',
+    backgroundColor: 'rgba(28,37,50,0.24)',
+    borderWidth: 1,
+    borderColor: 'rgba(193,205,226,0.18)',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 12,
+  },
+  pingCardDecision: {
+    minHeight: '100%',
+    transform: [{ scale: 1.02 }],
   },
   priorityBadge: {
     textAlign: 'center',
@@ -2507,6 +2717,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 34,
     letterSpacing: 0.3,
+    fontFamily: Platform.select({ ios: 'System', android: 'sans-serif', default: 'System' }),
+  },
+  liveTextMaskWrap: {
+    width: '100%',
+    minHeight: 96,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  liveTextGradientMask: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 20,
+    zIndex: 2,
+  },
+  liveTextGradientTop: {
+    top: 0,
+  },
+  liveTextGradientBottom: {
+    bottom: 0,
   },
   projectLiveTextTail: {
     marginTop: 4,
@@ -2577,6 +2807,113 @@ const styles = StyleSheet.create({
     color: '#c9f4f0',
     fontSize: 11,
     fontWeight: '700',
+  },
+  deadlineBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(10, 13, 18, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  deadlineCard: {
+    borderRadius: 18,
+    backgroundColor: '#F5F5F0',
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  deadlineTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#2C3E50',
+    textAlign: 'center',
+  },
+  deadlineSubtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(44,62,80,0.72)',
+    textAlign: 'center',
+  },
+  deadlineQuickRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  deadlineQuickBtn: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,128,128,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,128,128,0.2)',
+  },
+  deadlineQuickText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2C3E50',
+  },
+  deadlineMicBtn: {
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.16)',
+    backgroundColor: 'rgba(44,62,80,0.05)',
+  },
+  deadlineMicBtnActive: {
+    backgroundColor: 'rgba(255,140,0,0.14)',
+    borderColor: 'rgba(255,140,0,0.42)',
+  },
+  deadlineMicText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2C3E50',
+  },
+  deadlineInput: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.82)',
+    color: '#2C3E50',
+    fontSize: 15,
+    fontWeight: '600',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  deadlineActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 2,
+  },
+  deadlineActionBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deadlineCancelBtn: {
+    backgroundColor: 'rgba(247,247,247,0.92)',
+    borderColor: 'rgba(44,62,80,0.18)',
+  },
+  deadlineConfirmBtn: {
+    backgroundColor: 'rgba(0,128,128,0.88)',
+    borderColor: 'rgba(181,237,229,0.45)',
+  },
+  deadlineCancelText: {
+    color: '#2C3E50',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  deadlineConfirmText: {
+    color: '#F6FFFD',
+    fontSize: 13,
+    fontWeight: '800',
   },
   planPreviewBackdrop: {
     flex: 1,
