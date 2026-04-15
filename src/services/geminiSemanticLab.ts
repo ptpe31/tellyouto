@@ -1,14 +1,14 @@
 /**
  * Appels directs Google AI (Gemini Flash) pour le lab sémantique.
  * Clé : EXPO_PUBLIC_GEMINI_API_KEY — réservée aux builds de test (exposée client).
- * Modèle : EXPO_PUBLIC_GEMINI_MODEL (défaut gemini-2.0-flash).
+ * Modèle : EXPO_PUBLIC_GEMINI_MODEL (défaut gemini-1.5-flash).
  *
  * Résolution : `expo.extra` (injecté par app.config.js depuis .env / env) puis process.env.
  */
 
 import Constants from 'expo-constants';
 
-const DEFAULT_MODEL = 'gemini-2.0-flash';
+const DEFAULT_MODEL = 'gemini-1.5-flash';
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 type GeminiExtra = {
@@ -30,7 +30,11 @@ export function getGeminiApiKey(): string | undefined {
 export function getGeminiModelId(): string {
   const fromExtra = readGeminiExtra().geminiModel?.trim();
   const fromEnv = process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim();
-  return fromExtra || fromEnv || DEFAULT_MODEL;
+  const configured = fromExtra || fromEnv;
+  if (!configured) return DEFAULT_MODEL;
+  // Gemini 2.0 Flash can be unavailable for new/free accounts.
+  if (configured.includes('gemini-2.0-flash')) return DEFAULT_MODEL;
+  return configured;
 }
 
 export type GeminiLabAnalysis = {
@@ -40,19 +44,20 @@ export type GeminiLabAnalysis = {
   reasoning: string;
 };
 
-function buildGenerateUrl(): string {
+function buildGenerateUrl(modelOverride?: string): string {
   const key = getGeminiApiKey();
   if (!key) {
     throw new Error(
       'Gemini: clé absente. Définis EXPO_PUBLIC_GEMINI_API_KEY dans .env ou env à la racine, puis `npx expo prebuild` ou relance Metro avec cache vidé.',
     );
   }
-  const model = getGeminiModelId();
+  const model = modelOverride || getGeminiModelId();
   return `${BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 }
 
-async function postGenerateContent(body: object): Promise<unknown> {
-  const url = buildGenerateUrl();
+async function postGenerateContent(body: object, modelOverride?: string): Promise<unknown> {
+  const model = modelOverride || getGeminiModelId();
+  const url = buildGenerateUrl(model);
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -60,6 +65,15 @@ async function postGenerateContent(body: object): Promise<unknown> {
   });
   const text = await res.text();
   if (!res.ok) {
+    const looksLikeMissingModel =
+      res.status === 404 &&
+      (text.includes('is no longer available to new users') ||
+        text.includes('NOT_FOUND') ||
+        text.includes('models/'));
+    if (looksLikeMissingModel && model !== DEFAULT_MODEL) {
+      // One automatic retry on stable fallback model.
+      return postGenerateContent(body, DEFAULT_MODEL);
+    }
     throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
   }
   try {

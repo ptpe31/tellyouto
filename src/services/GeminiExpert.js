@@ -4,7 +4,7 @@
  */
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const DEFAULT_MODEL = 'gemini-flash-latest';
+const DEFAULT_MODEL = 'gemini-1.5-flash';
 
 function log(stage, detail) {
   const line = `[GeminiExpert] ${stage}`;
@@ -28,7 +28,13 @@ function getApiKey() {
 }
 
 function getModelId() {
-  return process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  const configured = process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim();
+  if (!configured) return DEFAULT_MODEL;
+  // Gemini 2.0 Flash can be unavailable for new/free accounts: force stable fallback.
+  if (configured.includes('gemini-2.0-flash')) {
+    return DEFAULT_MODEL;
+  }
+  return configured;
 }
 
 function getGenerativeModel() {
@@ -36,7 +42,10 @@ function getGenerativeModel() {
   const modelId = getModelId();
   log('model.init', { modelId, keyPresent: true });
   const genAI = new GoogleGenerativeAI(apiKey);
-  return genAI.getGenerativeModel({ model: modelId });
+  return genAI.getGenerativeModel(
+    { model: modelId },
+    { apiVersion: 'v1beta' },
+  );
 }
 
 function extractJsonBlock(raw) {
