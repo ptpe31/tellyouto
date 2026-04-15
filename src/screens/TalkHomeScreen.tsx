@@ -80,6 +80,11 @@ import { askGeminiExpert, atomizeProject, type GeminiExpertIntention } from '../
 import { transcribeWithWhisperLocal } from '../services/WhisperAdapter';
 import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusEngine';
 import { runIntentOrchestration, type OrchestratorDecision } from '../services/IntentOrchestrator';
+import {
+  enqueueCaptureProcessingJob,
+  startCaptureProcessingForeground,
+  stopCaptureProcessingForeground,
+} from '../services/CaptureProcessingService';
 import { STRINGS } from '../constants/Strings';
 import {
   alertNativeModuleMissing,
@@ -546,6 +551,7 @@ export function TalkHomeScreen() {
     voiceActiveRef.current = false;
     setIsPostCaptureAnalyzing(true);
     setIsBusy(true);
+    await startCaptureProcessingForeground('quick');
     try {
       try {
         ExpoSpeechRecognitionModule.stop();
@@ -568,6 +574,7 @@ export function TalkHomeScreen() {
         partialTranscriptRef.current ||
         ''
       ).trim();
+      await enqueueCaptureProcessingJob(text, i18n.language);
       partialTranscriptRef.current = '';
       finalTranscriptRef.current = '';
       if (!text) {
@@ -655,6 +662,7 @@ export function TalkHomeScreen() {
       const message = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
       Alert.alert(t('talkHome.recordingErrorTitle'), message);
     } finally {
+      await stopCaptureProcessingForeground();
       captureChannelRef.current = null;
       stopAfterStartRef.current = false;
       setIsExpertLoading(false);
@@ -678,6 +686,7 @@ export function TalkHomeScreen() {
 
     setIsPostCaptureAnalyzing(true);
     setIsBusy(true);
+    await startCaptureProcessingForeground('deep');
     let audioUri: string | null = null;
     try {
       try {
@@ -714,6 +723,7 @@ export function TalkHomeScreen() {
           const b64 = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
           return geminiTranscribeAudioBase64(b64, 'audio/mp4');
         })());
+      await enqueueCaptureProcessingJob(transcript, i18n.language);
       const { parsed, rawResponseText } = await geminiDeepIntentionFromTranscript(transcript, {
         promptLanguage: mapInteractionToGeminiPrompt(interactionLanguage),
       });
@@ -753,6 +763,7 @@ export function TalkHomeScreen() {
         Alert.alert(t('talkHome.recordingErrorTitle'), msg);
       }
     } finally {
+      await stopCaptureProcessingForeground();
       try {
         await unloadAvRecording();
       } catch {
@@ -768,7 +779,7 @@ export function TalkHomeScreen() {
       setIsBusy(false);
       setIsPostCaptureAnalyzing(false);
     }
-  }, [emitTalkDebug, interactionLanguage, t, unloadAvRecording]);
+  }, [emitTalkDebug, i18n.language, interactionLanguage, t, unloadAvRecording]);
 
   const onMicPressIn = useCallback(() => {
     if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;

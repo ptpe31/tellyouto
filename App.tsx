@@ -1,6 +1,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { LogBox } from 'react-native';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -27,6 +27,8 @@ import { useSaturation, SaturationProvider } from './src/context/SaturationConte
 import { appLinking } from './src/navigation/linking';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { rootNavigationRef } from './src/navigation/rootNavigationRef';
+import { requestBackgroundExecutionPermissions } from './src/services/PermissionService';
+import { configureCaptureBackgroundTask } from './src/services/CaptureProcessingService';
 import { navigationThemeFromPaper } from './src/theme/paperTheme';
 
 LogBox.ignoreLogs([
@@ -47,6 +49,11 @@ function AppNavigation() {
 }
 
 export default function App() {
+  useEffect(() => {
+    void configureCaptureBackgroundTask();
+    void requestBackgroundExecutionPermissions();
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

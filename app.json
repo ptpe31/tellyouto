@@ -22,6 +22,10 @@
       "icon": "./assets/talkndone/icon-placeholder.png",
       "infoPlist": {
         "NSMotionUsageDescription": "TalkNDone uses device motion to detect a gentle shake and organize your open intentions in Méli-Mélo.",
+        "UIBackgroundModes": [
+          "fetch",
+          "audio"
+        ],
         "LSApplicationQueriesSchemes": [
           "tg",
           "telegram"
@@ -40,6 +44,7 @@
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
+        "android.permission.FOREGROUND_SERVICE",
         "android.permission.WAKE_LOCK",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.SCHEDULE_EXACT_ALARM",
