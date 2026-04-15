@@ -10,7 +10,7 @@ import {
   useSpeechRecognitionEvent,
   type ExpoSpeechRecognitionErrorEvent,
 } from 'expo-speech-recognition';
-import { Check, Folder, Pencil, Target, UserCircle2, Waves, X, Zap } from 'lucide-react-native';
+import { Bell, Check, Folder, Pencil, Target, UserCircle2, Waves, X, Zap } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RewardToast } from '../components/RewardToast';
 import {
@@ -20,8 +20,10 @@ import {
   DeviceEventEmitter,
   Easing,
   Linking,
+  Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -121,6 +123,21 @@ type VoiceConfirmState = {
   captureChannel?: CaptureChannel;
 };
 
+type ProjectRefinementState = {
+  transcript: string;
+  editedText: string;
+  audioUri: string | null;
+  isEditing: boolean;
+  isGeneratingPlan: boolean;
+};
+
+type ProjectPlanPreviewState = {
+  projectTitle: string;
+  rawInput: string;
+  rows: GeminiExpertIntention[];
+  taskAlarmIndexes: number[];
+};
+
 const BottomStatus = React.memo(function BottomStatus({
   microToast,
 }: {
@@ -164,19 +181,30 @@ function growthPointsFromExpertRows(rows: GeminiExpertIntention[]): number {
 async function persistGeminiExpertRows(
   rawInput: string,
   rows: GeminiExpertIntention[],
+  options?: { taskAlarmIndexes?: number[] },
 ): Promise<void> {
   let currentParentId: string | null = null;
+  let taskCursor = 0;
+  const alarmSet = new Set(options?.taskAlarmIndexes ?? []);
   for (const row of rows) {
     const id = newTalkEntityId();
     if (row.type === 'PROJECT') {
       currentParentId = id;
+    }
+    const shouldSetAlarm = row.type === 'TASK' && alarmSet.has(taskCursor);
+    const metadata = {
+      ...(row.metadata ?? {}),
+      ...(shouldSetAlarm ? { has_alarm: true } : {}),
+    };
+    if (row.type === 'TASK') {
+      taskCursor += 1;
     }
     await insertTrankilV2Intention({
       id,
       type: row.type,
       title: row.title,
       content_raw: rawInput,
-      metadata_json: JSON.stringify(row.metadata ?? {}, null, 2),
+      metadata_json: JSON.stringify(metadata, null, 2),
       suggested_tags: JSON.stringify(
         row.suggested_category ? [row.suggested_category.trim()] : [STRINGS.TAG_KEYS.A_TRIER],
       ),
@@ -263,6 +291,9 @@ export function TalkHomeScreen() {
   const [isPostCaptureAnalyzing, setIsPostCaptureAnalyzing] = useState(false);
   const [isExpertLoading, setIsExpertLoading] = useState(false);
   const [voiceConfirm, setVoiceConfirm] = useState<VoiceConfirmState | null>(null);
+  const [projectRefine, setProjectRefine] = useState<ProjectRefinementState | null>(null);
+  const [projectPlanPreview, setProjectPlanPreview] = useState<ProjectPlanPreviewState | null>(null);
+  const [isProjectHoldActive, setIsProjectHoldActive] = useState(false);
   const [livePartial, setLivePartial] = useState('');
   const [remainingIntents, setRemainingIntents] = useState(10);
   const [microToast, setMicroToast] = useState('');
@@ -280,6 +311,7 @@ export function TalkHomeScreen() {
   const finalTranscriptRef = useRef('');
   const speechErrorRef = useRef(false);
   const avRecordingRef = useRef<Audio.Recording | null>(null);
+  const projectAudioRef = useRef<Audio.Recording | null>(null);
   const micScale = useRef(new Animated.Value(1)).current;
 
   const unloadAvRecording = useCallback(async () => {
@@ -302,9 +334,24 @@ export function TalkHomeScreen() {
     }
   }, []);
 
+  const clearProjectAudioFile = useCallback(async (uri: string | null): Promise<void> => {
+    if (!uri) return;
+    try {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const resetVoiceConfirm = useCallback(() => {
     setVoiceConfirm(null);
   }, []);
+
+  const cancelProjectRefine = useCallback(async () => {
+    const uri = projectRefine?.audioUri ?? null;
+    setProjectRefine(null);
+    await clearProjectAudioFile(uri);
+  }, [clearProjectAudioFile, projectRefine]);
 
   const refreshRemainingIntents = useCallback(async () => {
     try {
@@ -390,6 +437,11 @@ export function TalkHomeScreen() {
         /* ignore */
       }
       void unloadAvRecording();
+      const rec = projectAudioRef.current;
+      projectAudioRef.current = null;
+      if (rec) {
+        void rec.stopAndUnloadAsync().catch(() => undefined);
+      }
     };
   }, [unloadAvRecording]);
 
@@ -405,7 +457,15 @@ export function TalkHomeScreen() {
       );
       return;
     }
-    if (isBusy || voiceConfirm || voiceActiveRef.current || avRecordingRef.current) return;
+    if (
+      isBusy ||
+      voiceConfirm ||
+      projectRefine ||
+      voiceActiveRef.current ||
+      avRecordingRef.current
+    ) {
+      return;
+    }
     speechErrorRef.current = false;
     partialTranscriptRef.current = '';
     finalTranscriptRef.current = '';
@@ -478,7 +538,7 @@ export function TalkHomeScreen() {
     } finally {
       setIsBusy(false);
     }
-  }, [i18n.language, isBusy, t, voiceConfirm]);
+  }, [i18n.language, isBusy, projectRefine, t, voiceConfirm]);
 
   const startDeepCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') {
@@ -542,6 +602,177 @@ export function TalkHomeScreen() {
       setIsBusy(false);
     }
   }, [isBusy, t, unloadAvRecording, voiceConfirm]);
+
+  const startProjectHoldCapture = useCallback(async (): Promise<void> => {
+    if (Platform.OS === 'web') {
+      Alert.alert(
+        t('talkHome.voiceWebUnsupportedTitle'),
+        t('talkHome.voiceWebUnsupportedBody'),
+      );
+      return;
+    }
+    if (
+      isBusy ||
+      isPostCaptureAnalyzing ||
+      voiceConfirm ||
+      projectRefine ||
+      voiceActiveRef.current
+    ) {
+      return;
+    }
+    setIsBusy(true);
+    try {
+      await unloadAvRecording();
+      await clearProjectAudioFile(projectRefine?.audioUri ?? null);
+      const permissionResponse = await Audio.requestPermissionsAsync();
+      if (!permissionResponse.granted) {
+        Alert.alert(
+          t('talkHome.microphonePermissionDeniedTitle'),
+          t('talkHome.microphonePermissionDeniedBody'),
+          [
+            { text: t('channelSwitch.cancel'), style: 'cancel' },
+            {
+              text: t('ally.openSettings'),
+              onPress: () => {
+                void Linking.openSettings();
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      speechErrorRef.current = false;
+      partialTranscriptRef.current = '';
+      finalTranscriptRef.current = '';
+      setLivePartial('');
+      setCaptureMode('quick');
+      setIsRecording(true);
+      setIsProjectHoldActive(true);
+      captureChannelRef.current = 'projet';
+      startedAtRef.current = Date.now();
+      voiceActiveRef.current = true;
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      const recordingResult = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      );
+      projectAudioRef.current = recordingResult.recording;
+
+      await ExpoSpeechRecognitionModule.start({
+        lang: resolveSpeechLangForSession(i18n.language),
+        interimResults: true,
+        maxAlternatives: 1,
+        continuous: speechContinuousForHold(),
+        requiresOnDeviceRecognition: false,
+        addsPunctuation: true,
+      });
+    } catch (e: unknown) {
+      setCaptureMode('idle');
+      setIsRecording(false);
+      setIsProjectHoldActive(false);
+      voiceActiveRef.current = false;
+      captureChannelRef.current = null;
+      const rec = projectAudioRef.current;
+      projectAudioRef.current = null;
+      if (rec) {
+        try {
+          await rec.stopAndUnloadAsync();
+        } catch {
+          /* ignore */
+        }
+      }
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
+      } else {
+        const msg = e instanceof Error ? e.message : String(e);
+        Alert.alert(t('talkHome.recordingErrorTitle'), msg);
+      }
+    } finally {
+      setIsBusy(false);
+    }
+  }, [
+    clearProjectAudioFile,
+    i18n.language,
+    isBusy,
+    isPostCaptureAnalyzing,
+    projectRefine,
+    t,
+    unloadAvRecording,
+    voiceConfirm,
+  ]);
+
+  const stopProjectHoldCapture = useCallback(async (): Promise<void> => {
+    if (Platform.OS === 'web') return;
+    if (!voiceActiveRef.current) return;
+    voiceActiveRef.current = false;
+    setIsBusy(true);
+    setIsProjectHoldActive(false);
+    let audioUri: string | null = null;
+    try {
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch {
+        try {
+          ExpoSpeechRecognitionModule.abort();
+        } catch {
+          /* ignore */
+        }
+      }
+      const rec = projectAudioRef.current;
+      projectAudioRef.current = null;
+      if (rec) {
+        try {
+          await rec.stopAndUnloadAsync();
+        } catch {
+          /* ignore */
+        }
+        audioUri = rec.getURI() ?? null;
+      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
+      setIsRecording(false);
+      setCaptureMode('idle');
+      await new Promise<void>((r) => setTimeout(r, 220));
+      const text = (
+        finalTranscriptRef.current ||
+        partialTranscriptRef.current ||
+        ''
+      ).trim();
+      partialTranscriptRef.current = '';
+      finalTranscriptRef.current = '';
+      setLivePartial('');
+      if (!text) {
+        await clearProjectAudioFile(audioUri);
+        Alert.alert(
+          t('talkHome.transcriptionUnclearTitle'),
+          t('talkHome.transcriptionUnclearBody'),
+        );
+        return;
+      }
+      setProjectRefine({
+        transcript: text,
+        editedText: text,
+        audioUri,
+        isEditing: false,
+        isGeneratingPlan: false,
+      });
+      setMicroToast('');
+      captureChannelRef.current = null;
+    } catch (e: unknown) {
+      await clearProjectAudioFile(audioUri);
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('talkHome.recordingErrorTitle'), msg);
+    } finally {
+      setIsBusy(false);
+      setIsPostCaptureAnalyzing(false);
+    }
+  }, [clearProjectAudioFile, t]);
 
   const stopQuickCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') return;
@@ -782,7 +1013,7 @@ export function TalkHomeScreen() {
   }, [emitTalkDebug, i18n.language, interactionLanguage, t, unloadAvRecording]);
 
   const onMicPressIn = useCallback(() => {
-    if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
+    if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
     if (voiceActiveRef.current || avRecordingRef.current) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     stopAfterStartRef.current = false;
@@ -791,6 +1022,7 @@ export function TalkHomeScreen() {
   }, [
     isBusy,
     isPostCaptureAnalyzing,
+    projectRefine,
     startQuickCapture,
     voiceConfirm,
   ]);
@@ -807,21 +1039,21 @@ export function TalkHomeScreen() {
     stopAfterStartRef.current = true;
   }, [stopDeepCapture, stopQuickCapture]);
 
-  const onProjectPress = useCallback(() => {
-    if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
-    if (avRecordingRef.current) {
-      void stopDeepCapture();
-      return;
-    }
+  const onProjectPressIn = useCallback(() => {
+    if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
+    if (voiceActiveRef.current || avRecordingRef.current || projectAudioRef.current) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    void startProjectHoldCapture();
+  }, [isBusy, isPostCaptureAnalyzing, projectRefine, startProjectHoldCapture, voiceConfirm]);
+
+  const onProjectPressOut = useCallback(() => {
     if (voiceActiveRef.current) {
-      void stopQuickCapture();
-      return;
+      void stopProjectHoldCapture();
     }
-    void startDeepCapture();
-  }, [isBusy, isPostCaptureAnalyzing, startDeepCapture, stopDeepCapture, stopQuickCapture, voiceConfirm]);
+  }, [stopProjectHoldCapture]);
 
   const onQuickNotePress = useCallback(() => {
-    if (Platform.OS === 'web' || voiceConfirm || isBusy || isPostCaptureAnalyzing) return;
+    if (Platform.OS === 'web' || voiceConfirm || projectRefine || isBusy || isPostCaptureAnalyzing) return;
     if (voiceActiveRef.current || avRecordingRef.current) return;
     stopAfterStartRef.current = false;
     captureChannelRef.current = 'quick_note';
@@ -831,12 +1063,163 @@ export function TalkHomeScreen() {
         void stopQuickCapture();
       }
     }, 1150);
-  }, [isBusy, isPostCaptureAnalyzing, startQuickCapture, stopQuickCapture, voiceConfirm]);
+  }, [isBusy, isPostCaptureAnalyzing, projectRefine, startQuickCapture, stopQuickCapture, voiceConfirm]);
 
   const onCancelVoice = useCallback(() => {
     if (!voiceConfirm) return;
     resetVoiceConfirm();
   }, [voiceConfirm, resetVoiceConfirm]);
+
+  const onProjectSaveAsNote = useCallback(async () => {
+    if (!projectRefine) return;
+    const text = projectRefine.editedText.trim();
+    if (!text) {
+      Alert.alert(t('talkHome.titleRequiredTitle'), t('talkHome.titleRequiredBody'));
+      return;
+    }
+    await insertTrankilV2Intention({
+      id: newTalkEntityId(),
+      type: 'NOTE',
+      title: text.length > 180 ? `${text.slice(0, 177)}...` : text,
+      content_raw: text,
+      metadata_json: JSON.stringify(
+        {
+          source: 'project_refine_note',
+          rawTranscript: projectRefine.transcript,
+        },
+        null,
+        2,
+      ),
+      suggested_tags: JSON.stringify([STRINGS.TAG_KEYS.A_TRIER]),
+      category_id: STRINGS.TAG_KEYS.A_TRIER.toLowerCase(),
+      parent_id: null,
+      status: 'TODO',
+      is_organized: 0,
+      is_local_processed: 1,
+      complexity_level: 0,
+      created_at: Date.now(),
+    });
+    await cancelProjectRefine();
+    setMicroToast('Ajoute au Vrac');
+    void refreshRemainingIntents();
+  }, [cancelProjectRefine, projectRefine, refreshRemainingIntents, t]);
+
+  const onProjectSaveAsAudio = useCallback(async () => {
+    if (!projectRefine) return;
+    const text = projectRefine.editedText.trim();
+    if (!text) {
+      Alert.alert(t('talkHome.titleRequiredTitle'), t('talkHome.titleRequiredBody'));
+      return;
+    }
+    await insertTrankilV2Intention({
+      id: newTalkEntityId(),
+      type: 'AUDIO',
+      title: text.length > 120 ? `${text.slice(0, 117)}...` : text,
+      content_raw: text,
+      metadata_json: JSON.stringify(
+        {
+          source: 'project_refine_audio',
+          audioUri: projectRefine.audioUri,
+          rawTranscript: projectRefine.transcript,
+        },
+        null,
+        2,
+      ),
+      suggested_tags: JSON.stringify([STRINGS.TAG_KEYS.A_TRIER]),
+      category_id: STRINGS.TAG_KEYS.A_TRIER.toLowerCase(),
+      parent_id: null,
+      status: 'TODO',
+      is_organized: 0,
+      is_local_processed: 1,
+      complexity_level: 0,
+      created_at: Date.now(),
+    });
+    setProjectRefine(null);
+    setMicroToast('Audio + texte sauvegardes');
+    void refreshRemainingIntents();
+  }, [projectRefine, refreshRemainingIntents, t]);
+
+  const onProjectGeneratePlan = useCallback(async () => {
+    if (!projectRefine) return;
+    const text = projectRefine.editedText.trim();
+    if (!text) {
+      Alert.alert(t('talkHome.titleRequiredTitle'), t('talkHome.titleRequiredBody'));
+      return;
+    }
+    if (remainingIntents <= 0) {
+      Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+      return;
+    }
+    setProjectRefine((prev) => (prev ? { ...prev, isGeneratingPlan: true } : prev));
+    setIsBusy(true);
+    try {
+      const expertRows = await atomizeProject(text);
+      const taskCount = expertRows.filter((row) => row.type === 'TASK').length;
+      const projectTitle =
+        expertRows.find((row) => row.type === 'PROJECT')?.title?.trim() || text.slice(0, 80);
+      setProjectPlanPreview({
+        projectTitle,
+        rawInput: text,
+        rows: expertRows,
+        taskAlarmIndexes: [],
+      });
+      setMicroToast(taskCount > 0 ? 'Plan IA pret a visualiser' : 'Aucune etape detectee');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('talkHome.voicePersistErrorTitle'), msg || t('talkHome.voicePersistErrorBody'));
+    } finally {
+      setProjectRefine((prev) => (prev ? { ...prev, isGeneratingPlan: false } : prev));
+      setIsBusy(false);
+    }
+  }, [projectRefine, remainingIntents, t]);
+
+  const togglePlanTaskAlarm = useCallback((taskIndex: number) => {
+    setProjectPlanPreview((prev) => {
+      if (!prev) return prev;
+      const has = prev.taskAlarmIndexes.includes(taskIndex);
+      return {
+        ...prev,
+        taskAlarmIndexes: has
+          ? prev.taskAlarmIndexes.filter((idx) => idx !== taskIndex)
+          : [...prev.taskAlarmIndexes, taskIndex],
+      };
+    });
+  }, []);
+
+  const onValidateProjectPlan = useCallback(async () => {
+    if (!projectPlanPreview) return;
+    if (remainingIntents <= 0) {
+      Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+      return;
+    }
+    setIsBusy(true);
+    try {
+      await resetLocalStreakOnExpert();
+      await persistGeminiExpertRows(projectPlanPreview.rawInput, projectPlanPreview.rows, {
+        taskAlarmIndexes: projectPlanPreview.taskAlarmIndexes,
+      });
+      const expertPoints = growthPointsFromExpertRows(projectPlanPreview.rows);
+      if (expertPoints > 0) {
+        const next = await updateGrowth(expertPoints);
+        setGrowthScore(next.growth_score);
+        setFlowerPulseKey((k) => k + 1);
+        setFlowerNeedsAttention(false);
+      }
+      const afterConsume = await consumeTrankilV2IntentCredit();
+      setRemainingIntents(afterConsume.remaining_intents);
+      setProjectPlanPreview(null);
+      await cancelProjectRefine();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setRewardToast('Plan valide et enregistre');
+      setTimeout(() => setRewardToast(''), 2000);
+      setMicroToast('');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(t('talkHome.voicePersistErrorTitle'), msg || t('talkHome.voicePersistErrorBody'));
+    } finally {
+      setIsBusy(false);
+    }
+  }, [cancelProjectRefine, projectPlanPreview, remainingIntents, t]);
 
   const onProcessVoice = useCallback(async () => {
     if (!voiceConfirm) return;
@@ -976,6 +1359,16 @@ export function TalkHomeScreen() {
 
   /** Quick : texte ASR partiel/final. Deep : consigne mains libres (pas de preview .m4a). */
   const renderLiveSpeechCard = () => {
+    if (isProjectHoldActive) {
+      const line = livePartial.trim()
+        ? livePartial.trim()
+        : t('talkHome.voiceLivePlaceholder');
+      return (
+        <View style={styles.titleHeroWrap}>
+          <Text style={styles.projectLiveTextMuted}>{line}</Text>
+        </View>
+      );
+    }
     if (captureMode === 'deep') {
       return (
         <View style={styles.titleHeroWrap}>
@@ -1000,6 +1393,91 @@ export function TalkHomeScreen() {
       <Text style={styles.titleHero}>{t('talkHome.status.analyzing')}</Text>
     </View>
   );
+
+  const renderProjectRefineCard = () => {
+    if (!projectRefine) return null;
+    const textValue = projectRefine.editedText.trim();
+    return (
+      <>
+        <ScrollView
+          style={styles.projectRefineScroll}
+          contentContainerStyle={styles.projectRefineContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.confirmBlockLabel}>Projet capture</Text>
+          {projectRefine.isEditing ? (
+            <TextInput
+              value={projectRefine.editedText}
+              onChangeText={(v) => {
+                setProjectRefine((prev) => (prev ? { ...prev, editedText: v } : prev));
+              }}
+              style={styles.editTitleInput}
+              multiline
+              autoFocus
+              placeholder={t('talkHome.voiceLivePlaceholder')}
+              placeholderTextColor="rgba(44,62,80,0.45)"
+            />
+          ) : (
+            <Pressable
+              style={styles.titleHeroWrap}
+              onPress={() => {
+                setProjectRefine((prev) => (prev ? { ...prev, isEditing: true } : prev));
+              }}
+            >
+              <Text style={styles.projectLiveTextMuted}>
+                {textValue || t('talkHome.voiceLivePlaceholder')}
+              </Text>
+            </Pressable>
+          )}
+
+          {projectRefine.isGeneratingPlan ? (
+            <Text style={styles.confirmScenarioLine}>Analyse Gemini...</Text>
+          ) : null}
+
+          <View style={styles.projectChoiceGrid}>
+            <Pressable
+              style={[styles.projectChoiceBtn, styles.voiceNoteBtn]}
+              onPress={() => {
+                void cancelProjectRefine();
+              }}
+              disabled={isBusy}
+            >
+              <Text style={styles.voiceNoteText}>❌ ANNULER</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.projectChoiceBtn, styles.voiceNoteBtn]}
+              onPress={() => {
+                void onProjectSaveAsNote();
+              }}
+              disabled={isBusy}
+            >
+              <Text style={styles.voiceNoteText}>💾 NOTE</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.projectChoiceBtn, styles.voiceNoteBtn]}
+              onPress={() => {
+                void onProjectSaveAsAudio();
+              }}
+              disabled={isBusy}
+            >
+              <Text style={styles.voiceNoteText}>🎙️ AUDIO</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.projectChoiceBtn, styles.voiceValidateBtn]}
+              onPress={() => {
+                void onProjectGeneratePlan();
+              }}
+              disabled={isBusy || projectRefine.isGeneratingPlan}
+            >
+              <Text style={styles.voiceValidateText}>✨ GENERER PLAN PROJET</Text>
+              <Text style={styles.projectCreditHint}>(1 💎)</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </>
+    );
+  };
 
   const micA11yLabel = useMemo(() => {
     if (isRecording) return t('talkHome.orbital.holdRelease');
@@ -1214,22 +1692,24 @@ export function TalkHomeScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('talkHome.a11yTalkieProjet')}
           accessibilityHint={t('talkHome.talkieProjet')}
-          onPress={onProjectPress}
           onPressIn={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            onProjectPressIn();
           }}
+          onPressOut={onProjectPressOut}
           disabled={
-            isBusy || voiceConfirm !== null || Platform.OS === 'web' || isPostCaptureAnalyzing
+            isBusy || voiceConfirm !== null || projectRefine !== null || Platform.OS === 'web' || isPostCaptureAnalyzing
           }
           hitSlop={12}
           android_ripple={{ color: 'rgba(44,62,80,0.12)', borderless: true }}
           style={[styles.ghostSide, styles.ghostSideLeft]}
         >
           {({ pressed }) => (
-            <View style={[styles.ghostBtnInner, { opacity: pressed ? 0.5 : 0.8 }]}>
-              <Folder size={28} color="#2C3E50" />
-              <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieProjet')}</Text>
-            </View>
+            isProjectHoldActive || projectRefine ? null : (
+              <View style={[styles.ghostBtnInner, { opacity: pressed ? 0.5 : 0.8 }]}>
+                <Folder size={28} color="#2C3E50" />
+                <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieProjet')}</Text>
+              </View>
+            )
           )}
         </Pressable>
         <Animated.View style={[styles.ghostMainWrap, { transform: [{ scale: micScale }] }]}>
@@ -1242,6 +1722,7 @@ export function TalkHomeScreen() {
             disabled={
               isBusy ||
               voiceConfirm !== null ||
+              projectRefine !== null ||
               Platform.OS === 'web' ||
               isPostCaptureAnalyzing
             }
@@ -1249,12 +1730,14 @@ export function TalkHomeScreen() {
             android_ripple={{ color: 'rgba(0,128,128,0.14)', borderless: true }}
             style={styles.ghostMain}
           >
-            {({ pressed }) => (
-              <View style={[styles.ghostMainInner, { opacity: pressed ? 0.5 : 0.8 }]}>
-                <Target size={38} color="#2C3E50" />
-                <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieIntention')}</Text>
-              </View>
-            )}
+            {({ pressed }) =>
+              isProjectHoldActive || projectRefine ? null : (
+                <View style={[styles.ghostMainInner, { opacity: pressed ? 0.5 : 0.8 }]}>
+                  <Target size={38} color="#2C3E50" />
+                  <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieIntention')}</Text>
+                </View>
+              )
+            }
           </Pressable>
         </Animated.View>
         <Pressable
@@ -1266,27 +1749,31 @@ export function TalkHomeScreen() {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
           }}
           disabled={
-            isBusy || voiceConfirm !== null || Platform.OS === 'web' || isPostCaptureAnalyzing
+            isBusy || voiceConfirm !== null || projectRefine !== null || Platform.OS === 'web' || isPostCaptureAnalyzing
           }
           hitSlop={12}
           android_ripple={{ color: 'rgba(44,62,80,0.12)', borderless: true }}
           style={[styles.ghostSide, styles.ghostSideRight]}
         >
-          {({ pressed }) => (
-            <View style={[styles.ghostBtnInner, { opacity: pressed ? 0.5 : 0.8 }]}>
-              <Zap size={28} color="#2C3E50" />
-              <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieQuickNote')}</Text>
-            </View>
-          )}
+          {({ pressed }) =>
+            isProjectHoldActive || projectRefine ? null : (
+              <View style={[styles.ghostBtnInner, { opacity: pressed ? 0.5 : 0.8 }]}>
+                <Zap size={28} color="#2C3E50" />
+                <Text style={styles.ghostBtnLabel}>{t('talkHome.talkieQuickNote')}</Text>
+              </View>
+            )
+          }
         </Pressable>
       </View>
 
       <View style={styles.semanticModalZone} pointerEvents="box-none">
         <View style={styles.oledModalFrame}>
           <View style={styles.pingCard}>
-            {voiceConfirm
-              ? renderConfirmCard()
-              : isPostCaptureAnalyzing
+            {projectRefine
+              ? renderProjectRefineCard()
+              : voiceConfirm
+                ? renderConfirmCard()
+                : isPostCaptureAnalyzing
                 ? renderAnalyzingCard()
                 : isRecording
                   ? renderLiveSpeechCard()
@@ -1294,6 +1781,59 @@ export function TalkHomeScreen() {
           </View>
         </View>
       </View>
+
+      <Modal
+        visible={Boolean(projectPlanPreview)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setProjectPlanPreview(null)}
+      >
+        <View style={styles.planPreviewBackdrop}>
+          <View style={styles.planPreviewCard}>
+            <Text style={styles.planPreviewTitle}>Visualiser IA Plan (1 Crédit)</Text>
+            <Text style={styles.planPreviewWarning}>
+              Le crédit est débité au clic sur Valider Plan et non sur la visualisation.
+            </Text>
+            <Text style={styles.planPreviewProjectTitle}>
+              {projectPlanPreview?.projectTitle || 'Projet'}
+            </Text>
+            <ScrollView style={styles.planPreviewScroll} contentContainerStyle={styles.planPreviewScrollContent}>
+              {(() => {
+                let taskIdx = -1;
+                return (projectPlanPreview?.rows ?? [])
+                  .filter((row) => row.type === 'TASK')
+                  .map((row) => {
+                    taskIdx += 1;
+                    const enabled = (projectPlanPreview?.taskAlarmIndexes ?? []).includes(taskIdx);
+                    return (
+                      <View key={`${row.title}-${taskIdx}`} style={styles.planTaskRow}>
+                        <Pressable style={styles.planBellBtn} onPress={() => togglePlanTaskAlarm(taskIdx)}>
+                          <Bell size={20} color={enabled ? '#FF8C00' : 'rgba(44,62,80,0.35)'} />
+                        </Pressable>
+                        <Text style={styles.planTaskText}>{row.title}</Text>
+                      </View>
+                    );
+                  });
+              })()}
+            </ScrollView>
+
+            <View style={styles.planPreviewActions}>
+              <Pressable style={[styles.planActionBtn, styles.planCancelBtn]} onPress={() => setProjectPlanPreview(null)}>
+                <Text style={styles.planCancelText}>❌ ANNULER</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.planActionBtn, styles.planValidateBtn]}
+                onPress={() => {
+                  void onValidateProjectPlan();
+                }}
+                disabled={isBusy}
+              >
+                <Text style={styles.planValidateText}>✅ VALIDER LE PLAN</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1672,6 +2212,138 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 14,
     letterSpacing: 0.7,
+  },
+  projectLiveTextMuted: {
+    color: 'rgba(44,62,80,0.62)',
+    fontSize: 22,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 30,
+  },
+  projectRefineScroll: {
+    flex: 1,
+  },
+  projectRefineContent: {
+    paddingBottom: 6,
+  },
+  projectChoiceGrid: {
+    marginTop: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  projectChoiceBtn: {
+    width: '48.5%',
+    minHeight: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  projectCreditHint: {
+    marginTop: 2,
+    color: '#c9f4f0',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  planPreviewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 20, 18, 0.36)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 26,
+  },
+  planPreviewCard: {
+    flex: 1,
+    borderRadius: 20,
+    backgroundColor: '#F6F2E8',
+    borderWidth: 1,
+    borderColor: 'rgba(122, 104, 78, 0.15)',
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 12,
+  },
+  planPreviewTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#2C3E50',
+  },
+  planPreviewWarning: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#7a5a2f',
+    fontWeight: '600',
+  },
+  planPreviewProjectTitle: {
+    marginTop: 14,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2C3E50',
+  },
+  planPreviewScroll: {
+    marginTop: 10,
+    flex: 1,
+  },
+  planPreviewScrollContent: {
+    paddingBottom: 14,
+    gap: 8,
+  },
+  planTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  planBellBtn: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 2,
+  },
+  planTaskText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#2C3E50',
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  planPreviewActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  planActionBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  planCancelBtn: {
+    backgroundColor: 'rgba(245, 247, 246, 0.75)',
+    borderColor: 'rgba(161, 178, 175, 0.38)',
+  },
+  planValidateBtn: {
+    backgroundColor: 'rgba(34, 126, 128, 0.86)',
+    borderColor: 'rgba(202, 245, 239, 0.42)',
+  },
+  planCancelText: {
+    color: '#2C3E50',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  planValidateText: {
+    color: '#f2fefd',
+    fontWeight: '800',
+    fontSize: 13,
   },
   progressCard: {
     marginTop: 252,

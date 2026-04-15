@@ -1,6 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
   BarChart3,
+  Bug,
   Flower2,
   House,
   Leaf,
@@ -11,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from 'react-native-paper';
 import { ZenGardenScreen } from '../modules/zenGarden';
 import {
+  DebugScreen,
   MeliMeloScreen,
   StatsScreen,
   TalkHomeScreen,
@@ -91,6 +93,18 @@ export function AppNavigator() {
           ),
         }}
       />
+      {__DEV__ ? (
+        <Tab.Screen
+          name="Debug"
+          component={DebugScreen}
+          options={{
+            title: t('tabs.debug'),
+            tabBarIcon: ({ color, size }) => (
+              <Bug color={color} size={size} />
+            ),
+          }}
+        />
+      ) : null}
     </Tab.Navigator>
   );
 }

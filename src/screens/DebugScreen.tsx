@@ -5,19 +5,27 @@ import {
   ActivityIndicator,
   Alert,
   DeviceEventEmitter,
+  Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Button, SegmentedButtons, Switch, useTheme } from 'react-native-paper';
 import { collection, getDocs, limit, query } from 'firebase/firestore';
+import { Bell } from 'lucide-react-native';
 
 import { CalendarGranularSection } from '../components';
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
 import {
+  consumeTrankilV2IntentCredit,
+  deleteTrankilV2IntentionById,
   getTrankilV2UserStats,
+  insertTrankilV2Intention,
+  listTrankilV2Intentions,
   setAdState,
   setDebugSpawnFlies,
 } from '../api/trankilV2Db';
@@ -45,6 +53,61 @@ import { scheduleDebugAgentDirectAlarmIn10Minutes } from '../services/alarmManag
 import type { RailAlarmSoundId } from '../services/railAlarmSound';
 import { palette } from '../theme/colors';
 import { STRINGS } from '../constants/Strings';
+import { atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
+
+type ProjectPlanPreviewState = {
+  projectTitle: string;
+  rawInput: string;
+  rows: GeminiExpertIntention[];
+  taskAlarmIndexes: number[];
+};
+
+async function persistGeminiExpertRowsForDebug(
+  rawInput: string,
+  rows: GeminiExpertIntention[],
+  taskAlarmIndexes: number[],
+): Promise<{ projectId: string | null; insertedCount: number }> {
+  let currentParentId: string | null = null;
+  let projectId: string | null = null;
+  let taskCursor = 0;
+  let insertedCount = 0;
+  const alarmSet = new Set(taskAlarmIndexes);
+  for (const row of rows) {
+    const id = randomUUID();
+    if (row.type === 'PROJECT') {
+      currentParentId = id;
+      projectId = id;
+    }
+    const shouldSetAlarm = row.type === 'TASK' && alarmSet.has(taskCursor);
+    const metadata = {
+      ...(row.metadata ?? {}),
+      ...(shouldSetAlarm ? { has_alarm: true } : {}),
+      source: 'debug_project_simulation',
+    };
+    if (row.type === 'TASK') {
+      taskCursor += 1;
+    }
+    await insertTrankilV2Intention({
+      id,
+      type: row.type,
+      title: row.title,
+      content_raw: rawInput,
+      metadata_json: JSON.stringify(metadata, null, 2),
+      suggested_tags: JSON.stringify(
+        row.suggested_category ? [row.suggested_category.trim()] : [STRINGS.TAG_KEYS.A_TRIER],
+      ),
+      category_id: row.suggested_category || null,
+      parent_id: row.type === 'PROJECT' ? null : currentParentId,
+      status: 'TODO',
+      is_organized: 0,
+      is_local_processed: 0,
+      complexity_level: 2,
+      created_at: Date.now(),
+    });
+    insertedCount += 1;
+  }
+  return { projectId, insertedCount };
+}
 
 export function DebugScreen() {
   const { t } = useTranslation();
@@ -57,7 +120,9 @@ export function DebugScreen() {
     | 'sim'
     | 'demoDay'
     | 'simWaIntent'
+    | 'simProject'
     | 'purgeIntentions'
+    | 'purgeTrankilIntentions'
     | 'forceAgentAlarm'
     | null
   >(null);
@@ -83,6 +148,9 @@ export function DebugScreen() {
     adEfficiency: 0,
     bioScore: 0,
   });
+  const [debugProjectText, setDebugProjectText] = useState('');
+  const [projectPlanPreview, setProjectPlanPreview] = useState<ProjectPlanPreviewState | null>(null);
+  const [simLatencyMs, setSimLatencyMs] = useState<number | null>(null);
 
   const refreshKpis = useCallback(async () => {
     const stats = await getTrankilV2UserStats();
@@ -462,6 +530,104 @@ export function DebugScreen() {
     );
   }, [refreshRawIntentions, t]);
 
+  const togglePlanTaskAlarm = useCallback((taskIndex: number) => {
+    setProjectPlanPreview((prev) => {
+      if (!prev) return prev;
+      const has = prev.taskAlarmIndexes.includes(taskIndex);
+      return {
+        ...prev,
+        taskAlarmIndexes: has
+          ? prev.taskAlarmIndexes.filter((idx) => idx !== taskIndex)
+          : [...prev.taskAlarmIndexes, taskIndex],
+      };
+    });
+  }, []);
+
+  const onSimulateDebugProject = useCallback(async () => {
+    const text = debugProjectText.trim();
+    if (!text) {
+      Alert.alert('Debug Projet', 'Ajoute un texte dans le champ de simulation.');
+      return;
+    }
+    setLastError(null);
+    setBusy('simProject');
+    const startedAt = Date.now();
+    try {
+      const rows = await atomizeProject(text);
+      const projectTitle = rows.find((row) => row.type === 'PROJECT')?.title?.trim() || text.slice(0, 80);
+      const latency = Date.now() - startedAt;
+      setSimLatencyMs(latency);
+      console.log(`[DebugProjet] latency_to_preview_ms=${latency}`);
+      setProjectPlanPreview({
+        projectTitle,
+        rawInput: text,
+        rows,
+        taskAlarmIndexes: [],
+      });
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, [debugProjectText]);
+
+  const onValidateDebugProjectPlan = useCallback(async () => {
+    if (!projectPlanPreview) return;
+    setLastError(null);
+    setBusy('simProject');
+    try {
+      const afterConsume = await consumeTrankilV2IntentCredit();
+      const saved = await persistGeminiExpertRowsForDebug(
+        projectPlanPreview.rawInput,
+        projectPlanPreview.rows,
+        projectPlanPreview.taskAlarmIndexes,
+      );
+      setProjectPlanPreview(null);
+      Alert.alert(
+        'Plan valide',
+        `✅ SQLite OK\nID projet: ${saved.projectId ?? 'n/a'}\nLignes insérées: ${saved.insertedCount}\nCrédits restants: ${afterConsume.remaining_intents}`,
+      );
+      await refreshRawIntentions();
+      await refreshKpis();
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, [projectPlanPreview, refreshKpis, refreshRawIntentions]);
+
+  const onPurgeTrankilIntentions = useCallback(() => {
+    Alert.alert(
+      'Vider la table Intentions (Debug)',
+      'Cette action supprime toutes les intentions Trankil V2.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Vider',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setLastError(null);
+              setBusy('purgeTrankilIntentions');
+              try {
+                const rows = await listTrankilV2Intentions();
+                for (const row of rows) {
+                  await deleteTrankilV2IntentionById(row.id);
+                }
+                Alert.alert('Debug', `Table intentions vidée (${rows.length}).`);
+                await refreshKpis();
+              } catch (e) {
+                setLastError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setBusy(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [refreshKpis]);
+
   const onForceAgentDirectAlarm = useCallback(async () => {
     setLastError(null);
     setBusy('forceAgentAlarm');
@@ -657,6 +823,40 @@ export function DebugScreen() {
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
           {t('debug.simWhatsAppIntentionHelp')}
         </Text>
+
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          Simuler Debug Projet
+        </Text>
+        <TextInput
+          value={debugProjectText}
+          onChangeText={setDebugProjectText}
+          multiline
+          placeholder="Ex: Lancer la nouvelle version mobile avec checklist..."
+          placeholderTextColor="#839096"
+          style={styles.debugProjectInput}
+        />
+        <Button
+          mode="contained"
+          onPress={() => void onSimulateDebugProject()}
+          disabled={busy !== null}
+          style={styles.btn}
+          buttonColor={palette.orange}
+        >
+          Simuler Debug Projet
+        </Button>
+        {simLatencyMs !== null ? (
+          <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+            Latence IA vers modale: {simLatencyMs} ms
+          </Text>
+        ) : null}
+        <Button
+          mode="outlined"
+          onPress={() => void onPurgeTrankilIntentions()}
+          disabled={busy !== null}
+          style={[styles.btn, styles.btnSecond]}
+        >
+          Vider la table Intentions (Debug)
+        </Button>
       </View>
 
       <View style={styles.section}>
@@ -817,6 +1017,58 @@ export function DebugScreen() {
               `${t('debug.syncPurgeLastTransit')}: ${lastTransitPurgeMs != null ? new Date(lastTransitPurgeMs).toISOString() : t('debug.syncPurgeNever')}`,
             ].join('\n')}
       </Text>
+
+      <Modal
+        visible={Boolean(projectPlanPreview)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setProjectPlanPreview(null)}
+      >
+        <View style={styles.planPreviewBackdrop}>
+          <View style={styles.planPreviewCard}>
+            <Text style={styles.planPreviewTitle}>Visualiser IA Plan (1 Crédit)</Text>
+            <Text style={styles.planPreviewWarning}>
+              Le crédit est débité au clic sur Valider Plan et non sur la visualisation.
+            </Text>
+            <Text style={styles.planPreviewProjectTitle}>
+              {projectPlanPreview?.projectTitle || 'Projet'}
+            </Text>
+            <ScrollView style={styles.planPreviewScroll} contentContainerStyle={styles.planPreviewScrollContent}>
+              {(() => {
+                let taskIdx = -1;
+                return (projectPlanPreview?.rows ?? [])
+                  .filter((row) => row.type === 'TASK')
+                  .map((row) => {
+                    taskIdx += 1;
+                    const enabled = (projectPlanPreview?.taskAlarmIndexes ?? []).includes(taskIdx);
+                    return (
+                      <View key={`${row.title}-${taskIdx}`} style={styles.planTaskRow}>
+                        <Pressable style={styles.planBellBtn} onPress={() => togglePlanTaskAlarm(taskIdx)}>
+                          <Bell size={20} color={enabled ? '#FF8C00' : 'rgba(44,62,80,0.35)'} />
+                        </Pressable>
+                        <Text style={styles.planTaskText}>{row.title}</Text>
+                      </View>
+                    );
+                  });
+              })()}
+            </ScrollView>
+            <View style={styles.planPreviewActions}>
+              <Pressable style={[styles.planActionBtn, styles.planCancelBtn]} onPress={() => setProjectPlanPreview(null)}>
+                <Text style={styles.planCancelText}>❌ ANNULER</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.planActionBtn, styles.planValidateBtn]}
+                onPress={() => {
+                  void onValidateDebugProjectPlan();
+                }}
+                disabled={busy !== null}
+              >
+                <Text style={styles.planValidateText}>✅ VALIDER LE PLAN</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -857,4 +1109,113 @@ const styles = StyleSheet.create({
   blockTitle: { fontSize: 14, fontWeight: '600', marginTop: 16, marginBottom: 8 },
   mono: { fontFamily: 'monospace', fontSize: 11, lineHeight: 16 },
   rawJson: { marginTop: 10 },
+  debugProjectInput: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.2)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    minHeight: 88,
+    color: '#2C3E50',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    textAlignVertical: 'top',
+  },
+  planPreviewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 20, 18, 0.36)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 26,
+  },
+  planPreviewCard: {
+    flex: 1,
+    borderRadius: 20,
+    backgroundColor: '#F6F2E8',
+    borderWidth: 1,
+    borderColor: 'rgba(122, 104, 78, 0.15)',
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 12,
+  },
+  planPreviewTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#2C3E50',
+  },
+  planPreviewWarning: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#7a5a2f',
+    fontWeight: '600',
+  },
+  planPreviewProjectTitle: {
+    marginTop: 14,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2C3E50',
+  },
+  planPreviewScroll: {
+    marginTop: 10,
+    flex: 1,
+  },
+  planPreviewScrollContent: {
+    paddingBottom: 14,
+    gap: 8,
+  },
+  planTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  planBellBtn: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 2,
+  },
+  planTaskText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#2C3E50',
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  planPreviewActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  planActionBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  planCancelBtn: {
+    backgroundColor: 'rgba(245, 247, 246, 0.75)',
+    borderColor: 'rgba(161, 178, 175, 0.38)',
+  },
+  planValidateBtn: {
+    backgroundColor: 'rgba(34, 126, 128, 0.86)',
+    borderColor: 'rgba(202, 245, 239, 0.42)',
+  },
+  planCancelText: {
+    color: '#2C3E50',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  planValidateText: {
+    color: '#f2fefd',
+    fontWeight: '800',
+    fontSize: 13,
+  },
 });

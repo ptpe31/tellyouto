@@ -27,6 +27,7 @@ import {
   listTrankilV2UnorganizedIntentions,
   markTrankilV2IntentionDone,
   updateGrowth,
+  updateTrankilV2IntentionClassification,
   updateTrankilV2IntentionOrganization,
   updateTrankilV2IntentionQuick,
   type TrankilV2IntentionRow,
@@ -35,6 +36,7 @@ import { LifeFlower } from '../components/LifeFlower';
 import { STRINGS } from '../constants/Strings';
 import { useSaturation } from '../context/SaturationContext';
 import { askGeminiExpert } from '../services/GeminiExpert';
+import { analyzeLocally } from '../services/Gatekeeper';
 
 const TYPE_ICON: Record<string, string> = {
   TASK: '🔨',
@@ -60,6 +62,14 @@ const SHAKE_COOLDOWN_MS = 2400;
 
 type ViewMode = 'vrac' | 'focus';
 
+type SortClassification = {
+  type: 'TASK' | 'HABIT' | 'PROJECT' | 'NOTE';
+  category: string | null;
+  title: string;
+  isAmbiguous: boolean;
+  isLocalProcessed: number;
+};
+
 function pastelFromCategory(category: string | null): string {
   const key = (category || 'default').toLowerCase();
   let n = 0;
@@ -71,6 +81,71 @@ function looksIncomplete(item: TrankilV2IntentionRow): boolean {
   const title = item.title?.trim() || '';
   const category = item.category_id?.trim() || '';
   return title.length < 4 || !category;
+}
+
+function categoryFromType(type: SortClassification['type']): string {
+  if (type === 'HABIT') return STRINGS.TAG_KEYS.ZEN;
+  if (type === 'TASK') return STRINGS.TAG_KEYS.TRAVAIL;
+  if (type === 'PROJECT') return STRINGS.TAG_KEYS.PROJETS;
+  return STRINGS.TAG_KEYS.A_TRIER;
+}
+
+function isClearlyClassified(item: TrankilV2IntentionRow): boolean {
+  const hasCategory = Boolean(item.category_id?.trim());
+  const actionableType = item.type === 'TASK' || item.type === 'HABIT' || item.type === 'PROJECT';
+  return hasCategory && actionableType;
+}
+
+function safeJsonParse(raw: string | null | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractGeminiClassification(item: TrankilV2IntentionRow): SortClassification | null {
+  const meta = safeJsonParse(item.metadata_json);
+  const rawType = String(
+    meta.gemini_type ?? meta.type ?? meta.intent_type ?? meta.intentType ?? '',
+  )
+    .trim()
+    .toUpperCase();
+  const rawCategory = String(
+    meta.gemini_category ?? meta.category ?? meta.suggested_category ?? '',
+  )
+    .trim()
+    .toLowerCase();
+  const rawTitle = String(meta.gemini_title ?? meta.title ?? '').trim();
+  if (!rawType) return null;
+  const type: SortClassification['type'] =
+    rawType === 'PROJECT' ? 'PROJECT' : rawType === 'HABIT' ? 'HABIT' : rawType === 'TASK' ? 'TASK' : 'NOTE';
+  const category = rawCategory || (type !== 'NOTE' ? categoryFromType(type) : null);
+  return {
+    type,
+    category,
+    title: rawTitle || item.title,
+    isAmbiguous: type === 'NOTE' || !category,
+    isLocalProcessed: item.is_local_processed,
+  };
+}
+
+async function classifyWithLocalAi(item: TrankilV2IntentionRow): Promise<SortClassification> {
+  const prompt = [item.title, item.content_raw].filter(Boolean).join('\n').trim();
+  const local = await analyzeLocally(prompt, 'fr');
+  const type: SortClassification['type'] =
+    local.localType === 'HABIT' ? 'HABIT' : local.localType === 'TASK' ? 'TASK' : 'NOTE';
+  const category = local.structured?.suggestedTags?.[0]?.trim() || (type !== 'NOTE' ? categoryFromType(type) : null);
+  const isAmbiguous = local.isExpertNeeded || type === 'NOTE' || !category;
+  return {
+    type,
+    category,
+    title: item.title,
+    isAmbiguous,
+    isLocalProcessed: isAmbiguous ? item.is_local_processed : 1,
+  };
 }
 
 function normalizeCategory(category: string | null): string {
@@ -105,10 +180,13 @@ export function MeliMeloScreen() {
   const [growthScore, setGrowthScore] = useState(0);
   const [flowerPulseKey, setFlowerPulseKey] = useState(0);
   const [morningFocusId, setMorningFocusId] = useState<string | null>(null);
+  const [hybridToast, setHybridToast] = useState('');
+  const [activeVracItem, setActiveVracItem] = useState<TrankilV2IntentionRow | null>(null);
 
   const flyAnim = useRef(new Animated.Value(0)).current;
   const shakeHitsRef = useRef<number[]>([]);
   const lastShakeAtRef = useRef(0);
+  const autoSortRunningRef = useRef(false);
 
   const reload = useCallback(async () => {
     const [rows, organized, stats] = await Promise.all([
@@ -183,13 +261,119 @@ export function MeliMeloScreen() {
 
   const saveEdit = useCallback(async () => {
     if (!editing) return;
-    await updateTrankilV2IntentionQuick(editing.id, {
-      title: editTitle.trim() || editing.title,
-      category_id: editCategory.trim() || null,
-    });
+    const nextTitle = editTitle.trim() || editing.title;
+    const nextCategory = editCategory.trim() || null;
+    if (nextCategory) {
+      await updateTrankilV2IntentionClassification(editing.id, {
+        title: nextTitle,
+        category_id: nextCategory,
+        is_organized: 1,
+      });
+      setHybridToast(`Classé dans : ${nextCategory}`);
+      setTimeout(() => setHybridToast(''), 1600);
+    } else {
+      await updateTrankilV2IntentionQuick(editing.id, {
+        title: nextTitle,
+        category_id: null,
+      });
+      setHybridToast('Ajouté au Vrac');
+      setTimeout(() => setHybridToast(''), 1600);
+    }
     setEditing(null);
     await reload();
   }, [editing, editTitle, editCategory, reload]);
+
+  const runAiSortForItem = useCallback(
+    async (item: TrankilV2IntentionRow) => {
+      if (remainingCredits <= 0) {
+        Alert.alert(
+          STRINGS.GARDEN_RITUALS.INSUFFICIENT_CREDITS,
+          STRINGS.GARDEN_RITUALS.INSUFFICIENT_CREDITS_BODY,
+        );
+        return;
+      }
+      const prompt = [item.title, item.content_raw].filter(Boolean).join('\n').trim();
+      const expert = await askGeminiExpert(prompt || item.title || 'Intention à clarifier');
+      const first = expert.find((row) => row.type === 'PROJECT' || row.type === 'TASK' || row.type === 'HABIT');
+      if (!first) {
+        setHybridToast('Ajouté au Vrac');
+        setTimeout(() => setHybridToast(''), 1600);
+        return;
+      }
+      await consumeTrankilV2IntentCredit();
+      setRemainingCredits((c) => Math.max(0, c - 1));
+      const category = first.suggested_category?.trim().toLowerCase() || categoryFromType(first.type);
+      await updateTrankilV2IntentionClassification(item.id, {
+        type: first.type,
+        title: first.title?.trim() || item.title,
+        category_id: category,
+        is_organized: 1,
+      });
+      setHybridToast(`Classé dans : ${category}`);
+      setTimeout(() => setHybridToast(''), 1600);
+      await reload();
+    },
+    [remainingCredits, reload],
+  );
+
+  useEffect(() => {
+    if (items.length === 0 || autoSortRunningRef.current || isSorting) return;
+    autoSortRunningRef.current = true;
+    void (async () => {
+      try {
+        let sortedCount = 0;
+        let ambiguousCount = 0;
+        for (const item of items) {
+          if (item.is_organized === 1) continue;
+          if (isClearlyClassified(item)) {
+            await updateTrankilV2IntentionClassification(item.id, {
+              is_organized: 1,
+              category_id: item.category_id?.trim().toLowerCase() || null,
+            });
+            sortedCount += 1;
+            setHybridToast(`Classé dans : ${item.category_id?.trim() || STRINGS.TAG_KEYS.PROJETS}`);
+            continue;
+          }
+          const geminiMeta = extractGeminiClassification(item);
+          if (geminiMeta && !geminiMeta.isAmbiguous) {
+            await updateTrankilV2IntentionClassification(item.id, {
+              type: geminiMeta.type,
+              title: geminiMeta.title,
+              category_id: geminiMeta.category,
+              is_organized: 1,
+              is_local_processed: geminiMeta.isLocalProcessed,
+            });
+            sortedCount += 1;
+            setHybridToast(`Classé dans : ${geminiMeta.category}`);
+            continue;
+          }
+          const localClass = await classifyWithLocalAi(item);
+          if (!localClass.isAmbiguous) {
+            await updateTrankilV2IntentionClassification(item.id, {
+              type: localClass.type,
+              category_id: localClass.category,
+              title: localClass.title,
+              is_organized: 1,
+              is_local_processed: localClass.isLocalProcessed,
+            });
+            sortedCount += 1;
+            setHybridToast(`Classé dans : ${localClass.category}`);
+            continue;
+          }
+          ambiguousCount += 1;
+        }
+        if (sortedCount > 0 || ambiguousCount > 0) {
+          if (ambiguousCount > 0) {
+            setHybridToast('Ajouté au Vrac');
+          }
+          setTimeout(() => setHybridToast(''), 1600);
+          await reload();
+        }
+      } finally {
+        autoSortRunningRef.current = false;
+      }
+    })();
+  }, [isSorting, items, reload]);
 
   const runMagicSort = useCallback(async () => {
     if (items.length === 0) return;
@@ -214,8 +398,11 @@ export function MeliMeloScreen() {
       setRemainingCredits((c) => Math.max(0, c - 1));
 
       for (const item of items) {
-        if (!looksIncomplete(item)) {
-          await updateTrankilV2IntentionOrganization(item.id, { is_organized: 1 });
+        if (!looksIncomplete(item) && isClearlyClassified(item)) {
+          await updateTrankilV2IntentionOrganization(item.id, {
+            is_organized: 1,
+            category_id: item.category_id?.trim().toLowerCase() || item.category_id,
+          });
           continue;
         }
 
@@ -223,11 +410,18 @@ export function MeliMeloScreen() {
         const expert = await askGeminiExpert(prompt || 'Intention à clarifier');
         const first = expert[0];
 
-        await updateTrankilV2IntentionOrganization(item.id, {
+        if (!first) {
+          continue;
+        }
+        const nextCategory =
+          first.suggested_category?.trim().toLowerCase() || item.category_id || categoryFromType(first.type);
+        await updateTrankilV2IntentionClassification(item.id, {
+          type: first.type,
           is_organized: 1,
-          title: first?.title?.trim() || item.title,
-          category_id: first?.suggested_category?.trim() || item.category_id || 'projets',
+          title: first.title?.trim() || item.title,
+          category_id: nextCategory,
         });
+        setHybridToast(`Classé dans : ${nextCategory}`);
       }
 
       await reload();
@@ -320,7 +514,7 @@ export function MeliMeloScreen() {
                   <Animated.View style={animatedCardStyle}>
                     <Pressable
                       style={[styles.card, { backgroundColor: bg }]}
-                      onPress={() => openEdit(item)}
+                      onPress={() => setActiveVracItem(item)}
                       disabled={isSorting}
                     >
                       <View style={styles.titleWithEco}>
@@ -486,6 +680,45 @@ export function MeliMeloScreen() {
           </View>
         </View>
       </Modal>
+      <Modal
+        visible={Boolean(activeVracItem)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActiveVracItem(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Action Méli-Mélo</Text>
+            <Text style={styles.cardMeta}>
+              {activeVracItem?.title || ''}
+            </Text>
+            <View style={styles.modalActionsColumn}>
+              <Pressable
+                style={[styles.modalBtn, styles.modalCancel]}
+                onPress={() => {
+                  if (!activeVracItem) return;
+                  openEdit(activeVracItem);
+                  setActiveVracItem(null);
+                }}
+              >
+                <Text style={styles.modalCancelText}>Ranger manuellement (gratuit)</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalBtn, styles.modalSave]}
+                onPress={() => {
+                  if (!activeVracItem) return;
+                  const target = activeVracItem;
+                  setActiveVracItem(null);
+                  void runAiSortForItem(target);
+                }}
+              >
+                <Text style={styles.modalSaveText}>Ranger avec l'IA (1 crédit)</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {hybridToast ? <Text style={styles.hybridToast}>{hybridToast}</Text> : null}
       {saturationToast ? <Text style={styles.saturationToast}>{saturationToast}</Text> : null}
     </LinearGradient>
   );
@@ -617,11 +850,26 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
+  modalActionsColumn: { gap: 8 },
   modalBtn: { borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12 },
   modalCancel: { backgroundColor: '#e5e7eb' },
   modalSave: { backgroundColor: '#008080' },
   modalCancelText: { color: '#111827', fontWeight: '700' },
   modalSaveText: { color: '#fff', fontWeight: '700' },
+  hybridToast: {
+    position: 'absolute',
+    bottom: 52,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(11,76,99,0.86)',
+    color: '#f0fdff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    maxWidth: '90%',
+    textAlign: 'center',
+  },
   saturationToast: {
     position: 'absolute',
     bottom: 16,

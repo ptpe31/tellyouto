@@ -1,15 +1,23 @@
 /**
  * Appels directs Google AI (Gemini Flash) pour le lab sémantique.
  * Clé : EXPO_PUBLIC_GEMINI_API_KEY — réservée aux builds de test (exposée client).
- * Modèle : EXPO_PUBLIC_GEMINI_MODEL (défaut gemini-1.5-flash).
+ * Modèle : EXPO_PUBLIC_GEMINI_MODEL (défaut gemini-1.5-flash-latest).
  *
  * Résolution : `expo.extra` (injecté par app.config.js depuis .env / env) puis process.env.
  */
 
 import Constants from 'expo-constants';
 
-const DEFAULT_MODEL = 'gemini-1.5-flash';
+const DEFAULT_MODEL = 'gemini-1.5-flash-latest';
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const FALLBACK_MODELS = [
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-flash-latest',
+  'gemini-2.0-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+] as const;
 
 type GeminiExtra = {
   geminiApiKey?: string;
@@ -20,10 +28,23 @@ function readGeminiExtra(): GeminiExtra {
   return (Constants.expoConfig?.extra ?? {}) as GeminiExtra;
 }
 
+function labLog(stage: string, detail?: Record<string, unknown>): void {
+  if (detail) {
+    console.log(`[GeminiLab] ${stage}`, detail);
+    return;
+  }
+  console.log(`[GeminiLab] ${stage}`);
+}
+
 export function getGeminiApiKey(): string | undefined {
   const fromExtra = readGeminiExtra().geminiApiKey?.trim();
   const fromEnv = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
   const k = fromExtra || fromEnv;
+  labLog('apiKey.resolve', {
+    fromExtra: Boolean(fromExtra),
+    fromEnv: Boolean(fromEnv),
+    selected: fromExtra ? 'extra' : fromEnv ? 'env' : 'none',
+  });
   return k || undefined;
 }
 
@@ -31,9 +52,31 @@ export function getGeminiModelId(): string {
   const fromExtra = readGeminiExtra().geminiModel?.trim();
   const fromEnv = process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim();
   const configured = fromExtra || fromEnv;
-  if (!configured) return DEFAULT_MODEL;
+  if (!configured) {
+    labLog('model.resolve', {
+      fromExtra: fromExtra || null,
+      fromEnv: fromEnv || null,
+      resolved: DEFAULT_MODEL,
+      reason: 'no_configured_model',
+    });
+    return DEFAULT_MODEL;
+  }
   // Gemini 2.0 Flash can be unavailable for new/free accounts.
-  if (configured.includes('gemini-2.0-flash')) return DEFAULT_MODEL;
+  if (configured.includes('gemini-2.0-flash')) {
+    labLog('model.resolve', {
+      fromExtra: fromExtra || null,
+      fromEnv: fromEnv || null,
+      resolved: DEFAULT_MODEL,
+      reason: 'configured_model_is_2_0_flash',
+    });
+    return DEFAULT_MODEL;
+  }
+  labLog('model.resolve', {
+    fromExtra: fromExtra || null,
+    fromEnv: fromEnv || null,
+    resolved: configured,
+    reason: 'configured_model',
+  });
   return configured;
 }
 
@@ -55,32 +98,120 @@ function buildGenerateUrl(modelOverride?: string): string {
   return `${BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 }
 
+type GeminiModelsListResponse = {
+  models?: Array<{
+    name?: string;
+    supportedGenerationMethods?: string[];
+  }>;
+};
+
+let cachedGenerateContentModels: string[] | null = null;
+
+async function listGenerateContentModels(): Promise<string[]> {
+  if (cachedGenerateContentModels) return cachedGenerateContentModels;
+  const key = getGeminiApiKey();
+  if (!key) return [];
+  const url = `${BASE}/models?key=${encodeURIComponent(key)}`;
+  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+  try {
+    labLog('models.list.start', { endpoint: safeUrl });
+    const res = await fetch(url);
+    const text = await res.text();
+    if (!res.ok) {
+      labLog('models.list.error', {
+        status: res.status,
+        preview: text.slice(0, 220),
+      });
+      return [];
+    }
+    const parsed = JSON.parse(text) as GeminiModelsListResponse;
+    const models = (parsed.models ?? [])
+      .filter((m) => Array.isArray(m.supportedGenerationMethods))
+      .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+      .map((m) => String(m.name || '').replace(/^models\//, '').trim())
+      .filter(Boolean);
+    cachedGenerateContentModels = Array.from(new Set(models));
+    labLog('models.list.success', {
+      count: cachedGenerateContentModels.length,
+      sample: cachedGenerateContentModels.slice(0, 10),
+    });
+    return cachedGenerateContentModels;
+  } catch (error) {
+    labLog('models.list.exception', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+async function computeModelCandidates(modelOverride?: string): Promise<string[]> {
+  const configured = modelOverride || getGeminiModelId();
+  const preferred = [configured, DEFAULT_MODEL, ...FALLBACK_MODELS];
+  const available = await listGenerateContentModels();
+  if (!available.length) {
+    return Array.from(new Set(preferred));
+  }
+  const preferredAvailable = preferred.filter((m) => available.includes(m));
+  const full = [...preferredAvailable, ...available];
+  return Array.from(new Set(full));
+}
+
 async function postGenerateContent(body: object, modelOverride?: string): Promise<unknown> {
-  const model = modelOverride || getGeminiModelId();
-  const url = buildGenerateUrl(model);
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  if (!res.ok) {
+  const candidates = await computeModelCandidates(modelOverride);
+  let lastError: Error | null = null;
+
+  for (const model of candidates) {
+    const url = buildGenerateUrl(model);
+    const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+    labLog('request.start', {
+      model,
+      hasOverride: Boolean(modelOverride),
+      endpoint: safeUrl,
+      candidateCount: candidates.length,
+    });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    labLog('request.response', {
+      model,
+      status: res.status,
+      ok: res.ok,
+      preview: text.slice(0, 220),
+    });
+
+    if (res.ok) {
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        throw new Error(`Gemini: réponse non-JSON (${text.slice(0, 200)})`);
+      }
+    }
+
     const looksLikeMissingModel =
       res.status === 404 &&
       (text.includes('is no longer available to new users') ||
         text.includes('NOT_FOUND') ||
         text.includes('models/'));
-    if (looksLikeMissingModel && model !== DEFAULT_MODEL) {
-      // One automatic retry on stable fallback model.
-      return postGenerateContent(body, DEFAULT_MODEL);
+    if (looksLikeMissingModel) {
+      labLog('request.retry_fallback', {
+        fromModel: model,
+        status: res.status,
+      });
+      lastError = new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
+      continue;
     }
     throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
   }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new Error(`Gemini: réponse non-JSON (${text.slice(0, 200)})`);
-  }
+
+  throw (
+    lastError ||
+    new Error(
+      `Gemini: aucun modèle compatible generateContent trouvé (candidats testés: ${candidates.join(', ')})`,
+    )
+  );
 }
 
 function extractTextFromGenerateResponse(data: unknown): string {

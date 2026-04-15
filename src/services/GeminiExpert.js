@@ -1,10 +1,18 @@
 /**
- * Expert Gemini via @google/generative-ai (modèle Flash stable).
+ * Expert Gemini (fallback robuste) via API REST v1beta.
  * Clé : process.env.EXPO_PUBLIC_GEMINI_API_KEY
  */
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const DEFAULT_MODEL = 'gemini-1.5-flash';
+const DEFAULT_MODEL = 'gemini-1.5-flash-latest';
+const BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const FALLBACK_MODELS = [
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-flash-latest',
+  'gemini-2.0-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+];
 
 function log(stage, detail) {
   const line = `[GeminiExpert] ${stage}`;
@@ -18,6 +26,10 @@ function log(stage, detail) {
 
 function getApiKey() {
   const k = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
+  log('apiKey.resolve', {
+    fromEnv: Boolean(k),
+    selected: k ? 'env' : 'none',
+  });
   if (!k) {
     log('init.error', { ok: false, reason: 'EXPO_PUBLIC_GEMINI_API_KEY absente' });
     throw new Error(
@@ -29,22 +41,138 @@ function getApiKey() {
 
 function getModelId() {
   const configured = process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim();
-  if (!configured) return DEFAULT_MODEL;
-  // Gemini 2.0 Flash can be unavailable for new/free accounts: force stable fallback.
-  if (configured.includes('gemini-2.0-flash')) {
+  if (!configured) {
+    log('model.resolve', {
+      fromEnv: null,
+      resolved: DEFAULT_MODEL,
+      reason: 'no_configured_model',
+    });
     return DEFAULT_MODEL;
   }
+  // Gemini 2.0 Flash can be unavailable for new/free accounts: force stable fallback.
+  if (configured.includes('gemini-2.0-flash')) {
+    log('model.resolve', {
+      fromEnv: configured,
+      resolved: DEFAULT_MODEL,
+      reason: 'configured_model_is_2_0_flash',
+    });
+    return DEFAULT_MODEL;
+  }
+  log('model.resolve', {
+    fromEnv: configured,
+    resolved: configured,
+    reason: 'configured_model',
+  });
   return configured;
 }
 
-function getGenerativeModel() {
+let cachedGenerateContentModels = null;
+
+async function listGenerateContentModels(apiKey) {
+  if (cachedGenerateContentModels) return cachedGenerateContentModels;
+  const url = `${BASE}/models?key=${encodeURIComponent(apiKey)}`;
+  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+  try {
+    log('models.list.start', { endpoint: safeUrl });
+    const res = await fetch(url);
+    const text = await res.text();
+    if (!res.ok) {
+      log('models.list.error', { status: res.status, preview: text.slice(0, 220) });
+      return [];
+    }
+    const parsed = JSON.parse(text);
+    const models = Array.isArray(parsed?.models)
+      ? parsed.models
+          .filter((m) => Array.isArray(m?.supportedGenerationMethods))
+          .filter((m) => m.supportedGenerationMethods.includes('generateContent'))
+          .map((m) => String(m?.name || '').replace(/^models\//, '').trim())
+          .filter(Boolean)
+      : [];
+    cachedGenerateContentModels = Array.from(new Set(models));
+    log('models.list.success', {
+      count: cachedGenerateContentModels.length,
+      sample: cachedGenerateContentModels.slice(0, 10),
+    });
+    return cachedGenerateContentModels;
+  } catch (error) {
+    log('models.list.exception', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+async function computeModelCandidates(configuredModel, apiKey) {
+  const preferred = [configuredModel, DEFAULT_MODEL, ...FALLBACK_MODELS];
+  const available = await listGenerateContentModels(apiKey);
+  if (!available.length) return Array.from(new Set(preferred));
+  const preferredAvailable = preferred.filter((m) => available.includes(m));
+  return Array.from(new Set([...preferredAvailable, ...available]));
+}
+
+function extractTextFromGenerateResponse(data) {
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  return parts
+    .map((p) => (typeof p?.text === 'string' ? p.text : ''))
+    .join('')
+    .trim();
+}
+
+async function generateContentWithFallback(prompt, generationConfig) {
   const apiKey = getApiKey();
-  const modelId = getModelId();
-  log('model.init', { modelId, keyPresent: true });
-  const genAI = new GoogleGenerativeAI(apiKey);
-  return genAI.getGenerativeModel(
-    { model: modelId },
-    { apiVersion: 'v1beta' },
+  const configuredModel = getModelId();
+  const candidates = await computeModelCandidates(configuredModel, apiKey);
+  let lastError = null;
+
+  for (const model of candidates) {
+    const url = `${BASE}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+    log('request.start', {
+      model,
+      endpoint: safeUrl,
+      candidateCount: candidates.length,
+    });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig,
+      }),
+    });
+    const text = await res.text();
+    log('request.response', {
+      model,
+      status: res.status,
+      ok: res.ok,
+      preview: text.slice(0, 220),
+    });
+    if (res.ok) {
+      const parsed = JSON.parse(text);
+      return {
+        model,
+        rawText: extractTextFromGenerateResponse(parsed),
+      };
+    }
+    const looksLikeMissingModel =
+      res.status === 404 &&
+      (text.includes('is no longer available to new users') ||
+        text.includes('NOT_FOUND') ||
+        text.includes('models/'));
+    if (looksLikeMissingModel) {
+      log('request.retry_fallback', { fromModel: model, status: res.status });
+      lastError = new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
+      continue;
+    }
+    throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
+  }
+
+  throw (
+    lastError ||
+    new Error(
+      `Gemini: aucun modèle compatible generateContent trouvé (candidats testés: ${candidates.join(', ')})`,
+    )
   );
 }
 
@@ -59,7 +187,19 @@ function normalizeExpertArray(raw) {
   return list
     .map((item) => {
       const obj = item && typeof item === 'object' ? item : {};
-      const type = String(obj.type || '').toUpperCase();
+      const rawType = String(obj.type || obj.intent_type || obj.intentType || '')
+        .trim()
+        .toUpperCase();
+      const type =
+        rawType === 'PROJECT' || rawType === 'PROJET'
+          ? 'PROJECT'
+          : rawType === 'HABIT' || rawType === 'ROUTINE'
+            ? 'HABIT'
+            : rawType === 'TASK' || rawType === 'TODO'
+              ? 'TASK'
+              : rawType === 'NOTE'
+                ? 'NOTE'
+                : '';
       if (
         type !== 'TASK' &&
         type !== 'HABIT' &&
@@ -73,22 +213,22 @@ function normalizeExpertArray(raw) {
       return {
         type,
         title,
-        metadata:
-          obj.metadata && typeof obj.metadata === 'object'
-            ? obj.metadata
-            : {},
-        suggested_category: String(obj.suggested_category || '').trim(),
+        metadata: {
+          ...(obj.metadata && typeof obj.metadata === 'object' ? obj.metadata : {}),
+          gemini_type: type,
+        },
+        suggested_category: String(
+          obj.suggested_category || obj.category || obj.folder || '',
+        )
+          .trim()
+          .toLowerCase(),
       };
     })
     .filter(Boolean);
 }
 
 export async function askGeminiExpert(input) {
-  const model = getGenerativeModel();
-  log('askGeminiExpert.start', {
-    inputChars: input?.length ?? 0,
-    model: getModelId(),
-  });
+  log('askGeminiExpert.start', { inputChars: input?.length ?? 0, model: getModelId() });
   const prompt = `SYSTEM:
 Tu es Expert Trankil. Transforme l'entree utilisateur en tableau JSON pur.
 Tu dois retourner UNIQUEMENT un array JSON valide.
@@ -110,16 +250,22 @@ Regles:
 USER_INPUT:
 ${input}`;
 
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 600,
-      responseMimeType: 'application/json',
-    },
-  });
+  let generated;
+  try {
+    generated = await generateContentWithFallback(prompt, {
+        temperature: 0.2,
+        maxOutputTokens: 600,
+        responseMimeType: 'application/json',
+    });
+  } catch (error) {
+    log('askGeminiExpert.generateContent.error', {
+      model: getModelId(),
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
-  const rawText = result.response.text()?.trim();
+  const rawText = generated.rawText?.trim();
   log('askGeminiExpert.rawLength', { chars: rawText?.length ?? 0 });
   if (!rawText) {
     log('askGeminiExpert.empty', {});
@@ -163,11 +309,7 @@ function normalizeAtomizedPayload(raw) {
 
 /** Découpe une narration projet en périmètre + tâches concrètes (bouton PROJET). */
 export async function atomizeProject(audioText) {
-  const model = getGenerativeModel();
-  log('atomizeProject.start', {
-    inputChars: audioText?.length ?? 0,
-    model: getModelId(),
-  });
+  log('atomizeProject.start', { inputChars: audioText?.length ?? 0, model: getModelId() });
 
   const prompt = `SYSTEM:
 Tu es un planificateur d'exécution. L'utilisateur décrit un PROJET ou une intention large (voix transcrite).
@@ -194,16 +336,22 @@ Règles:
 TRANSCRIPT:
 ${audioText}`;
 
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.25,
-      maxOutputTokens: 2048,
-      responseMimeType: 'application/json',
-    },
-  });
+  let generated;
+  try {
+    generated = await generateContentWithFallback(prompt, {
+        temperature: 0.25,
+        maxOutputTokens: 2048,
+        responseMimeType: 'application/json',
+    });
+  } catch (error) {
+    log('atomizeProject.generateContent.error', {
+      model: getModelId(),
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
-  const rawText = result.response.text()?.trim();
+  const rawText = generated.rawText?.trim();
   log('atomizeProject.rawLength', { chars: rawText?.length ?? 0 });
   if (!rawText) {
     log('atomizeProject.empty', {});

@@ -11,6 +11,7 @@ export type TrankilV2IntentionRow = {
   metadata_json: string;
   suggested_tags: string;
   category_id: string | null;
+  category?: string | null;
   parent_id: string | null;
   status: TrankilIntentStatus;
   is_organized: number;
@@ -99,6 +100,7 @@ export async function initTrankilV2Schema(): Promise<void> {
       metadata_json TEXT NOT NULL DEFAULT '{}',
       suggested_tags TEXT NOT NULL DEFAULT '[]',
       category_id TEXT,
+      category TEXT,
       parent_id TEXT,
       status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE')),
       is_organized INTEGER NOT NULL DEFAULT 0 CHECK (is_organized IN (0, 1)),
@@ -193,6 +195,11 @@ export async function initTrankilV2Schema(): Promise<void> {
     await db.execAsync(
       `ALTER TABLE intentions ADD COLUMN complexity_level INTEGER NOT NULL DEFAULT 1;`,
     );
+  }
+  const hasCategory = cols.some((c) => c.name === 'category');
+  if (!hasCategory) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN category TEXT;`);
+    await db.execAsync(`UPDATE intentions SET category = category_id WHERE category IS NULL;`);
   }
   const userStatsCols = await db.getAllAsync<{ name: string }>(
     `PRAGMA table_info(user_stats)`,
@@ -496,8 +503,8 @@ export async function insertTrankilV2Intention(
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO intentions (
-      id, type, title, content_raw, metadata_json, suggested_tags, category_id, parent_id, status, is_organized, is_local_processed, complexity_level, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, type, title, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.id,
       row.type,
@@ -505,6 +512,7 @@ export async function insertTrankilV2Intention(
       row.content_raw,
       row.metadata_json ?? '{}',
       row.suggested_tags ?? '[]',
+      row.category_id ?? null,
       row.category_id ?? null,
       row.parent_id ?? null,
       row.status ?? 'TODO',
@@ -533,8 +541,13 @@ export async function updateTrankilV2IntentionQuick(
   );
   if (!current) return;
   await db.runAsync(
-    `UPDATE intentions SET title = ?, category_id = ? WHERE id = ?`,
-    [patch.title ?? current.title, patch.category_id ?? current.category_id, id],
+    `UPDATE intentions SET title = ?, category_id = ?, category = ? WHERE id = ?`,
+    [
+      patch.title ?? current.title,
+      patch.category_id ?? current.category_id,
+      patch.category_id ?? current.category_id,
+      id,
+    ],
   );
 }
 
@@ -550,10 +563,11 @@ export async function updateTrankilV2IntentionOrganization(
   );
   if (!current) return;
   await db.runAsync(
-    `UPDATE intentions SET is_organized = ?, title = ?, category_id = ? WHERE id = ?`,
+    `UPDATE intentions SET is_organized = ?, title = ?, category_id = ?, category = ? WHERE id = ?`,
     [
       patch.is_organized,
       patch.title ?? current.title,
+      patch.category_id ?? current.category_id,
       patch.category_id ?? current.category_id,
       id,
     ],
@@ -562,6 +576,52 @@ export async function updateTrankilV2IntentionOrganization(
     await db.runAsync(`UPDATE user_stats SET last_organize_at = ? WHERE id = 1`, [
       Date.now(),
     ]);
+  }
+}
+
+export async function updateTrankilV2IntentionClassification(
+  id: string,
+  patch: {
+    type?: TrankilIntentType;
+    title?: string;
+    category_id?: string | null;
+    status?: TrankilIntentStatus;
+    is_organized?: number;
+    is_local_processed?: number;
+  },
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const current = await db.getFirstAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions WHERE id = ?`,
+    [id],
+  );
+  if (!current) return;
+  const nextCategory = patch.category_id ?? current.category_id;
+  const nextOrganized = patch.is_organized ?? current.is_organized;
+  await db.runAsync(
+    `UPDATE intentions
+     SET type = ?,
+         title = ?,
+         category_id = ?,
+         category = ?,
+         status = ?,
+         is_organized = ?,
+         is_local_processed = ?
+     WHERE id = ?`,
+    [
+      patch.type ?? current.type,
+      patch.title ?? current.title,
+      nextCategory,
+      nextCategory,
+      patch.status ?? current.status,
+      nextOrganized,
+      patch.is_local_processed ?? current.is_local_processed,
+      id,
+    ],
+  );
+  if (nextOrganized === 1 && current.is_organized !== 1) {
+    await db.runAsync(`UPDATE user_stats SET last_organize_at = ? WHERE id = 1`, [Date.now()]);
   }
 }
 
