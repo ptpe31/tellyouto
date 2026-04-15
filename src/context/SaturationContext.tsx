@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
-import { getHerbierCount, getTrankilV2UnorganizedCount, getTrankilV2UserStats } from '../api/trankilV2Db';
+import { getTrankilV2UnorganizedCount, getTrankilV2UserStats } from '../api/trankilV2Db';
 
 type SaturationContextValue = {
   isSaturated: boolean;
@@ -38,18 +38,17 @@ export function SaturationProvider({ children }: { children: React.ReactNode }) 
       setIsSaturated(false);
       return;
     }
-    const [stats, unorganized, herbier] = await Promise.all([
+    const [stats, unorganized] = await Promise.all([
       getTrankilV2UserStats(),
       getTrankilV2UnorganizedCount(),
-      getHerbierCount(),
     ]);
     const swarm = estimateSwarmCount(
       unorganized,
-      stats.last_organize_at,
-      herbier > 3,
-      stats.debug_spawn_flies,
+      null,
+      false,
+      0,
     );
-    setIsSaturated(stats.remaining_intents === 0 && swarm >= 8);
+    setIsSaturated(stats.ia_credits === 0 && swarm >= 8);
   }, []);
 
   useEffect(() => {

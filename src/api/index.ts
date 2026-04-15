@@ -6,19 +6,17 @@ export {
 export { getFirebaseApp, getFirestoreDb } from './firebase';
 export {
   addRemainingIntents,
+  addIaCredits,
   applyAvailabilityReward,
-  addFlowerBoosts,
   applyGrowthDecayIfNeeded,
   deleteTrankilV2IntentionById,
   consumeTrankilV2IntentCredit,
   getEveningDoneSummaryToday,
   grantViralBonus,
-  getHerbierCount,
   getLocalEcoScore,
   getTrankilV2UnorganizedCount,
   getTrankilV2UserStats,
   growthPointsForType,
-  harvestCurrentFlower,
   initTrankilV2Schema,
   incrementBehaviorScores,
   incrementAdVideosWatched,
@@ -26,7 +24,6 @@ export {
   listTrankilV2OrganizedIntentions,
   listTrankilV2Intentions,
   listTrankilV2UnorganizedIntentions,
-  listHerbierEntries,
   markTrankilV2IntentionDone,
   pickAvailabilityTask,
   setMorningFocusSelection,
@@ -41,7 +38,6 @@ export {
   updateTrankilV2IntentionQuick,
 } from './trankilV2Db';
 export type {
-  HerbierRow,
   TrankilIntentStatus,
   TrankilIntentType,
   TrankilV2IntentionRow,

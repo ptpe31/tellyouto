@@ -14,7 +14,6 @@ import {
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { useTranslation } from 'react-i18next';
 
-import { LifeFlower } from './LifeFlower';
 import {
   applyTomorrowPlanningBonus,
   completeEveningRitual,
@@ -45,7 +44,7 @@ export function EveningStarModal() {
   useEffect(() => {
     void (async () => {
       const stats = await getTrankilV2UserStats();
-      setGrowth(stats.growth_score);
+      setGrowth(stats.zen_points);
       const batteryState = await Battery.getBatteryStateAsync();
       const isCharging =
         batteryState === Battery.BatteryState.CHARGING ||
@@ -186,7 +185,9 @@ export function EveningStarModal() {
             </Animated.Text>
           ))}
           <Text style={styles.moon}>🌙</Text>
-          <LifeFlower growthStage={growth} size={94} nightMode={chargingEntry} />
+          <View style={styles.zenBadge}>
+            <Text style={styles.zenBadgeText}>{growth} Zen</Text>
+          </View>
           <Text style={styles.title}>{t('eveningRitual.title')}</Text>
           {chargingEntry ? <Text style={styles.message}>{STRINGS.rituals.chargingPrompt}</Text> : null}
           <Text style={styles.message}>
@@ -253,6 +254,16 @@ const styles = StyleSheet.create({
   },
   star: { position: 'absolute', fontSize: 12, color: '#fde68a' },
   moon: { position: 'absolute', right: 14, top: 10, fontSize: 24 },
+  zenBadge: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(20,184,166,0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(45,212,191,0.45)',
+  },
+  zenBadgeText: { color: '#99f6e4', fontWeight: '700' },
   title: { marginTop: 8, fontSize: 24, fontWeight: '800', color: '#e2e8f0' },
   message: { marginTop: 10, fontSize: 16, color: '#e2e8f0', textAlign: 'center', lineHeight: 22 },
   poetic: { marginTop: 8, fontSize: 14, color: '#cbd5e1', textAlign: 'center', fontStyle: 'italic' },

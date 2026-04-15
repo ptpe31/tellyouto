@@ -180,18 +180,12 @@ export function DebugScreen() {
 
   const refreshKpis = useCallback(async () => {
     const stats = await getTrankilV2UserStats();
-    const marginRatio =
-      stats.expert_validated_count <= 0
-        ? stats.local_validated_count
-        : stats.local_validated_count / stats.expert_validated_count;
-    const adEfficiency =
-      stats.intentions_created_total <= 0
-        ? stats.ad_videos_watched
-        : stats.ad_videos_watched / stats.intentions_created_total;
-    const bioScore = (stats.aesthetic_score + stats.utility_score) / 2;
+    const marginRatio = stats.local_action_streak;
+    const adEfficiency = stats.ad_videos_watched;
+    const bioScore = stats.zen_points;
     setKpis({
       marginRatio,
-      geminiCalls: stats.expert_validated_count,
+      geminiCalls: 0,
       adEfficiency,
       bioScore,
     });
@@ -300,7 +294,7 @@ export function DebugScreen() {
   }, []);
 
   const onResetCredits = useCallback(async () => {
-    await setAdState({ remaining_intents: 0 });
+    await setAdState({ ia_credits: 0 });
     Alert.alert(STRINGS.admin.title, STRINGS.admin.resetDone);
   }, []);
 
@@ -622,7 +616,7 @@ export function DebugScreen() {
       setProjectPlanPreview(null);
       Alert.alert(
         'Plan valide',
-        `✅ SQLite OK\nID projet: ${saved.projectId ?? 'n/a'}\nLignes insérées: ${saved.insertedCount}\nCrédits restants: ${afterConsume.remaining_intents}`,
+        `✅ SQLite OK\nID projet: ${saved.projectId ?? 'n/a'}\nLignes insérées: ${saved.insertedCount}\nCrédits restants: ${afterConsume.ia_credits}`,
       );
       await refreshRawIntentions();
       await refreshTrankilIntentions();

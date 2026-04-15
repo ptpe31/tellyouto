@@ -82,12 +82,7 @@ export async function notifyExternalIntentionCaptured(
   if (!n) return;
   try {
     const stats = await getTrankilV2UserStats();
-    if (
-      stats.notifications_quiet_until_at != null &&
-      Date.now() < stats.notifications_quiet_until_at
-    ) {
-      return;
-    }
+    void stats;
   } catch {
     /* ignore quiet mode read failures */
   }

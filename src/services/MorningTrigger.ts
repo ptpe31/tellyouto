@@ -29,8 +29,8 @@ export function morningGreeting(now: Date): string {
 export async function shouldTriggerMorningDew(now = new Date()): Promise<boolean> {
   const h = now.getHours();
   if (h < 6 || h >= 10) return false;
-  const stats = await getTrankilV2UserStats();
-  return stats.morning_focus_date_key !== dateKeyLocal(now);
+  await getTrankilV2UserStats();
+  return true;
 }
 
 export async function pickMorningDewItems(): Promise<MorningDewPick> {

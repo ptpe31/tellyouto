@@ -20,7 +20,6 @@ export type AppTabParamList = {
   TalkHome: undefined;
   MeliMelo: undefined;
   ZenGarden: undefined;
-  Herbier: undefined;
   Radar: undefined;
   Timeline: undefined;
   AgentIA: NavigatorScreenParams<AgentStackParamList> | undefined;

@@ -53,7 +53,6 @@ import {
   growthPointsForType,
   insertTrankilV2Intention,
   getLocalEcoScore,
-  updateGrowth,
 } from '../api/trankilV2Db';
 import { syncPendingIntentions } from '../api/syncService';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
@@ -62,6 +61,7 @@ import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
 import type { AppLanguage } from '../context/LanguageContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { isAdFreeModeActive } from '../context/UserSpectrumContext';
 import {
   analyzeNewIntentionSemantics,
   computeRailAnchorAndFixedStartForNewIntention,
@@ -87,6 +87,8 @@ import { askGeminiExpert, atomizeProject, type GeminiExpertIntention } from '../
 import { transcribeWithWhisperLocal } from '../services/WhisperAdapter';
 import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusEngine';
 import { runIntentOrchestration, type OrchestratorDecision } from '../services/IntentOrchestrator';
+import { claimDailyQuestBonus, getDailyQuestSnapshot, type DailyQuest } from '../services/QuestManager';
+import { awardZenForAction } from '../services/ZenEngine';
 import {
   addDaysYmd,
   computeTimeHorizonFromDueDate,
@@ -100,6 +102,7 @@ import {
   stopCaptureProcessingForeground,
 } from '../services/CaptureProcessingService';
 import { STRINGS } from '../constants/Strings';
+import { runManualIaRechargeVideo } from '../services/AdManager';
 import {
   alertNativeModuleMissing,
   isLikelyMissingNativeModuleError,
@@ -413,6 +416,11 @@ export function TalkHomeScreen() {
   const [flowerPulseKey, setFlowerPulseKey] = useState(0);
   const [flowerNeedsAttention, setFlowerNeedsAttention] = useState(false);
   const [localEcoScore, setLocalEcoScore] = useState(0);
+  const [dailyQuest, setDailyQuest] = useState<DailyQuest | null>(null);
+  const [dailyQuestProgress, setDailyQuestProgress] = useState(0);
+  const [dailyQuestTarget, setDailyQuestTarget] = useState(0);
+  const [dailyQuestCanClaim, setDailyQuestCanClaim] = useState(false);
+  const [dailyQuestClaimed, setDailyQuestClaimed] = useState(false);
   const voiceActiveRef = useRef(false);
   const stopAfterStartRef = useRef(false);
   const projectGestureHoldingRef = useRef(false);
@@ -492,23 +500,80 @@ export function TalkHomeScreen() {
 
   const refreshRemainingIntents = useCallback(async () => {
     try {
-      const before = await getTrankilV2UserStats();
-      const stale =
-        before.last_nudge_at != null &&
-        Date.now() - before.last_nudge_at > 24 * 60 * 60 * 1000;
-      setFlowerNeedsAttention(stale);
       await applyGrowthDecayIfNeeded();
       const stats = await getTrankilV2UserStats();
-      setRemainingIntents(stats.remaining_intents);
-      setGrowthScore(stats.growth_score);
+      setRemainingIntents(stats.ia_credits);
+      setGrowthScore(stats.zen_points);
       setLocalEcoScore(await getLocalEcoScore());
+      setFlowerNeedsAttention(false);
+      const quest = await getDailyQuestSnapshot();
+      setDailyQuest(quest.quest);
+      setDailyQuestProgress(quest.progress);
+      setDailyQuestTarget(quest.target);
+      setDailyQuestCanClaim(quest.canClaim);
+      setDailyQuestClaimed(quest.claimed);
     } catch {
       setRemainingIntents(10);
       setGrowthScore(0);
       setFlowerNeedsAttention(false);
       setLocalEcoScore(0);
+      setDailyQuest(null);
+      setDailyQuestProgress(0);
+      setDailyQuestTarget(0);
+      setDailyQuestCanClaim(false);
+      setDailyQuestClaimed(false);
     }
   }, []);
+
+  const onClaimDailyQuest = useCallback(async () => {
+    if (!dailyQuestCanClaim || isBusy) return;
+    setIsBusy(true);
+    try {
+      const claim = await claimDailyQuestBonus();
+      if (!claim.ok) {
+        Alert.alert('Quete non prete', 'Les conditions ne sont pas encore remplies.');
+        return;
+      }
+      await syncPendingIntentions();
+      setRewardToast(`Quete validee +${claim.gain}Z`);
+      setTimeout(() => setRewardToast(''), 2200);
+      await refreshRemainingIntents();
+    } finally {
+      setIsBusy(false);
+    }
+  }, [dailyQuestCanClaim, isBusy, refreshRemainingIntents]);
+
+  const adFreeActive = isAdFreeModeActive(spectrum);
+
+  const promptIaRechargeModal = useCallback(() => {
+    Alert.alert(
+      'Recharge IA',
+      'Ton mode Sans-Pub est actif, mais l\'IA a besoin de carburant. Regarde une video pour +5 credits.',
+      [
+        { text: 'Plus tard', style: 'cancel' },
+        {
+          text: 'Regarder une vidéo',
+          onPress: () => {
+            void (async () => {
+              setIsBusy(true);
+              try {
+                const res = await runManualIaRechargeVideo();
+                if (!res.ok) {
+                  Alert.alert('Recharge indisponible', res.reason || 'Réessaie dans un instant.');
+                  return;
+                }
+                setRemainingIntents(res.creditsAfter);
+                setMicroToast('+5 crédits IA');
+                await refreshRemainingIntents();
+              } finally {
+                setIsBusy(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [refreshRemainingIntents]);
 
   useEffect(() => {
     void refreshRemainingIntents();
@@ -1540,7 +1605,11 @@ export function TalkHomeScreen() {
       const cleanedDeadline = deadlineText.trim();
       if (!baseText || !cleanedDeadline) return;
       if (remainingIntents <= 0) {
-        Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+        if (adFreeActive) {
+          promptIaRechargeModal();
+        } else {
+          Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+        }
         return;
       }
       await stopDeadlineCapture();
@@ -1703,7 +1772,11 @@ export function TalkHomeScreen() {
   const onValidateProjectPlan = useCallback(async () => {
     if (!projectPlanPreview) return;
     if (remainingIntents <= 0) {
-      Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+      if (adFreeActive) {
+        promptIaRechargeModal();
+      } else {
+        Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+      }
       return;
     }
     setIsBusy(true);
@@ -1715,13 +1788,15 @@ export function TalkHomeScreen() {
       });
       const expertPoints = growthPointsFromExpertRows(projectPlanPreview.rows);
       if (expertPoints > 0) {
-        const next = await updateGrowth(expertPoints);
-        setGrowthScore(next.growth_score);
+        const next = projectPlanPreview.rows.some((r) => r.type === 'PROJECT')
+          ? (await awardZenForAction('PROJECT_VALIDATION')).stats
+          : (await awardZenForAction('TASK_VALIDATION')).stats;
+        setGrowthScore(next.zen_points);
         setFlowerPulseKey((k) => k + 1);
         setFlowerNeedsAttention(false);
       }
       const afterConsume = await consumeTrankilV2IntentCredit();
-      setRemainingIntents(afterConsume.remaining_intents);
+      setRemainingIntents(afterConsume.ia_credits);
       setProjectPlanPreview(null);
       await cancelProjectRefine();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1792,6 +1867,14 @@ export function TalkHomeScreen() {
       }
 
       if (routeDecision === 'COMPLEX') {
+        if (remainingIntents <= 0) {
+          if (adFreeActive) {
+            promptIaRechargeModal();
+          } else {
+            Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+          }
+          return;
+        }
         await resetLocalStreakOnExpert();
         setIsExpertLoading(true);
         const expertRows =
@@ -1802,14 +1885,16 @@ export function TalkHomeScreen() {
           await persistGeminiExpertRows(rawTranscript, expertRows);
           const expertPoints = growthPointsFromExpertRows(expertRows);
           if (expertPoints > 0) {
-            const next = await updateGrowth(expertPoints);
-            setGrowthScore(next.growth_score);
+            const next = expertRows.some((r) => r.type === 'PROJECT')
+              ? (await awardZenForAction('PROJECT_VALIDATION')).stats
+              : (await awardZenForAction('TASK_VALIDATION')).stats;
+            setGrowthScore(next.zen_points);
             setFlowerPulseKey((k) => k + 1);
             setFlowerNeedsAttention(false);
           }
         }
         const afterConsume = await consumeTrankilV2IntentCredit();
-        setRemainingIntents(afterConsume.remaining_intents);
+        setRemainingIntents(afterConsume.ia_credits);
       } else {
         const floatingCategory = 'sans_pression';
         const nextCategory =
@@ -1868,8 +1953,8 @@ export function TalkHomeScreen() {
               ? growthPointsForType('TASK')
               : 0;
         if (localPoints > 0) {
-          const next = await updateGrowth(localPoints);
-          setGrowthScore(next.growth_score);
+          const next = await awardZenForAction('TASK_VALIDATION');
+          setGrowthScore(next.stats.zen_points);
           setFlowerPulseKey((k) => k + 1);
           setFlowerNeedsAttention(false);
         }
@@ -2292,7 +2377,33 @@ export function TalkHomeScreen() {
           <UserCircle2 size={26} color="#9fa7a3" />
         </Pressable>
       </View>
+      {adFreeActive ? <Text style={styles.zenModeBadge}>Mode Zen Actif</Text> : null}
 
+      {dailyQuest ? (
+        <View style={styles.questCard}>
+          <Text style={styles.questTitle}>Quete du Jour - {dailyQuest.title}</Text>
+          <Text style={styles.questDesc}>{dailyQuest.description}</Text>
+          <Text style={styles.questProgress}>
+            Progression: {Math.min(dailyQuestProgress, dailyQuestTarget)}/{dailyQuestTarget}
+          </Text>
+          {dailyQuestClaimed ? (
+            <Text style={styles.questClaimed}>Bonus deja reclame</Text>
+          ) : (
+            <Pressable
+              onPress={() => {
+                void onClaimDailyQuest();
+              }}
+              disabled={!dailyQuestCanClaim || isBusy}
+              style={[
+                styles.questClaimBtn,
+                !dailyQuestCanClaim || isBusy ? styles.questClaimBtnDisabled : null,
+              ]}
+            >
+              <Text style={styles.questClaimText}>Reclamer mon bonus</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : null}
       <View style={styles.bodySpacer} />
 
       <View
@@ -2578,8 +2689,67 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
+  zenModeBadge: {
+    marginTop: 4,
+    alignSelf: 'flex-end',
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f766e',
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.28)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
   bodySpacer: {
     flex: 1,
+  },
+  questCard: {
+    marginTop: 8,
+    marginHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(45,111,112,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    padding: 12,
+  },
+  questTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#2d6f70',
+  },
+  questDesc: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#334155',
+  },
+  questProgress: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  questClaimBtn: {
+    marginTop: 8,
+    borderRadius: 10,
+    backgroundColor: '#008080',
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  questClaimBtnDisabled: {
+    opacity: 0.5,
+  },
+  questClaimText: {
+    color: '#f8fafc',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  questClaimed: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f766e',
   },
   conceptBar: {
     position: 'absolute',

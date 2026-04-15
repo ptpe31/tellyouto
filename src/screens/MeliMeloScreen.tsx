@@ -28,7 +28,6 @@ import {
   listTrankilV2OrganizedIntentions,
   listTrankilV2UnorganizedIntentions,
   markTrankilV2IntentionDone,
-  updateGrowth,
   updateTrankilV2IntentionClassification,
   updateTrankilV2IntentionOrganization,
   updateTrankilV2IntentionQuick,
@@ -40,6 +39,7 @@ import { STRINGS } from '../constants/Strings';
 import { useSaturation } from '../context/SaturationContext';
 import { askGeminiExpert } from '../services/GeminiExpert';
 import { analyzeLocally } from '../services/Gatekeeper';
+import { awardZenForAction } from '../services/ZenEngine';
 import {
   formatYmdLocal,
   groupIntentionsByTimeHorizon,
@@ -211,8 +211,8 @@ export function MeliMeloScreen() {
     ]);
     setItems(rows);
     setOrganizedItems(organized);
-    setRemainingCredits(stats.remaining_intents);
-    setGrowthScore(stats.growth_score);
+    setRemainingCredits(stats.ia_credits);
+    setGrowthScore(stats.zen_points);
     setMorningFocusId(stats.morning_focus_item_id ?? null);
   }, []);
 
@@ -489,10 +489,12 @@ export function MeliMeloScreen() {
     async (item: TrankilV2IntentionRow) => {
       if (item.status === 'DONE') return;
       await markTrankilV2IntentionDone(item.id);
-      const points = growthPointsForType(item.type);
-      if (points > 0) {
-        const next = await updateGrowth(points);
-        setGrowthScore(next.growth_score);
+      if (growthPointsForType(item.type) > 0) {
+        const next =
+          item.type === 'PROJECT'
+            ? (await awardZenForAction('PROJECT_VALIDATION')).stats
+            : (await awardZenForAction('TASK_VALIDATION')).stats;
+        setGrowthScore(next.zen_points);
         setFlowerPulseKey((k) => k + 1);
       }
       await reload();

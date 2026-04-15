@@ -2,7 +2,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
   BarChart3,
   Bug,
-  Flower2,
   House,
   Leaf,
   Shuffle,
@@ -16,7 +15,6 @@ import {
   MeliMeloScreen,
   StatsScreen,
   TalkHomeScreen,
-  HerbierCollectionScreen,
 } from '../screens';
 import type { AppTabParamList } from './types';
 
@@ -69,17 +67,6 @@ export function AppNavigator() {
           title: t('tabs.zenGarden'),
           tabBarIcon: ({ color, size }) => (
             <Leaf color={color} size={size} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Herbier"
-        component={HerbierCollectionScreen}
-        options={{
-          headerShown: false,
-          title: 'Collection',
-          tabBarIcon: ({ color, size }) => (
-            <Flower2 color={color} size={size} />
           ),
         }}
       />

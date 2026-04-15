@@ -1,7 +1,7 @@
 import {
+  addIaCredits,
   getTrankilV2UserStats,
   incrementAdVideosWatched,
-  incrementBehaviorScores,
   setAdState,
 } from '../api/trankilV2Db';
 import { STRINGS } from '../constants/Strings';
@@ -31,33 +31,38 @@ export async function showRewardedAd(_rewardType: AdRewardType): Promise<boolean
 }
 
 export async function applyAdReward(rewardType: AdRewardType) {
-  const stats = await getTrankilV2UserStats();
   const now = Date.now();
   if (rewardType === STRINGS.AD_REWARDS.REWARD_CLEAN) {
-    return setAdState({
-      remaining_intents: 10,
-      weather_mode: 'CLOUDY',
-      vibrancy_mode: 0.82,
-      ad_last_reward_at: now,
-      ad_video_streak: Math.max(1, stats.ad_video_streak + 1),
-    });
+    await addIaCredits(3);
+    return setAdState({ ad_last_reward_at: now });
   }
-  const next = await setAdState({
-    weather_mode: 'SUNNY',
-    vibrancy_mode: 1.0,
-    flower_boosts: stats.flower_boosts + 3,
-    ad_last_reward_at: now,
-    ad_video_streak: 0,
-  });
-  await incrementBehaviorScores({ aestheticDelta: 1.4 });
-  return next;
+  await addIaCredits(1);
+  return setAdState({ ad_last_reward_at: now });
 }
 
 export async function getSuggestedAdRewardType(): Promise<AdRewardType> {
-  const stats = await getTrankilV2UserStats();
-  if (stats.weather_mode === 'CLOUDY' && stats.ad_video_streak >= 1) {
-    return STRINGS.AD_REWARDS.REWARD_SUN;
-  }
+  await getTrankilV2UserStats();
   return STRINGS.AD_REWARDS.REWARD_CLEAN;
+}
+
+export async function runManualIaRechargeVideo(): Promise<{
+  ok: boolean;
+  creditsAfter: number;
+  reason?: string;
+}> {
+  const gate = await canRunAdSession();
+  if (!gate.ok) {
+    const stats = await getTrankilV2UserStats();
+    return { ok: false, creditsAfter: stats.ia_credits, reason: gate.reason };
+  }
+  const watched = await showRewardedAd(STRINGS.AD_REWARDS.REWARD_CLEAN);
+  if (!watched) {
+    const stats = await getTrankilV2UserStats();
+    return { ok: false, creditsAfter: stats.ia_credits, reason: 'video_cancelled' };
+  }
+  const stats = await getTrankilV2UserStats();
+  await addIaCredits(5);
+  await setAdState({ ad_last_reward_at: Date.now() });
+  return { ok: true, creditsAfter: stats.ia_credits + 5 };
 }
 

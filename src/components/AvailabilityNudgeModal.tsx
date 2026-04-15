@@ -32,7 +32,7 @@ export function AvailabilityNudgeModal() {
         const nextTask = await pickAvailabilityTask();
         if (!nextTask) return;
         const stats = await getTrankilV2UserStats();
-        setLocalAffinity(stats.local_affinity);
+        setLocalAffinity(0.5);
         setTask(nextTask);
         setVisible(true);
         await markAvailabilityNudged();

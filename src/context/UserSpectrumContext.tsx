@@ -504,7 +504,6 @@ export function isAdFreeModeActive(
   state: UserSpectrumState,
   nowMs: number = Date.now(),
 ): boolean {
-  if (state.isProUser) return true;
   const u = state.ad_free_until_ms;
   return typeof u === 'number' && Number.isFinite(u) && u > nowMs;
 }
