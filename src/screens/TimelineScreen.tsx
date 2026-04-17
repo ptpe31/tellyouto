@@ -1,597 +1,297 @@
-import { useNavigation } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Sparkles } from 'lucide-react-native';
-import {
-  Animated,
-  DeviceEventEmitter,
-  FlatList,
-  LayoutAnimation,
-  Pressable,
-  StyleSheet,
-  Text,
-  UIManager,
-  View,
-} from 'react-native';
-import { Platform } from '../utils/rnPlatform';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
-import type { MD3Theme } from 'react-native-paper';
-import { Button, Dialog, Portal, Switch, useTheme } from 'react-native-paper';
+import { CalendarDays } from 'lucide-react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  INTENTIONS_CHANGED_EVENT_NAME,
-  listIntentionsDescending,
-  markIntentionQuickComplete,
-  updateIntentionAlarmEnabled,
-  LOCAL_DB_RESET_EVENT,
-  type IntentionRow,
-} from '../api/localDb';
-import { syncPendingIntentions } from '../api/syncService';
-import { FocusModePicker, NeumorphicCard } from '../components';
-import { TimeIndicator } from '../components/TimeIndicator';
-import type { FocusCapsuleMode } from '../navigation/types';
-import { useCalendarIntegration } from '../context/CalendarIntegrationContext';
-import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { useFocusCalendarConflict } from '../hooks/useFocusCalendarConflict';
-import {
-  buildTimelineSlots,
-  formatMinutesAsClock,
-  type BusyInterval,
-  type TimelineSlot,
-} from '../services/agentLogic';
-import { recordQuickCompleteWithoutCapsule } from '../services/focusHabits';
-import { syncRailReminderScheduleFromSlots } from '../services/railReminderSchedule';
-import {
-  cancelIntentionRailAlarm,
-  requestAlarmPermissionIfNeeded,
-  syncRailAlarmsWithTimeline,
-} from '../services/alarmManager';
+  listTrankilV2TimelineItemsByDate,
+  type TrankilIntentStatus,
+  type TrankilV2TimelineDateMode,
+  type TrankilV2TimelineItemRow,
+} from '../api';
+import { generateSmartTitle } from '../services/smartTitle';
 
-if (
-  Platform.OS === 'android' &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+type QuickRange = 'TODAY' | 'TOMORROW' | 'WEEK';
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
 }
 
-type RailRow =
-  | { type: 'intention'; slot: TimelineSlot }
-  | {
-      type: 'external';
-      key: string;
-      startMinutes: number;
-      endMinutes: number;
-    };
-
-function mergeRailRows(
-  intentionSlots: TimelineSlot[],
-  visibleExternal: BusyInterval[],
-  connectEnabled: boolean,
-): RailRow[] {
-  const int: RailRow[] = intentionSlots.map((slot) => ({
-    type: 'intention',
-    slot,
-  }));
-  if (!connectEnabled || visibleExternal.length === 0) return int;
-  const ext: RailRow[] = visibleExternal.map((b, i) => ({
-    type: 'external',
-    key: `ext-${b.startMinutes}-${b.endMinutes}-${i}`,
-    startMinutes: b.startMinutes,
-    endMinutes: b.endMinutes,
-  }));
-  return [...int, ...ext].sort((a, b) => {
-    const sa = a.type === 'intention' ? a.slot.startMinutes : a.startMinutes;
-    const sb = b.type === 'intention' ? b.slot.startMinutes : b.startMinutes;
-    return sa - sb;
-  });
+function toYmd(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
-type SlotRowProps = {
-  item: TimelineSlot;
-  theme: MD3Theme;
-  t: TFunction;
-  onExitComplete: (intention: IntentionRow) => void;
-  onRequestLaunch: (intention: IntentionRow) => void;
-  onAlarmChange: (intention: IntentionRow, enabled: boolean) => void;
-};
-
-function TimelineSlotRow({
-  item,
-  theme,
-  t,
-  onExitComplete,
-  onRequestLaunch,
-  onAlarmChange,
-}: SlotRowProps) {
-  const opacity = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-
-  const runQuickDone = () => {
-    Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateX, {
-        toValue: 28,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onExitComplete(item.intention);
-    });
-  };
-
-  return (
-    <Animated.View style={{ opacity, transform: [{ translateX }] }}>
-      <NeumorphicCard style={styles.card}>
-        <View style={styles.titleRow}>
-          {item.intention.alarm_enabled ? (
-            <Text
-              style={styles.bellGlyph}
-              accessibilityLabel={t('timeline.alarmBellA11y')}
-            >
-              🔔
-            </Text>
-          ) : null}
-          {item.intention.is_hard_constraint ? (
-            <Text
-              style={styles.lockGlyph}
-              accessibilityLabel={t('timeline.hardRoutineLockA11y')}
-            >
-              🔒
-            </Text>
-          ) : null}
-          <Text
-            style={[
-              styles.cardTitle,
-              { color: theme.colors.onSurface, flex: 1 },
-            ]}
-          >
-            {item.intention.title}
-          </Text>
-        </View>
-        <Text style={[styles.meta, { color: theme.colors.primary }]}>
-          {t('timeline.estimated', {
-            minutes: item.intention.estimated_duration,
-          })}
-        </Text>
-        <Text style={[styles.slot, { color: theme.colors.onSurfaceVariant }]}>
-          {t('timeline.suggestedWindow', {
-            start: item.startLabel,
-            end: item.endLabel,
-          })}
-        </Text>
-        {item.intention.description ? (
-          <Text
-            style={[styles.desc, { color: theme.colors.onSurfaceVariant }]}
-            numberOfLines={2}
-          >
-            {item.intention.description}
-          </Text>
-        ) : null}
-        <View style={styles.alarmRow}>
-          <Text style={[styles.alarmLabel, { color: theme.colors.onSurface }]}>
-            {t('timeline.alarmSwitch')}
-          </Text>
-          <Switch
-            value={item.intention.alarm_enabled}
-            onValueChange={(v) => onAlarmChange(item.intention, v)}
-          />
-        </View>
-        <View style={styles.rowActions}>
-          <Pressable
-            onPress={runQuickDone}
-            style={({ pressed }) => [
-              styles.doneBtn,
-              { opacity: pressed ? 0.65 : 0.88 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={t('timeline.done')}
-          >
-            <Check
-              size={20}
-              color={theme.colors.onSurfaceVariant}
-              strokeWidth={2.2}
-            />
-          </Pressable>
-          <Pressable
-            onPress={() => onRequestLaunch(item.intention)}
-            style={({ pressed }) => [
-              styles.launchBtn,
-              {
-                backgroundColor: theme.colors.primary,
-                opacity: pressed ? 0.9 : 1,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={t('timeline.launch')}
-          >
-            <Text style={{ color: theme.colors.onPrimary, fontWeight: '600' }}>
-              {t('timeline.launch')}
-            </Text>
-          </Pressable>
-        </View>
-      </NeumorphicCard>
-    </Animated.View>
-  );
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+  next.setDate(next.getDate() + days);
+  return next;
 }
 
-function ExternalEventRow({
-  startMinutes,
-  endMinutes,
-  theme,
-  t,
-}: {
-  startMinutes: number;
-  endMinutes: number;
-  theme: MD3Theme;
-  t: TFunction;
-}) {
-  return (
-    <NeumorphicCard
-      style={[
-        styles.externalCard,
-        { backgroundColor: 'rgba(140, 170, 188, 0.22)' },
-      ]}
-    >
-      <Text
-        style={[styles.externalEyebrow, { color: theme.colors.onSurfaceVariant }]}
-      >
-        {t('timeline.externalEventLabel')}
-      </Text>
-      <Text style={[styles.externalTime, { color: theme.colors.onSurface }]}>
-        {t('timeline.calendarBusy', {
-          start: formatMinutesAsClock(startMinutes),
-          end: formatMinutesAsClock(endMinutes),
-        })}
-      </Text>
-    </NeumorphicCard>
-  );
+function labelShort(date: Date): string {
+  try {
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale || undefined;
+    return new Intl.DateTimeFormat(locale, { weekday: 'short', day: '2-digit' }).format(date);
+  } catch {
+    return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}`;
+  }
+}
+
+function buildDateStrip(center: Date, total: number = 15): Date[] {
+  const half = Math.floor(total / 2);
+  return Array.from({ length: total }, (_, idx) => addDays(center, idx - half));
+}
+
+function sectionTitle(section: TrankilV2TimelineItemRow['section']): string {
+  if (section === 'TASK_HABIT') return 'Taches & Habitudes';
+  if (section === 'PROJECT_SUBTASK') return 'Sous-taches de Projets';
+  return 'Notes & Audios';
+}
+
+function resolveDisplayTitle(row: TrankilV2TimelineItemRow): string {
+  const base = String(row.display_title || '').trim();
+  if (base) return base;
+  if (row.type === 'NOTE' || row.type === 'AUDIO') {
+    return generateSmartTitle(row.content_raw || '') || (row.type === 'AUDIO' ? 'Memo audio' : 'Note');
+  }
+  return 'Sans titre';
 }
 
 export function TimelineScreen() {
-  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { spectrum } = useUserSpectrum();
-  const navigation = useNavigation();
-  const {
-    connectEnabled,
-    busyIntervals,
-    visibleBusyIntervals,
-    refreshBusy,
-  } = useCalendarIntegration();
-  const { shouldWarnForLaunch } = useFocusCalendarConflict();
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [statusFilter, setStatusFilter] = useState<TrankilIntentStatus>('TODO');
+  const [dateMode, setDateMode] = useState<TrankilV2TimelineDateMode>('DAY');
+  const [items, setItems] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const [slots, setSlots] = useState<TimelineSlot[]>([]);
-  const [focusPickTarget, setFocusPickTarget] = useState<IntentionRow | null>(
-    null,
+  const selectedYmd = useMemo(() => toYmd(selectedDate), [selectedDate]);
+
+  const load = useCallback(
+    async (date: Date, status: TrankilIntentStatus, mode: TrankilV2TimelineDateMode) => {
+      setLoading(true);
+      try {
+        const rows = await listTrankilV2TimelineItemsByDate(toYmd(date), status, mode);
+        setItems(rows);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
   );
-  const [calendarConflictOpen, setCalendarConflictOpen] = useState(false);
-  const [pendingFocus, setPendingFocus] = useState<{
-    row: IntentionRow;
-    mode: FocusCapsuleMode;
-  } | null>(null);
-
-  const load = useCallback(async () => {
-    const rows = (await listIntentionsDescending()).filter(
-      (r) => r.status !== 'done',
-    );
-    const busyForAgent: BusyInterval[] = connectEnabled ? busyIntervals : [];
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const now = new Date();
-    const built = buildTimelineSlots(
-      rows,
-      {
-        structure: spectrum.structure,
-        momentum: spectrum.momentum,
-        zen: spectrum.zen,
-        stats: spectrum.stats,
-      },
-      now,
-      { busyIntervals: busyForAgent },
-    );
-    setSlots(built);
-    await syncRailAlarmsWithTimeline({ now });
-    void syncRailReminderScheduleFromSlots(built, now, spectrum);
-  }, [spectrum, connectEnabled, busyIntervals]);
 
   useFocusEffect(
     useCallback(() => {
-      if (connectEnabled) void refreshBusy();
-    }, [connectEnabled, refreshBusy]),
+      void load(selectedDate, statusFilter, dateMode);
+    }, [dateMode, load, selectedDate, statusFilter]),
   );
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const stripDates = useMemo(() => buildDateStrip(selectedDate), [selectedDate]);
 
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
-      void load();
-    });
-    const sub2 = DeviceEventEmitter.addListener(
-      INTENTIONS_CHANGED_EVENT_NAME,
-      () => {
-        void load();
-      },
-    );
-    return () => {
-      sub.remove();
-      sub2.remove();
-    };
-  }, [load]);
+  const grouped = useMemo(() => {
+    const taskHabit = items.filter((item) => item.section === 'TASK_HABIT');
+    const projectSubtasks = items.filter((item) => item.section === 'PROJECT_SUBTASK');
+    const noteAudio = items.filter((item) => item.section === 'NOTE_AUDIO');
+    return [
+      { key: 'TASK_HABIT' as const, rows: taskHabit },
+      { key: 'PROJECT_SUBTASK' as const, rows: projectSubtasks },
+      { key: 'NOTE_AUDIO' as const, rows: noteAudio },
+    ];
+  }, [items]);
 
-  const onAlarmChange = useCallback(
-    async (intention: IntentionRow, enabled: boolean) => {
-      if (enabled) {
-        const ok = await requestAlarmPermissionIfNeeded();
-        if (!ok && __DEV__) {
-          console.warn(
-            '[TalkNDone] Permission notifications refusée — préférence alarme enregistrée quand même (Réglages système pour activer).',
-          );
-        }
-      } else {
-        await cancelIntentionRailAlarm(intention.id);
-      }
-      await updateIntentionAlarmEnabled(intention.id, enabled);
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-      void syncPendingIntentions();
-      await load();
-    },
-    [load],
-  );
-
-  const onQuickExitComplete = useCallback(
-    async (intention: IntentionRow) => {
-      await markIntentionQuickComplete(intention.id);
-      await recordQuickCompleteWithoutCapsule();
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-      void syncPendingIntentions();
-      await load();
-    },
-    [load],
-  );
-
-  const navigateFocus = useCallback(
-    (row: IntentionRow, mode: FocusCapsuleMode) => {
-      navigation.getParent()?.navigate('FocusCapsule', {
-        intentionId: row.id,
-        mode,
-      });
-    },
-    [navigation],
-  );
-
-  const confirmFocusMode = useCallback(
-    (mode: FocusCapsuleMode) => {
-      const row = focusPickTarget;
-      setFocusPickTarget(null);
-      if (!row) return;
-      if (shouldWarnForLaunch(mode, row)) {
-        setPendingFocus({ row, mode });
-        setCalendarConflictOpen(true);
-        return;
-      }
-      navigateFocus(row, mode);
-    },
-    [focusPickTarget, shouldWarnForLaunch, navigateFocus],
-  );
-
-  const railRows = useMemo(
-    () => mergeRailRows(slots, visibleBusyIntervals, connectEnabled),
-    [slots, visibleBusyIntervals, connectEnabled],
-  );
-
-  const listHeader = useMemo(
-    () => (
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.colors.onBackground }]}>
-          {t('tabs.timeline')}
-        </Text>
-        <Text
-          style={[styles.sub, { color: theme.colors.onSurfaceVariant }]}
-        >
-          {t('timeline.subtitle')}
-        </Text>
-        <TimeIndicator
-          rangeStartMin={6 * 60}
-          rangeEndMin={22 * 60}
-          label={t('timeline.dayRail')}
-          timeCaption={t('timeline.now')}
-        />
-      </View>
-    ),
-    [
-      t,
-      theme.colors.onBackground,
-      theme.colors.onSurfaceVariant,
-      theme.colors.primary,
-    ],
-  );
-
-  const renderItem = ({ item }: { item: RailRow }) => {
-    if (item.type === 'external') {
-      return (
-        <ExternalEventRow
-          startMinutes={item.startMinutes}
-          endMinutes={item.endMinutes}
-          theme={theme}
-          t={t}
-        />
-      );
+  const onQuickSelect = (range: QuickRange) => {
+    const now = new Date();
+    if (range === 'TODAY') {
+      setSelectedDate(now);
+      setDateMode('DAY');
+      return;
     }
-    return (
-      <TimelineSlotRow
-        item={item.slot}
-        theme={theme}
-        t={t}
-        onExitComplete={onQuickExitComplete}
-        onRequestLaunch={setFocusPickTarget}
-        onAlarmChange={onAlarmChange}
-      />
-    );
+    if (range === 'TOMORROW') {
+      setSelectedDate(addDays(now, 1));
+      setDateMode('DAY');
+      return;
+    }
+    setSelectedDate(now);
+    setDateMode('WEEK');
   };
 
   return (
-    <View
-      style={[styles.flex, { backgroundColor: theme.colors.background }]}
-    >
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <FlatList
-        data={railRows}
-        keyExtractor={(item) =>
-          item.type === 'intention'
-            ? `${item.slot.intention.id}-${item.slot.startMinutes}`
-            : item.key
-        }
-        renderItem={renderItem}
-        extraData={`${theme.dark}-${connectEnabled}-${busyIntervals.map((b) => `${b.startMinutes}-${b.endMinutes}`).join('|')}-${visibleBusyIntervals.map((b) => `${b.startMinutes}-${b.endMinutes}`).join('|')}-${slots.map((s) => `${s.intention.id}:${s.intention.alarm_enabled ? 1 : 0}`).join(',')}`}
-        contentContainerStyle={[
-          styles.listPad,
-          { paddingBottom: 24 + insets.bottom },
-        ]}
-        ListHeaderComponent={listHeader}
-        ListEmptyComponent={
-          <NeumorphicCard style={styles.emptyCard}>
-            <Sparkles
-              color={theme.colors.primary}
-              size={30}
-              style={styles.emptyIcon}
+        data={grouped}
+        keyExtractor={(item) => item.key}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <View style={styles.headTitleRow}>
+              <CalendarDays color={theme.colors.primary} size={20} />
+              <Text style={[styles.title, { color: theme.colors.onBackground }]}>Timeline</Text>
+            </View>
+
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={stripDates}
+              keyExtractor={(d) => toYmd(d)}
+              contentContainerStyle={styles.dateStrip}
+              renderItem={({ item }) => {
+                const ymd = toYmd(item);
+                const selected = ymd === selectedYmd;
+                return (
+                  <Pressable
+                    onPress={() => {
+                      setSelectedDate(item);
+                      setDateMode('DAY');
+                    }}
+                    style={[
+                      styles.dateChip,
+                      {
+                        backgroundColor: selected ? theme.colors.primary : theme.colors.surfaceVariant,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? theme.colors.onPrimary : theme.colors.onSurfaceVariant,
+                        fontWeight: selected ? '700' : '500',
+                      }}
+                    >
+                      {labelShort(item)}
+                    </Text>
+                  </Pressable>
+                );
+              }}
             />
-            <Text style={[styles.emptyTitle, { color: theme.colors.onSurface }]}>
-              {t('timeline.emptyTitle')}
+
+            <View style={styles.quickRow}>
+              <Pressable
+                style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
+                onPress={() => onQuickSelect('TODAY')}
+              >
+                <Text style={{ color: theme.colors.onSurface }}>Aujourd'hui</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
+                onPress={() => onQuickSelect('TOMORROW')}
+              >
+                <Text style={{ color: theme.colors.onSurface }}>Demain</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
+                onPress={() => onQuickSelect('WEEK')}
+              >
+                <Text style={{ color: theme.colors.onSurface }}>Cette semaine</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.filterRow}>
+              <Pressable
+                onPress={() => setStatusFilter('TODO')}
+                style={[
+                  styles.filterToggle,
+                  {
+                    backgroundColor:
+                      statusFilter === 'TODO' ? theme.colors.primary : theme.colors.surfaceVariant,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: statusFilter === 'TODO' ? theme.colors.onPrimary : theme.colors.onSurface,
+                    fontWeight: '600',
+                  }}
+                >
+                  A faire
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setStatusFilter('DONE')}
+                style={[
+                  styles.filterToggle,
+                  {
+                    backgroundColor:
+                      statusFilter === 'DONE' ? theme.colors.primary : theme.colors.surfaceVariant,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: statusFilter === 'DONE' ? theme.colors.onPrimary : theme.colors.onSurface,
+                    fontWeight: '600',
+                  }}
+                >
+                  Fait
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        }
+        renderItem={({ item }) => (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
+              {sectionTitle(item.key)}
             </Text>
-            <Text
-              style={[styles.emptyBody, { color: theme.colors.onSurfaceVariant }]}
-            >
-              {t('timeline.emptyBody')}
+            {item.rows.length === 0 ? (
+              <Text style={{ color: theme.colors.onSurfaceVariant }}>Aucun element</Text>
+            ) : (
+              item.rows.map((row) => (
+                <View
+                  key={row.id}
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.outlineVariant,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.cardTitle, { color: theme.colors.onSurface }]}>
+                    {resolveDisplayTitle(row)}
+                  </Text>
+                  <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
+                    {row.type}
+                    {row.section === 'PROJECT_SUBTASK' && row.project_title
+                      ? ` • Projet: ${row.project_title}`
+                      : ''}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            <Text style={{ color: theme.colors.onSurfaceVariant }}>
+              {loading ? 'Chargement...' : 'Aucun contenu pour cette date'}
             </Text>
-          </NeumorphicCard>
+          </View>
         }
       />
-
-      <FocusModePicker
-        visible={focusPickTarget !== null}
-        onDismiss={() => setFocusPickTarget(null)}
-        onSelect={confirmFocusMode}
-        title={t('focusMode.title')}
-        chronoLabel={t('focusMode.chrono')}
-        chronoHint={t('focusMode.chronoHint')}
-        pomodoroLabel={t('focusMode.pomodoro')}
-        pomodoroHint={t('focusMode.pomodoroHint')}
-      />
-
-      <Portal>
-        <Dialog
-          visible={calendarConflictOpen}
-          onDismiss={() => {
-            setCalendarConflictOpen(false);
-            setPendingFocus(null);
-          }}
-          style={{ backgroundColor: theme.colors.surface }}
-        >
-          <Dialog.Title>{t('ally.calendarConflictTitle')}</Dialog.Title>
-          <Dialog.Content>
-            <Text style={{ color: theme.colors.onSurface }}>
-              {t('ally.calendarConflictBody')}
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button
-              onPress={() => {
-                setCalendarConflictOpen(false);
-                setPendingFocus(null);
-              }}
-            >
-              {t('ally.calendarConflictBack')}
-            </Button>
-            <Button
-              mode="contained"
-              onPress={() => {
-                const p = pendingFocus;
-                setCalendarConflictOpen(false);
-                setPendingFocus(null);
-                if (p) navigateFocus(p.row, p.mode);
-              }}
-            >
-              {t('ally.calendarConflictContinue')}
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  listPad: { padding: 16 },
-  header: { marginBottom: 8 },
-  externalCard: {
-    marginBottom: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  externalEyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  externalTime: { fontSize: 14, fontWeight: '500' },
-  title: { fontSize: 22, fontWeight: '600', marginBottom: 6 },
-  sub: { fontSize: 14, lineHeight: 20, marginBottom: 12 },
-  card: { marginBottom: 14 },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  bellGlyph: { fontSize: 17, lineHeight: 22 },
-  lockGlyph: { fontSize: 17, lineHeight: 22 },
-  cardTitle: { fontSize: 17, fontWeight: '600' },
-  alarmRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 10,
-    gap: 12,
-  },
-  alarmLabel: { fontSize: 14, fontWeight: '600', flex: 1 },
-  meta: { marginTop: 8, fontSize: 13, fontWeight: '600' },
-  slot: { marginTop: 6, fontSize: 14 },
-  desc: { marginTop: 8, fontSize: 13, lineHeight: 18 },
-  rowActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    gap: 12,
-  },
-  doneBtn: {
-    paddingVertical: 8,
+  container: { flex: 1 },
+  header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  headTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  title: { fontSize: 22, fontWeight: '700' },
+  dateStrip: { paddingBottom: 8, gap: 8 },
+  dateChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
+  quickRow: { flexDirection: 'row', gap: 8, marginVertical: 8 },
+  quickBtn: {
+    borderWidth: 1,
+    borderRadius: 10,
     paddingHorizontal: 10,
-    borderRadius: 12,
+    paddingVertical: 8,
   },
-  launchBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 14,
-    minWidth: 112,
-    alignItems: 'center',
-  },
-  emptyCard: { alignItems: 'center', paddingVertical: 22 },
-  emptyIcon: { marginBottom: 12 },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  emptyBody: { fontSize: 15, lineHeight: 22, textAlign: 'center' },
+  filterRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  filterToggle: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 },
+  section: { paddingHorizontal: 16, paddingVertical: 10 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+  card: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
+  cardTitle: { fontSize: 15, fontWeight: '600', marginBottom: 4 },
+  emptyWrap: { paddingHorizontal: 16, paddingVertical: 20 },
 });

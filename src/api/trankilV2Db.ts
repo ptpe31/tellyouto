@@ -21,6 +21,21 @@ export type TrankilV2IntentionRow = {
   created_at: number;
 };
 
+export type TrankilV2TimelineItemRow = {
+  id: string;
+  type: TrankilIntentType;
+  status: TrankilIntentStatus;
+  due_date: string | null;
+  created_at: number;
+  content_raw: string;
+  parent_id: string | null;
+  project_title: string | null;
+  display_title: string;
+  section: 'TASK_HABIT' | 'PROJECT_SUBTASK' | 'NOTE_AUDIO';
+};
+
+export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
+
 export type TrankilV2UserStatsRow = {
   ia_credits: number;
   zen_points: number;
@@ -50,6 +65,26 @@ export type BonusEventType =
 const DB_NAME = 'trankil_v2.db';
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+const DEFAULT_HORIZON_CATEGORIES: Array<{ id: string; label: string; sort_order: number }> = [
+  { id: 'aujourdhui', label: "Aujourd'hui", sort_order: 1 },
+  { id: 'demain', label: 'Demain', sort_order: 2 },
+  { id: 'cette_semaine', label: 'Cette semaine', sort_order: 3 },
+  { id: 'regulier', label: 'Regulier', sort_order: 4 },
+  { id: 'sans_pression', label: 'Sans pression', sort_order: 5 },
+];
+
+function normalizeDueDate(raw: string | null | undefined): string | null {
+  const value = String(raw ?? '').trim();
+  if (!value) return null;
+  if (/^\d{8}$/.test(value)) {
+    return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  return null;
+}
 
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
@@ -88,6 +123,12 @@ export async function initTrankilV2Schema(): Promise<void> {
       ON intentions (type, status);
     CREATE INDEX IF NOT EXISTS idx_intentions_created_at
       ON intentions (created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY NOT NULL,
+      label TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
 
     CREATE TABLE IF NOT EXISTS user_stats (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -153,6 +194,18 @@ export async function initTrankilV2Schema(): Promise<void> {
   const hasDueDate = cols.some((c) => c.name === 'due_date');
   if (!hasDueDate) {
     await db.execAsync(`ALTER TABLE intentions ADD COLUMN due_date TEXT;`);
+  }
+  await db.execAsync(
+    `UPDATE intentions
+     SET due_date = substr(trim(due_date), 1, 4) || '-' || substr(trim(due_date), 5, 2) || '-' || substr(trim(due_date), 7, 2)
+     WHERE due_date IS NOT NULL
+       AND trim(due_date) GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'`,
+  );
+  for (const category of DEFAULT_HORIZON_CATEGORIES) {
+    await db.runAsync(
+      `INSERT OR IGNORE INTO categories (id, label, sort_order) VALUES (?, ?, ?)`,
+      [category.id, category.label, category.sort_order],
+    );
   }
   const userStatsCols = await db.getAllAsync<{ name: string }>(
     `PRAGMA table_info(user_stats)`,
@@ -260,6 +313,101 @@ export async function listTrankilV2Intentions(): Promise<TrankilV2IntentionRow[]
   const db = await getDb();
   return db.getAllAsync<TrankilV2IntentionRow>(
     `SELECT * FROM intentions ORDER BY created_at DESC`,
+  );
+}
+
+export async function listTrankilV2TimelineItemsByDate(
+  selectedDateYmd: string,
+  status: TrankilIntentStatus,
+  mode: TrankilV2TimelineDateMode = 'DAY',
+): Promise<TrankilV2TimelineItemRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2TimelineItemRow>(
+    `
+    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section
+    FROM (
+      SELECT
+        i.id AS id,
+        i.type AS type,
+        i.status AS status,
+        i.due_date AS due_date,
+        i.created_at AS created_at,
+        i.content_raw AS content_raw,
+        i.parent_id AS parent_id,
+        NULL AS project_title,
+        i.title AS display_title,
+        'TASK_HABIT' AS section,
+        i.due_date AS effective_date,
+        1 AS section_order
+      FROM intentions i
+      WHERE i.status = ?
+        AND i.type IN ('TASK', 'HABIT')
+        AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+
+      UNION ALL
+
+      SELECT
+        i.id AS id,
+        i.type AS type,
+        i.status AS status,
+        i.due_date AS due_date,
+        i.created_at AS created_at,
+        i.content_raw AS content_raw,
+        i.parent_id AS parent_id,
+        p.title AS project_title,
+        i.title AS display_title,
+        'PROJECT_SUBTASK' AS section,
+        i.due_date AS effective_date,
+        2 AS section_order
+      FROM intentions i
+      LEFT JOIN intentions p ON p.id = i.parent_id AND p.type = 'PROJECT'
+      WHERE i.status = ?
+        AND i.type = 'TASK'
+        AND i.parent_id IS NOT NULL
+        AND trim(i.parent_id) != ''
+
+      UNION ALL
+
+      SELECT
+        i.id AS id,
+        i.type AS type,
+        i.status AS status,
+        i.due_date AS due_date,
+        i.created_at AS created_at,
+        i.content_raw AS content_raw,
+        i.parent_id AS parent_id,
+        NULL AS project_title,
+        i.title AS display_title,
+        'NOTE_AUDIO' AS section,
+        COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
+        3 AS section_order
+      FROM intentions i
+      WHERE i.status = ?
+        AND i.type IN ('NOTE', 'AUDIO')
+    )
+    WHERE
+      (
+        ? = 'DAY'
+        AND effective_date = ?
+      )
+      OR (
+        ? = 'WEEK'
+        AND effective_date BETWEEN ? AND date(?, '+6 day')
+      )
+    ORDER BY section_order ASC, created_at DESC
+    `,
+    [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd],
+  );
+}
+
+export async function listTrankilV2Categories(): Promise<
+  Array<{ id: string; label: string; sort_order: number }>
+> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<{ id: string; label: string; sort_order: number }>(
+    `SELECT id, label, sort_order FROM categories ORDER BY sort_order ASC, id ASC`,
   );
 }
 
@@ -476,7 +624,7 @@ export async function insertTrankilV2Intention(
       row.id,
       row.type,
       row.title,
-      row.due_date ?? null,
+      normalizeDueDate(row.due_date),
       row.content_raw,
       row.metadata_json ?? '{}',
       row.suggested_tags ?? '[]',
@@ -536,7 +684,7 @@ export async function updateTrankilV2IntentionTemporal(
          metadata_json = ?
      WHERE id = ?`,
     [
-      patch.due_date ?? current.due_date ?? null,
+      normalizeDueDate(patch.due_date ?? current.due_date ?? null),
       nextCategory,
       nextCategory,
       patch.metadata_json ?? current.metadata_json,

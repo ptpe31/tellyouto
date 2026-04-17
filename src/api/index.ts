@@ -23,6 +23,7 @@ export {
   insertTrankilV2Intention,
   listTrankilV2OrganizedIntentions,
   listTrankilV2Intentions,
+  listTrankilV2TimelineItemsByDate,
   listTrankilV2UnorganizedIntentions,
   markTrankilV2IntentionDone,
   pickAvailabilityTask,
@@ -41,6 +42,8 @@ export type {
   TrankilIntentStatus,
   TrankilIntentType,
   TrankilV2IntentionRow,
+  TrankilV2TimelineDateMode,
+  TrankilV2TimelineItemRow,
   TrankilV2UserStatsRow,
 } from './trankilV2Db';
 export {

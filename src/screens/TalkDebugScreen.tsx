@@ -37,6 +37,7 @@ import {
   formatDueDateShort,
   persistGeminiExpertRows,
 } from '../services/ProjectPlanFlowService';
+import { generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
 
 function newId(): string {
   try {
@@ -53,6 +54,8 @@ export function TalkDebugScreen() {
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
   const [transcriptDraft, setTranscriptDraft] = useState('');
+  const [lockedTitle, setLockedTitle] = useState('');
+  const [isTitleLocked, setIsTitleLocked] = useState(false);
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [deadlineModalVisible, setDeadlineModalVisible] = useState(false);
@@ -73,7 +76,16 @@ export function TalkDebugScreen() {
 
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results?.[0]?.transcript ?? '';
-    if (text.trim().length > 0) setRawTranscript(text);
+    if (text.trim().length > 0) {
+      setRawTranscript(text);
+      if (!isTitleLocked && shouldLockSmartTitle(text)) {
+        const smart = generateSmartTitle(text, spectrum.locale);
+        if (smart) {
+          setLockedTitle(smart);
+          setIsTitleLocked(true);
+        }
+      }
+    }
   });
 
   const waveHeights = useMemo(() => {
@@ -92,6 +104,8 @@ export function TalkDebugScreen() {
     setCaptureStep('idle');
     setRawTranscript('');
     setTranscriptDraft('');
+    setLockedTitle('');
+    setIsTitleLocked(false);
     setAudioUri(null);
     setDeadlineModalVisible(false);
     setDeadlineText('');
@@ -103,6 +117,8 @@ export function TalkDebugScreen() {
   const startCapture = useCallback(async () => {
     if (isRecording || busy) return;
     setRawTranscript('');
+    setLockedTitle('');
+    setIsTitleLocked(false);
     setAudioUri(null);
     try {
       const perm = await Audio.requestPermissionsAsync();
@@ -226,10 +242,14 @@ export function TalkDebugScreen() {
       setBusy(true);
       try {
         const finalTranscript = transcriptDraft.trim() || rawTranscript.trim();
+        const smartTitle =
+          (isTitleLocked ? lockedTitle : '') ||
+          generateSmartTitle(finalTranscript, spectrum.locale) ||
+          finalTranscript;
         if (action === 'note') {
-          await saveIntention('note', finalTranscript || 'Note brute', '');
+          await saveIntention('note', smartTitle || 'Note brute', '');
         } else if (action === 'task') {
-          await saveIntention('task', finalTranscript || 'Tache rapide', '');
+          await saveIntention('task', smartTitle || 'Tache rapide', '');
         } else if (action === 'habit') {
           const routineId = newId();
           const now = new Date();
@@ -293,7 +313,7 @@ export function TalkDebugScreen() {
         } else if (action === 'audio') {
           await saveIntention(
             'note',
-            finalTranscript || 'Memo audio',
+            smartTitle || 'Memo audio',
             audioUri ? `audio://${audioUri}` : '',
           );
         }
@@ -306,7 +326,16 @@ export function TalkDebugScreen() {
         setBusy(false);
       }
     },
-    [audioUri, hardResetToIdle, rawTranscript, saveIntention, spectrum, transcriptDraft],
+    [
+      audioUri,
+      hardResetToIdle,
+      isTitleLocked,
+      lockedTitle,
+      rawTranscript,
+      saveIntention,
+      spectrum,
+      transcriptDraft,
+    ],
   );
 
   const submitProjectGenerationWithDeadline = useCallback(async () => {

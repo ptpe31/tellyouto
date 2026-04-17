@@ -108,6 +108,7 @@ import {
 } from '../services/CaptureProcessingService';
 import { STRINGS } from '../constants/Strings';
 import { runManualIaRechargeVideo } from '../services/AdManager';
+import { generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
 import {
   alertNativeModuleMissing,
   isLikelyMissingNativeModuleError,
@@ -338,6 +339,8 @@ export function TalkHomeScreen() {
   const [isCapturePaused, setIsCapturePaused] = useState(false);
   const [cancelSweepActive, setCancelSweepActive] = useState(false);
   const [livePartial, setLivePartial] = useState('');
+  const [liveLockedTitle, setLiveLockedTitle] = useState('');
+  const [isTitleLocked, setIsTitleLocked] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0.16);
   const [waveBars, setWaveBars] = useState<number[]>([8, 10, 13, 18, 24, 18, 13, 10, 8]);
   const [remainingIntents, setRemainingIntents] = useState(10);
@@ -366,6 +369,8 @@ export function TalkHomeScreen() {
   const lastPartialLenRef = useRef(0);
   const debounceLiveTextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLiveTextPushAtRef = useRef(0);
+  const titleLockedRef = useRef(false);
+  const lockedTitleRef = useRef('');
   const cancelSweepAnim = useRef(new Animated.Value(0)).current;
   const avRecordingRef = useRef<Audio.Recording | null>(null);
   const projectAudioRef = useRef<Audio.Recording | null>(null);
@@ -420,6 +425,13 @@ export function TalkHomeScreen() {
 
   const resetVoiceConfirm = useCallback(() => {
     setVoiceConfirm(null);
+  }, []);
+
+  const resetLiveSmartTitle = useCallback(() => {
+    titleLockedRef.current = false;
+    lockedTitleRef.current = '';
+    setLiveLockedTitle('');
+    setIsTitleLocked(false);
   }, []);
 
   const cancelProjectRefine = useCallback(async () => {
@@ -615,6 +627,15 @@ export function TalkHomeScreen() {
     if (event.isFinal && text.trim()) {
       finalTranscriptRef.current = text.trim();
     }
+    if (!titleLockedRef.current && shouldLockSmartTitle(text)) {
+      const smartTitle = generateSmartTitle(text, i18n.language);
+      if (smartTitle) {
+        titleLockedRef.current = true;
+        lockedTitleRef.current = smartTitle;
+        setLiveLockedTitle(smartTitle);
+        setIsTitleLocked(true);
+      }
+    }
   });
 
   useEffect(() => {
@@ -725,6 +746,7 @@ export function TalkHomeScreen() {
     partialTranscriptRef.current = '';
     finalTranscriptRef.current = '';
     setLivePartial('');
+    resetLiveSmartTitle();
     startedAtRef.current = Date.now();
     setIsBusy(true);
     try {
@@ -793,7 +815,7 @@ export function TalkHomeScreen() {
     } finally {
       setIsBusy(false);
     }
-  }, [i18n.language, isBusy, projectRefine, t, voiceConfirm]);
+  }, [i18n.language, isBusy, projectRefine, resetLiveSmartTitle, t, voiceConfirm]);
 
   const startDeepCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') {
@@ -806,6 +828,7 @@ export function TalkHomeScreen() {
     if (isBusy || voiceConfirm || voiceActiveRef.current || avRecordingRef.current) {
       return;
     }
+    resetLiveSmartTitle();
     setIsBusy(true);
     try {
       await unloadAvRecording();
@@ -856,7 +879,7 @@ export function TalkHomeScreen() {
     } finally {
       setIsBusy(false);
     }
-  }, [isBusy, t, unloadAvRecording, voiceConfirm]);
+  }, [isBusy, resetLiveSmartTitle, t, unloadAvRecording, voiceConfirm]);
 
   const startProjectHoldCapture = useCallback(async (): Promise<void> => {
     if (Platform.OS === 'web') {
@@ -901,6 +924,7 @@ export function TalkHomeScreen() {
       partialTranscriptRef.current = '';
       finalTranscriptRef.current = '';
       setLivePartial('');
+      resetLiveSmartTitle();
       setCaptureMode('quick');
       setIsRecording(true);
       setIsProjectHoldActive(true);
@@ -956,6 +980,7 @@ export function TalkHomeScreen() {
     isBusy,
     isPostCaptureAnalyzing,
     projectRefine,
+    resetLiveSmartTitle,
     t,
     unloadAvRecording,
     voiceConfirm,
@@ -1083,7 +1108,9 @@ export function TalkHomeScreen() {
 
       if (channel === 'quick_note') {
         const title =
-          text.length > 200 ? `${text.slice(0, 197)}…` : text;
+          lockedTitleRef.current ||
+          generateSmartTitle(text, i18n.language) ||
+          (text.length > 200 ? `${text.slice(0, 197)}...` : text);
         setVoiceConfirm({
           rawTranscript: text,
           kind: 'task',
@@ -1109,7 +1136,11 @@ export function TalkHomeScreen() {
         return;
       }
       const draft = reformulateStructuredIntent(orchestration.rawText);
-      const title = draft.title.trim() || orchestration.rawText;
+      const title =
+        lockedTitleRef.current ||
+        draft.title.trim() ||
+        generateSmartTitle(orchestration.rawText, i18n.language) ||
+        orchestration.rawText;
       const freq = inferLocalFrequencyLabel(orchestration.rawText, draft);
       const scheduleDueYmd = orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null;
       const detectedTimeLabel =
@@ -1224,7 +1255,11 @@ export function TalkHomeScreen() {
       const { parsed, rawResponseText } = await geminiDeepIntentionFromTranscript(transcript, {
         promptLanguage: mapInteractionToGeminiPrompt(interactionLanguage),
       });
-      const title = parsed.title.trim() || transcript.trim();
+      const title =
+        lockedTitleRef.current ||
+        parsed.title.trim() ||
+        generateSmartTitle(transcript, i18n.language) ||
+        transcript.trim();
       const timing = parsed.timing.trim();
 
       emitTalkDebug({
@@ -1445,7 +1480,7 @@ export function TalkHomeScreen() {
     await insertTrankilV2Intention({
       id: newTalkEntityId(),
       type: 'NOTE',
-      title: text.length > 180 ? `${text.slice(0, 177)}...` : text,
+      title: generateSmartTitle(text, i18n.language) || (text.length > 180 ? `${text.slice(0, 177)}...` : text),
       content_raw: text,
       metadata_json: JSON.stringify(
         {
@@ -1467,7 +1502,7 @@ export function TalkHomeScreen() {
     await cancelProjectRefine();
     setMicroToast('Ajoute au Vrac');
     void refreshRemainingIntents();
-  }, [cancelProjectRefine, projectRefine, refreshRemainingIntents, t]);
+  }, [cancelProjectRefine, i18n.language, projectRefine, refreshRemainingIntents, t]);
 
   const onProjectSaveAsAudio = useCallback(async () => {
     if (!projectRefine) return;
@@ -1479,7 +1514,7 @@ export function TalkHomeScreen() {
     await insertTrankilV2Intention({
       id: newTalkEntityId(),
       type: 'AUDIO',
-      title: text.length > 120 ? `${text.slice(0, 117)}...` : text,
+      title: generateSmartTitle(text, i18n.language) || (text.length > 120 ? `${text.slice(0, 117)}...` : text),
       content_raw: text,
       metadata_json: JSON.stringify(
         {
@@ -1502,7 +1537,7 @@ export function TalkHomeScreen() {
     setProjectRefine(null);
     setMicroToast('Audio + texte sauvegardes');
     void refreshRemainingIntents();
-  }, [projectRefine, refreshRemainingIntents, t]);
+  }, [i18n.language, projectRefine, refreshRemainingIntents, t]);
 
   const stopDeadlineCapture = useCallback(async () => {
     try {
@@ -1935,6 +1970,9 @@ export function TalkHomeScreen() {
               <Lock size={13} color="#e8f6f6" />
               <Text style={styles.liveLockBadgeText}>LOCK</Text>
             </View>
+          ) : null}
+          {isTitleLocked && liveLockedTitle ? (
+            <Text style={styles.liveLockedTitle}>{liveLockedTitle}</Text>
           ) : null}
           <View style={styles.waveformRow}>
             {waveBars.map((h, idx) => (
@@ -3235,6 +3273,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.6,
+  },
+  liveLockedTitle: {
+    color: '#E2E8F0',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
   },
   waveformRow: {
     marginBottom: 12,
