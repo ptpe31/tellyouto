@@ -112,6 +112,11 @@
       ],
       "./plugins/withAndroidReleaseBuildStability.js",
       "./plugins/withAndroidLegacySupportCompat.js"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8d93ab6d-ec6e-4880-b40d-9dffa6a8f57f"
+      }
+    }
   }
 }
