@@ -4,6 +4,7 @@ import {
   Bug,
   House,
   Leaf,
+  Mic,
   Shuffle,
 } from 'lucide-react-native';
 import React from 'react';
@@ -14,6 +15,7 @@ import {
   DebugScreen,
   MeliMeloScreen,
   StatsScreen,
+  TalkDebugScreen,
   TalkHomeScreen,
 } from '../screens';
 import type { AppTabParamList } from './types';
@@ -48,6 +50,19 @@ export function AppNavigator() {
           ),
         }}
       />
+      {__DEV__ ? (
+        <Tab.Screen
+          name="TalkDebug"
+          component={TalkDebugScreen}
+          options={{
+            headerShown: false,
+            title: 'Talk Debug',
+            tabBarIcon: ({ color, size }) => (
+              <Mic color={color} size={size} />
+            ),
+          }}
+        />
+      ) : null}
       <Tab.Screen
         name="MeliMelo"
         component={MeliMeloScreen}

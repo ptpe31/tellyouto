@@ -14,10 +14,12 @@ export type MainStackParamList = {
   FocusCapsule: { intentionId: string; mode?: FocusCapsuleMode };
   /** Lab test : audio .m4a → Gemini + comparaison IA locale (aucune persistance DB). */
   SemanticBrainLab: undefined;
+  TalkDebug: undefined;
 };
 
 export type AppTabParamList = {
   TalkHome: undefined;
+  TalkDebug: undefined;
   MeliMelo: undefined;
   ZenGarden: undefined;
   Radar: undefined;

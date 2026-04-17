@@ -1,5 +1,6 @@
 import { Audio } from 'expo-av';
 import { useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
@@ -108,6 +109,8 @@ import {
   isLikelyMissingNativeModuleError,
 } from '../utils/nativeModuleErrorAlert';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { MainStackParamList } from '../navigation/types';
 
 /** Texte flottant sur l’OLED (verre dépoli du fond) — aligné brief produit */
 const OLED_TEXT = '#2C3E50';
@@ -376,6 +379,7 @@ function speechContinuousForHold(): boolean {
 }
 
 export function TalkHomeScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<MainStackParamList>>();
   const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const tRef = useRef(t);
@@ -2382,6 +2386,15 @@ export function TalkHomeScreen() {
         >
           <UserCircle2 size={26} color="#9fa7a3" />
         </Pressable>
+        {__DEV__ ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => navigation.navigate('TalkDebug')}
+            style={styles.debugLinkBtn}
+          >
+            <Text style={styles.debugLinkText}>Debug</Text>
+          </Pressable>
+        ) : null}
       </View>
       {adFreeActive ? <Text style={styles.zenModeBadge}>Mode Zen Actif</Text> : null}
 
@@ -2694,6 +2707,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
+  },
+  debugLinkBtn: {
+    marginLeft: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(110,122,130,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.45)',
+  },
+  debugLinkText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4b5563',
   },
   zenModeBadge: {
     marginTop: 4,
