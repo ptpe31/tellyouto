@@ -250,7 +250,11 @@
     "alarmBellA11y": "此时段已设提醒",
     "hardRoutineLockA11y": "结构性例行 — 时段已锁定",
     "microFragment": "片段 {{current}} / {{total}}",
-    "microDuration": "约 2 分钟 · 微习惯"
+    "microDuration": "约 2 分钟 · 微习惯",
+    "todoFilter": "待办",
+    "doneFilter": "已完成",
+    "noItems": "暂无项目",
+    "noContentForDate": "该日期暂无内容"
   },
   "focusMode": {
     "title": "会话模式",
@@ -619,7 +623,13 @@
     "errorTitle": "Sorting stumbled",
     "orphanGroup": "Misc",
     "pileCount": "{{count}} note(s)",
-    "dismiss": "Continue"
+    "dismiss": "Continue",
+    "classifiedIn": "已归类到：{{category}}",
+    "addedToPile": "已加入 Vrac",
+    "intentToClarify": "待澄清意图",
+    "actionTitle": "Meli-Melo 操作",
+    "manualSortFree": "手动整理（免费）",
+    "aiSortPaid": "AI 整理（1 点信用）"
   },
   "economy": {
     "labels": {
@@ -832,6 +842,13 @@
     "synthLocalOnlyLine": "[LOCAL AI] only: {{kind}} — frequency: {{freq}}",
     "synthAligned": "Types aligned: {{localLabel}} = Gemini \"{{geminiType}}\".\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}",
     "synthMismatch": "Mismatch: [LOCAL AI] said « {{localLabel}} », [GEMINI FLASH] said « {{geminiType}} ».\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}\nComplex project (Gemini): {{complex}}\nWhy (Gemini): {{reasoning}}"
+  },
+  "talkDebug": {
+    "noteSaved": "笔记已保存",
+    "audioTitle": "语音备忘",
+    "audioMissing": "未检测到音频文件。",
+    "audioSaved": "语音备忘已保存",
+    "actionSuccess": "操作成功完成。"
   },
   "navigation": {
     "semanticBrainLabHeader": "Semantic Brain Lab"

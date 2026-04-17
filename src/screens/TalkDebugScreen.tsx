@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { Bell, Check, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
 
 import {
   INTENTIONS_CHANGED_EVENT_NAME,
@@ -66,6 +67,7 @@ function newId(): string {
 }
 
 export function TalkDebugScreen() {
+  const { t } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const [captureStep, setCaptureStep] = useState<'idle' | 'recording' | 'deciding'>('idle');
   const [isRecording, setIsRecording] = useState(false);
@@ -94,6 +96,13 @@ export function TalkDebugScreen() {
   const recRef = useRef<Audio.Recording | null>(null);
   const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
+
+  const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), ms);
+    });
+    return (await Promise.race([promise, timeout])) as T | null;
+  }, []);
 
   const parseDueDateFromText = useCallback(
     (text: string): string | null => {
@@ -164,9 +173,9 @@ export function TalkDebugScreen() {
 
   const persistAudioMemoFile = useCallback(async (uri: string): Promise<string> => {
     const source = String(uri || '').trim();
-    if (!source) throw new Error('Audio source vide.');
+    if (!source) throw new Error(t('talkDebug.errorAudioSourceEmpty'));
     const root = FileSystem.documentDirectory;
-    if (!root) throw new Error('Stockage local indisponible.');
+    if (!root) throw new Error(t('talkDebug.errorLocalStorageUnavailable'));
     const folder = `${root}audio-memos`;
     await FileSystem.makeDirectoryAsync(folder, { intermediates: true });
     const target = `${folder}/memo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}.m4a`;
@@ -185,7 +194,7 @@ export function TalkDebugScreen() {
     try {
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert('Micro', 'Permission micro refusee.');
+        Alert.alert(t('talkHome.microphonePermissionTitle'), t('talkHome.microphonePermissionDeniedBody'));
         return;
       }
       await Audio.setAudioModeAsync({
@@ -206,7 +215,7 @@ export function TalkDebugScreen() {
       setCaptureStep('recording');
       waveformTimer.current = setInterval(() => setWaveTick((v) => v + 1), 180);
     } catch (e) {
-      Alert.alert('Capture', e instanceof Error ? e.message : String(e));
+      Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
     }
   }, [busy, isRecording, spectrum.locale]);
 
@@ -221,7 +230,7 @@ export function TalkDebugScreen() {
         setAudioUri(rec.getURI() ?? null);
       }
     } catch (e) {
-      Alert.alert('Capture', e instanceof Error ? e.message : String(e));
+      Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
     } finally {
       if (waveformTimer.current) clearInterval(waveformTimer.current);
       waveformTimer.current = null;
@@ -272,7 +281,7 @@ export function TalkDebugScreen() {
         setIsPaused(true);
       }
     } catch (e) {
-      Alert.alert('Capture', e instanceof Error ? e.message : String(e));
+      Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
     }
   }, [captureStep, isPaused, isRecording, spectrum.locale]);
 
@@ -315,7 +324,7 @@ export function TalkDebugScreen() {
       try {
         const finalTranscript = cleanTranscriptText(transcriptDraft.trim() || rawTranscript.trim());
         const buildHabitMeta = async (): Promise<{ recurrence_rule?: GeminiHabitRecurrence }> => {
-          const recurrence = await extractHabitRecurrence(finalTranscript);
+          const recurrence = await withTimeout(extractHabitRecurrence(finalTranscript), 2500);
           if (!recurrence) return {};
           await consumeIaCredits(0.1);
           return { recurrence_rule: recurrence };
@@ -324,7 +333,7 @@ export function TalkDebugScreen() {
           details: GeminiAnniversaryDetails | null;
           dueDateYmd: string | null;
         }> => {
-          const details = await extractAnniversaryDetails(finalTranscript);
+          const details = await withTimeout(extractAnniversaryDetails(finalTranscript), 2500);
           if (!details) return { details: null, dueDateYmd: null };
           await consumeIaCredits(0.1);
           const dueDateYmd = computeNextYearlyDueDateFromNativeDate(details.native_date);
@@ -337,9 +346,9 @@ export function TalkDebugScreen() {
           finalTranscript
         ).trim();
         if (action === 'note') {
-          await saveQuickNoteToTimeline(smartTitle || 'Note', finalTranscript);
+          await saveQuickNoteToTimeline(smartTitle || t('timeline.note'), finalTranscript);
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          pushSuccessFeedback("Note classee dans Aujourd'hui");
+          pushSuccessFeedback(t('talkDebug.noteSaved'));
           hardResetToIdle();
           return;
         } else if (action === 'task') {
@@ -360,12 +369,12 @@ export function TalkDebugScreen() {
               : 'TASK';
           let metadataExtra: Record<string, unknown> = {};
           let finalDueDateYmd = dueDateYmd;
-          let finalTitle = smartTitle || (intentType === 'HABIT' ? 'Habitude' : 'Tache rapide');
+          let finalTitle = smartTitle || (intentType === 'HABIT' ? t('common.habits') : t('talkDebug.quickTask'));
           if (hasAnniversary && !isPreparation) {
             const ann = await buildAnniversaryMeta();
             if (ann.details) {
               finalDueDateYmd = ann.dueDateYmd ?? finalDueDateYmd;
-              finalTitle = `🎂 Anniversaire ${ann.details.personName}`.trim();
+              finalTitle = `🎂 ${t('talkDebug.birthdayLabel')} ${ann.details.personName}`.trim();
               metadataExtra = {
                 ...metadataExtra,
                 type: 'ANNIVERSARY',
@@ -404,7 +413,7 @@ export function TalkDebugScreen() {
           const habitMeta = await buildHabitMeta();
           await createLocalTemporalIntention({
             id: newId(),
-            title: ann.details ? `🎂 Anniversaire ${ann.details.personName}` : smartTitle || 'Habitude',
+            title: ann.details ? `🎂 ${t('talkDebug.birthdayLabel')} ${ann.details.personName}` : smartTitle || t('common.habits'),
             rawTranscript: finalTranscript,
             localType: 'HABIT',
             dueDateYmd: ann.dueDateYmd,
@@ -430,25 +439,25 @@ export function TalkDebugScreen() {
           const stats = await getTrankilV2UserStats();
           if (stats.ia_credits <= 0) {
             Alert.alert(
-              'Recharge IA',
-              "Plus de credits IA. Regarde une video pour +5 credits.",
+              t('economy.recharge.modalTitle'),
+              t('economy.recharge.modalBody'),
               [
-                { text: 'Plus tard', style: 'cancel' },
+                { text: t('common.later'), style: 'cancel' },
                 {
-                  text: 'Regarder une video',
+                  text: t('economy.recharge.watchVideoCta'),
                   onPress: () => {
                     void (async () => {
                       const recharge = await runManualIaRechargeVideo();
                       if (!recharge.ok) {
                         const msg =
                           recharge.reason === 'daily_limit_reached'
-                            ? "Limite de recharge quotidienne atteinte. Laisse ton IA reposer jusqu'a demain !"
+                            ? t('economy.recharge.dailyCapReached')
                             : recharge.reason === 'recharge_cooldown'
-                              ? 'Patiente 60 secondes entre deux recharges video.'
-                              : 'Recharge indisponible pour le moment.';
-                        Alert.alert('Recharge IA', msg);
+                              ? t('economy.recharge.cooldown')
+                              : t('economy.recharge.unavailableTitle');
+                        Alert.alert(t('economy.recharge.modalTitle'), msg);
                       } else {
-                        Alert.alert('Recharge IA', '+5 credits IA ajoutes.');
+                        Alert.alert(t('economy.recharge.modalTitle'), t('economy.recharge.rewardToast'));
                       }
                     })();
                   },
@@ -463,14 +472,14 @@ export function TalkDebugScreen() {
           return;
         } else if (action === 'audio') {
           if (!audioUri) {
-            Alert.alert('Memo audio', 'Aucun fichier audio detecte.');
+            Alert.alert(t('talkDebug.audioTitle'), t('talkDebug.audioMissing'));
             return;
           }
           const storedUri = await persistAudioMemoFile(audioUri);
           await insertTrankilV2Intention({
             id: newId(),
             type: 'AUDIO',
-            title: smartTitle || 'Memo audio',
+            title: smartTitle || t('timeline.memoAudio'),
             due_date: null,
             content_raw: finalTranscript,
             metadata_json: JSON.stringify(
@@ -492,15 +501,15 @@ export function TalkDebugScreen() {
             created_at: Date.now(),
           });
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          pushSuccessFeedback('Memo audio enregistre (Gratuit)');
+          pushSuccessFeedback(t('talkDebug.audioSaved'));
           hardResetToIdle();
           return;
         }
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-        pushSuccessFeedback('Action executee avec succes.');
+        pushSuccessFeedback(t('talkDebug.actionSuccess'));
         hardResetToIdle();
       } catch (e) {
-        Alert.alert('Talk Debug', e instanceof Error ? e.message : String(e));
+        Alert.alert(t('tabs.debug'), e instanceof Error ? e.message : String(e));
       } finally {
         setBusy(false);
       }
@@ -517,8 +526,10 @@ export function TalkDebugScreen() {
       rawTranscript,
       saveQuickNoteToTimeline,
       spectrum,
+      t,
       titleDraft,
       transcriptDraft,
+      withTimeout,
     ],
   );
 
@@ -528,7 +539,7 @@ export function TalkDebugScreen() {
     if (!finalTranscript || !cleanedDeadline) return;
     const stats = await getTrankilV2UserStats();
     if (stats.ia_credits <= 0) {
-      Alert.alert('Credits IA', 'Pas assez de credits IA pour generer un projet.');
+      Alert.alert(t('economy.labels.aiCredits'), t('talkDebug.notEnoughCreditsGenerate'));
       return;
     }
     setIsGeneratingPlan(true);
@@ -555,9 +566,9 @@ export function TalkDebugScreen() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('PLAN_JSON_PARSE_ERROR')) {
-        setDeadlineError('Erreur de lecture du plan. Reessayer ?');
+        setDeadlineError(t('talkDebug.planParseError'));
       } else {
-        Alert.alert('Projet', msg || 'Erreur lors de la generation du plan.');
+        Alert.alert(t('common.projects'), msg || t('talkDebug.projectGenerationError'));
       }
     } finally {
       setIsGeneratingPlan(false);
@@ -592,7 +603,7 @@ export function TalkDebugScreen() {
       await exportProjectPlanToIcs(projectPlanPreview);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert('Export agenda', msg || "Impossible d'exporter le plan.");
+      Alert.alert(t('talkDebug.exportAgendaTitle'), msg || t('talkDebug.exportAgendaError'));
     }
   }, [projectPlanPreview]);
 
@@ -600,7 +611,7 @@ export function TalkDebugScreen() {
     if (!projectPlanPreview) return;
     const stats = await getTrankilV2UserStats();
     if (stats.ia_credits <= 0) {
-      Alert.alert('Credits IA', 'Pas assez de credits IA pour valider ce plan.');
+      Alert.alert(t('economy.labels.aiCredits'), t('talkDebug.notEnoughCreditsValidate'));
       return;
     }
     setBusy(true);
@@ -613,11 +624,11 @@ export function TalkDebugScreen() {
       const afterConsume = await consumeTrankilV2IntentCredit();
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       setProjectPlanPreview(null);
-      Alert.alert('Projet', `Projet ancre et enregistre. Credits restants: ${afterConsume.ia_credits}`);
+      Alert.alert(t('common.projects'), t('talkDebug.projectAnchored', { credits: afterConsume.ia_credits }));
       hardResetToIdle();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert('Projet', msg || 'Erreur lors de la validation du plan.');
+      Alert.alert(t('common.projects'), msg || t('talkDebug.projectValidationError'));
     } finally {
       setBusy(false);
     }
@@ -625,7 +636,7 @@ export function TalkDebugScreen() {
 
   return (
     <View style={styles.root}>
-      <Text style={styles.title}>Talk Debug - Post-Choix</Text>
+      <Text style={styles.title}>{t('talkDebug.screenTitle')}</Text>
       {captureStep === 'idle' ? (
         <View style={styles.stepIdleWrap}>
           <Pressable
@@ -642,7 +653,7 @@ export function TalkDebugScreen() {
         <View style={styles.stepRecordingWrap}>
           {isTitleLocked && lockedTitle.trim() ? (
             <View style={styles.liveTitleWrap}>
-              <Text style={styles.liveTitleLabel}>Smart Titre detecte</Text>
+              <Text style={styles.liveTitleLabel}>{t('talkDebug.smartTitleDetected')}</Text>
               <Text style={styles.liveTitleValue}>{lockedTitle}</Text>
             </View>
           ) : null}
@@ -666,7 +677,7 @@ export function TalkDebugScreen() {
               }}
             >
               <Text style={styles.liveTranscript}>
-                {rawTranscript.trim() ? rawTranscript : "Je t'ecoute..."}
+                {rawTranscript.trim() ? rawTranscript : t('talkHome.listeningNow')}
               </Text>
             </ScrollView>
             <LinearGradient
@@ -701,14 +712,14 @@ export function TalkDebugScreen() {
       {captureStep === 'deciding' ? (
         <View style={styles.stepDecisionWrap}>
           <View style={styles.titleDraftWrap}>
-            <Text style={styles.titleDraftLabel}>Titre cristallise (editable)</Text>
+            <Text style={styles.titleDraftLabel}>{t('talkDebug.crystallizedTitleEditable')}</Text>
             <TextInput
               value={titleDraft}
               onChangeText={(value) => {
                 setTitleDraft(value);
                 setHasManualTitleEdit(true);
               }}
-              placeholder="Titre"
+              placeholder={t('radar.fieldTitle')}
               placeholderTextColor="#94a3b8"
               style={styles.titleDraftInput}
             />
@@ -717,7 +728,7 @@ export function TalkDebugScreen() {
             value={transcriptDraft}
             onChangeText={setTranscriptDraft}
             multiline
-            placeholder="(Transcription vide)"
+            placeholder={t('talkDebug.emptyTranscription')}
             placeholderTextColor="#94a3b8"
             style={styles.decisionInput}
           />
@@ -726,30 +737,30 @@ export function TalkDebugScreen() {
             onPress={() => void onChooseAction('note')}
             disabled={busy}
           >
-            <Text style={styles.quickNoteBtnText}>📝 Valider la Note (Gratuit)</Text>
+            <Text style={styles.quickNoteBtnText}>{t('talkDebug.validateNoteFree')}</Text>
           </Pressable>
           <Pressable
             style={[styles.quickAudioBtn, busy ? styles.disabled : null]}
             onPress={() => void onChooseAction('audio')}
             disabled={busy}
           >
-            <Text style={styles.quickAudioBtnText}>🎙️ Valider l'Audio (Gratuit)</Text>
+            <Text style={styles.quickAudioBtnText}>{t('talkDebug.validateAudioFree')}</Text>
           </Pressable>
           <View style={styles.fanMenu}>
             <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('project')} disabled={busy}>
-              <Text style={styles.fanBtnText}>🚀 Projet (-1 credit IA)</Text>
+              <Text style={styles.fanBtnText}>{t('talkDebug.actionProject')}</Text>
             </Pressable>
             <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('task')} disabled={busy}>
-              <Text style={styles.fanBtnText}>⚡ Tache</Text>
+              <Text style={styles.fanBtnText}>{t('talkDebug.actionTask')}</Text>
             </Pressable>
             <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('note')} disabled={busy}>
-              <Text style={styles.fanBtnText}>📝 Note</Text>
+              <Text style={styles.fanBtnText}>{t('talkDebug.actionNote')}</Text>
             </Pressable>
             <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('habit')} disabled={busy}>
-              <Text style={styles.fanBtnText}>🔄 Habitude</Text>
+              <Text style={styles.fanBtnText}>{t('talkDebug.actionHabit')}</Text>
             </Pressable>
             <Pressable style={[styles.fanBtn, styles.cancelBtn]} onPress={() => void onChooseAction('cancel')} disabled={busy}>
-              <Text style={styles.fanBtnText}>🗑️ Annuler</Text>
+              <Text style={styles.fanBtnText}>{t('common.later')}</Text>
             </Pressable>
           </View>
         </View>
@@ -758,11 +769,11 @@ export function TalkDebugScreen() {
       {deadlineModalVisible ? (
         <View style={styles.overlayBackdrop}>
           <View style={styles.overlayCard}>
-            <Text style={styles.overlayTitle}>C&apos;est pour quand ?</Text>
-            <Text style={styles.overlaySub}>Ajoute une contrainte temporelle pour fiabiliser le plan.</Text>
+            <Text style={styles.overlayTitle}>{t('talkDebug.deadlineTitle')}</Text>
+            <Text style={styles.overlaySub}>{t('talkDebug.deadlineSubtitle')}</Text>
             {deadlineError ? <Text style={styles.overlayError}>{deadlineError}</Text> : null}
             <View style={styles.quickDeadlineRow}>
-              {['Demain', '1 semaine', '1 mois'].map((choice) => (
+              {[t('horizons.tomorrow'), t('talkDebug.oneWeek'), t('talkDebug.oneMonth')].map((choice) => (
                 <Pressable key={choice} style={styles.quickDeadlineBtn} onPress={() => setDeadlineText(choice)} disabled={isGeneratingPlan}>
                   <Text style={styles.quickDeadlineText}>{choice}</Text>
                 </Pressable>
@@ -771,16 +782,16 @@ export function TalkDebugScreen() {
             <TextInput
               value={deadlineText}
               onChangeText={setDeadlineText}
-              placeholder="Ex: dans 2 mois, pour samedi, fin d'annee"
+              placeholder={t('talkDebug.deadlinePlaceholder')}
               placeholderTextColor="#94a3b8"
               style={styles.deadlineInput}
             />
             <View style={styles.overlayActions}>
               <Pressable style={[styles.overlayActionBtn, styles.cancelBtn]} onPress={() => setDeadlineModalVisible(false)} disabled={isGeneratingPlan}>
-                <Text style={styles.fanBtnText}>❌ ANNULER</Text>
+                <Text style={styles.fanBtnText}>{t('common.later')}</Text>
               </Pressable>
               <Pressable style={styles.overlayActionBtn} onPress={() => void submitProjectGenerationWithDeadline()} disabled={isGeneratingPlan || !deadlineText.trim()}>
-                <Text style={styles.fanBtnText}>{isGeneratingPlan ? 'Analyse Gemini...' : '✅ GENERER LE PLAN'}</Text>
+                <Text style={styles.fanBtnText}>{isGeneratingPlan ? t('talkDebug.analyzingGemini') : t('talkDebug.generatePlan')}</Text>
               </Pressable>
             </View>
           </View>
@@ -790,9 +801,9 @@ export function TalkDebugScreen() {
       {projectPlanPreview ? (
         <View style={styles.overlayBackdrop}>
           <View style={styles.planCard}>
-            <Text style={styles.overlayTitle}>Visualiser IA Plan (1 Crédit)</Text>
-            <Text style={styles.overlaySub}>Le crédit est débité au clic sur Valider Plan et non sur la visualisation.</Text>
-            <Text style={styles.planProjectTitle}>{projectPlanPreview.projectTitle || 'Projet'}</Text>
+            <Text style={styles.overlayTitle}>{t('talkDebug.previewPlanTitle')}</Text>
+            <Text style={styles.overlaySub}>{t('talkDebug.previewPlanSubtitle')}</Text>
+            <Text style={styles.planProjectTitle}>{projectPlanPreview.projectTitle || t('common.projects')}</Text>
             <ScrollView style={styles.planScroll} contentContainerStyle={styles.planScrollContent}>
               {(() => {
                 let taskIdx = -1;
@@ -822,13 +833,13 @@ export function TalkDebugScreen() {
             </ScrollView>
             <View style={styles.overlayActions}>
               <Pressable style={[styles.overlayActionBtn, styles.cancelBtn]} onPress={() => setProjectPlanPreview(null)} disabled={busy}>
-                <Text style={styles.fanBtnText}>❌ ANNULER</Text>
+                <Text style={styles.fanBtnText}>{t('common.later')}</Text>
               </Pressable>
               <Pressable style={styles.overlayActionBtn} onPress={() => void onExportProjectPlanIcs()} disabled={busy}>
-                <Text style={styles.fanBtnText}>📅 EXPORTER VERS AGENDA</Text>
+                <Text style={styles.fanBtnText}>{t('talkDebug.exportToAgenda')}</Text>
               </Pressable>
               <Pressable style={styles.overlayActionBtn} onPress={() => void onValidateProjectPlan()} disabled={busy}>
-                <Text style={styles.fanBtnText}>✅ ANCRER LE PROJET</Text>
+                <Text style={styles.fanBtnText}>{t('talkDebug.anchorProject')}</Text>
               </Pressable>
             </View>
           </View>

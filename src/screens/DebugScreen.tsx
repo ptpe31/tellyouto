@@ -50,6 +50,7 @@ import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { usePower } from '../context/PowerContext';
+import { useLanguage, type AppLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { seedDemoTypicalDay } from '../services/demoTypicalDay';
 import { scheduleDebugAgentDirectAlarmIn10Minutes } from '../services/alarmManager';
@@ -140,6 +141,7 @@ async function persistGeminiExpertRowsForDebug(
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { language, setLanguage } = useLanguage();
   const { spectrum, setProUser, setPreferredAlarmSound } = useUserSpectrum();
   const power = usePower();
   const [busy, setBusy] = useState<
@@ -182,6 +184,17 @@ export function DebugScreen() {
   const [trankilRows, setTrankilRows] = useState<TrankilV2IntentionRow[]>([]);
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [dbCounts, setDbCounts] = useState({ intentionsCount: 0, tasksCount: 0 });
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+
+  const uiLanguageOptions: Array<{ id: AppLanguage; label: string }> = [
+    { id: 'fr', label: t('ally.lang.fr') },
+    { id: 'en', label: t('ally.lang.en') },
+    { id: 'es', label: t('ally.lang.es') },
+    { id: 'de', label: t('ally.lang.de') },
+    { id: 'it', label: t('ally.lang.it') },
+    { id: 'ja', label: t('ally.lang.ja') },
+    { id: 'zh', label: t('ally.lang.zh') },
+  ];
 
   const inspectorRows = React.useMemo(
     () =>
@@ -1024,6 +1037,23 @@ export function DebugScreen() {
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          {t('debug.languageConfigTitle')}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.languageConfigHelp')}
+        </Text>
+        <Pressable
+          style={styles.accordionBtn}
+          onPress={() => setLanguagePickerOpen(true)}
+        >
+          <Text style={styles.accordionText}>
+            {t('debug.uiLanguageLabel')}: {t(`ally.lang.${language}`)}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
           Data Inspector
         </Text>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
@@ -1210,6 +1240,31 @@ export function DebugScreen() {
               `${t('debug.syncPurgeLastTransit')}: ${lastTransitPurgeMs != null ? new Date(lastTransitPurgeMs).toISOString() : t('debug.syncPurgeNever')}`,
             ].join('\n')}
       </Text>
+
+      <Modal
+        visible={languagePickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLanguagePickerOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t('debug.uiLanguageLabel')}</Text>
+            {uiLanguageOptions.map((lang) => (
+              <Pressable
+                key={lang.id}
+                style={[styles.modalBtn, lang.id === language ? styles.modalSave : styles.modalCancel]}
+                onPress={() => {
+                  void setLanguage(lang.id);
+                  setLanguagePickerOpen(false);
+                }}
+              >
+                <Text style={lang.id === language ? styles.modalSaveText : styles.modalCancelText}>{lang.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={Boolean(projectPlanPreview)}
@@ -1492,4 +1547,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 13,
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1f2937', marginBottom: 10 },
+  modalBtn: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalSave: { backgroundColor: '#0f766e', borderColor: '#0f766e' },
+  modalCancel: { backgroundColor: '#e5e7eb' },
+  modalCancelText: { color: '#111827', fontWeight: '700' },
+  modalSaveText: { color: '#fff', fontWeight: '700' },
 });

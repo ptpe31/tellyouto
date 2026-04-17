@@ -284,14 +284,14 @@ export function MeliMeloScreen() {
         category_id: nextCategory,
         is_organized: 1,
       });
-      setHybridToast(`Classé dans : ${nextCategory}`);
+      setHybridToast(t('sorting.classifiedIn', { category: nextCategory }));
       setTimeout(() => setHybridToast(''), 1600);
     } else {
       await updateTrankilV2IntentionQuick(editing.id, {
         title: nextTitle,
         category_id: null,
       });
-      setHybridToast('Ajouté au Vrac');
+      setHybridToast(t('sorting.addedToPile'));
       setTimeout(() => setHybridToast(''), 1600);
     }
     setEditing(null);
@@ -311,7 +311,7 @@ export function MeliMeloScreen() {
       const expert = await askGeminiExpert(prompt || item.title || 'Intention à clarifier');
       const first = expert.find((row) => row.type === 'PROJECT' || row.type === 'TASK' || row.type === 'HABIT');
       if (!first) {
-        setHybridToast('Ajouté au Vrac');
+        setHybridToast(t('sorting.addedToPile'));
         setTimeout(() => setHybridToast(''), 1600);
         return;
       }
@@ -324,11 +324,11 @@ export function MeliMeloScreen() {
         category_id: category,
         is_organized: 1,
       });
-      setHybridToast(`Classé dans : ${category}`);
+      setHybridToast(t('sorting.classifiedIn', { category }));
       setTimeout(() => setHybridToast(''), 1600);
       await reload();
     },
-    [remainingCredits, reload],
+    [remainingCredits, reload, t],
   );
 
   useEffect(() => {
@@ -346,7 +346,11 @@ export function MeliMeloScreen() {
               category_id: item.category_id?.trim().toLowerCase() || null,
             });
             sortedCount += 1;
-            setHybridToast(`Classé dans : ${item.category_id?.trim() || STRINGS.TAG_KEYS.PROJETS}`);
+            setHybridToast(
+              t('sorting.classifiedIn', {
+                category: item.category_id?.trim() || STRINGS.TAG_KEYS.PROJETS,
+              }),
+            );
             continue;
           }
           const geminiMeta = extractGeminiClassification(item);
@@ -359,7 +363,7 @@ export function MeliMeloScreen() {
               is_local_processed: geminiMeta.isLocalProcessed,
             });
             sortedCount += 1;
-            setHybridToast(`Classé dans : ${geminiMeta.category}`);
+            setHybridToast(t('sorting.classifiedIn', { category: geminiMeta.category }));
             continue;
           }
           const localClass = await classifyWithLocalAi(item);
@@ -372,14 +376,14 @@ export function MeliMeloScreen() {
               is_local_processed: localClass.isLocalProcessed,
             });
             sortedCount += 1;
-            setHybridToast(`Classé dans : ${localClass.category}`);
+            setHybridToast(t('sorting.classifiedIn', { category: localClass.category }));
             continue;
           }
           ambiguousCount += 1;
         }
         if (sortedCount > 0 || ambiguousCount > 0) {
           if (ambiguousCount > 0) {
-            setHybridToast('Ajouté au Vrac');
+            setHybridToast(t('sorting.addedToPile'));
           }
           setTimeout(() => setHybridToast(''), 1600);
           await reload();
@@ -388,7 +392,7 @@ export function MeliMeloScreen() {
         autoSortRunningRef.current = false;
       }
     })();
-  }, [isSorting, items, reload]);
+  }, [isSorting, items, reload, t]);
 
   const runMagicSort = useCallback(async () => {
     if (items.length === 0) return;
@@ -422,7 +426,7 @@ export function MeliMeloScreen() {
         }
 
         const prompt = [item.title, item.content_raw].filter(Boolean).join('\n').trim();
-        const expert = await askGeminiExpert(prompt || 'Intention à clarifier');
+        const expert = await askGeminiExpert(prompt || t('sorting.intentToClarify'));
         const first = expert[0];
 
         if (!first) {
@@ -436,7 +440,7 @@ export function MeliMeloScreen() {
           title: first.title?.trim() || item.title,
           category_id: nextCategory,
         });
-        setHybridToast(`Classé dans : ${nextCategory}`);
+        setHybridToast(t('sorting.classifiedIn', { category: nextCategory }));
       }
 
       await reload();
@@ -448,7 +452,7 @@ export function MeliMeloScreen() {
       flyAnim.setValue(0);
       setIsSorting(false);
     }
-  }, [items, remainingCredits, flyAnim, reload]);
+  }, [items, remainingCredits, flyAnim, reload, t]);
 
   const focusItems = useMemo(
     () => organizedItems.filter((it) => matchesCircle(it, selectedCircle)),
@@ -792,7 +796,7 @@ export function MeliMeloScreen() {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Action Méli-Mélo</Text>
+            <Text style={styles.modalTitle}>{t('sorting.actionTitle')}</Text>
             <Text style={styles.cardMeta}>
               {activeVracItem?.title || ''}
             </Text>
@@ -805,7 +809,7 @@ export function MeliMeloScreen() {
                   setActiveVracItem(null);
                 }}
               >
-                <Text style={styles.modalCancelText}>Ranger manuellement (gratuit)</Text>
+                <Text style={styles.modalCancelText}>{t('sorting.manualSortFree')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.modalBtn, styles.modalSave]}
@@ -816,7 +820,7 @@ export function MeliMeloScreen() {
                   void runAiSortForItem(target);
                 }}
               >
-                <Text style={styles.modalSaveText}>Ranger avec l'IA (1 crédit)</Text>
+                <Text style={styles.modalSaveText}>{t('sorting.aiSortPaid')}</Text>
               </Pressable>
             </View>
           </View>

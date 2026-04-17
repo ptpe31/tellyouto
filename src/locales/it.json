@@ -250,7 +250,11 @@
     "alarmBellA11y": "Sveglia attiva per questa finestra",
     "hardRoutineLockA11y": "Routine strutturale — slot bloccato",
     "microFragment": "Frammento {{current}} / {{total}}",
-    "microDuration": "~ 2 min · micro-abitudine"
+    "microDuration": "~ 2 min · micro-abitudine",
+    "todoFilter": "Da fare",
+    "doneFilter": "Fatto",
+    "noItems": "Nessun elemento",
+    "noContentForDate": "Nessun contenuto per questa data"
   },
   "focusMode": {
     "title": "Modalità sessione",
@@ -619,7 +623,13 @@
     "errorTitle": "Sorting stumbled",
     "orphanGroup": "Misc",
     "pileCount": "{{count}} note(s)",
-    "dismiss": "Continue"
+    "dismiss": "Continue",
+    "classifiedIn": "Classificato in: {{category}}",
+    "addedToPile": "Aggiunto al Vrac",
+    "intentToClarify": "Intenzione da chiarire",
+    "actionTitle": "Azione Meli-Melo",
+    "manualSortFree": "Ordina manualmente (gratis)",
+    "aiSortPaid": "Ordina con IA (1 credito)"
   },
   "economy": {
     "labels": {
@@ -832,6 +842,13 @@
     "synthLocalOnlyLine": "[LOCAL AI] only: {{kind}} — frequency: {{freq}}",
     "synthAligned": "Types aligned: {{localLabel}} = Gemini \"{{geminiType}}\".\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}",
     "synthMismatch": "Mismatch: [LOCAL AI] said « {{localLabel}} », [GEMINI FLASH] said « {{geminiType}} ».\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}\nComplex project (Gemini): {{complex}}\nWhy (Gemini): {{reasoning}}"
+  },
+  "talkDebug": {
+    "noteSaved": "Nota salvata",
+    "audioTitle": "Memo audio",
+    "audioMissing": "Nessun file audio rilevato.",
+    "audioSaved": "Memo audio salvato",
+    "actionSuccess": "Azione completata con successo."
   },
   "navigation": {
     "semanticBrainLabHeader": "Semantic Brain Lab"

@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { CalendarDays } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,29 +45,30 @@ function buildDateStrip(center: Date, total: number = 15): Date[] {
 }
 
 function sectionTitle(section: TrankilV2TimelineItemRow['section']): string {
-  if (section === 'TASK_HABIT') return 'Taches & Habitudes';
-  if (section === 'PROJECT_SUBTASK') return 'Sous-taches de Projets';
-  return 'Notes & Audios';
+  if (section === 'TASK_HABIT') return 'timeline.sectionTaskHabit';
+  if (section === 'PROJECT_SUBTASK') return 'timeline.sectionProjectSubtasks';
+  return 'timeline.sectionNoteAudio';
 }
 
 function resolveDisplayTitle(row: TrankilV2TimelineItemRow): string {
   const base = String(row.display_title || '').trim();
   if (base) return base;
   if (row.type === 'NOTE' || row.type === 'AUDIO') {
-    return generateSmartTitle(row.content_raw || '') || (row.type === 'AUDIO' ? 'Memo audio' : 'Note');
+    return generateSmartTitle(row.content_raw || '') || (row.type === 'AUDIO' ? 'timeline.memoAudio' : 'timeline.note');
   }
-  return 'Sans titre';
+  return 'timeline.untitled';
 }
 
 function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
-  if (type === 'AUDIO') return '🎙️ AUDIO';
-  if (type === 'NOTE') return '📝 NOTE';
-  if (type === 'HABIT') return '🔄 HABITUDE';
-  if (type === 'TASK') return '⚡ TACHE';
-  return '🚀 PROJET';
+  if (type === 'AUDIO') return 'timeline.badgeAudio';
+  if (type === 'NOTE') return 'timeline.badgeNote';
+  if (type === 'HABIT') return 'timeline.badgeHabit';
+  if (type === 'TASK') return 'timeline.badgeTask';
+  return 'timeline.badgeProject';
 }
 
 export function TimelineScreen() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -135,7 +137,7 @@ export function TimelineScreen() {
           <View style={styles.header}>
             <View style={styles.headTitleRow}>
               <CalendarDays color={theme.colors.primary} size={20} />
-              <Text style={[styles.title, { color: theme.colors.onBackground }]}>Timeline</Text>
+              <Text style={[styles.title, { color: theme.colors.onBackground }]}>{t('tabs.timeline')}</Text>
             </View>
 
             <FlatList
@@ -178,19 +180,19 @@ export function TimelineScreen() {
                 style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
                 onPress={() => onQuickSelect('TODAY')}
               >
-                <Text style={{ color: theme.colors.onSurface }}>Aujourd'hui</Text>
+                <Text style={{ color: theme.colors.onSurface }}>{t('horizons.today')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
                 onPress={() => onQuickSelect('TOMORROW')}
               >
-                <Text style={{ color: theme.colors.onSurface }}>Demain</Text>
+                <Text style={{ color: theme.colors.onSurface }}>{t('horizons.tomorrow')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
                 onPress={() => onQuickSelect('WEEK')}
               >
-                <Text style={{ color: theme.colors.onSurface }}>Cette semaine</Text>
+                <Text style={{ color: theme.colors.onSurface }}>{t('horizons.thisWeek')}</Text>
               </Pressable>
             </View>
 
@@ -211,7 +213,7 @@ export function TimelineScreen() {
                     fontWeight: '600',
                   }}
                 >
-                  A faire
+                  {t('timeline.todoFilter')}
                 </Text>
               </Pressable>
               <Pressable
@@ -230,7 +232,7 @@ export function TimelineScreen() {
                     fontWeight: '600',
                   }}
                 >
-                  Fait
+                  {t('timeline.doneFilter')}
                 </Text>
               </Pressable>
             </View>
@@ -239,10 +241,10 @@ export function TimelineScreen() {
         renderItem={({ item }) => (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
-              {sectionTitle(item.key)}
+              {t(sectionTitle(item.key))}
             </Text>
             {item.rows.length === 0 ? (
-              <Text style={{ color: theme.colors.onSurfaceVariant }}>Aucun element</Text>
+              <Text style={{ color: theme.colors.onSurfaceVariant }}>{t('timeline.noItems')}</Text>
             ) : (
               item.rows.map((row) => (
                 <View
@@ -256,12 +258,12 @@ export function TimelineScreen() {
                   ]}
                 >
                   <Text style={[styles.cardTitle, { color: theme.colors.onSurface }]}>
-                    {resolveDisplayTitle(row)}
+                    {t(resolveDisplayTitle(row))}
                   </Text>
                   <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
-                    {typeBadge(row.type)}
+                    {t(typeBadge(row.type))}
                     {row.section === 'PROJECT_SUBTASK' && row.project_title
-                      ? ` • Projet: ${row.project_title}`
+                      ? ` • ${t('timeline.projectPrefix')}: ${row.project_title}`
                       : ''}
                   </Text>
                 </View>
@@ -272,7 +274,7 @@ export function TimelineScreen() {
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <Text style={{ color: theme.colors.onSurfaceVariant }}>
-              {loading ? 'Chargement...' : 'Aucun contenu pour cette date'}
+              {loading ? t('stats.loading') : t('timeline.noContentForDate')}
             </Text>
           </View>
         }
