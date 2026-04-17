@@ -13,6 +13,7 @@ import {
 } from 'expo-speech-recognition';
 import { Bell, Check, Lock, Mic, Pencil, UserCircle2, Waves, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AdCompanionBanner } from '../components/AdCompanionBanner';
 import { RewardToast } from '../components/RewardToast';
 import {
   ActivityIndicator,
@@ -347,6 +348,7 @@ export function TalkHomeScreen() {
   const [remainingIntents, setRemainingIntents] = useState(10);
   const [microToast, setMicroToast] = useState('');
   const [rewardToast, setRewardToast] = useState('');
+  const [adCompanionActive, setAdCompanionActive] = useState(false);
   const [growthScore, setGrowthScore] = useState(0);
   const [flowerPulseKey, setFlowerPulseKey] = useState(0);
   const [flowerNeedsAttention, setFlowerNeedsAttention] = useState(false);
@@ -499,6 +501,7 @@ export function TalkHomeScreen() {
           text: t('economy.recharge.watchVideoCta'),
           onPress: () => {
             void (async () => {
+              if (!spectrum.isProUser) setAdCompanionActive(true);
               setIsBusy(true);
               try {
                 const res = await runManualIaRechargeVideo();
@@ -516,6 +519,7 @@ export function TalkHomeScreen() {
                 setMicroToast(t('economy.recharge.rewardToast'));
                 await refreshRemainingIntents();
               } finally {
+                setAdCompanionActive(false);
                 setIsBusy(false);
               }
             })();
@@ -523,7 +527,7 @@ export function TalkHomeScreen() {
         },
       ],
     );
-  }, [refreshRemainingIntents, t]);
+  }, [refreshRemainingIntents, spectrum.isProUser, t]);
 
   useEffect(() => {
     void refreshRemainingIntents();
@@ -2574,6 +2578,7 @@ export function TalkHomeScreen() {
           </View>
         </View>
       </Modal>
+      <AdCompanionBanner active={adCompanionActive} isProUser={spectrum.isProUser} />
     </View>
   );
 }

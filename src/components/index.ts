@@ -20,3 +20,4 @@ export { TimeIndicator } from './TimeIndicator';
 export { StartupPerfBanner } from './StartupPerfBanner';
 export { LifeFlower } from './LifeFlower';
 export { RewardToast } from './RewardToast';
+export { AdCompanionBanner } from './AdCompanionBanner';

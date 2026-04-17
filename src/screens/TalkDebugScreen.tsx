@@ -38,6 +38,7 @@ import {
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
+import { AdCompanionBanner } from '../components/AdCompanionBanner';
 import { UpsellModal } from '../components/UpsellModal';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import {
@@ -116,6 +117,7 @@ export function TalkDebugScreen() {
   const [deadlineError, setDeadlineError] = useState('');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [upsellVisible, setUpsellVisible] = useState(false);
+  const [adCompanionActive, setAdCompanionActive] = useState(false);
   const [upsellBusy, setUpsellBusy] = useState(false);
   const [autoArchiveAfterCalendarSync, setAutoArchiveAfterCalendarSync] = useState(false);
   const [calendarOptions, setCalendarOptions] = useState<WritableDeviceCalendar[]>([]);
@@ -965,6 +967,7 @@ export function TalkDebugScreen() {
   const onUpsellWatchVideo = useCallback(() => {
     void (async () => {
       setUpsellBusy(true);
+      if (!spectrum.isProUser) setAdCompanionActive(true);
       try {
         const recharge = await runManualIaRechargeVideo();
         if (!recharge.ok) {
@@ -981,10 +984,11 @@ export function TalkDebugScreen() {
         await refreshCredits();
         Alert.alert(t('economy.recharge.modalTitle'), t('economy.recharge.rewardToast'));
       } finally {
+        setAdCompanionActive(false);
         setUpsellBusy(false);
       }
     })();
-  }, [refreshCredits, t]);
+  }, [refreshCredits, spectrum.isProUser, t]);
 
   const onUpsellGoUnlimited = useCallback(() => {
     setUpsellVisible(false);
@@ -1488,6 +1492,7 @@ export function TalkDebugScreen() {
           </View>
         </View>
       ) : null}
+      <AdCompanionBanner active={adCompanionActive} isProUser={spectrum.isProUser} />
     </View>
   );
 }
