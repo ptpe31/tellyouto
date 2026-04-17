@@ -28,6 +28,15 @@ export function addDaysYmd(base: Date, days: number): string {
   return formatYmdLocal(next);
 }
 
+export function computeDueDateForHorizon(
+  horizon: TimeHorizonKey,
+  now: Date = new Date(),
+): string | null {
+  if (horizon === 'TODAY') return formatYmdLocal(now);
+  if (horizon === 'TOMORROW') return addDaysYmd(now, 1);
+  return null;
+}
+
 function isYmd(raw: string | null | undefined): raw is string {
   if (typeof raw !== 'string') return false;
   const value = raw.trim();

@@ -26,12 +26,18 @@ import {
 } from '../api/localDb';
 import {
   consumeTrankilV2IntentCredit,
+  consumeIaCredits,
   getTrankilV2UserStats,
   insertTrankilV2Intention,
 } from '../api/trankilV2Db';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
-import { atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
+import {
+  atomizeProject,
+  extractHabitRecurrence,
+  type GeminiExpertIntention,
+  type GeminiHabitRecurrence,
+} from '../services/GeminiExpert';
 import { runIntentOrchestration } from '../services/IntentOrchestrator';
 import { createLocalTemporalIntention } from '../services/localTemporalIntention';
 import {
@@ -40,7 +46,7 @@ import {
   formatDueDateShort,
   persistGeminiExpertRows,
 } from '../services/ProjectPlanFlowService';
-import { generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
+import { cleanTranscriptText, generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
 import { formatYmdLocal } from '../services/TimeSorter';
 
 function newId(): string {
@@ -100,11 +106,11 @@ export function TalkDebugScreen() {
   );
 
   useSpeechRecognitionEvent('result', (event) => {
-    const text = event.results?.[0]?.transcript ?? '';
+      const text = event.results?.[0]?.transcript ?? '';
     if (text.trim().length > 0) {
       setRawTranscript(text);
       if (!isTitleLocked && shouldLockSmartTitle(text)) {
-        const smart = generateSmartTitle(text, spectrum.locale);
+        const smart = generateSmartTitle(cleanTranscriptText(text), spectrum.locale);
         if (smart) {
           setLockedTitle(smart);
           setIsTitleLocked(true);
@@ -214,10 +220,11 @@ export function TalkDebugScreen() {
       setIsRecording(false);
       setIsPaused(false);
       setTranscriptDraft(rawTranscript);
+      const cleanedTranscript = cleanTranscriptText(rawTranscript);
       const fallbackTitle =
         (isTitleLocked ? lockedTitle : '') ||
-        generateSmartTitle(rawTranscript, spectrum.locale) ||
-        rawTranscript.trim();
+        generateSmartTitle(cleanedTranscript, spectrum.locale) ||
+        cleanedTranscript.trim();
       setTitleDraft(fallbackTitle);
       setHasManualTitleEdit(false);
       setCaptureStep('deciding');
@@ -298,7 +305,13 @@ export function TalkDebugScreen() {
       }
       setBusy(true);
       try {
-        const finalTranscript = transcriptDraft.trim() || rawTranscript.trim();
+        const finalTranscript = cleanTranscriptText(transcriptDraft.trim() || rawTranscript.trim());
+        const buildHabitMeta = async (): Promise<{ recurrence_rule?: GeminiHabitRecurrence }> => {
+          const recurrence = await extractHabitRecurrence(finalTranscript);
+          if (!recurrence) return {};
+          await consumeIaCredits(0.1);
+          return { recurrence_rule: recurrence };
+        };
         const smartTitle = (
           titleDraft.trim() ||
           (isTitleLocked ? lockedTitle : '') ||
@@ -320,6 +333,7 @@ export function TalkDebugScreen() {
             (orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null) ??
             parseDueDateFromText(finalTranscript);
           const intentType = orchestration.localType === 'HABIT' ? 'HABIT' : 'TASK';
+          const habitMeta = intentType === 'HABIT' ? await buildHabitMeta() : {};
           await createLocalTemporalIntention({
             id: newId(),
             title: smartTitle || (intentType === 'HABIT' ? 'Habitude' : 'Tache rapide'),
@@ -328,8 +342,10 @@ export function TalkDebugScreen() {
             dueDateYmd,
             suggestedTags: orchestration.suggestedTags,
             source: 'talk_debug_local_orchestrator',
+            metadataExtra: habitMeta,
           });
         } else if (action === 'habit') {
+          const habitMeta = await buildHabitMeta();
           await createLocalTemporalIntention({
             id: newId(),
             title: smartTitle || 'Habitude',
@@ -338,6 +354,7 @@ export function TalkDebugScreen() {
             dueDateYmd: null,
             suggestedTags: ['regulier'],
             source: 'talk_debug_habit_local',
+            metadataExtra: habitMeta,
           });
         } else if (action === 'project') {
           // Projet: le titre doit venir du Goal Gemini, pas du smart title local.
@@ -451,7 +468,7 @@ export function TalkDebugScreen() {
     setIsGeneratingPlan(true);
     setDeadlineError('');
     try {
-      const consolidatedPrompt = `Voici mon projet : ${finalTranscript}. Je veux le terminer ${cleanedDeadline}. Genere un plan de taches structure en JSON.`;
+      const consolidatedPrompt = `Voici mon projet : ${cleanTranscriptText(finalTranscript)}. Je veux le terminer ${cleanedDeadline}. Genere un plan de taches structure en JSON.`;
       const expertRows = await atomizeProject(consolidatedPrompt);
       const deadlineYmd = parseDueDateFromText(cleanedDeadline);
       const normalizedRows = expertRows.map((row) => {
@@ -460,10 +477,10 @@ export function TalkDebugScreen() {
           ...row,
           metadata: {
             ...(row.metadata ?? {}),
-            due_date:
-              deadlineYmd ??
-              String((row.metadata as { due_date?: unknown })?.due_date || '').trim() ||
-              null,
+            due_date: (() => {
+              const fallback = String((row.metadata as { due_date?: unknown })?.due_date || '').trim();
+              return deadlineYmd ?? (fallback || null);
+            })(),
           },
         };
       });

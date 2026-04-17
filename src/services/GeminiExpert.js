@@ -440,3 +440,62 @@ ${audioText}`;
   });
   return rows;
 }
+
+function normalizeHabitRecurrence(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const frequency = String(raw.frequency || '')
+    .trim()
+    .toLowerCase();
+  const interval = Number(raw.interval);
+  const dayOfWeek = Number(raw.dayOfWeek);
+  const safeFrequency =
+    frequency === 'daily' || frequency === 'weekly' || frequency === 'monthly' ? frequency : null;
+  if (!safeFrequency) return null;
+  return {
+    frequency: safeFrequency,
+    interval: Number.isFinite(interval) && interval > 0 ? Math.trunc(interval) : 1,
+    dayOfWeek:
+      safeFrequency === 'weekly' && Number.isFinite(dayOfWeek) && dayOfWeek >= 1 && dayOfWeek <= 7
+        ? Math.trunc(dayOfWeek)
+        : undefined,
+  };
+}
+
+export async function extractHabitRecurrence(input) {
+  const safeInput = String(input || '').trim();
+  if (!safeInput) return null;
+  const prompt = `SYSTEM:
+Return ONLY one strict JSON object with this shape:
+{ "frequency": "daily" | "weekly" | "monthly", "dayOfWeek": 1-7, "interval": number }
+
+Rules:
+- No markdown, no explanation, no extra keys.
+- dayOfWeek must be present only when frequency is "weekly" (1=Monday ... 7=Sunday).
+- interval must be >= 1.
+- Infer recurrence from user text.
+
+USER_INPUT:
+${safeInput}`;
+  let generated;
+  try {
+    generated = await generateContentWithFallback(prompt, {
+      temperature: 0.1,
+      maxOutputTokens: 140,
+      responseMimeType: 'application/json',
+    });
+  } catch (error) {
+    log('extractHabitRecurrence.error', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+  const rawText = generated.rawText?.trim();
+  if (!rawText) return null;
+  try {
+    const parsed = JSON.parse(extractJsonBlock(rawText));
+    const normalized = normalizeHabitRecurrence(parsed);
+    return normalized;
+  } catch {
+    return null;
+  }
+}

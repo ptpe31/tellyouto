@@ -1,5 +1,5 @@
 import { insertTrankilV2Intention } from '../api/trankilV2Db';
-import { computeTimeHorizonFromDueDate } from './TimeSorter';
+import { computeDueDateForHorizon, computeTimeHorizonFromDueDate } from './TimeSorter';
 
 export type LocalTemporalType = 'TASK' | 'HABIT' | 'NOTE';
 
@@ -14,6 +14,7 @@ type CreateLocalTemporalIntentionParams = {
   timeMarker?: string;
   isLocalProcessed?: number;
   complexityLevel?: number;
+  metadataExtra?: Record<string, unknown>;
 };
 
 export function mapHorizonToCategoryId(
@@ -32,8 +33,7 @@ export async function createLocalTemporalIntention(
   categoryId: string;
   dueDateYmd: string | null;
 }> {
-  const dueDateYmd = params.dueDateYmd;
-  const hasAlarm = Boolean(dueDateYmd);
+  let dueDateYmd = params.dueDateYmd;
   const floatingCategory = 'sans_pression';
   const suggested = (params.suggestedTags ?? []).map((tag) => String(tag || '').trim()).filter(Boolean);
   const fallbackCategory = suggested[0]?.toLowerCase() || floatingCategory;
@@ -43,6 +43,10 @@ export async function createLocalTemporalIntention(
       : dueDateYmd
         ? mapHorizonToCategoryId(computeTimeHorizonFromDueDate(dueDateYmd))
         : fallbackCategory;
+  if (!dueDateYmd && categoryId === 'demain') {
+    dueDateYmd = computeDueDateForHorizon('TOMORROW');
+  }
+  const hasAlarm = Boolean(dueDateYmd);
 
   await insertTrankilV2Intention({
     id: params.id,
@@ -56,6 +60,7 @@ export async function createLocalTemporalIntention(
         timeMarker: params.timeMarker ?? '',
         has_alarm: hasAlarm,
         due_date: dueDateYmd,
+        ...(params.metadataExtra ?? {}),
       },
       null,
       2,

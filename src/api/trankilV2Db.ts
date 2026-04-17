@@ -534,6 +534,19 @@ export async function consumeTrankilV2IntentCredit(): Promise<TrankilV2UserStats
   };
 }
 
+export async function consumeIaCredits(cost: number): Promise<TrankilV2UserStatsRow> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const current = await getTrankilV2UserStats();
+  const safeCost = Number.isFinite(cost) ? Math.max(0, cost) : 0;
+  const nextRemaining = Math.max(0, Number(current.ia_credits || 0) - safeCost);
+  await db.runAsync(`UPDATE user_stats SET ia_credits = ? WHERE id = 1`, [nextRemaining]);
+  return {
+    ...current,
+    ia_credits: nextRemaining,
+  };
+}
+
 export async function addIaCredits(count: number): Promise<TrankilV2UserStatsRow> {
   await initTrankilV2Schema();
   const db = await getDb();
