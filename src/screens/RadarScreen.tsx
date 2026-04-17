@@ -219,6 +219,17 @@ export function RadarScreen() {
   const [hardBlockingRoutineName, setHardBlockingRoutineName] = useState('');
   const [railSlots, setRailSlots] = useState<TimelineSlot[]>([]);
 
+  const logQuickTask = useCallback((step: string, extra?: Record<string, unknown>) => {
+    try {
+      console.log('[Radar][QuickTask]', step, {
+        ts: new Date().toISOString(),
+        ...extra,
+      });
+    } catch {
+      // Never break creation flow for debug traces.
+    }
+  }, []);
+
   const load = useCallback(async () => {
     const list = await listIntentionsDescending();
     setRows(list.filter((r) => r.status !== 'done'));
@@ -353,6 +364,15 @@ export function RadarScreen() {
       now,
     };
     const uid = spectrum.platform_user_id?.trim() || '';
+    logQuickTask('onAdd:start', {
+      titleLength: trimmedTitle.length,
+      hasDescription: desc.length > 0,
+      userForcedUrgent,
+      alarmPref,
+      effectiveFlexible,
+      interactionLanguage,
+      uidPresent: uid.length > 0,
+    });
 
     const pending = (await listIntentionsDescending()).filter(
       (r) => r.status !== 'done',
@@ -368,6 +388,10 @@ export function RadarScreen() {
       uid,
       timeExtractOpts,
     );
+    logQuickTask('onAdd:overlap_checked', {
+      overlaps: overlap.overlaps,
+      blockingTitle: overlap.blockingTitle ?? null,
+    });
     if (overlap.overlaps) {
       setDialogOpen(false);
       setHardBlockingRoutineName(overlap.blockingTitle ?? '—');
@@ -378,6 +402,7 @@ export function RadarScreen() {
     setIsSaving(true);
     try {
       const persistToLocalDb = async () => {
+        logQuickTask('persist:start');
         const {
           priority,
           isLateNight: is_late_night,
@@ -387,11 +412,17 @@ export function RadarScreen() {
           systemLocale,
           aiLanguage: interactionLanguage,
         });
+        logQuickTask('persist:semantics_ready', {
+          priority,
+          is_late_night,
+          isHardConstraint,
+        });
         const estimated_duration = estimateDurationMinutes(
           trimmedTitle,
           desc,
           spectrum,
         );
+        logQuickTask('persist:duration_estimated', { estimated_duration });
 
         const insertRadarPendingIntention = async () => {
           const id = newRadarEntityId();
@@ -440,6 +471,11 @@ export function RadarScreen() {
             sentiment_score: null,
             ping_history: [],
           };
+          logQuickTask('persist:candidate_built', {
+            id,
+            type: candidate.type,
+            fixed_start_minutes: candidate.fixed_start_minutes,
+          });
           const { anchor_date_ymd, fixed_start_minutes } =
             computeRailAnchorAndFixedStartForNewIntention({
               pendingOthers: pending,
@@ -450,6 +486,11 @@ export function RadarScreen() {
               systemLocale,
               aiLanguage: interactionLanguage,
             });
+          logQuickTask('persist:anchor_computed', {
+            id,
+            anchor_date_ymd,
+            fixed_start_minutes,
+          });
           await insertIntention({
             id,
             title: trimmedTitle,
@@ -470,6 +511,7 @@ export function RadarScreen() {
             anchor_date_ymd,
             fixed_start_minutes,
           });
+          logQuickTask('persist:intention_inserted', { id });
         };
 
         if (isHardConstraint) {
@@ -482,6 +524,12 @@ export function RadarScreen() {
           );
           if (plan) {
             const routineId = newRadarEntityId();
+            logQuickTask('persist:routine_plan', {
+              routineId,
+              weekday: plan.weekday,
+              start_minutes: plan.startMinutes,
+              duration_min: plan.durationMin,
+            });
             await insertRoutine({
               id: routineId,
               title: trimmedTitle,
@@ -500,13 +548,17 @@ export function RadarScreen() {
               platform_user_id: uid,
               created_at: Date.now(),
             });
+            logQuickTask('persist:routine_inserted', { routineId });
             await ensureRoutineIntentionInstancesForHorizon(routineId, uid);
+            logQuickTask('persist:routine_instances_synced', { routineId });
           } else {
+            logQuickTask('persist:routine_fallback_intention');
             await insertRadarPendingIntention();
           }
         } else {
           await insertRadarPendingIntention();
         }
+        logQuickTask('persist:done');
       };
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -521,6 +573,7 @@ export function RadarScreen() {
           );
         }),
       ]);
+      logQuickTask('onAdd:db_persist_success');
 
       setTitle('');
       setDescription('');
@@ -529,10 +582,17 @@ export function RadarScreen() {
       setAlarm(false);
       setDialogOpen(false);
       await load();
+      logQuickTask('onAdd:load_success');
       void syncPendingIntentions();
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      logQuickTask('onAdd:done');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
+      logQuickTask('onAdd:error', {
+        message: msg,
+        errorType: e instanceof Error ? e.name : typeof e,
+        stack: e instanceof Error ? e.stack : undefined,
+      });
       if (isLikelyMissingNativeModuleError(e)) {
         alertNativeModuleMissing('nativeModule.contextRadarSave', e);
       } else if (msg === 'RADAR_SAVE_DB_TIMEOUT') {
@@ -556,6 +616,7 @@ export function RadarScreen() {
     load,
     t,
     interactionLanguage,
+    logQuickTask,
   ]);
 
   const renderItem = ({

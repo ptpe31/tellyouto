@@ -28,6 +28,10 @@ export type TrankilV2UserStatsRow = {
   local_action_streak: number;
   ad_last_reward_at: number | null;
   ad_videos_watched: number;
+  pending_sync_ia_credits: number;
+  recharge_window_started_at: number | null;
+  recharge_videos_in_window: number;
+  recharge_last_video_at: number | null;
 };
 
 export type EmergencyLogRow = {
@@ -91,11 +95,15 @@ export async function initTrankilV2Schema(): Promise<void> {
       zen_points INTEGER NOT NULL DEFAULT 0,
       local_action_streak INTEGER NOT NULL DEFAULT 0,
       ad_last_reward_at INTEGER,
-      ad_videos_watched INTEGER NOT NULL DEFAULT 0
+      ad_videos_watched INTEGER NOT NULL DEFAULT 0,
+      pending_sync_ia_credits INTEGER NOT NULL DEFAULT 0,
+      recharge_window_started_at INTEGER,
+      recharge_videos_in_window INTEGER NOT NULL DEFAULT 0,
+      recharge_last_video_at INTEGER
     );
 
-    INSERT OR IGNORE INTO user_stats (id, ia_credits, zen_points, local_action_streak, ad_last_reward_at, ad_videos_watched)
-    VALUES (1, 10, 0, 0, NULL, 0);
+    INSERT OR IGNORE INTO user_stats (id, ia_credits, zen_points, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at)
+    VALUES (1, 10, 0, 0, NULL, 0, 0, NULL, 0, NULL);
 
     CREATE TABLE IF NOT EXISTS bonus_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,6 +190,26 @@ export async function initTrankilV2Schema(): Promise<void> {
   if (!hasAdVideosWatched) {
     await db.execAsync(`ALTER TABLE user_stats ADD COLUMN ad_videos_watched INTEGER NOT NULL DEFAULT 0;`);
   }
+  const hasPendingSyncCredits = userStatsCols.some((c) => c.name === 'pending_sync_ia_credits');
+  if (!hasPendingSyncCredits) {
+    await db.execAsync(
+      `ALTER TABLE user_stats ADD COLUMN pending_sync_ia_credits INTEGER NOT NULL DEFAULT 0;`,
+    );
+  }
+  const hasRechargeWindowStart = userStatsCols.some((c) => c.name === 'recharge_window_started_at');
+  if (!hasRechargeWindowStart) {
+    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN recharge_window_started_at INTEGER;`);
+  }
+  const hasRechargeVideosInWindow = userStatsCols.some((c) => c.name === 'recharge_videos_in_window');
+  if (!hasRechargeVideosInWindow) {
+    await db.execAsync(
+      `ALTER TABLE user_stats ADD COLUMN recharge_videos_in_window INTEGER NOT NULL DEFAULT 0;`,
+    );
+  }
+  const hasRechargeLastVideoAt = userStatsCols.some((c) => c.name === 'recharge_last_video_at');
+  if (!hasRechargeLastVideoAt) {
+    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN recharge_last_video_at INTEGER;`);
+  }
   await db.execAsync(`UPDATE user_stats SET growth_score = COALESCE(growth_score, zen_points, 0) WHERE id = 1;`);
   await db.execAsync(`UPDATE user_stats SET zen_points = growth_score WHERE id = 1;`);
   const mustCompactUserStats =
@@ -198,10 +226,14 @@ export async function initTrankilV2Schema(): Promise<void> {
         growth_score INTEGER NOT NULL DEFAULT 0,
         local_action_streak INTEGER NOT NULL DEFAULT 0,
         ad_last_reward_at INTEGER,
-        ad_videos_watched INTEGER NOT NULL DEFAULT 0
+        ad_videos_watched INTEGER NOT NULL DEFAULT 0,
+        pending_sync_ia_credits INTEGER NOT NULL DEFAULT 0,
+        recharge_window_started_at INTEGER,
+        recharge_videos_in_window INTEGER NOT NULL DEFAULT 0,
+        recharge_last_video_at INTEGER
       );
       INSERT OR REPLACE INTO user_stats_compact (
-        id, ia_credits, zen_points, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched
+        id, ia_credits, zen_points, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at
       )
       SELECT
         1,
@@ -210,7 +242,11 @@ export async function initTrankilV2Schema(): Promise<void> {
         COALESCE(growth_score, zen_points, 0),
         COALESCE(local_action_streak, 0),
         ad_last_reward_at,
-        COALESCE(ad_videos_watched, 0)
+        COALESCE(ad_videos_watched, 0),
+        0,
+        NULL,
+        0,
+        NULL
       FROM user_stats
       WHERE id = 1;
       DROP TABLE user_stats;
@@ -295,7 +331,7 @@ export async function getTrankilV2UserStats(): Promise<TrankilV2UserStatsRow> {
   await initTrankilV2Schema();
   const db = await getDb();
   const row = await db.getFirstAsync<TrankilV2UserStatsRow>(
-    `SELECT ia_credits, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched FROM user_stats WHERE id = 1`,
+    `SELECT ia_credits, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at FROM user_stats WHERE id = 1`,
   );
   return (
     row ?? {
@@ -305,6 +341,10 @@ export async function getTrankilV2UserStats(): Promise<TrankilV2UserStatsRow> {
       local_action_streak: 0,
       ad_last_reward_at: null,
       ad_videos_watched: 0,
+      pending_sync_ia_credits: 0,
+      recharge_window_started_at: null,
+      recharge_videos_in_window: 0,
+      recharge_last_video_at: null,
     }
   );
 }
@@ -357,6 +397,49 @@ export async function addIaCredits(count: number): Promise<TrankilV2UserStatsRow
     ...current,
     ia_credits: next,
   };
+}
+
+export async function markIaRechargeWatch(nowMs: number = Date.now()): Promise<TrankilV2UserStatsRow> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const stats = await getTrankilV2UserStats();
+  const windowStart = stats.recharge_window_started_at ?? nowMs;
+  const windowExpired = nowMs - windowStart >= 24 * 60 * 60 * 1000;
+  const nextWindowStart = windowExpired ? nowMs : windowStart;
+  const nextCount = windowExpired ? 1 : stats.recharge_videos_in_window + 1;
+  await db.runAsync(
+    `UPDATE user_stats
+      SET recharge_window_started_at = ?,
+          recharge_videos_in_window = ?,
+          recharge_last_video_at = ?
+      WHERE id = 1`,
+    [nextWindowStart, nextCount, nowMs],
+  );
+  return {
+    ...stats,
+    recharge_window_started_at: nextWindowStart,
+    recharge_videos_in_window: nextCount,
+    recharge_last_video_at: nowMs,
+  };
+}
+
+export async function setPendingIaCreditSync(count: number): Promise<TrankilV2UserStatsRow> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const stats = await getTrankilV2UserStats();
+  const next = Math.max(0, Math.round(count));
+  await db.runAsync(`UPDATE user_stats SET pending_sync_ia_credits = ? WHERE id = 1`, [next]);
+  return { ...stats, pending_sync_ia_credits: next };
+}
+
+export async function addPendingIaCreditSync(delta: number): Promise<TrankilV2UserStatsRow> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const stats = await getTrankilV2UserStats();
+  const safe = Number.isFinite(delta) ? Math.round(delta) : 0;
+  const next = Math.max(0, stats.pending_sync_ia_credits + safe);
+  await db.runAsync(`UPDATE user_stats SET pending_sync_ia_credits = ? WHERE id = 1`, [next]);
+  return { ...stats, pending_sync_ia_credits: next };
 }
 
 export async function addRemainingIntents(count: number): Promise<TrankilV2UserStatsRow> {

@@ -75,12 +75,13 @@ async function pushIntentionToFirestore(
 /**
  * Envoie les intentions locales non synchronisées vers Firestore.
  */
-export async function syncPendingIntentions(): Promise<void> {
+export async function syncPendingIntentions(): Promise<{ ok: boolean; failedCount: number }> {
   const firestore = getFirestoreDb();
-  if (!firestore) return;
+  if (!firestore) return { ok: false, failedCount: 1 };
 
   const deviceId = await getOrCreateDeviceId();
   const pending = await listUnsyncedIntentions();
+  let failedCount = 0;
 
   for (const row of pending) {
     try {
@@ -113,8 +114,10 @@ export async function syncPendingIntentions(): Promise<void> {
       }
     } catch {
       /* réseau ou règles Firestore — retry au prochain online */
+      failedCount += 1;
     }
   }
+  return { ok: failedCount === 0, failedCount };
 }
 
 /**
