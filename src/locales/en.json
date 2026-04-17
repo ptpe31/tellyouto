@@ -11,9 +11,8 @@
     "webNoShake": "Shake sorting runs on device — open Méli-Mélo on your phone.",
     "empty": "Nothing waiting to sort — your open intentions will appear here.",
     "noCreditTitle": "Project momentum",
-    "noCreditBody": "A quick visit to the Zen Garden refills your Project credits for this magic sort.",
+    "noCreditBody": "A quick recharge refills your Project credits for this magic sort.",
     "noCreditCancel": "OK",
-    "goZenGarden": "Open Zen Garden",
     "noApiKeyTitle": "Gemini key",
     "noApiKeyBody": "Add EXPO_PUBLIC_GEMINI_API_KEY to enable smart sorting.",
     "errorTitle": "Sorting stumbled",
@@ -39,10 +38,6 @@
     "gratitudeLine2": "Every step counts. Your sky opens this evening.",
     "gratitudeLine3": "Your consistency lights your path. Beautiful close."
   },
-  "zenGarden": {
-    "screenTitle": "Zen Dashboard",
-    "whisper": "One gentle move, lasting clarity."
-  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Timeline",
@@ -52,8 +47,7 @@
     "stats": "Stats",
     "debug": "Debug",
     "talkHome": "Talk",
-    "meliMelo": "Méli-Mélo",
-    "zenGarden": "Garden"
+    "meliMelo": "Méli-Mélo"
   },
   "messaging": {
     "lead": "TellYouTo deep links — open the app on Radar, Timeline, or Recharge.",
@@ -921,6 +915,93 @@
     "previewPlanSubtitle": "Credit is charged on Validate Plan, not on preview.",
     "exportToAgenda": "📅 EXPORT TO CALENDAR",
     "anchorProject": "✅ ANCHOR PROJECT"
+  },
+  "profiling": {
+    "kindness": {
+      "defaultName": "you",
+      "1": {
+        "insight": [
+          "Your mind is full of ideas right now, {{name}}.",
+          "Your imagination feels very active today, {{name}}.",
+          "Many meaningful projects are alive in your head, {{name}}."
+        ],
+        "action_tip": [
+          "What if you picked just one tiny brick to start?",
+          "Take one action, even very small, to clear your mind.",
+          "Breathe. Clarity grows when you do one thing at a time."
+        ]
+      },
+      "2": {
+        "insight": [
+          "Your rhythm looks quieter these days, {{name}}.",
+          "This feels like a temporary disconnect phase, {{name}}.",
+          "Your engine is idling a bit right now, {{name}}."
+        ],
+        "action_tip": [
+          "Come back with one 2-minute micro-action.",
+          "Choose one simple move now to restart momentum.",
+          "One small check-in today is enough to get back on track."
+        ]
+      },
+      "3": {
+        "insight": [
+          "When you engage, your execution is sharp, {{name}}.",
+          "You convert quickly into results when activated, {{name}}.",
+          "Your efficiency is strong, even with an irregular rhythm, {{name}}."
+        ],
+        "action_tip": [
+          "Add a tiny daily ritual to smooth your pace.",
+          "Lock one recurring short slot to stabilize your rhythm.",
+          "Small consistency beats isolated sprints."
+        ]
+      },
+      "4": {
+        "insight": [
+          "You orchestrate calendar flow very well, {{name}}.",
+          "Your steering is clear: sync, align, move forward, {{name}}.",
+          "You are in a strong coordination posture right now, {{name}}."
+        ],
+        "action_tip": [
+          "Keep one active local intention to stay grounded daily.",
+          "Reserve a short review window to keep full control of flow.",
+          "Keep it simple: one visible priority at a time."
+        ]
+      },
+      "5": {
+        "insight": [
+          "Your action-consistency balance is very solid, {{name}}.",
+          "You are moving with steady clarity, {{name}}.",
+          "Great stability: execution and engagement are aligned, {{name}}."
+        ],
+        "action_tip": [
+          "Keep this cadence with a light weekly review.",
+          "Protect momentum by celebrating one small win each day.",
+          "Preserve your balance with a recurring reset slot."
+        ]
+      }
+    },
+    "profiles": {
+      "1": {
+        "label": "THE DREAMER",
+        "description": "Captures many intentions but executes only a small part."
+      },
+      "2": {
+        "label": "THE DISCONNECTED",
+        "description": "Usage is dropping, with low completion and weak engagement."
+      },
+      "3": {
+        "label": "THE SPRINTER",
+        "description": "High execution power, but still irregular over time."
+      },
+      "4": {
+        "label": "THE CONDUCTOR",
+        "description": "Strong orchestration behavior with a high archive/export ratio."
+      },
+      "5": {
+        "label": "THE ZEN CONSISTENT",
+        "description": "Balanced profile with strong execution and regular engagement."
+      }
+    }
   },
   "horizons": {
     "rearbitrate": "To re-arbitrate",
