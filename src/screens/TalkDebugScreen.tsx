@@ -12,9 +12,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import { Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
+import { Bell, Check, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import {
@@ -29,7 +30,13 @@ import {
 } from '../api/trankilV2Db';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
-import { atomizeProject } from '../services/GeminiExpert';
+import { atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
+import {
+  buildProjectPlanPreview,
+  exportProjectPlanToIcs,
+  formatDueDateShort,
+  persistGeminiExpertRows,
+} from '../services/ProjectPlanFlowService';
 
 function newId(): string {
   try {
@@ -45,8 +52,20 @@ export function TalkDebugScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
+  const [transcriptDraft, setTranscriptDraft] = useState('');
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [deadlineModalVisible, setDeadlineModalVisible] = useState(false);
+  const [deadlineText, setDeadlineText] = useState('');
+  const [deadlineError, setDeadlineError] = useState('');
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [projectPlanPreview, setProjectPlanPreview] = useState<null | {
+    projectTitle: string;
+    rawInput: string;
+    rows: GeminiExpertIntention[];
+    selectedTaskIndexes: number[];
+    taskAlarmIndexes: number[];
+  }>(null);
   const [waveTick, setWaveTick] = useState(0);
   const recRef = useRef<Audio.Recording | null>(null);
   const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -72,7 +91,13 @@ export function TalkDebugScreen() {
     setIsRecording(false);
     setCaptureStep('idle');
     setRawTranscript('');
+    setTranscriptDraft('');
     setAudioUri(null);
+    setDeadlineModalVisible(false);
+    setDeadlineText('');
+    setDeadlineError('');
+    setIsGeneratingPlan(false);
+    setProjectPlanPreview(null);
   }, []);
 
   const startCapture = useCallback(async () => {
@@ -124,9 +149,10 @@ export function TalkDebugScreen() {
       waveformTimer.current = null;
       setIsRecording(false);
       setIsPaused(false);
+      setTranscriptDraft(rawTranscript);
       setCaptureStep('deciding');
     }
-  }, [captureStep, isRecording]);
+  }, [captureStep, isRecording, rawTranscript]);
 
   const cancelCapture = useCallback(async () => {
     try {
@@ -199,16 +225,17 @@ export function TalkDebugScreen() {
       }
       setBusy(true);
       try {
+        const finalTranscript = transcriptDraft.trim() || rawTranscript.trim();
         if (action === 'note') {
-          await saveIntention('note', rawTranscript.trim() || 'Note brute', '');
+          await saveIntention('note', finalTranscript || 'Note brute', '');
         } else if (action === 'task') {
-          await saveIntention('task', rawTranscript.trim() || 'Tache rapide', '');
+          await saveIntention('task', finalTranscript || 'Tache rapide', '');
         } else if (action === 'habit') {
           const routineId = newId();
           const now = new Date();
           await insertRoutine({
             id: routineId,
-            title: rawTranscript.trim() || 'Routine',
+            title: finalTranscript || 'Routine',
             description: '',
             weekday: now.getDay(),
             start_minutes: now.getHours() * 60 + now.getMinutes() + 60,
@@ -259,54 +286,14 @@ export function TalkDebugScreen() {
             );
             return;
           }
-          await consumeTrankilV2IntentCredit();
-          const plan = await atomizeProject(rawTranscript.trim());
-          const parentId = newId();
-          await insertIntention({
-            id: parentId,
-            title: plan.projectTitle?.trim() || 'Projet',
-            description: '',
-            status: 'pending',
-            priority: 80,
-            weights: {
-              structure: spectrum.structure,
-              momentum: spectrum.momentum,
-              zen: spectrum.zen,
-              stats: spectrum.stats,
-            },
-            platform_type: 'none',
-            platform_user_id: spectrum.platform_user_id?.trim() || '',
-            created_at: Date.now(),
-            estimated_duration: 60,
-            raw_transcript: rawTranscript || null,
-            type: 'project',
-          });
-          for (const task of plan.tasks ?? []) {
-            await insertIntention({
-              id: newId(),
-              title: task.t?.trim() || 'Etape',
-              description: '',
-              status: 'pending',
-              priority: 65,
-              weights: {
-                structure: spectrum.structure,
-                momentum: spectrum.momentum,
-                zen: spectrum.zen,
-                stats: spectrum.stats,
-              },
-              platform_type: 'none',
-              platform_user_id: spectrum.platform_user_id?.trim() || '',
-              created_at: Date.now(),
-              estimated_duration: 25,
-              raw_transcript: rawTranscript || null,
-              type: 'task',
-              parent_id: parentId,
-            });
-          }
+          setDeadlineText('');
+          setDeadlineError('');
+          setDeadlineModalVisible(true);
+          return;
         } else if (action === 'audio') {
           await saveIntention(
             'note',
-            rawTranscript.trim() || 'Memo audio',
+            finalTranscript || 'Memo audio',
             audioUri ? `audio://${audioUri}` : '',
           );
         }
@@ -319,8 +306,95 @@ export function TalkDebugScreen() {
         setBusy(false);
       }
     },
-    [audioUri, hardResetToIdle, rawTranscript, saveIntention, spectrum],
+    [audioUri, hardResetToIdle, rawTranscript, saveIntention, spectrum, transcriptDraft],
   );
+
+  const submitProjectGenerationWithDeadline = useCallback(async () => {
+    const finalTranscript = transcriptDraft.trim() || rawTranscript.trim();
+    const cleanedDeadline = deadlineText.trim();
+    if (!finalTranscript || !cleanedDeadline) return;
+    const stats = await getTrankilV2UserStats();
+    if (stats.ia_credits <= 0) {
+      Alert.alert('Credits IA', 'Pas assez de credits IA pour generer un projet.');
+      return;
+    }
+    setIsGeneratingPlan(true);
+    setDeadlineError('');
+    try {
+      const consolidatedPrompt = `Voici mon projet : ${finalTranscript}. Je veux le terminer ${cleanedDeadline}. Genere un plan de taches structure en JSON.`;
+      const expertRows = await atomizeProject(consolidatedPrompt);
+      setDeadlineModalVisible(false);
+      setProjectPlanPreview(buildProjectPlanPreview(finalTranscript, cleanedDeadline, expertRows));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('PLAN_JSON_PARSE_ERROR')) {
+        setDeadlineError('Erreur de lecture du plan. Reessayer ?');
+      } else {
+        Alert.alert('Projet', msg || 'Erreur lors de la generation du plan.');
+      }
+    } finally {
+      setIsGeneratingPlan(false);
+    }
+  }, [deadlineText, rawTranscript, transcriptDraft]);
+
+  const togglePlanTaskAlarm = useCallback((taskIndex: number) => {
+    setProjectPlanPreview((prev) => {
+      if (!prev) return prev;
+      const has = prev.taskAlarmIndexes.includes(taskIndex);
+      return {
+        ...prev,
+        taskAlarmIndexes: has ? prev.taskAlarmIndexes.filter((idx) => idx !== taskIndex) : [...prev.taskAlarmIndexes, taskIndex],
+      };
+    });
+  }, []);
+
+  const togglePlanTaskSelected = useCallback((taskIndex: number) => {
+    setProjectPlanPreview((prev) => {
+      if (!prev) return prev;
+      const has = prev.selectedTaskIndexes.includes(taskIndex);
+      return {
+        ...prev,
+        selectedTaskIndexes: has ? prev.selectedTaskIndexes.filter((idx) => idx !== taskIndex) : [...prev.selectedTaskIndexes, taskIndex],
+      };
+    });
+  }, []);
+
+  const onExportProjectPlanIcs = useCallback(async () => {
+    if (!projectPlanPreview) return;
+    try {
+      await exportProjectPlanToIcs(projectPlanPreview);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert('Export agenda', msg || "Impossible d'exporter le plan.");
+    }
+  }, [projectPlanPreview]);
+
+  const onValidateProjectPlan = useCallback(async () => {
+    if (!projectPlanPreview) return;
+    const stats = await getTrankilV2UserStats();
+    if (stats.ia_credits <= 0) {
+      Alert.alert('Credits IA', 'Pas assez de credits IA pour valider ce plan.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await persistGeminiExpertRows(projectPlanPreview.rawInput, projectPlanPreview.rows, {
+        taskAlarmIndexes: projectPlanPreview.taskAlarmIndexes,
+        selectedTaskIndexes: projectPlanPreview.selectedTaskIndexes,
+        audioUri,
+      });
+      const afterConsume = await consumeTrankilV2IntentCredit();
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      setProjectPlanPreview(null);
+      Alert.alert('Projet', `Projet ancre et enregistre. Credits restants: ${afterConsume.ia_credits}`);
+      hardResetToIdle();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert('Projet', msg || 'Erreur lors de la validation du plan.');
+    } finally {
+      setBusy(false);
+    }
+  }, [audioUri, hardResetToIdle, projectPlanPreview]);
 
   return (
     <View style={styles.root}>
@@ -393,7 +467,14 @@ export function TalkDebugScreen() {
 
       {captureStep === 'deciding' ? (
         <View style={styles.stepDecisionWrap}>
-          <Text style={styles.transcript}>{rawTranscript || '(Transcription vide)'}</Text>
+          <TextInput
+            value={transcriptDraft}
+            onChangeText={setTranscriptDraft}
+            multiline
+            placeholder="(Transcription vide)"
+            placeholderTextColor="#94a3b8"
+            style={styles.decisionInput}
+          />
           <View style={styles.fanMenu}>
             <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('project')} disabled={busy}>
               <Text style={styles.fanBtnText}>🚀 Projet (-1 credit IA)</Text>
@@ -413,6 +494,86 @@ export function TalkDebugScreen() {
           </View>
         </View>
       ) : null}
+
+      {deadlineModalVisible ? (
+        <View style={styles.overlayBackdrop}>
+          <View style={styles.overlayCard}>
+            <Text style={styles.overlayTitle}>C&apos;est pour quand ?</Text>
+            <Text style={styles.overlaySub}>Ajoute une contrainte temporelle pour fiabiliser le plan.</Text>
+            {deadlineError ? <Text style={styles.overlayError}>{deadlineError}</Text> : null}
+            <View style={styles.quickDeadlineRow}>
+              {['Demain', '1 semaine', '1 mois'].map((choice) => (
+                <Pressable key={choice} style={styles.quickDeadlineBtn} onPress={() => setDeadlineText(choice)} disabled={isGeneratingPlan}>
+                  <Text style={styles.quickDeadlineText}>{choice}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={deadlineText}
+              onChangeText={setDeadlineText}
+              placeholder="Ex: dans 2 mois, pour samedi, fin d'annee"
+              placeholderTextColor="#94a3b8"
+              style={styles.deadlineInput}
+            />
+            <View style={styles.overlayActions}>
+              <Pressable style={[styles.overlayActionBtn, styles.cancelBtn]} onPress={() => setDeadlineModalVisible(false)} disabled={isGeneratingPlan}>
+                <Text style={styles.fanBtnText}>❌ ANNULER</Text>
+              </Pressable>
+              <Pressable style={styles.overlayActionBtn} onPress={() => void submitProjectGenerationWithDeadline()} disabled={isGeneratingPlan || !deadlineText.trim()}>
+                <Text style={styles.fanBtnText}>{isGeneratingPlan ? 'Analyse Gemini...' : '✅ GENERER LE PLAN'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {projectPlanPreview ? (
+        <View style={styles.overlayBackdrop}>
+          <View style={styles.planCard}>
+            <Text style={styles.overlayTitle}>Visualiser IA Plan (1 Crédit)</Text>
+            <Text style={styles.overlaySub}>Le crédit est débité au clic sur Valider Plan et non sur la visualisation.</Text>
+            <Text style={styles.planProjectTitle}>{projectPlanPreview.projectTitle || 'Projet'}</Text>
+            <ScrollView style={styles.planScroll} contentContainerStyle={styles.planScrollContent}>
+              {(() => {
+                let taskIdx = -1;
+                return projectPlanPreview.rows
+                  .filter((row) => row.type === 'TASK')
+                  .map((row) => {
+                    taskIdx += 1;
+                    const selected = projectPlanPreview.selectedTaskIndexes.includes(taskIdx);
+                    const enabled = projectPlanPreview.taskAlarmIndexes.includes(taskIdx);
+                    const dueDate = String((row.metadata as { due_date?: unknown })?.due_date || '').trim();
+                    return (
+                      <View key={`${row.title}-${taskIdx}`} style={styles.planTaskRow}>
+                        <Pressable style={styles.planCheckBtn} onPress={() => togglePlanTaskSelected(taskIdx)}>
+                          <Check size={16} color={selected ? '#008080' : 'rgba(44,62,80,0.35)'} />
+                        </Pressable>
+                        <Pressable style={styles.planBellBtn} onPress={() => togglePlanTaskAlarm(taskIdx)}>
+                          <Bell size={20} color={enabled ? '#FF8C00' : 'rgba(44,62,80,0.35)'} />
+                        </Pressable>
+                        <View style={styles.planTaskMain}>
+                          <Text style={[styles.planTaskText, !selected ? styles.planTaskTextMuted : null]}>{row.title}</Text>
+                          <Text style={styles.planTaskDate}>{formatDueDateShort(dueDate)}</Text>
+                        </View>
+                      </View>
+                    );
+                  });
+              })()}
+            </ScrollView>
+            <View style={styles.overlayActions}>
+              <Pressable style={[styles.overlayActionBtn, styles.cancelBtn]} onPress={() => setProjectPlanPreview(null)} disabled={busy}>
+                <Text style={styles.fanBtnText}>❌ ANNULER</Text>
+              </Pressable>
+              <Pressable style={styles.overlayActionBtn} onPress={() => void onExportProjectPlanIcs()} disabled={busy}>
+                <Text style={styles.fanBtnText}>📅 EXPORTER VERS AGENDA</Text>
+              </Pressable>
+              <Pressable style={styles.overlayActionBtn} onPress={() => void onValidateProjectPlan()} disabled={busy}>
+                <Text style={styles.fanBtnText}>✅ ANCRER LE PROJET</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -426,6 +587,19 @@ const styles = StyleSheet.create({
   waveRow: { flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 20 },
   waveBar: { width: 8, backgroundColor: '#22d3ee', borderRadius: 999 },
   transcript: { color: '#cbd5e1', fontSize: 16, textAlign: 'center', paddingHorizontal: 8 },
+  decisionInput: {
+    color: '#e2e8f0',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.35)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 110,
+    maxHeight: 220,
+    textAlignVertical: 'top',
+    backgroundColor: 'rgba(15,23,42,0.45)',
+  },
   liveTranscriptWrap: {
     width: '100%',
     maxHeight: 120,
@@ -502,4 +676,82 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   cancelBtn: { backgroundColor: '#fee2e2' },
+  overlayBackdrop: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 18,
+  },
+  overlayCard: {
+    width: '100%',
+    borderRadius: 14,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.4)',
+    padding: 14,
+    gap: 10,
+  },
+  planCard: {
+    width: '100%',
+    maxHeight: '90%',
+    borderRadius: 14,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.4)',
+    padding: 14,
+    gap: 10,
+  },
+  overlayTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+  overlaySub: { fontSize: 12, color: '#334155' },
+  overlayError: { fontSize: 12, color: '#b91c1c', fontWeight: '700' },
+  quickDeadlineRow: { flexDirection: 'row', gap: 8 },
+  quickDeadlineBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(15,118,110,0.4)',
+    backgroundColor: '#ecfeff',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  quickDeadlineText: { color: '#0f766e', fontWeight: '700', fontSize: 12 },
+  deadlineInput: {
+    color: '#0f172a',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.5)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+  },
+  overlayActions: { gap: 8 },
+  overlayActionBtn: {
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  planProjectTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  planScroll: { maxHeight: 320 },
+  planScrollContent: { paddingBottom: 4, gap: 8 },
+  planTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.35)',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  planCheckBtn: { width: 28, alignItems: 'center', justifyContent: 'center' },
+  planBellBtn: { width: 34, alignItems: 'center', justifyContent: 'center' },
+  planTaskMain: { flex: 1 },
+  planTaskText: { color: '#0f172a', fontSize: 13, fontWeight: '700' },
+  planTaskTextMuted: { color: '#94a3b8' },
+  planTaskDate: { color: '#475569', fontSize: 12, marginTop: 2 },
 });

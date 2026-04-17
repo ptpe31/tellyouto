@@ -5,7 +5,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
 import * as Localization from 'expo-localization';
-import Share from 'react-native-share';
 import * as chrono from 'chrono-node';
 import {
   ExpoSpeechRecognitionModule,
@@ -90,6 +89,11 @@ import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusE
 import { runIntentOrchestration, type OrchestratorDecision } from '../services/IntentOrchestrator';
 import { claimDailyQuestBonus, getDailyQuestSnapshot, type DailyQuest } from '../services/QuestManager';
 import { awardZenForAction } from '../services/ZenEngine';
+import {
+  exportProjectPlanToIcs,
+  formatDueDateShort,
+  persistGeminiExpertRows,
+} from '../services/ProjectPlanFlowService';
 import {
   addDaysYmd,
   computeTimeHorizonFromDueDate,
@@ -243,83 +247,6 @@ function growthPointsFromExpertRows(rows: GeminiExpertIntention[]): number {
   return 0;
 }
 
-function parseYyyyMmDd(input: string): Date | null {
-  const raw = String(input || '').trim();
-  if (!/^\d{8}$/.test(raw)) return null;
-  const y = Number(raw.slice(0, 4));
-  const m = Number(raw.slice(4, 6));
-  const d = Number(raw.slice(6, 8));
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
-  const date = new Date(y, m - 1, d);
-  if (
-    date.getFullYear() !== y ||
-    date.getMonth() !== m - 1 ||
-    date.getDate() !== d
-  ) {
-    return null;
-  }
-  return date;
-}
-
-function formatDueDateShort(input: string): string {
-  const date = parseYyyyMmDd(input);
-  if (!date) return '--';
-  try {
-    const locale = Intl.DateTimeFormat().resolvedOptions().locale || undefined;
-    return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short' }).format(date);
-  } catch {
-    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
-  }
-}
-
-async function persistGeminiExpertRows(
-  rawInput: string,
-  rows: GeminiExpertIntention[],
-  options?: { taskAlarmIndexes?: number[]; selectedTaskIndexes?: number[] },
-): Promise<void> {
-  let currentParentId: string | null = null;
-  let taskCursor = 0;
-  const alarmSet = new Set(options?.taskAlarmIndexes ?? []);
-  const selectedSet = new Set(options?.selectedTaskIndexes ?? []);
-  for (const row of rows) {
-    if (row.type === 'TASK' && selectedSet.size > 0 && !selectedSet.has(taskCursor)) {
-      taskCursor += 1;
-      continue;
-    }
-    const id = newTalkEntityId();
-    if (row.type === 'PROJECT') {
-      currentParentId = id;
-    }
-    const shouldSetAlarm = row.type === 'TASK' && alarmSet.has(taskCursor);
-    const metadata = {
-      ...(row.metadata ?? {}),
-      ...(shouldSetAlarm ? { has_alarm: true } : {}),
-    };
-    if (row.type === 'TASK') {
-      taskCursor += 1;
-    }
-    await insertTrankilV2Intention({
-      id,
-      type: row.type,
-      title: row.title,
-      due_date:
-        row.type === 'TASK'
-          ? String((row.metadata as { due_date?: unknown })?.due_date || '').trim() || null
-          : null,
-      content_raw: rawInput,
-      metadata_json: JSON.stringify(metadata, null, 2),
-      suggested_tags: JSON.stringify(
-        row.suggested_category ? [row.suggested_category.trim()] : [STRINGS.TAG_KEYS.A_TRIER],
-      ),
-      category_id: row.suggested_category || null,
-      parent_id: row.type === 'PROJECT' ? null : currentParentId,
-      status: 'TODO',
-      is_organized: 0,
-      complexity_level: 2,
-      created_at: Date.now(),
-    });
-  }
-}
 
 function alertSpeechRecognitionError(
   t: TFunction,
@@ -1735,48 +1662,12 @@ export function TalkHomeScreen() {
 
   const onExportProjectPlanIcs = useCallback(async () => {
     if (!projectPlanPreview) return;
-    const taskRows = projectPlanPreview.rows.filter((row) => row.type === 'TASK');
-    const selectedRows = taskRows.filter((_, idx) =>
-      projectPlanPreview.selectedTaskIndexes.includes(idx),
-    );
-    if (!selectedRows.length) {
-      Alert.alert('Aucune tâche cochée', 'Coche au moins une tâche avant export agenda.');
-      return;
+    try {
+      await exportProjectPlanToIcs(projectPlanPreview);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert('Export agenda', msg || 'Impossible d’exporter le plan.');
     }
-    const now = new Date();
-    const nowUtcStamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}${String(now.getUTCDate()).padStart(2, '0')}T${String(now.getUTCHours()).padStart(2, '0')}${String(now.getUTCMinutes()).padStart(2, '0')}${String(now.getUTCSeconds()).padStart(2, '0')}Z`;
-    const lines = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'PRODID:-//TellYouTo//ProjectPlan//FR',
-      'CALSCALE:GREGORIAN',
-      'METHOD:PUBLISH',
-    ];
-    selectedRows.forEach((row, idx) => {
-      const due = String((row.metadata as { due_date?: unknown })?.due_date || '').trim();
-      const date = /^\d{8}$/.test(due)
-        ? due
-        : `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-      lines.push('BEGIN:VEVENT');
-      lines.push(`UID:${Date.now()}-${idx}@tellyouto`);
-      lines.push(`DTSTAMP:${nowUtcStamp}`);
-      lines.push(`DTSTART;VALUE=DATE:${date}`);
-      lines.push(`SUMMARY:${row.title.replace(/\r?\n/g, ' ').slice(0, 180)}`);
-      lines.push(`DESCRIPTION:Projet ${projectPlanPreview.projectTitle}`.slice(0, 240));
-      lines.push('END:VEVENT');
-    });
-    lines.push('END:VCALENDAR');
-    const ics = `${lines.join('\r\n')}\r\n`;
-    const path = `${FileSystem.cacheDirectory}tellyouto-project-plan.ics`;
-    await FileSystem.writeAsStringAsync(path, ics, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-    await Share.open({
-      url: path,
-      type: 'text/calendar',
-      failOnCancel: false,
-      filename: 'tellyouto-project-plan',
-    });
   }, [projectPlanPreview]);
 
   const onValidateProjectPlan = useCallback(async () => {
