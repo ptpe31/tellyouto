@@ -84,6 +84,7 @@ import {
   type VoiceIntentKind,
 } from '../services/TranscriptionService';
 import { askGeminiExpert, atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
+import { createLocalTemporalIntention } from '../services/localTemporalIntention';
 import { transcribeWithWhisperLocal } from '../services/WhisperAdapter';
 import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusEngine';
 import { runIntentOrchestration, type OrchestratorDecision } from '../services/IntentOrchestrator';
@@ -1832,55 +1833,24 @@ export function TalkHomeScreen() {
         const afterConsume = await consumeTrankilV2IntentCredit();
         setRemainingIntents(afterConsume.ia_credits);
       } else {
-        const floatingCategory = 'sans_pression';
-        const nextCategory =
-          resolvedDueDate
-            ? (voiceConfirm.suggestedTags[0] ?? STRINGS.TAG_KEYS.A_TRIER).toLowerCase()
-            : floatingCategory;
-        const hasAlarm = Boolean(resolvedDueDate);
-        console.log('[QuickTaskFlow] sqlite.insert.payload', {
-          title: trimmedTitle,
-          type: voiceConfirm.localType,
-          due_date: resolvedDueDate,
-          has_alarm: hasAlarm,
-          category_id: nextCategory,
-        });
-        await insertTrankilV2Intention({
+        const localType =
+          voiceConfirm.localType === 'NOTE'
+            ? 'NOTE'
+            : mapVoiceKindToIntentType(localTypeToVoiceKind(voiceConfirm.localType));
+        const inserted = await createLocalTemporalIntention({
           id: newTalkEntityId(),
-          type:
-            voiceConfirm.localType === 'NOTE'
-              ? 'NOTE'
-              : mapVoiceKindToIntentType(localTypeToVoiceKind(voiceConfirm.localType)),
           title: trimmedTitle,
-          due_date: resolvedDueDate,
-          content_raw: rawTranscript,
-          metadata_json: JSON.stringify(
-            {
-              timeMarker: desc,
-              source: 'orchestrator_local',
-              has_alarm: hasAlarm,
-              due_date: resolvedDueDate,
-            },
-            null,
-            2,
-          ),
-          suggested_tags: JSON.stringify(
-            resolvedDueDate && voiceConfirm.suggestedTags.length
-              ? voiceConfirm.suggestedTags
-              : [floatingCategory],
-          ),
-          category_id: nextCategory,
-          parent_id: null,
-          status: 'TODO',
-          is_organized: 0,
-          is_local_processed: 1,
-          complexity_level: 1,
-          created_at: Date.now(),
+          rawTranscript,
+          localType,
+          dueDateYmd: resolvedDueDate,
+          suggestedTags: voiceConfirm.suggestedTags,
+          source: 'orchestrator_local',
+          timeMarker: desc,
         });
         console.log('[QuickTaskFlow] sqlite.insert.success', {
           title: trimmedTitle,
-          due_date: resolvedDueDate,
-          category_id: nextCategory,
+          due_date: inserted.dueDateYmd,
+          category_id: inserted.categoryId,
         });
         const localPoints =
           voiceConfirm.localType === 'HABIT'

@@ -58,6 +58,14 @@ function resolveDisplayTitle(row: TrankilV2TimelineItemRow): string {
   return 'Sans titre';
 }
 
+function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
+  if (type === 'AUDIO') return '🎙️ AUDIO';
+  if (type === 'NOTE') return '📝 NOTE';
+  if (type === 'HABIT') return '🔄 HABITUDE';
+  if (type === 'TASK') return '⚡ TACHE';
+  return '🚀 PROJET';
+}
+
 export function TimelineScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -251,7 +259,7 @@ export function TimelineScreen() {
                     {resolveDisplayTitle(row)}
                   </Text>
                   <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
-                    {row.type}
+                    {typeBadge(row.type)}
                     {row.section === 'PROJECT_SUBTASK' && row.project_title
                       ? ` • Projet: ${row.project_title}`
                       : ''}

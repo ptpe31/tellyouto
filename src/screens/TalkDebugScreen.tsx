@@ -1,5 +1,7 @@
 import { randomUUID } from 'expo-crypto';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Haptics from 'expo-haptics';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -33,6 +35,7 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
 import { atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
 import { runIntentOrchestration } from '../services/IntentOrchestrator';
+import { createLocalTemporalIntention } from '../services/localTemporalIntention';
 import {
   buildProjectPlanPreview,
   exportProjectPlanToIcs,
@@ -40,7 +43,7 @@ import {
   persistGeminiExpertRows,
 } from '../services/ProjectPlanFlowService';
 import { generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
-import { computeTimeHorizonFromDueDate, formatYmdLocal } from '../services/TimeSorter';
+import { formatYmdLocal } from '../services/TimeSorter';
 
 function newId(): string {
   try {
@@ -63,6 +66,7 @@ export function TalkDebugScreen() {
   const [hasManualTitleEdit, setHasManualTitleEdit] = useState(false);
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
   const [deadlineModalVisible, setDeadlineModalVisible] = useState(false);
   const [deadlineText, setDeadlineText] = useState('');
   const [deadlineError, setDeadlineError] = useState('');
@@ -78,13 +82,6 @@ export function TalkDebugScreen() {
   const recRef = useRef<Audio.Recording | null>(null);
   const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
-
-  const mapHorizonToCategory = useCallback((horizon: ReturnType<typeof computeTimeHorizonFromDueDate>) => {
-    if (horizon === 'TODAY') return 'aujourdhui';
-    if (horizon === 'TOMORROW') return 'demain';
-    if (horizon === 'WEEK') return 'cette_semaine';
-    return 'sans_pression';
-  }, []);
 
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results?.[0]?.transcript ?? '';
@@ -127,6 +124,24 @@ export function TalkDebugScreen() {
     setDeadlineError('');
     setIsGeneratingPlan(false);
     setProjectPlanPreview(null);
+  }, []);
+
+  const pushSuccessFeedback = useCallback((message: string) => {
+    setSuccessMessage(message);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setSuccessMessage(''), 1800);
+  }, []);
+
+  const persistAudioMemoFile = useCallback(async (uri: string): Promise<string> => {
+    const source = String(uri || '').trim();
+    if (!source) throw new Error('Audio source vide.');
+    const root = FileSystem.documentDirectory;
+    if (!root) throw new Error('Stockage local indisponible.');
+    const folder = `${root}audio-memos`;
+    await FileSystem.makeDirectoryAsync(folder, { intermediates: true });
+    const target = `${folder}/memo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}.m4a`;
+    await FileSystem.copyAsync({ from: source, to: target });
+    return target;
   }, []);
 
   const startCapture = useCallback(async () => {
@@ -279,40 +294,15 @@ export function TalkDebugScreen() {
             locale: spectrum.locale,
           });
           const dueDateYmd = orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null;
-          const horizonKey = computeTimeHorizonFromDueDate(dueDateYmd);
-          const categoryId =
-            orchestration.localType === 'HABIT'
-              ? 'regulier'
-              : dueDateYmd
-                ? mapHorizonToCategory(horizonKey)
-                : 'sans_pression';
           const intentType = orchestration.localType === 'HABIT' ? 'HABIT' : 'TASK';
-          await insertTrankilV2Intention({
+          await createLocalTemporalIntention({
             id: newId(),
-            type: intentType,
             title: smartTitle || (intentType === 'HABIT' ? 'Habitude' : 'Tache rapide'),
-            due_date: dueDateYmd,
-            content_raw: finalTranscript,
-            metadata_json: JSON.stringify(
-              {
-                source: 'talk_debug_local_orchestrator',
-                decision: orchestration.decision,
-                local_type: orchestration.localType,
-                confidence: orchestration.confidence,
-                has_alarm: Boolean(dueDateYmd),
-                due_date: dueDateYmd,
-              },
-              null,
-              2,
-            ),
-            suggested_tags: JSON.stringify([categoryId]),
-            category_id: categoryId,
-            parent_id: null,
-            status: 'TODO',
-            is_organized: 0,
-            is_local_processed: 1,
-            complexity_level: 1,
-            created_at: Date.now(),
+            rawTranscript: finalTranscript,
+            localType: intentType,
+            dueDateYmd,
+            suggestedTags: orchestration.suggestedTags,
+            source: 'talk_debug_local_orchestrator',
           });
         } else if (action === 'habit') {
           const routineId = newId();
@@ -375,14 +365,42 @@ export function TalkDebugScreen() {
           setDeadlineModalVisible(true);
           return;
         } else if (action === 'audio') {
-          await saveIntention(
-            'note',
-            smartTitle || 'Memo audio',
-            audioUri ? `audio://${audioUri}` : '',
-          );
+          if (!audioUri) {
+            Alert.alert('Memo audio', 'Aucun fichier audio detecte.');
+            return;
+          }
+          const storedUri = await persistAudioMemoFile(audioUri);
+          await insertTrankilV2Intention({
+            id: newId(),
+            type: 'AUDIO',
+            title: smartTitle || 'Memo audio',
+            due_date: null,
+            content_raw: finalTranscript,
+            metadata_json: JSON.stringify(
+              {
+                source: 'talk_debug_audio_memo',
+                local_stt_transcript: finalTranscript,
+                audio_uri: storedUri,
+              },
+              null,
+              2,
+            ),
+            suggested_tags: JSON.stringify(['sans_pression']),
+            category_id: 'sans_pression',
+            parent_id: null,
+            status: 'TODO',
+            is_organized: 0,
+            is_local_processed: 1,
+            complexity_level: 0,
+            created_at: Date.now(),
+          });
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          pushSuccessFeedback('Memo audio enregistre (Gratuit)');
+          hardResetToIdle();
+          return;
         }
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-        Alert.alert('Talk Debug', 'Action executee avec succes.');
+        pushSuccessFeedback('Action executee avec succes.');
         hardResetToIdle();
       } catch (e) {
         Alert.alert('Talk Debug', e instanceof Error ? e.message : String(e));
@@ -396,7 +414,8 @@ export function TalkDebugScreen() {
       hasManualTitleEdit,
       isTitleLocked,
       lockedTitle,
-      mapHorizonToCategory,
+      persistAudioMemoFile,
+      pushSuccessFeedback,
       rawTranscript,
       saveIntention,
       spectrum,
@@ -683,6 +702,11 @@ export function TalkDebugScreen() {
           </View>
         </View>
       ) : null}
+      {successMessage ? (
+        <View style={styles.successToast}>
+          <Text style={styles.successToastText}>{successMessage}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -883,4 +907,18 @@ const styles = StyleSheet.create({
   planTaskText: { color: '#0f172a', fontSize: 13, fontWeight: '700' },
   planTaskTextMuted: { color: '#94a3b8' },
   planTaskDate: { color: '#475569', fontSize: 12, marginTop: 2 },
+  successToast: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    borderRadius: 12,
+    backgroundColor: 'rgba(15,118,110,0.94)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  successToastText: {
+    color: '#ecfeff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
 });
