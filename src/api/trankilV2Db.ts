@@ -19,6 +19,9 @@ export type TrankilV2IntentionRow = {
   is_local_processed: number;
   complexity_level: number;
   created_at: number;
+  calendar_event_id?: string | null;
+  calendar_name?: string | null;
+  is_synced_calendar?: number;
 };
 
 export type TrankilV2TimelineItemRow = {
@@ -116,7 +119,10 @@ export async function initTrankilV2Schema(): Promise<void> {
       is_organized INTEGER NOT NULL DEFAULT 0 CHECK (is_organized IN (0, 1)),
       is_local_processed INTEGER NOT NULL DEFAULT 0 CHECK (is_local_processed IN (0, 1)),
       complexity_level INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      calendar_event_id TEXT,
+      calendar_name TEXT,
+      is_synced_calendar INTEGER NOT NULL DEFAULT 0 CHECK (is_synced_calendar IN (0, 1))
     );
 
     CREATE INDEX IF NOT EXISTS idx_intentions_type_status
@@ -194,6 +200,18 @@ export async function initTrankilV2Schema(): Promise<void> {
   const hasDueDate = cols.some((c) => c.name === 'due_date');
   if (!hasDueDate) {
     await db.execAsync(`ALTER TABLE intentions ADD COLUMN due_date TEXT;`);
+  }
+  const hasCalendarEventId = cols.some((c) => c.name === 'calendar_event_id');
+  if (!hasCalendarEventId) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN calendar_event_id TEXT;`);
+  }
+  const hasCalendarName = cols.some((c) => c.name === 'calendar_name');
+  if (!hasCalendarName) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN calendar_name TEXT;`);
+  }
+  const hasIsSyncedCalendar = cols.some((c) => c.name === 'is_synced_calendar');
+  if (!hasIsSyncedCalendar) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN is_synced_calendar INTEGER NOT NULL DEFAULT 0;`);
   }
   await db.execAsync(
     `UPDATE intentions
@@ -622,6 +640,9 @@ export type TrankilV2IntentionInsert = {
   is_local_processed?: number;
   complexity_level?: number;
   created_at?: number;
+  calendar_event_id?: string | null;
+  calendar_name?: string | null;
+  is_synced_calendar?: number;
 };
 
 export async function insertTrankilV2Intention(
@@ -631,8 +652,8 @@ export async function insertTrankilV2Intention(
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO intentions (
-      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.id,
       row.type,
@@ -649,6 +670,9 @@ export async function insertTrankilV2Intention(
       row.is_local_processed ?? 0,
       row.complexity_level ?? 1,
       row.created_at ?? Date.now(),
+      row.calendar_event_id ?? null,
+      row.calendar_name ?? null,
+      row.is_synced_calendar ?? 0,
     ],
   );
   const stats = await getTrankilV2UserStats();
@@ -800,6 +824,42 @@ export async function deleteTrankilV2IntentionById(id: string): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
   await db.runAsync(`DELETE FROM intentions WHERE id = ?`, [id]);
+}
+
+export async function getTrankilV2IntentionById(id: string): Promise<TrankilV2IntentionRow | null> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return (
+    (await db.getFirstAsync<TrankilV2IntentionRow>(`SELECT * FROM intentions WHERE id = ? LIMIT 1`, [id])) ??
+    null
+  );
+}
+
+export async function updateTrankilV2IntentionCalendarSync(
+  id: string,
+  patch: {
+    calendar_event_id?: string | null;
+    calendar_name?: string | null;
+    is_synced_calendar?: number;
+  },
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const current = await getTrankilV2IntentionById(id);
+  if (!current) return;
+  await db.runAsync(
+    `UPDATE intentions
+     SET calendar_event_id = ?,
+         calendar_name = ?,
+         is_synced_calendar = ?
+     WHERE id = ?`,
+    [
+      patch.calendar_event_id ?? current.calendar_event_id ?? null,
+      patch.calendar_name ?? current.calendar_name ?? null,
+      patch.is_synced_calendar ?? current.is_synced_calendar ?? 0,
+      id,
+    ],
+  );
 }
 
 export async function markTrankilV2IntentionDone(id: string): Promise<void> {

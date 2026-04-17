@@ -864,6 +864,12 @@
     "alreadyClaimed": "Bonus deja reclame",
     "claimCta": "Reclamer mon bonus"
   },
+  "paywall": {
+    "noCreditsTitle": "Plus de credits ?",
+    "noCreditsBody": "Choisis ta methode pour continuer a organiser ta vie sereinement.",
+    "watchVideoCta": "Regarder une video (+5 credits)",
+    "unlimited_price": "Passer en illimite ({{price}}/mois)"
+  },
   "talkDebug": {
     "noteSaved": "Note enregistree",
     "audioTitle": "Memo audio",
@@ -882,7 +888,12 @@
     "exportAgendaTitle": "Export agenda",
     "exportAgendaError": "Impossible d'exporter le plan.",
     "projectAnchored": "Projet ancre et enregistre. Credits restants: {{credits}}",
+    "projectAnchoredCalendar": "Evenement ajoute a votre calendrier {{calendar}}",
+    "savedCalendarToast": "Enregistre + Calendrier",
     "projectValidationError": "Erreur lors de la validation du plan.",
+    "calendarPickerTitle": "Choisir un calendrier",
+    "calendarPickerSubtitle": "Selectionne le calendrier de destination pour cette insertion.",
+    "calendarDefaultLabel": "Calendrier: {{calendar}}",
     "screenTitle": "Talk Debug - Post-Choix",
     "smartTitleDetected": "Smart Titre detecte",
     "crystallizedTitleEditable": "Titre cristallise (editable)",

@@ -1,5 +1,7 @@
 import { randomUUID } from 'expo-crypto';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
+import * as Calendar from 'expo-calendar';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as chrono from 'chrono-node';
@@ -7,10 +9,11 @@ import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from 'expo-speech-recognition';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   DeviceEventEmitter,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,7 +21,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Bell, Check, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
+import { Bell, Calendar as CalendarIcon, Check, Lock, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
 
@@ -33,6 +36,9 @@ import {
 } from '../api/trankilV2Db';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
+import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
+import { UpsellModal } from '../components/UpsellModal';
+import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import {
   atomizeProject,
   extractAnniversaryDetails,
@@ -57,6 +63,14 @@ import {
   hasAnniversaryKeyword,
   isAnniversaryPreparationText,
 } from '../services/TimeSorter';
+import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../utils/nativeModuleErrorAlert';
+import { resolveSpeechLangForSession } from '../utils/speechLocale';
+import {
+  getDefaultCalendarId,
+  listWritableCalendars,
+  setDefaultCalendarId,
+  syncIntentionCalendarMirror,
+} from '../services/calendarMirrorSync';
 
 function newId(): string {
   try {
@@ -66,8 +80,17 @@ function newId(): string {
   }
 }
 
+type WritableDeviceCalendar = {
+  id: string;
+  title: string;
+  color: string;
+};
+
+const LAST_CALENDAR_STORAGE_KEY = '@tellyouto/talk_debug_last_calendar_id';
+const CALENDAR_SYNC_PREFS_KEY = '@tellyouto/talk_debug_calendar_sync_prefs';
+
 export function TalkDebugScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const [captureStep, setCaptureStep] = useState<'idle' | 'recording' | 'deciding'>('idle');
   const [isRecording, setIsRecording] = useState(false);
@@ -83,8 +106,20 @@ export function TalkDebugScreen() {
   const [successMessage, setSuccessMessage] = useState('');
   const [deadlineModalVisible, setDeadlineModalVisible] = useState(false);
   const [deadlineText, setDeadlineText] = useState('');
+  const [isDeadlineListening, setIsDeadlineListening] = useState(false);
   const [deadlineError, setDeadlineError] = useState('');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [upsellVisible, setUpsellVisible] = useState(false);
+  const [upsellBusy, setUpsellBusy] = useState(false);
+  const [calendarOptions, setCalendarOptions] = useState<WritableDeviceCalendar[]>([]);
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
+  const [calendarPickerVisible, setCalendarPickerVisible] = useState(false);
+  const [calendarPickerTarget, setCalendarPickerTarget] = useState<'task' | 'habit' | 'project' | null>(null);
+  const [calendarSyncByType, setCalendarSyncByType] = useState<Record<'task' | 'habit' | 'project', boolean>>({
+    task: false,
+    habit: false,
+    project: true,
+  });
   const [projectPlanPreview, setProjectPlanPreview] = useState<null | {
     projectTitle: string;
     rawInput: string;
@@ -96,6 +131,11 @@ export function TalkDebugScreen() {
   const recRef = useRef<Audio.Recording | null>(null);
   const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
+  const deadlineCaptureActiveRef = useRef(false);
+
+  const emitTalkDebug = useCallback((payload: TalkCaptureDebugPayload) => {
+    DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, payload);
+  }, []);
 
   const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
     const timeout = new Promise<null>((resolve) => {
@@ -123,8 +163,19 @@ export function TalkDebugScreen() {
   );
 
   useSpeechRecognitionEvent('result', (event) => {
-      const text = event.results?.[0]?.transcript ?? '';
+    const text = event.results?.[0]?.transcript ?? '';
     if (text.trim().length > 0) {
+      if (deadlineCaptureActiveRef.current) {
+        setDeadlineText(text.trim());
+        deadlineCaptureActiveRef.current = false;
+        setIsDeadlineListening(false);
+        try {
+          ExpoSpeechRecognitionModule.stop();
+        } catch {
+          // ignore
+        }
+        return;
+      }
       setRawTranscript(text);
       if (!isTitleLocked && shouldLockSmartTitle(text)) {
         const smart = generateSmartTitle(cleanTranscriptText(text), spectrum.locale);
@@ -148,6 +199,12 @@ export function TalkDebugScreen() {
     if (waveformTimer.current) clearInterval(waveformTimer.current);
     waveformTimer.current = null;
     recRef.current = null;
+    deadlineCaptureActiveRef.current = false;
+    try {
+      ExpoSpeechRecognitionModule.stop();
+    } catch {
+      // ignore
+    }
     setIsPaused(false);
     setIsRecording(false);
     setCaptureStep('idle');
@@ -159,6 +216,7 @@ export function TalkDebugScreen() {
     setHasManualTitleEdit(false);
     setAudioUri(null);
     setDeadlineModalVisible(false);
+    setIsDeadlineListening(false);
     setDeadlineText('');
     setDeadlineError('');
     setIsGeneratingPlan(false);
@@ -170,6 +228,95 @@ export function TalkDebugScreen() {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setTimeout(() => setSuccessMessage(''), 1800);
   }, []);
+
+  const selectedCalendar = useMemo(
+    () => calendarOptions.find((item) => item.id === selectedCalendarId) ?? null,
+    [calendarOptions, selectedCalendarId],
+  );
+
+  const selectCalendar = useCallback(async (calendarId: string) => {
+    setSelectedCalendarId(calendarId);
+    await AsyncStorage.setItem(LAST_CALENDAR_STORAGE_KEY, calendarId);
+    await setDefaultCalendarId(calendarId);
+  }, []);
+
+  const persistCalendarSyncPrefs = useCallback(
+    async (next: Record<'task' | 'habit' | 'project', boolean>) => {
+      setCalendarSyncByType(next);
+      await AsyncStorage.setItem(CALENDAR_SYNC_PREFS_KEY, JSON.stringify(next));
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(CALENDAR_SYNC_PREFS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<Record<'task' | 'habit' | 'project', boolean>>;
+          setCalendarSyncByType({
+            task: Boolean(parsed.task),
+            habit: Boolean(parsed.habit),
+            project: parsed.project === undefined ? true : Boolean(parsed.project),
+          });
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
+  const toggleCalendarSyncFor = useCallback(
+    (kind: 'task' | 'habit' | 'project') => {
+      void (async () => {
+        if (!spectrum.isProUser) {
+          setUpsellVisible(true);
+          return;
+        }
+        const next = {
+          ...calendarSyncByType,
+          [kind]: !calendarSyncByType[kind],
+        };
+        await persistCalendarSyncPrefs(next);
+        if (next[kind] && !selectedCalendarId) {
+          const calendars = await ensureWritableCalendars();
+          if (calendars.length > 1) {
+            setCalendarPickerTarget(kind);
+            setCalendarPickerVisible(true);
+          } else if (calendars[0]?.id) {
+            await selectCalendar(calendars[0].id);
+          }
+        }
+      })();
+    },
+    [calendarSyncByType, ensureWritableCalendars, persistCalendarSyncPrefs, selectedCalendarId, selectCalendar, spectrum.isProUser],
+  );
+
+  const ensureWritableCalendars = useCallback(async (): Promise<WritableDeviceCalendar[]> => {
+    const permission = await Calendar.getCalendarPermissionsAsync();
+    if (permission.status !== 'granted') {
+      const req = await Calendar.requestCalendarPermissionsAsync();
+      if (req.status !== 'granted') {
+        setCalendarOptions([]);
+        setSelectedCalendarId(null);
+        return [];
+      }
+    }
+    const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+    const writable = calendars
+      .filter((item) => item.allowsModifications)
+      .map((item) => ({
+        id: item.id,
+        title: item.title || t('timeline.untitled'),
+        color: item.color || '#64748b',
+      }));
+    setCalendarOptions(writable);
+    const remembered = (await AsyncStorage.getItem(LAST_CALENDAR_STORAGE_KEY)) || (await getDefaultCalendarId());
+    const fallbackId = writable[0]?.id ?? null;
+    const nextId = writable.some((item) => item.id === remembered) ? remembered : fallbackId;
+    setSelectedCalendarId(nextId);
+    return writable;
+  }, [t]);
 
   const persistAudioMemoFile = useCallback(async (uri: string): Promise<string> => {
     const source = String(uri || '').trim();
@@ -183,6 +330,41 @@ export function TalkDebugScreen() {
     return target;
   }, []);
 
+  const ensureMicrophoneReady = useCallback(async (): Promise<boolean> => {
+    const audioPerm = await Audio.requestPermissionsAsync();
+    if (!audioPerm.granted) {
+      Alert.alert(
+        t('talkHome.microphonePermissionTitle'),
+        t('talkHome.microphonePermissionDeniedBody'),
+        [
+          { text: t('channelSwitch.cancel'), style: 'cancel' },
+          { text: t('ally.openSettings'), onPress: () => void Linking.openSettings() },
+        ],
+      );
+      return false;
+    }
+    try {
+      let speechPerm = await ExpoSpeechRecognitionModule.getPermissionsAsync();
+      if (!speechPerm.granted) {
+        speechPerm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      }
+      if (!speechPerm.granted) {
+        Alert.alert(
+          t('talkHome.microphonePermissionTitle'),
+          t('talkHome.microphonePermissionDeniedBody'),
+          [
+            { text: t('channelSwitch.cancel'), style: 'cancel' },
+            { text: t('ally.openSettings'), onPress: () => void Linking.openSettings() },
+          ],
+        );
+        return false;
+      }
+    } catch {
+      // Some runtimes may not expose this API; keep audio permission as source of truth.
+    }
+    return true;
+  }, [t]);
+
   const startCapture = useCallback(async () => {
     if (isRecording || busy) return;
     setRawTranscript('');
@@ -192,11 +374,8 @@ export function TalkDebugScreen() {
     setHasManualTitleEdit(false);
     setAudioUri(null);
     try {
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert(t('talkHome.microphonePermissionTitle'), t('talkHome.microphonePermissionDeniedBody'));
-        return;
-      }
+      const ready = await ensureMicrophoneReady();
+      if (!ready) return;
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -206,7 +385,7 @@ export function TalkDebugScreen() {
       );
       recRef.current = recording;
       await ExpoSpeechRecognitionModule.start({
-        lang: spectrum.locale?.trim() || 'fr-FR',
+        lang: resolveSpeechLangForSession(i18n.language),
         interimResults: true,
         continuous: true,
       });
@@ -215,9 +394,13 @@ export function TalkDebugScreen() {
       setCaptureStep('recording');
       waveformTimer.current = setInterval(() => setWaveTick((v) => v + 1), 180);
     } catch (e) {
-      Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
+      } else {
+        Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
+      }
     }
-  }, [busy, isRecording, spectrum.locale]);
+  }, [busy, ensureMicrophoneReady, i18n.language, isRecording, t]);
 
   const stopCapture = useCallback(async () => {
     if (captureStep !== 'recording' || !isRecording) return;
@@ -230,14 +413,19 @@ export function TalkDebugScreen() {
         setAudioUri(rec.getURI() ?? null);
       }
     } catch (e) {
-      Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
+      } else {
+        Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
+      }
     } finally {
       if (waveformTimer.current) clearInterval(waveformTimer.current);
       waveformTimer.current = null;
       setIsRecording(false);
       setIsPaused(false);
-      setTranscriptDraft(rawTranscript);
-      const cleanedTranscript = cleanTranscriptText(rawTranscript);
+      const nextTranscript = rawTranscript;
+      setTranscriptDraft(nextTranscript);
+      const cleanedTranscript = cleanTranscriptText(nextTranscript);
       const fallbackTitle =
         (isTitleLocked ? lockedTitle : '') ||
         generateSmartTitle(cleanedTranscript, spectrum.locale) ||
@@ -246,7 +434,15 @@ export function TalkDebugScreen() {
       setHasManualTitleEdit(false);
       setCaptureStep('deciding');
     }
-  }, [captureStep, isRecording, isTitleLocked, lockedTitle, rawTranscript, spectrum.locale]);
+  }, [
+    captureStep,
+    emitTalkDebug,
+    isRecording,
+    isTitleLocked,
+    lockedTitle,
+    rawTranscript,
+    spectrum.locale,
+  ]);
 
   const cancelCapture = useCallback(async () => {
     try {
@@ -270,7 +466,7 @@ export function TalkDebugScreen() {
       if (isPaused) {
         await rec.startAsync();
         await ExpoSpeechRecognitionModule.start({
-          lang: spectrum.locale?.trim() || 'fr-FR',
+          lang: resolveSpeechLangForSession(i18n.language),
           interimResults: true,
           continuous: true,
         });
@@ -281,9 +477,13 @@ export function TalkDebugScreen() {
         setIsPaused(true);
       }
     } catch (e) {
-      Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
+      } else {
+        Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
+      }
     }
-  }, [captureStep, isPaused, isRecording, spectrum.locale]);
+  }, [captureStep, i18n.language, isPaused, isRecording, t]);
 
   const saveQuickNoteToTimeline = useCallback(
     async (title: string, transcript: string) => {
@@ -346,6 +546,7 @@ export function TalkDebugScreen() {
           finalTranscript
         ).trim();
         if (action === 'note') {
+          if (!(await ensureCreditsForCapture())) return;
           await saveQuickNoteToTimeline(smartTitle || t('timeline.note'), finalTranscript);
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           pushSuccessFeedback(t('talkDebug.noteSaved'));
@@ -355,6 +556,22 @@ export function TalkDebugScreen() {
           const orchestration = await runIntentOrchestration({
             fallbackText: finalTranscript,
             locale: spectrum.locale,
+          });
+          emitTalkDebug({
+            mode: 'quick',
+            at: Date.now(),
+            rawTranscript: orchestration.rawText || finalTranscript,
+            localStructuredJson: JSON.stringify(
+              {
+                decision: orchestration.decision,
+                localType: orchestration.localType,
+                confidence: orchestration.confidence,
+                suggestedTags: orchestration.suggestedTags,
+                reason: orchestration.reason,
+              },
+              null,
+              2,
+            ),
           });
           const hasAnniversary = hasAnniversaryKeyword(finalTranscript);
           const isPreparation = hasAnniversary && isAnniversaryPreparationText(finalTranscript);
@@ -391,8 +608,9 @@ export function TalkDebugScreen() {
             };
           }
           const habitMeta = intentType === 'HABIT' ? await buildHabitMeta() : {};
-          await createLocalTemporalIntention({
-            id: newId(),
+          const intentionId = newId();
+          const created = await createLocalTemporalIntention({
+            id: intentionId,
             title: finalTitle,
             rawTranscript: finalTranscript,
             localType: intentType,
@@ -407,13 +625,46 @@ export function TalkDebugScreen() {
               ...metadataExtra,
             },
           });
+          if (intentType === 'TASK') {
+            if (calendarSyncByType.task && spectrum.isProUser) {
+              const sync = await syncIntentionCalendarMirror({
+                intentionId,
+                type: 'TASK',
+                title: finalTitle,
+                dueDateYmd: created.dueDateYmd,
+                enabled: true,
+                calendarId: selectedCalendarId,
+              });
+              if (sync.synced) {
+                pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
+              }
+            }
+          } else if (intentType === 'HABIT') {
+            if (calendarSyncByType.habit && spectrum.isProUser) {
+              const sync = await syncIntentionCalendarMirror({
+                intentionId,
+                type: 'HABIT',
+                title: finalTitle,
+                dueDateYmd: created.dueDateYmd,
+                metadataJson: JSON.stringify({ ...habitMeta, ...metadataExtra }),
+                enabled: true,
+                calendarId: selectedCalendarId,
+              });
+              if (sync.synced) {
+                pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
+              }
+            }
+          }
         } else if (action === 'habit') {
+          if (!(await ensureCreditsForCapture())) return;
           const hasAnniversary = hasAnniversaryKeyword(finalTranscript);
           const ann = hasAnniversary ? await buildAnniversaryMeta() : { details: null, dueDateYmd: null };
           const habitMeta = await buildHabitMeta();
-          await createLocalTemporalIntention({
-            id: newId(),
-            title: ann.details ? `🎂 ${t('talkDebug.birthdayLabel')} ${ann.details.personName}` : smartTitle || t('common.habits'),
+          const intentionId = newId();
+          const finalHabitTitle = ann.details ? `🎂 ${t('talkDebug.birthdayLabel')} ${ann.details.personName}` : smartTitle || t('common.habits');
+          const created = await createLocalTemporalIntention({
+            id: intentionId,
+            title: finalHabitTitle,
             rawTranscript: finalTranscript,
             localType: 'HABIT',
             dueDateYmd: ann.dueDateYmd,
@@ -431,41 +682,36 @@ export function TalkDebugScreen() {
                 : {}),
             },
           });
+          if (calendarSyncByType.habit && spectrum.isProUser) {
+            const sync = await syncIntentionCalendarMirror({
+              intentionId,
+              type: 'HABIT',
+              title: finalHabitTitle,
+              dueDateYmd: created.dueDateYmd,
+              metadataJson: JSON.stringify({
+                ...habitMeta,
+                ...(ann.details
+                  ? {
+                      type: 'ANNIVERSARY',
+                      recurrence: 'yearly',
+                      native_date: ann.details.native_date,
+                      person_name: ann.details.personName,
+                    }
+                  : {}),
+              }),
+              enabled: true,
+              calendarId: selectedCalendarId,
+            });
+            if (sync.synced) {
+              pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
+            }
+          }
         } else if (action === 'project') {
+          if (!(await ensureCreditsForCapture())) return;
           // Projet: le titre doit venir du Goal Gemini, pas du smart title local.
           setTitleDraft('');
           setLockedTitle('');
           setIsTitleLocked(false);
-          const stats = await getTrankilV2UserStats();
-          if (stats.ia_credits <= 0) {
-            Alert.alert(
-              t('economy.recharge.modalTitle'),
-              t('economy.recharge.modalBody'),
-              [
-                { text: t('common.later'), style: 'cancel' },
-                {
-                  text: t('economy.recharge.watchVideoCta'),
-                  onPress: () => {
-                    void (async () => {
-                      const recharge = await runManualIaRechargeVideo();
-                      if (!recharge.ok) {
-                        const msg =
-                          recharge.reason === 'daily_limit_reached'
-                            ? t('economy.recharge.dailyCapReached')
-                            : recharge.reason === 'recharge_cooldown'
-                              ? t('economy.recharge.cooldown')
-                              : t('economy.recharge.unavailableTitle');
-                        Alert.alert(t('economy.recharge.modalTitle'), msg);
-                      } else {
-                        Alert.alert(t('economy.recharge.modalTitle'), t('economy.recharge.rewardToast'));
-                      }
-                    })();
-                  },
-                },
-              ],
-            );
-            return;
-          }
           setDeadlineText('');
           setDeadlineError('');
           setDeadlineModalVisible(true);
@@ -509,7 +755,11 @@ export function TalkDebugScreen() {
         pushSuccessFeedback(t('talkDebug.actionSuccess'));
         hardResetToIdle();
       } catch (e) {
-        Alert.alert(t('tabs.debug'), e instanceof Error ? e.message : String(e));
+        if (isLikelyMissingNativeModuleError(e)) {
+          alertNativeModuleMissing('nativeModule.contextTalkHomePersist', e);
+        } else {
+          Alert.alert(t('tabs.debug'), e instanceof Error ? e.message : String(e));
+        }
       } finally {
         setBusy(false);
       }
@@ -530,8 +780,89 @@ export function TalkDebugScreen() {
       titleDraft,
       transcriptDraft,
       withTimeout,
+      emitTalkDebug,
+      ensureCreditsForCapture,
     ],
   );
+
+  const toggleDeadlineDictation = useCallback(async () => {
+    if (isDeadlineListening) {
+      deadlineCaptureActiveRef.current = false;
+      setIsDeadlineListening(false);
+      try {
+        ExpoSpeechRecognitionModule.stop();
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    try {
+      const ready = await ensureMicrophoneReady();
+      if (!ready) return;
+      deadlineCaptureActiveRef.current = true;
+      setIsDeadlineListening(true);
+      await ExpoSpeechRecognitionModule.start({
+        lang: resolveSpeechLangForSession(i18n.language),
+        interimResults: true,
+        continuous: false,
+        maxAlternatives: 1,
+      });
+    } catch (e) {
+      deadlineCaptureActiveRef.current = false;
+      setIsDeadlineListening(false);
+      if (isLikelyMissingNativeModuleError(e)) {
+        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
+      } else {
+        Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
+      }
+    }
+  }, [ensureMicrophoneReady, i18n.language, isDeadlineListening, t]);
+
+  const ensureCreditsForCapture = useCallback(
+    async (): Promise<boolean> => {
+      if (spectrum.isProUser) return true;
+      const stats = await getTrankilV2UserStats();
+      if (stats.ia_credits > 0) return true;
+      setUpsellVisible(true);
+      return false;
+    },
+    [spectrum.isProUser],
+  );
+
+  const onUpsellWatchVideo = useCallback(() => {
+    void (async () => {
+      setUpsellBusy(true);
+      try {
+        const recharge = await runManualIaRechargeVideo();
+        if (!recharge.ok) {
+          const msg =
+            recharge.reason === 'daily_limit_reached'
+              ? t('economy.recharge.dailyCapReached')
+              : recharge.reason === 'recharge_cooldown'
+                ? t('economy.recharge.cooldown')
+                : t('economy.recharge.unavailableTitle');
+          Alert.alert(t('economy.recharge.modalTitle'), msg);
+          return;
+        }
+        setUpsellVisible(false);
+        Alert.alert(t('economy.recharge.modalTitle'), t('economy.recharge.rewardToast'));
+      } finally {
+        setUpsellBusy(false);
+      }
+    })();
+  }, [t]);
+
+  const onUpsellGoUnlimited = useCallback(() => {
+    setUpsellVisible(false);
+    if (rootNavigationRef.isReady()) {
+      rootNavigationRef.navigate('ProSubscription');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!projectPlanPreview) return;
+    void ensureWritableCalendars();
+  }, [ensureWritableCalendars, projectPlanPreview]);
 
   const submitProjectGenerationWithDeadline = useCallback(async () => {
     const finalTranscript = transcriptDraft.trim() || rawTranscript.trim();
@@ -607,7 +938,7 @@ export function TalkDebugScreen() {
     }
   }, [projectPlanPreview]);
 
-  const onValidateProjectPlan = useCallback(async () => {
+  const onValidateProjectPlan = useCallback(async (options?: { forceCalendarId?: string; skipPicker?: boolean }) => {
     if (!projectPlanPreview) return;
     const stats = await getTrankilV2UserStats();
     if (stats.ia_credits <= 0) {
@@ -621,10 +952,26 @@ export function TalkDebugScreen() {
         selectedTaskIndexes: projectPlanPreview.selectedTaskIndexes,
         audioUri,
       });
+      const writableCalendars =
+        calendarOptions.length > 0 ? calendarOptions : await ensureWritableCalendars();
+      if (calendarSyncByType.project && spectrum.isProUser) {
+        if (writableCalendars.length > 1 && !calendarPickerVisible && !options?.skipPicker) {
+          setCalendarPickerTarget('project');
+          setCalendarPickerVisible(true);
+          return;
+        }
+        const currentCalendarId =
+          options?.forceCalendarId ?? selectedCalendarId ?? writableCalendars[0]?.id ?? null;
+        if (currentCalendarId) await selectCalendar(currentCalendarId);
+      }
       const afterConsume = await consumeTrankilV2IntentCredit();
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       setProjectPlanPreview(null);
-      Alert.alert(t('common.projects'), t('talkDebug.projectAnchored', { credits: afterConsume.ia_credits }));
+      pushSuccessFeedback(
+        calendarSyncByType.project && spectrum.isProUser
+          ? t('talkDebug.savedCalendarToast')
+          : t('talkDebug.projectAnchored', { credits: afterConsume.ia_credits }),
+      );
       hardResetToIdle();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -632,7 +979,20 @@ export function TalkDebugScreen() {
     } finally {
       setBusy(false);
     }
-  }, [audioUri, hardResetToIdle, projectPlanPreview]);
+  }, [
+    audioUri,
+    calendarOptions,
+    calendarSyncByType.project,
+    calendarPickerVisible,
+    ensureWritableCalendars,
+    hardResetToIdle,
+    projectPlanPreview,
+    pushSuccessFeedback,
+    selectCalendar,
+    selectedCalendarId,
+    spectrum.isProUser,
+    t,
+  ]);
 
   return (
     <View style={styles.root}>
@@ -747,18 +1107,45 @@ export function TalkDebugScreen() {
             <Text style={styles.quickAudioBtnText}>{t('talkDebug.validateAudioFree')}</Text>
           </Pressable>
           <View style={styles.fanMenu}>
-            <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('project')} disabled={busy}>
-              <Text style={styles.fanBtnText}>{t('talkDebug.actionProject')}</Text>
-            </Pressable>
-            <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('task')} disabled={busy}>
-              <Text style={styles.fanBtnText}>{t('talkDebug.actionTask')}</Text>
-            </Pressable>
+            <View style={styles.actionRow}>
+              <Pressable style={[styles.fanBtn, styles.actionMainBtn]} onPress={() => void onChooseAction('project')} disabled={busy}>
+                <Text style={styles.fanBtnText}>{t('talkDebug.actionProject')}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.project ? styles.calendarToggleOn : null]}
+                onPress={() => toggleCalendarSyncFor('project')}
+              >
+                <CalendarIcon size={16} color={calendarSyncByType.project ? '#ecfeff' : '#0f172a'} />
+                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
+              </Pressable>
+            </View>
+            <View style={styles.actionRow}>
+              <Pressable style={[styles.fanBtn, styles.actionMainBtn]} onPress={() => void onChooseAction('task')} disabled={busy}>
+                <Text style={styles.fanBtnText}>{t('talkDebug.actionTask')}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.task ? styles.calendarToggleOn : null]}
+                onPress={() => toggleCalendarSyncFor('task')}
+              >
+                <CalendarIcon size={16} color={calendarSyncByType.task ? '#ecfeff' : '#0f172a'} />
+                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
+              </Pressable>
+            </View>
             <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('note')} disabled={busy}>
               <Text style={styles.fanBtnText}>{t('talkDebug.actionNote')}</Text>
             </Pressable>
-            <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('habit')} disabled={busy}>
-              <Text style={styles.fanBtnText}>{t('talkDebug.actionHabit')}</Text>
-            </Pressable>
+            <View style={styles.actionRow}>
+              <Pressable style={[styles.fanBtn, styles.actionMainBtn]} onPress={() => void onChooseAction('habit')} disabled={busy}>
+                <Text style={styles.fanBtnText}>{t('talkDebug.actionHabit')}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.habit ? styles.calendarToggleOn : null]}
+                onPress={() => toggleCalendarSyncFor('habit')}
+              >
+                <CalendarIcon size={16} color={calendarSyncByType.habit ? '#ecfeff' : '#0f172a'} />
+                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
+              </Pressable>
+            </View>
             <Pressable style={[styles.fanBtn, styles.cancelBtn]} onPress={() => void onChooseAction('cancel')} disabled={busy}>
               <Text style={styles.fanBtnText}>{t('common.later')}</Text>
             </Pressable>
@@ -786,8 +1173,30 @@ export function TalkDebugScreen() {
               placeholderTextColor="#94a3b8"
               style={styles.deadlineInput}
             />
+            <Pressable
+              style={[styles.overlayActionBtn, isDeadlineListening ? styles.quickDeadlineBtn : null]}
+              onPress={() => void toggleDeadlineDictation()}
+              disabled={isGeneratingPlan}
+            >
+              <Text style={styles.fanBtnText}>
+                {isDeadlineListening ? t('talkHome.status.listening') : t('talkHome.voiceWhen')}
+              </Text>
+            </Pressable>
             <View style={styles.overlayActions}>
-              <Pressable style={[styles.overlayActionBtn, styles.cancelBtn]} onPress={() => setDeadlineModalVisible(false)} disabled={isGeneratingPlan}>
+              <Pressable
+                style={[styles.overlayActionBtn, styles.cancelBtn]}
+                onPress={() => {
+                  deadlineCaptureActiveRef.current = false;
+                  setIsDeadlineListening(false);
+                  try {
+                    ExpoSpeechRecognitionModule.stop();
+                  } catch {
+                    // ignore
+                  }
+                  setDeadlineModalVisible(false);
+                }}
+                disabled={isGeneratingPlan}
+              >
                 <Text style={styles.fanBtnText}>{t('common.later')}</Text>
               </Pressable>
               <Pressable style={styles.overlayActionBtn} onPress={() => void submitProjectGenerationWithDeadline()} disabled={isGeneratingPlan || !deadlineText.trim()}>
@@ -803,6 +1212,18 @@ export function TalkDebugScreen() {
           <View style={styles.planCard}>
             <Text style={styles.overlayTitle}>{t('talkDebug.previewPlanTitle')}</Text>
             <Text style={styles.overlaySub}>{t('talkDebug.previewPlanSubtitle')}</Text>
+            {selectedCalendar ? (
+              <Pressable
+                style={styles.calendarCurrentBtn}
+                onPress={() => setCalendarPickerVisible(true)}
+                disabled={busy}
+              >
+                <View style={[styles.calendarColorDot, { backgroundColor: selectedCalendar.color }]} />
+                <Text style={styles.calendarCurrentText}>
+                  {t('talkDebug.calendarDefaultLabel', { calendar: selectedCalendar.title })}
+                </Text>
+              </Pressable>
+            ) : null}
             <Text style={styles.planProjectTitle}>{projectPlanPreview.projectTitle || t('common.projects')}</Text>
             <ScrollView style={styles.planScroll} contentContainerStyle={styles.planScrollContent}>
               {(() => {
@@ -848,6 +1269,53 @@ export function TalkDebugScreen() {
       {successMessage ? (
         <View style={styles.successToast}>
           <Text style={styles.successToastText}>{successMessage}</Text>
+        </View>
+      ) : null}
+      <UpsellModal
+        visible={upsellVisible}
+        busy={upsellBusy}
+        price="4,50€"
+        onClose={() => setUpsellVisible(false)}
+        onWatchVideo={onUpsellWatchVideo}
+        onGoUnlimited={onUpsellGoUnlimited}
+      />
+      {calendarPickerVisible ? (
+        <View style={styles.overlayBackdrop}>
+          <View style={styles.overlayCard}>
+            <Text style={styles.overlayTitle}>{t('talkDebug.calendarPickerTitle')}</Text>
+            <Text style={styles.overlaySub}>{t('talkDebug.calendarPickerSubtitle')}</Text>
+            <ScrollView style={styles.calendarPickerList}>
+              {calendarOptions.map((item) => {
+                const selected = item.id === selectedCalendarId;
+                return (
+                  <Pressable
+                    key={item.id}
+                    style={[styles.calendarPickerItem, selected ? styles.calendarPickerItemSelected : null]}
+                    onPress={() => {
+                      if (calendarPickerTarget === 'project') {
+                        void onValidateProjectPlan({ forceCalendarId: item.id, skipPicker: true });
+                        return;
+                      }
+                      void (async () => {
+                        await selectCalendar(item.id);
+                        setCalendarPickerVisible(false);
+                        setCalendarPickerTarget(null);
+                      })();
+                    }}
+                  >
+                    <View style={[styles.calendarColorDot, { backgroundColor: item.color }]} />
+                    <Text style={styles.calendarPickerText}>{item.title}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable
+              style={[styles.overlayActionBtn, styles.cancelBtn]}
+              onPress={() => setCalendarPickerVisible(false)}
+            >
+              <Text style={styles.fanBtnText}>{t('common.later')}</Text>
+            </Pressable>
+          </View>
         </View>
       ) : null}
     </View>
@@ -1014,6 +1482,33 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#f1f5f9',
   },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionMainBtn: {
+    flex: 1,
+  },
+  calendarToggleBtn: {
+    width: 44,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.45)',
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  calendarToggleOn: {
+    backgroundColor: '#008080',
+    borderColor: '#008080',
+  },
+  calendarToggleLocked: {
+    backgroundColor: '#e2e8f0',
+  },
   fanBtnText: {
     color: '#0f172a',
     fontWeight: '700',
@@ -1078,6 +1573,49 @@ const styles = StyleSheet.create({
     backgroundColor: '#e2e8f0',
     paddingVertical: 10,
     paddingHorizontal: 10,
+  },
+  calendarCurrentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.45)',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  calendarCurrentText: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  calendarColorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+  },
+  calendarPickerList: { maxHeight: 280 },
+  calendarPickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.35)',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  calendarPickerItemSelected: {
+    borderColor: '#008080',
+    backgroundColor: '#ecfeff',
+  },
+  calendarPickerText: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '700',
   },
   planProjectTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
   planScroll: { maxHeight: 320 },

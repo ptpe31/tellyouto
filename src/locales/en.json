@@ -864,6 +864,12 @@
     "alreadyClaimed": "Bonus already claimed",
     "claimCta": "Claim my bonus"
   },
+  "paywall": {
+    "noCreditsTitle": "No more credits?",
+    "noCreditsBody": "Choose your method to keep organizing your life with clarity.",
+    "watchVideoCta": "Watch a video (+5 credits)",
+    "unlimited_price": "Go unlimited ({{price}}/month)"
+  },
   "talkDebug": {
     "noteSaved": "Note saved",
     "audioTitle": "Audio memo",
@@ -882,7 +888,12 @@
     "exportAgendaTitle": "Calendar export",
     "exportAgendaError": "Unable to export plan.",
     "projectAnchored": "Project anchored and saved. Credits left: {{credits}}",
+    "projectAnchoredCalendar": "Event added to your calendar {{calendar}}",
+    "savedCalendarToast": "Saved + Calendar",
     "projectValidationError": "Error while validating plan.",
+    "calendarPickerTitle": "Choose a calendar",
+    "calendarPickerSubtitle": "Select the destination calendar for this insertion.",
+    "calendarDefaultLabel": "Calendar: {{calendar}}",
     "screenTitle": "Talk Debug - Post Choice",
     "smartTitleDetected": "Smart title detected",
     "crystallizedTitleEditable": "Crystallized title (editable)",
