@@ -18,7 +18,6 @@ import {
   StatsScreen,
   TimelineScreen,
   TalkDebugScreen,
-  TalkHomeScreen,
 } from '../screens';
 import type { AppTabParamList } from './types';
 
@@ -43,7 +42,7 @@ export function AppNavigator() {
     >
       <Tab.Screen
         name="TalkHome"
-        component={TalkHomeScreen}
+        component={TalkDebugScreen}
         options={{
           headerShown: false,
           title: t('tabs.talkHome'),
