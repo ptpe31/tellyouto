@@ -27,10 +27,12 @@ import {
 import {
   consumeTrankilV2IntentCredit,
   getTrankilV2UserStats,
+  insertTrankilV2Intention,
 } from '../api/trankilV2Db';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
 import { atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
+import { runIntentOrchestration } from '../services/IntentOrchestrator';
 import {
   buildProjectPlanPreview,
   exportProjectPlanToIcs,
@@ -38,6 +40,7 @@ import {
   persistGeminiExpertRows,
 } from '../services/ProjectPlanFlowService';
 import { generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
+import { computeTimeHorizonFromDueDate, formatYmdLocal } from '../services/TimeSorter';
 
 function newId(): string {
   try {
@@ -56,6 +59,8 @@ export function TalkDebugScreen() {
   const [transcriptDraft, setTranscriptDraft] = useState('');
   const [lockedTitle, setLockedTitle] = useState('');
   const [isTitleLocked, setIsTitleLocked] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [hasManualTitleEdit, setHasManualTitleEdit] = useState(false);
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [deadlineModalVisible, setDeadlineModalVisible] = useState(false);
@@ -74,6 +79,13 @@ export function TalkDebugScreen() {
   const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
 
+  const mapHorizonToCategory = useCallback((horizon: ReturnType<typeof computeTimeHorizonFromDueDate>) => {
+    if (horizon === 'TODAY') return 'aujourdhui';
+    if (horizon === 'TOMORROW') return 'demain';
+    if (horizon === 'WEEK') return 'cette_semaine';
+    return 'sans_pression';
+  }, []);
+
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results?.[0]?.transcript ?? '';
     if (text.trim().length > 0) {
@@ -83,6 +95,7 @@ export function TalkDebugScreen() {
         if (smart) {
           setLockedTitle(smart);
           setIsTitleLocked(true);
+          if (!hasManualTitleEdit) setTitleDraft(smart);
         }
       }
     }
@@ -106,6 +119,8 @@ export function TalkDebugScreen() {
     setTranscriptDraft('');
     setLockedTitle('');
     setIsTitleLocked(false);
+    setTitleDraft('');
+    setHasManualTitleEdit(false);
     setAudioUri(null);
     setDeadlineModalVisible(false);
     setDeadlineText('');
@@ -119,6 +134,8 @@ export function TalkDebugScreen() {
     setRawTranscript('');
     setLockedTitle('');
     setIsTitleLocked(false);
+    setTitleDraft('');
+    setHasManualTitleEdit(false);
     setAudioUri(null);
     try {
       const perm = await Audio.requestPermissionsAsync();
@@ -166,9 +183,15 @@ export function TalkDebugScreen() {
       setIsRecording(false);
       setIsPaused(false);
       setTranscriptDraft(rawTranscript);
+      const fallbackTitle =
+        (isTitleLocked ? lockedTitle : '') ||
+        generateSmartTitle(rawTranscript, spectrum.locale) ||
+        rawTranscript.trim();
+      setTitleDraft(fallbackTitle);
+      setHasManualTitleEdit(false);
       setCaptureStep('deciding');
     }
-  }, [captureStep, isRecording, rawTranscript]);
+  }, [captureStep, isRecording, isTitleLocked, lockedTitle, rawTranscript, spectrum.locale]);
 
   const cancelCapture = useCallback(async () => {
     try {
@@ -242,14 +265,55 @@ export function TalkDebugScreen() {
       setBusy(true);
       try {
         const finalTranscript = transcriptDraft.trim() || rawTranscript.trim();
-        const smartTitle =
+        const smartTitle = (
+          titleDraft.trim() ||
           (isTitleLocked ? lockedTitle : '') ||
           generateSmartTitle(finalTranscript, spectrum.locale) ||
-          finalTranscript;
+          finalTranscript
+        ).trim();
         if (action === 'note') {
           await saveIntention('note', smartTitle || 'Note brute', '');
         } else if (action === 'task') {
-          await saveIntention('task', smartTitle || 'Tache rapide', '');
+          const orchestration = await runIntentOrchestration({
+            fallbackText: finalTranscript,
+            locale: spectrum.locale,
+          });
+          const dueDateYmd = orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null;
+          const horizonKey = computeTimeHorizonFromDueDate(dueDateYmd);
+          const categoryId =
+            orchestration.localType === 'HABIT'
+              ? 'regulier'
+              : dueDateYmd
+                ? mapHorizonToCategory(horizonKey)
+                : 'sans_pression';
+          const intentType = orchestration.localType === 'HABIT' ? 'HABIT' : 'TASK';
+          await insertTrankilV2Intention({
+            id: newId(),
+            type: intentType,
+            title: smartTitle || (intentType === 'HABIT' ? 'Habitude' : 'Tache rapide'),
+            due_date: dueDateYmd,
+            content_raw: finalTranscript,
+            metadata_json: JSON.stringify(
+              {
+                source: 'talk_debug_local_orchestrator',
+                decision: orchestration.decision,
+                local_type: orchestration.localType,
+                confidence: orchestration.confidence,
+                has_alarm: Boolean(dueDateYmd),
+                due_date: dueDateYmd,
+              },
+              null,
+              2,
+            ),
+            suggested_tags: JSON.stringify([categoryId]),
+            category_id: categoryId,
+            parent_id: null,
+            status: 'TODO',
+            is_organized: 0,
+            is_local_processed: 1,
+            complexity_level: 1,
+            created_at: Date.now(),
+          });
         } else if (action === 'habit') {
           const routineId = newId();
           const now = new Date();
@@ -329,11 +393,14 @@ export function TalkDebugScreen() {
     [
       audioUri,
       hardResetToIdle,
+      hasManualTitleEdit,
       isTitleLocked,
       lockedTitle,
+      mapHorizonToCategory,
       rawTranscript,
       saveIntention,
       spectrum,
+      titleDraft,
       transcriptDraft,
     ],
   );
@@ -496,6 +563,19 @@ export function TalkDebugScreen() {
 
       {captureStep === 'deciding' ? (
         <View style={styles.stepDecisionWrap}>
+          <View style={styles.titleDraftWrap}>
+            <Text style={styles.titleDraftLabel}>Titre cristallise (editable)</Text>
+            <TextInput
+              value={titleDraft}
+              onChangeText={(value) => {
+                setTitleDraft(value);
+                setHasManualTitleEdit(true);
+              }}
+              placeholder="Titre"
+              placeholderTextColor="#94a3b8"
+              style={styles.titleDraftInput}
+            />
+          </View>
           <TextInput
             value={transcriptDraft}
             onChangeText={setTranscriptDraft}
@@ -613,6 +693,26 @@ const styles = StyleSheet.create({
   stepIdleWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   stepRecordingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 26 },
   stepDecisionWrap: { flex: 1, justifyContent: 'space-between', paddingVertical: 12 },
+  titleDraftWrap: { marginBottom: 10 },
+  titleDraftLabel: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+    letterSpacing: 0.4,
+  },
+  titleDraftInput: {
+    color: '#e2e8f0',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.45)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    fontWeight: '700',
+  },
   waveRow: { flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 20 },
   waveBar: { width: 8, backgroundColor: '#22d3ee', borderRadius: 999 },
   transcript: { color: '#cbd5e1', fontSize: 16, textAlign: 'center', paddingHorizontal: 8 },
