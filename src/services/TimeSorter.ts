@@ -37,6 +37,60 @@ export function computeDueDateForHorizon(
   return null;
 }
 
+function safeDate(year: number, month1to12: number, day: number): Date {
+  const month = Math.max(1, Math.min(12, month1to12)) - 1;
+  const maxDay = new Date(year, month + 1, 0).getDate();
+  const safeDay = Math.max(1, Math.min(maxDay, day));
+  return new Date(year, month, safeDay, 12, 0, 0, 0);
+}
+
+export function extractMonthDay(value: string | null | undefined): { month: number; day: number } | null {
+  const raw = String(value || '').trim();
+  const m = raw.match(/^(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { month, day };
+}
+
+export function computeNextYearlyDueDateFromNativeDate(
+  nativeDate: string | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  const md = extractMonthDay(nativeDate);
+  if (!md) return null;
+  const thisYearDate = safeDate(now.getFullYear(), md.month, md.day);
+  const currentRef = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+  if (thisYearDate >= currentRef) {
+    return formatYmdLocal(thisYearDate);
+  }
+  const nextYearDate = safeDate(now.getFullYear() + 1, md.month, md.day);
+  return formatYmdLocal(nextYearDate);
+}
+
+export function hasAnniversaryKeyword(text: string): boolean {
+  const raw = String(text || '');
+  return /\b(birthday|anniversary|cumplea(?:n|ñ)os|aniversario|anniversaire)\b/iu.test(raw);
+}
+
+export function isAnniversaryPreparationText(text: string): boolean {
+  const raw = String(text || '');
+  return /\b(prepar(?:e|er|ing|ar)\w*|plan\w*|organ(?:ize|iser|izar)\w*)\b/iu.test(raw);
+}
+
+export function computePreparationDueDateFromText(text: string, now: Date = new Date()): string | null {
+  const raw = String(text || '');
+  if (!raw.trim()) return null;
+  if (/\b(next\s+month|mois\s+prochain|mes\s+que\s+viene)\b/iu.test(raw)) {
+    const y = now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear();
+    const m = now.getMonth() === 11 ? 0 : now.getMonth() + 1;
+    return formatYmdLocal(new Date(y, m, 1, 12, 0, 0, 0));
+  }
+  return null;
+}
+
 function isYmd(raw: string | null | undefined): raw is string {
   if (typeof raw !== 'string') return false;
   const value = raw.trim();

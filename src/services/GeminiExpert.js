@@ -499,3 +499,56 @@ ${safeInput}`;
     return null;
   }
 }
+
+function normalizeAnniversaryDetails(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const personName = String(raw.personName || raw.name || '').trim();
+  const nativeDate = String(raw.native_date || raw.nativeDate || '')
+    .trim()
+    .replace(/\//g, '-');
+  if (!personName) return null;
+  if (!/^\d{2}-\d{2}$/.test(nativeDate)) return null;
+  return {
+    personName,
+    type: 'ANNIVERSARY',
+    recurrence: 'yearly',
+    native_date: nativeDate,
+  };
+}
+
+export async function extractAnniversaryDetails(input) {
+  const safeInput = String(input || '').trim();
+  if (!safeInput) return null;
+  const prompt = `SYSTEM:
+Return ONLY one strict JSON object:
+{ "personName": "string", "type": "ANNIVERSARY", "recurrence": "yearly", "native_date": "MM-DD" }
+
+Rules:
+- No markdown, no explanation, no extra keys.
+- native_date must be month-day only in MM-DD.
+- personName must be the target person.
+
+USER_INPUT:
+${safeInput}`;
+  let generated;
+  try {
+    generated = await generateContentWithFallback(prompt, {
+      temperature: 0.1,
+      maxOutputTokens: 120,
+      responseMimeType: 'application/json',
+    });
+  } catch (error) {
+    log('extractAnniversaryDetails.error', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+  const rawText = generated.rawText?.trim();
+  if (!rawText) return null;
+  try {
+    const parsed = JSON.parse(extractJsonBlock(rawText));
+    return normalizeAnniversaryDetails(parsed);
+  } catch {
+    return null;
+  }
+}

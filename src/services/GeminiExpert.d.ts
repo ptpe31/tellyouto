@@ -16,3 +16,12 @@ export type GeminiHabitRecurrence = {
 };
 
 export function extractHabitRecurrence(input: string): Promise<GeminiHabitRecurrence | null>;
+
+export type GeminiAnniversaryDetails = {
+  personName: string;
+  type: 'ANNIVERSARY';
+  recurrence: 'yearly';
+  native_date: string;
+};
+
+export function extractAnniversaryDetails(input: string): Promise<GeminiAnniversaryDetails | null>;

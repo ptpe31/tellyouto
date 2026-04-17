@@ -34,7 +34,9 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
 import {
   atomizeProject,
+  extractAnniversaryDetails,
   extractHabitRecurrence,
+  type GeminiAnniversaryDetails,
   type GeminiExpertIntention,
   type GeminiHabitRecurrence,
 } from '../services/GeminiExpert';
@@ -47,7 +49,13 @@ import {
   persistGeminiExpertRows,
 } from '../services/ProjectPlanFlowService';
 import { cleanTranscriptText, generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
-import { formatYmdLocal } from '../services/TimeSorter';
+import {
+  computeNextYearlyDueDateFromNativeDate,
+  computePreparationDueDateFromText,
+  formatYmdLocal,
+  hasAnniversaryKeyword,
+  isAnniversaryPreparationText,
+} from '../services/TimeSorter';
 
 function newId(): string {
   try {
@@ -312,6 +320,16 @@ export function TalkDebugScreen() {
           await consumeIaCredits(0.1);
           return { recurrence_rule: recurrence };
         };
+        const buildAnniversaryMeta = async (): Promise<{
+          details: GeminiAnniversaryDetails | null;
+          dueDateYmd: string | null;
+        }> => {
+          const details = await extractAnniversaryDetails(finalTranscript);
+          if (!details) return { details: null, dueDateYmd: null };
+          await consumeIaCredits(0.1);
+          const dueDateYmd = computeNextYearlyDueDateFromNativeDate(details.native_date);
+          return { details, dueDateYmd };
+        };
         const smartTitle = (
           titleDraft.trim() ||
           (isTitleLocked ? lockedTitle : '') ||
@@ -329,32 +347,80 @@ export function TalkDebugScreen() {
             fallbackText: finalTranscript,
             locale: spectrum.locale,
           });
+          const hasAnniversary = hasAnniversaryKeyword(finalTranscript);
+          const isPreparation = hasAnniversary && isAnniversaryPreparationText(finalTranscript);
           const dueDateYmd =
+            computePreparationDueDateFromText(finalTranscript) ??
             (orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null) ??
             parseDueDateFromText(finalTranscript);
-          const intentType = orchestration.localType === 'HABIT' ? 'HABIT' : 'TASK';
+          const intentType = hasAnniversary && !isPreparation
+            ? 'HABIT'
+            : orchestration.localType === 'HABIT'
+              ? 'HABIT'
+              : 'TASK';
+          let metadataExtra: Record<string, unknown> = {};
+          let finalDueDateYmd = dueDateYmd;
+          let finalTitle = smartTitle || (intentType === 'HABIT' ? 'Habitude' : 'Tache rapide');
+          if (hasAnniversary && !isPreparation) {
+            const ann = await buildAnniversaryMeta();
+            if (ann.details) {
+              finalDueDateYmd = ann.dueDateYmd ?? finalDueDateYmd;
+              finalTitle = `🎂 Anniversaire ${ann.details.personName}`.trim();
+              metadataExtra = {
+                ...metadataExtra,
+                type: 'ANNIVERSARY',
+                recurrence: 'yearly',
+                native_date: ann.details.native_date,
+                person_name: ann.details.personName,
+              };
+            }
+          }
+          if (hasAnniversary && isPreparation) {
+            metadataExtra = {
+              ...metadataExtra,
+              related_to_habit: 'ANNIVERSARY',
+            };
+          }
           const habitMeta = intentType === 'HABIT' ? await buildHabitMeta() : {};
           await createLocalTemporalIntention({
             id: newId(),
-            title: smartTitle || (intentType === 'HABIT' ? 'Habitude' : 'Tache rapide'),
+            title: finalTitle,
             rawTranscript: finalTranscript,
             localType: intentType,
-            dueDateYmd,
-            suggestedTags: orchestration.suggestedTags,
+            dueDateYmd: finalDueDateYmd,
+            suggestedTags:
+              intentType === 'HABIT'
+                ? Array.from(new Set([...(orchestration.suggestedTags ?? []), 'regulier']))
+                : orchestration.suggestedTags,
             source: 'talk_debug_local_orchestrator',
-            metadataExtra: habitMeta,
+            metadataExtra: {
+              ...habitMeta,
+              ...metadataExtra,
+            },
           });
         } else if (action === 'habit') {
+          const hasAnniversary = hasAnniversaryKeyword(finalTranscript);
+          const ann = hasAnniversary ? await buildAnniversaryMeta() : { details: null, dueDateYmd: null };
           const habitMeta = await buildHabitMeta();
           await createLocalTemporalIntention({
             id: newId(),
-            title: smartTitle || 'Habitude',
+            title: ann.details ? `🎂 Anniversaire ${ann.details.personName}` : smartTitle || 'Habitude',
             rawTranscript: finalTranscript,
             localType: 'HABIT',
-            dueDateYmd: null,
+            dueDateYmd: ann.dueDateYmd,
             suggestedTags: ['regulier'],
             source: 'talk_debug_habit_local',
-            metadataExtra: habitMeta,
+            metadataExtra: {
+              ...habitMeta,
+              ...(ann.details
+                ? {
+                    type: 'ANNIVERSARY',
+                    recurrence: 'yearly',
+                    native_date: ann.details.native_date,
+                    person_name: ann.details.personName,
+                  }
+                : {}),
+            },
           });
         } else if (action === 'project') {
           // Projet: le titre doit venir du Goal Gemini, pas du smart title local.
