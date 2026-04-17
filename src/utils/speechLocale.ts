@@ -8,6 +8,10 @@ const BASE_TO_BCP47: Record<string, string> = {
   it: 'it-IT',
   ja: 'ja-JP',
   zh: 'zh-CN',
+  ar: 'ar-SA',
+  ko: 'ko-KR',
+  nl: 'nl-NL',
+  sv: 'sv-SE',
 };
 
 function bcp47FromUiLanguage(uiLanguageCode: string): string | null {

@@ -619,7 +619,11 @@
       "de": "Deutsch",
       "it": "Italiano",
       "ja": "日本語",
-      "zh": "中文"
+      "zh": "中文",
+      "ar": "العربية",
+      "ko": "한국어",
+      "nl": "Nederlands",
+      "sv": "Svenska"
     }
   },
   "health": {

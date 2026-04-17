@@ -16,9 +16,32 @@ import i18n from '../locales/i18n';
 const STORAGE_KEY = '@tellyouto/language';
 const INTERACTION_KEY = '@tellyouto/interaction_language';
 
-export type AppLanguage = 'fr' | 'en' | 'es' | 'de' | 'it' | 'ja' | 'zh';
+export type AppLanguage =
+  | 'fr'
+  | 'en'
+  | 'es'
+  | 'de'
+  | 'it'
+  | 'ja'
+  | 'zh'
+  | 'ar'
+  | 'ko'
+  | 'nl'
+  | 'sv';
 
-const supported: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
+const supported: AppLanguage[] = [
+  'fr',
+  'en',
+  'es',
+  'de',
+  'it',
+  'ja',
+  'zh',
+  'ar',
+  'ko',
+  'nl',
+  'sv',
+];
 
 function normalizeLocale(tag: string | undefined): AppLanguage {
   if (!tag) return 'en';

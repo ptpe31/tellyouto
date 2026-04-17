@@ -8,7 +8,19 @@ import { type AppLanguage, useLanguage } from '../context/LanguageContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
 
-const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
+const LANGS: AppLanguage[] = [
+  'fr',
+  'en',
+  'es',
+  'de',
+  'it',
+  'ja',
+  'zh',
+  'ar',
+  'ko',
+  'nl',
+  'sv',
+];
 
 type OnboardingScreenProps = {
   onComplete: () => Promise<void>;
@@ -18,7 +30,19 @@ function normalizeSystemToAppLanguage(tag: string | null): AppLanguage {
   const base = String(tag || 'en')
     .split(/[-_]/)[0]
     ?.toLowerCase();
-  if (base === 'fr' || base === 'en' || base === 'es' || base === 'de' || base === 'it' || base === 'ja' || base === 'zh') {
+  if (
+    base === 'fr' ||
+    base === 'en' ||
+    base === 'es' ||
+    base === 'de' ||
+    base === 'it' ||
+    base === 'ja' ||
+    base === 'zh' ||
+    base === 'ar' ||
+    base === 'ko' ||
+    base === 'nl' ||
+    base === 'sv'
+  ) {
     return base;
   }
   return 'en';

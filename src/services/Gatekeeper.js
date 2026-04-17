@@ -1,7 +1,7 @@
 import { STRINGS } from '../constants/Strings';
 import { suggestSemanticTags } from './TagMap';
 
-const SUPPORTED_LANGS = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
+const SUPPORTED_LANGS = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh', 'ar', 'ko', 'nl', 'sv'];
 let trainingPromise = null;
 let manager = null;
 let nluUnavailable = false;

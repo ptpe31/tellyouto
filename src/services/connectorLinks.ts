@@ -53,7 +53,19 @@ export function getAppLinkForConnector(tab: AppDeepLinkTab = 'radar'): string {
   return buildAppDeepLink(tab);
 }
 
-const SUPPORTED: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
+const SUPPORTED: AppLanguage[] = [
+  'fr',
+  'en',
+  'es',
+  'de',
+  'it',
+  'ja',
+  'zh',
+  'ar',
+  'ko',
+  'nl',
+  'sv',
+];
 
 function normalizeLang(lang: string): AppLanguage {
   const base = lang.split('-')[0]?.toLowerCase() ?? 'en';

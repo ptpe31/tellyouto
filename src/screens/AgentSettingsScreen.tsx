@@ -15,7 +15,19 @@ import { useLanguage } from '../context/LanguageContext';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import type { AgentStackParamList } from '../navigation/AgentStack';
 
-const LANGS: AppLanguage[] = ['fr', 'en', 'es', 'de', 'it', 'ja', 'zh'];
+const LANGS: AppLanguage[] = [
+  'fr',
+  'en',
+  'es',
+  'de',
+  'it',
+  'ja',
+  'zh',
+  'ar',
+  'ko',
+  'nl',
+  'sv',
+];
 
 export function AgentSettingsScreen() {
   const navigation =

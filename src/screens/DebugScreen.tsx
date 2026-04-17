@@ -196,6 +196,10 @@ export function DebugScreen() {
     { id: 'it', label: t('ally.lang.it') },
     { id: 'ja', label: t('ally.lang.ja') },
     { id: 'zh', label: t('ally.lang.zh') },
+    { id: 'ar', label: t('ally.lang.ar') },
+    { id: 'ko', label: t('ally.lang.ko') },
+    { id: 'nl', label: t('ally.lang.nl') },
+    { id: 'sv', label: t('ally.lang.sv') },
   ];
 
   const inspectorRows = React.useMemo(
