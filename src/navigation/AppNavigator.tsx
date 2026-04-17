@@ -2,6 +2,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
   BarChart3,
   Bug,
+  CalendarDays,
   House,
   Leaf,
   Mic,
@@ -15,6 +16,7 @@ import {
   DebugScreen,
   MeliMeloScreen,
   StatsScreen,
+  TimelineScreen,
   TalkDebugScreen,
   TalkHomeScreen,
 } from '../screens';
@@ -82,6 +84,16 @@ export function AppNavigator() {
           title: t('tabs.zenGarden'),
           tabBarIcon: ({ color, size }) => (
             <Leaf color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Timeline"
+        component={TimelineScreen}
+        options={{
+          title: 'Timeline',
+          tabBarIcon: ({ color, size }) => (
+            <CalendarDays color={color} size={size} />
           ),
         }}
       />

@@ -19,7 +19,7 @@ export function formatYmdLocal(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
-  return `${y}${m}${d}`;
+  return `${y}-${m}-${d}`;
 }
 
 export function addDaysYmd(base: Date, days: number): string {
@@ -29,7 +29,17 @@ export function addDaysYmd(base: Date, days: number): string {
 }
 
 function isYmd(raw: string | null | undefined): raw is string {
-  return typeof raw === 'string' && /^\d{8}$/.test(raw.trim());
+  if (typeof raw !== 'string') return false;
+  const value = raw.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) || /^\d{8}$/.test(value);
+}
+
+function normalizeYmd(raw: string): string {
+  const value = raw.trim();
+  if (/^\d{8}$/.test(value)) {
+    return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  }
+  return value;
 }
 
 export function computeTimeHorizonFromDueDate(
@@ -40,7 +50,7 @@ export function computeTimeHorizonFromDueDate(
   const tomorrow = addDaysYmd(now, 1);
   const weekLimit = addDaysYmd(now, 7);
   if (!isYmd(dueDate)) return 'NO_PRESSURE';
-  const dd = dueDate.trim();
+  const dd = normalizeYmd(dueDate);
   if (dd < today) return 'REARBITRATE';
   if (dd === today) return 'TODAY';
   if (dd === tomorrow) return 'TOMORROW';
