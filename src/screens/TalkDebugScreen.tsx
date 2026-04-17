@@ -74,6 +74,7 @@ import {
 } from '../services/calendarMirrorSync';
 import { scheduleTrankilV2IntentionAlarmById } from '../services/alarmManager';
 import { getAutoArchiveAfterCalendarSync } from '../services/premiumBridgeSettings';
+import { logActivity } from '../services/UserActivityService';
 
 function newId(): string {
   try {
@@ -733,6 +734,10 @@ export function TalkDebugScreen() {
             }
             if (syncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
               await updateTrankilV2IntentionArchiveState(intentionId, true);
+              void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
+                intention_id: intentionId,
+                intention_type: 'TASK',
+              });
               pushSuccessFeedback(t('talkDebug.savedCalendarArchivedToast'));
             }
             if (alarmSyncByType.task && spectrum.isProUser) {
@@ -758,6 +763,10 @@ export function TalkDebugScreen() {
             }
             if (syncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
               await updateTrankilV2IntentionArchiveState(intentionId, true);
+              void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
+                intention_id: intentionId,
+                intention_type: 'HABIT',
+              });
               pushSuccessFeedback(t('talkDebug.savedCalendarArchivedToast'));
             }
             if (alarmSyncByType.habit && spectrum.isProUser) {
@@ -791,6 +800,7 @@ export function TalkDebugScreen() {
                 : {}),
             },
           });
+          let habitPathSyncedCalendar = false;
           if (calendarSyncByType.habit && spectrum.isProUser) {
             const sync = await syncIntentionCalendarMirror({
               intentionId,
@@ -812,8 +822,17 @@ export function TalkDebugScreen() {
               calendarId: selectedCalendarId,
             });
             if (sync.synced) {
+              habitPathSyncedCalendar = true;
               pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
             }
+          }
+          if (habitPathSyncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
+            await updateTrankilV2IntentionArchiveState(intentionId, true);
+            void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
+              intention_id: intentionId,
+              intention_type: 'HABIT',
+            });
+            pushSuccessFeedback(t('talkDebug.savedCalendarArchivedToast'));
           }
           if (alarmSyncByType.habit && spectrum.isProUser) {
             const alarm = await scheduleTrankilV2IntentionAlarmById(intentionId);
@@ -1063,6 +1082,10 @@ export function TalkDebugScreen() {
         status: archiveProjectOnSave ? 'ARCHIVED' : 'TODO',
         isOrganized: archiveProjectOnSave ? 1 : 0,
       });
+      void logActivity('PROJECT_CREATED', 0, {
+        source: 'talk_debug_project_plan',
+        selected_tasks: projectPlanPreview.selectedTaskIndexes.length,
+      });
       const writableCalendars =
         calendarOptions.length > 0 ? calendarOptions : await ensureWritableCalendars();
       if (calendarSyncByType.project && spectrum.isProUser) {
@@ -1079,6 +1102,10 @@ export function TalkDebugScreen() {
       setProjectPlanPreview(null);
       markCaptureCreditCommitted();
       if (archiveProjectOnSave) {
+        void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
+          intention_type: 'PROJECT',
+          selected_tasks: projectPlanPreview.selectedTaskIndexes.length,
+        });
         pushSuccessFeedback(t('talkDebug.savedCalendarArchivedToast'));
       }
       pushSuccessFeedback(

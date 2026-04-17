@@ -36,7 +36,17 @@
     "saving": "Ancrage en cours...",
     "gratitudeLine1": "Tu as avance avec clarte. Le calme t'accompagne.",
     "gratitudeLine2": "Chaque pas compte. Ton ciel s'ouvre ce soir.",
-    "gratitudeLine3": "Ta constance illumine ta trajectoire. Belle fermeture."
+    "gratitudeLine3": "Ta constance illumine ta trajectoire. Belle fermeture.",
+    "temperamentLabel": "Ton temperament actuel : {{profile}}",
+    "profileOverride": {
+      "4": {
+        "insight": "Ton esprit est vide, trie et en securite. Tout est bien ancre dans ton calendrier.",
+        "action_tip": "Tu peux relacher la charge ce soir: ton systeme est propre et sous controle."
+      },
+      "1": {
+        "action_tip": "Ce n'est pas grave si tout n'est pas coche. Une seule action claire suffit pour demain."
+      }
+    }
   },
   "tabs": {
     "radar": "Radar",
@@ -66,6 +76,8 @@
     "channelsCatalogTitle": "Canaux & Extensions",
     "channelsCatalogLead": "Un seul canal actif à la fois — c’est là que ton Allié t’envoie tes intentions.",
     "channelsPrivacyFootnote": "Chaque canal Premium est une ligne directe cryptée entre toi et ton rail local. Aucune donnée n’est revendue : elle transite par un tunnel sécurisé et est immédiatement effacée du Cloud une fois synchronisée sur ton téléphone.",
+    "autoArchiveTitle": "Mode Passerelle",
+    "autoArchiveDesc": "Archive automatiquement après l'envoi au calendrier",
     "autoArchiveAfterCalendarSyncTitle": "Mode Passerelle : Archiver automatiquement après export calendrier",
     "autoArchiveAfterCalendarSyncDescription": "Les éléments envoyés au calendrier seront directement marqués comme archivés dans l'application pour ne pas encombrer votre Timeline."
   },
@@ -301,6 +313,9 @@
     "sectionProjectSubtasks": "Sous-taches de Projets",
     "sectionNoteAudio": "Notes & Audios",
     "sectionArchivedExports": "Archives & Exports",
+    "sections": {
+      "archived": "Archives & Exports"
+    },
     "syncedBadge": "Synchronise",
     "memoAudio": "Memo audio",
     "note": "Note",
@@ -336,6 +351,18 @@
     "screenTitle": "Bilan de clarté",
     "screenSubtitle": "Regards du co-pilote — observation, pas jugement.",
     "loading": "Chargement…",
+    "trendDashboardTitle": "Tendance d'organisation",
+    "trendDashboardSubtitle": "Lecture factuelle du volume, de la realisation et de la frequence.",
+    "trendCaptureVolume": "Activite de capture",
+    "trendCompletionRate": "Taux de realisation",
+    "trendCompletionHint": "Action + export",
+    "trendRegularity": "Regularite",
+    "trendRegularityMeta": "{{active}} jours actifs sur {{total}}",
+    "trendDynamicsTitle": "Dynamique observee",
+    "trendFocusCapture": "Focalisation suggeree : beaucoup d'idees capturees.",
+    "trendEfficiencyActiveSessions": "Efficacite constatee sur les sessions actives.",
+    "trendCalendarFlow": "Flux d'export vers calendrier actif.",
+    "trendBalancedFlow": "Dynamique stable entre capture, realisation et frequence.",
     "wellbeingTitle": "Constance Bien-être",
     "wellbeingHint": "Part des mini-créneaux micro-habitudes cochés aujourd’hui (pastilles prévues sur le rail).",
     "wellbeingEmpty": "Aucune micro-habitude planifiée aujourd’hui sur le rail.",

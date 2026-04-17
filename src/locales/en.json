@@ -36,7 +36,17 @@
     "saving": "Anchoring...",
     "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
     "gratitudeLine2": "Every step counts. Your sky opens this evening.",
-    "gratitudeLine3": "Your consistency lights your path. Beautiful close."
+    "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
+    "temperamentLabel": "Your current temperament: {{profile}}",
+    "profileOverride": {
+      "4": {
+        "insight": "Your mind is clear, sorted, and safe. Everything important is anchored in your calendar.",
+        "action_tip": "You can release the load tonight: your system is clean and under control."
+      },
+      "1": {
+        "action_tip": "It is okay if not everything is checked off. One clear action is enough for tomorrow."
+      }
+    }
   },
   "tabs": {
     "radar": "Radar",
@@ -66,6 +76,8 @@
     "channelsCatalogTitle": "Channels & extensions",
     "channelsCatalogLead": "Only one active channel at a time — that’s where your Ally sends your intentions.",
     "channelsPrivacyFootnote": "Each Premium channel is an encrypted direct line between you and your local rail. Nothing is sold: it travels through a secure tunnel and is erased from the Cloud as soon as it has been synced to your phone.",
+    "autoArchiveTitle": "Bridge Mode",
+    "autoArchiveDesc": "Archives automatically after sending to the calendar",
     "autoArchiveAfterCalendarSyncTitle": "Bridge Mode: Auto-archive after calendar export",
     "autoArchiveAfterCalendarSyncDescription": "Items exported to your calendar are immediately marked as archived in the app to keep your Timeline clean."
   },
@@ -301,6 +313,9 @@
     "sectionProjectSubtasks": "Project Subtasks",
     "sectionNoteAudio": "Notes & Audios",
     "sectionArchivedExports": "Archives & Exports",
+    "sections": {
+      "archived": "Archives & Exports"
+    },
     "syncedBadge": "Synced",
     "memoAudio": "Audio memo",
     "note": "Note",
@@ -336,6 +351,18 @@
     "screenTitle": "Clarity overview",
     "screenSubtitle": "Observations from your co-pilot — gentle, not grades.",
     "loading": "Loading…",
+    "trendDashboardTitle": "Organization trend",
+    "trendDashboardSubtitle": "Factual view of volume, completion, and frequency.",
+    "trendCaptureVolume": "Capture activity",
+    "trendCompletionRate": "Completion rate",
+    "trendCompletionHint": "Action + export",
+    "trendRegularity": "Regularity",
+    "trendRegularityMeta": "{{active}} active days over {{total}}",
+    "trendDynamicsTitle": "Observed dynamic",
+    "trendFocusCapture": "Suggested focus: many ideas captured.",
+    "trendEfficiencyActiveSessions": "Efficiency observed on active sessions.",
+    "trendCalendarFlow": "Calendar export flow is active.",
+    "trendBalancedFlow": "Stable dynamic across capture, completion, and frequency.",
     "wellbeingTitle": "Wellbeing consistency",
     "wellbeingHint": "Share of today’s micro-habit slots you checked off (vs. pastilles scheduled on the rail).",
     "wellbeingEmpty": "No micro-habits on the rail today.",

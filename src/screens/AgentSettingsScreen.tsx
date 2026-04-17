@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useRef } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { List, RadioButton, SegmentedButtons, useTheme } from 'react-native-paper';
 import { SafeExternalLink } from '../components/SafeExternalLink';
@@ -123,24 +123,38 @@ export function AgentSettingsScreen() {
             {t('debug.calendarConnectHelp')}
           </Text>
           <CalendarGranularSection />
-          <List.Item
-            title={t('settings.autoArchiveAfterCalendarSyncTitle')}
-            description={t('settings.autoArchiveAfterCalendarSyncDescription')}
-            disabled={!spectrum.isProUser}
-            right={() => (
-              <Switch
-                value={autoArchiveAfterCalendarSync}
-                disabled={!spectrum.isProUser}
-                onValueChange={(value) => {
-                  void (async () => {
-                    if (!spectrum.isProUser) return;
-                    setAutoArchiveAfterSync(value);
-                    await setAutoArchiveAfterCalendarSync(value);
-                  })();
-                }}
-              />
-            )}
-          />
+          <View
+            style={[
+              styles.bridgeRow,
+              {
+                backgroundColor: theme.colors.surfaceVariant,
+                borderColor: theme.colors.outlineVariant,
+                opacity: spectrum.isProUser ? 1 : 0.55,
+              },
+            ]}
+          >
+            <View style={styles.bridgeTextCol}>
+              <Text style={[styles.bridgeTitle, { color: theme.colors.onSurface }]}>
+                {t('settings.autoArchiveTitle')}
+              </Text>
+              <Text style={[styles.bridgeDesc, { color: theme.colors.onSurfaceVariant }]}>
+                {t('settings.autoArchiveDesc')}
+              </Text>
+            </View>
+            <Switch
+              value={autoArchiveAfterCalendarSync}
+              disabled={!spectrum.isProUser}
+              onValueChange={(value) => {
+                void (async () => {
+                  if (!spectrum.isProUser) return;
+                  setAutoArchiveAfterSync(value);
+                  await setAutoArchiveAfterCalendarSync(value);
+                })();
+              }}
+              trackColor={{ false: '#cbd5e1', true: `${theme.colors.primary}99` }}
+              thumbColor={autoArchiveAfterCalendarSync ? theme.colors.primary : '#f4f4f5'}
+            />
+          </View>
         </NeumorphicCard>
 
         <NeumorphicCard style={styles.block}>
@@ -268,4 +282,18 @@ const styles = StyleSheet.create({
   versionText: { fontSize: 12, letterSpacing: 0.2 },
   legalRow: { paddingVertical: 4 },
   legalLink: { fontSize: 15, fontWeight: '600' },
+  bridgeRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  bridgeTextCol: { flex: 1, paddingRight: 8 },
+  bridgeTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  bridgeDesc: { fontSize: 12, lineHeight: 17 },
 });

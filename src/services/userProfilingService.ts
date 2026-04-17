@@ -39,6 +39,28 @@ type AggregatedActivityDays = {
   active_days: number;
 };
 
+type ActivityDayRow = {
+  day_key: string;
+};
+
+function dayKeyLocal(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Chronological local day keys from oldest to newest (inclusive). */
+export function buildTrendDayKeys(daysCount: number, nowMs: number = Date.now()): string[] {
+  const safeDays = Number.isFinite(daysCount) ? Math.max(1, Math.round(daysCount)) : LOOKBACK_DAYS;
+  const now = new Date(nowMs);
+  return Array.from({ length: safeDays }).map((_, idx) => {
+    const d = new Date(now);
+    d.setDate(now.getDate() - (safeDays - 1 - idx));
+    return dayKeyLocal(d);
+  });
+}
+
 const PROFILE_FALLBACKS: Record<number, { label: string; description: string }> = {
   1: {
     label: 'LE REVEUR',
@@ -134,6 +156,7 @@ export async function calculateUserVAE(nowMs: number = Date.now()): Promise<User
   const archivedCount = Number(intentionStats?.archived_count ?? 0);
   const activeDays = Number(activityDays?.active_days ?? 0);
 
+  /** Action (A) : intentions terminées ou archivées (export / passerelle) / volume — les ARCHIVED comptent comme « traitées ». */
   const actionRatio = volume > 0 ? (doneCount + archivedCount) / volume : 0;
   const archivedRatio = volume > 0 ? archivedCount / volume : 0;
   const engagementRatio = activeDays / LOOKBACK_DAYS;
@@ -148,6 +171,52 @@ export async function calculateUserVAE(nowMs: number = Date.now()): Promise<User
     archivedRatio: round4(clamp01(archivedRatio)),
     activeDays: Math.max(0, Math.min(LOOKBACK_DAYS, activeDays)),
   };
+}
+
+/** Seuil d’accès à l’écran Statistiques : volume d’intentions (V) et jours actifs (E) sur la fenêtre courante. */
+export async function canShowStats(nowMs: number = Date.now()): Promise<boolean> {
+  const vae = await calculateUserVAE(nowMs);
+  return vae.volume >= 5 && vae.activeDays >= 2;
+}
+
+export async function listActiveDayKeys(daysCount: number = LOOKBACK_DAYS, nowMs: number = Date.now()): Promise<string[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const safeDays = Number.isFinite(daysCount) ? Math.max(1, Math.round(daysCount)) : LOOKBACK_DAYS;
+  const startMs = nowMs - safeDays * 24 * 60 * 60 * 1000;
+  const rows = await db.getAllAsync<ActivityDayRow>(
+    `SELECT DISTINCT day_key
+     FROM user_activity_logs
+     WHERE created_at >= ?
+     ORDER BY day_key ASC`,
+    [startMs],
+  );
+  return rows.map((row) => String(row.day_key || '').trim()).filter(Boolean);
+}
+
+/** One value per day: total logged actions that day (aligned with `buildTrendDayKeys`). */
+export async function getDailyActivityCountsSeries(
+  daysCount: number = LOOKBACK_DAYS,
+  nowMs: number = Date.now(),
+): Promise<number[]> {
+  const keys = buildTrendDayKeys(daysCount, nowMs);
+  if (keys.length === 0) return [];
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const startKey = keys[0];
+  const rows = await db.getAllAsync<{ day_key: string; cnt: number }>(
+    `SELECT day_key, COUNT(*) AS cnt
+     FROM user_activity_logs
+     WHERE day_key >= ?
+     GROUP BY day_key`,
+    [startKey],
+  );
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    const k = String(row.day_key || '').trim();
+    if (k) map.set(k, Number(row.cnt) || 0);
+  }
+  return keys.map((k) => map.get(k) ?? 0);
 }
 
 export async function getUserProfile(nowMs: number = Date.now()): Promise<UserProfile> {

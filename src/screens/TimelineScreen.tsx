@@ -249,7 +249,7 @@ export function TimelineScreen() {
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
               {item.key === 'ARCHIVED_EXPORTS'
-                ? t('timeline.sectionArchivedExports')
+                ? t('timeline.sections.archived')
                 : t(sectionTitle(item.key as TrankilV2TimelineItemRow['section']))}
             </Text>
             {item.rows.length === 0 ? (
@@ -263,6 +263,7 @@ export function TimelineScreen() {
                     {
                       backgroundColor: theme.colors.surface,
                       borderColor: theme.colors.outlineVariant,
+                      opacity: item.key === 'ARCHIVED_EXPORTS' ? 0.78 : 1,
                     },
                   ]}
                 >
