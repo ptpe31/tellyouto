@@ -65,6 +65,11 @@ type ProjectPlanPreviewState = {
   taskAlarmIndexes: number[];
 };
 
+function toSafeNumber(value: unknown, fallback: number = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function formatDueDateLocal(dueDate: string | null | undefined): string {
   const raw = String(dueDate || '').trim();
   if (!/^\d{8}$/.test(raw)) return '--';
@@ -178,11 +183,41 @@ export function DebugScreen() {
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [dbCounts, setDbCounts] = useState({ intentionsCount: 0, tasksCount: 0 });
 
+  const inspectorRows = React.useMemo(
+    () =>
+      [...trankilRows]
+        .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+        .slice(0, 10),
+    [trankilRows],
+  );
+
+  const inspectorDate = React.useCallback((row: TrankilV2IntentionRow): string => {
+    const due = String(row.due_date || '').trim();
+    if (due) return formatDueDateLocal(due);
+    try {
+      const locale = Intl.DateTimeFormat().resolvedOptions().locale || undefined;
+      return new Intl.DateTimeFormat(locale, {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(row.created_at));
+    } catch {
+      return String(row.created_at);
+    }
+  }, []);
+
+  const inspectorExcerpt = React.useCallback((raw: string): string => {
+    const compact = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!compact) return '-';
+    return compact.length > 90 ? `${compact.slice(0, 87)}...` : compact;
+  }, []);
+
   const refreshKpis = useCallback(async () => {
     const stats = await getTrankilV2UserStats();
-    const marginRatio = stats.local_action_streak;
-    const adEfficiency = stats.ad_videos_watched;
-    const bioScore = stats.zen_points;
+    const marginRatio = toSafeNumber(stats.local_action_streak);
+    const adEfficiency = toSafeNumber(stats.ad_videos_watched);
+    const bioScore = toSafeNumber(stats.zen_points);
     setKpis({
       marginRatio,
       geminiCalls: 0,
@@ -711,16 +746,16 @@ export function DebugScreen() {
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>{STRINGS.admin.title}</Text>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {STRINGS.admin.kpiMargin}: {kpis.marginRatio.toFixed(2)}
+          {STRINGS.admin.kpiMargin}: {toSafeNumber(kpis.marginRatio).toFixed(2)}
         </Text>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
           {STRINGS.admin.kpiTokens}: {kpis.geminiCalls}
         </Text>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {STRINGS.admin.kpiAds}: {kpis.adEfficiency.toFixed(2)}
+          {STRINGS.admin.kpiAds}: {toSafeNumber(kpis.adEfficiency).toFixed(2)}
         </Text>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {STRINGS.admin.kpiBio}: {kpis.bioScore.toFixed(2)}
+          {STRINGS.admin.kpiBio}: {toSafeNumber(kpis.bioScore).toFixed(2)}
         </Text>
         <View style={styles.godRow}>
           <Button mode="contained-tonal" onPress={onForceMorning} style={styles.btnCompact}>
@@ -985,6 +1020,36 @@ export function DebugScreen() {
             </View>
           );
         })}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          Data Inspector
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          10 dernières intentions (triées par created_at décroissant)
+        </Text>
+        <Button
+          mode="outlined"
+          onPress={() => void onPurgeTrankilIntentions()}
+          disabled={busy !== null}
+          style={[styles.btn, styles.btnSecond]}
+        >
+          Vider la base {'{DEBUG}'}
+        </Button>
+        {inspectorRows.map((row) => (
+          <View key={`inspector-${row.id}`} style={styles.inspectorRow}>
+            <Text style={styles.inspectorType}>{row.type}</Text>
+            <Text style={styles.inspectorLine}>Titre: {row.title || '-'}</Text>
+            <Text style={styles.inspectorLine}>
+              Creation Date:{' '}
+              {new Date(row.created_at).toLocaleString()}
+            </Text>
+            <Text style={styles.inspectorLine}>Horizon: {row.category_id || '-'}</Text>
+            <Text style={styles.inspectorLine}>Date: {inspectorDate(row)}</Text>
+            <Text style={styles.inspectorLine}>Contenu: {inspectorExcerpt(row.content_raw)}</Text>
+          </View>
+        ))}
       </View>
 
       <View style={styles.section}>
@@ -1298,6 +1363,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.65)',
   },
   subTaskTitle: { color: '#2C3E50', fontSize: 12, fontWeight: '600', marginBottom: 2 },
+  inspectorRow: {
+    borderWidth: 1,
+    borderColor: 'rgba(44,62,80,0.16)',
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    marginTop: 8,
+    backgroundColor: 'rgba(255,255,255,0.68)',
+  },
+  inspectorType: {
+    color: '#0f766e',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  inspectorLine: {
+    color: '#2C3E50',
+    fontSize: 12,
+    marginBottom: 2,
+  },
   debugProjectInput: {
     marginTop: 6,
     borderWidth: 1,

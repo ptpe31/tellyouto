@@ -2,6 +2,7 @@ import { randomUUID } from 'expo-crypto';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
+import * as chrono from 'chrono-node';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -21,9 +22,6 @@ import { Bell, Check, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-re
 import { LinearGradient } from 'expo-linear-gradient';
 
 import {
-  ensureRoutineIntentionInstancesForHorizon,
-  insertIntention,
-  insertRoutine,
   INTENTIONS_CHANGED_EVENT_NAME,
 } from '../api/localDb';
 import {
@@ -82,6 +80,24 @@ export function TalkDebugScreen() {
   const recRef = useRef<Audio.Recording | null>(null);
   const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
+
+  const parseDueDateFromText = useCallback(
+    (text: string): string | null => {
+      const raw = String(text || '').trim();
+      if (!raw) return null;
+      const locale = (spectrum.locale || 'fr').toLowerCase();
+      const ref = new Date();
+      const parsed =
+        locale.startsWith('fr')
+          ? chrono.fr.parseDate(raw, ref)
+          : locale.startsWith('en')
+            ? chrono.en.parseDate(raw, ref)
+            : chrono.parseDate(raw, ref);
+      if (!parsed) return null;
+      return formatYmdLocal(parsed);
+    },
+    [spectrum.locale],
+  );
 
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results?.[0]?.transcript ?? '';
@@ -245,32 +261,6 @@ export function TalkDebugScreen() {
     }
   }, [captureStep, isPaused, isRecording, spectrum.locale]);
 
-  const saveIntention = useCallback(
-    async (kind: 'note' | 'task', title: string, description: string) => {
-      const now = Date.now();
-      await insertIntention({
-        id: newId(),
-        title,
-        description,
-        status: 'pending',
-        priority: kind === 'task' ? 70 : 40,
-        weights: {
-          structure: spectrum.structure,
-          momentum: spectrum.momentum,
-          zen: spectrum.zen,
-          stats: spectrum.stats,
-        },
-        platform_type: 'none',
-        platform_user_id: spectrum.platform_user_id?.trim() || '',
-        created_at: now,
-        estimated_duration: kind === 'task' ? 25 : 10,
-        raw_transcript: rawTranscript || null,
-        type: kind,
-      });
-    },
-    [rawTranscript, spectrum],
-  );
-
   const saveQuickNoteToTimeline = useCallback(
     async (title: string, transcript: string) => {
       await insertTrankilV2Intention({
@@ -326,7 +316,9 @@ export function TalkDebugScreen() {
             fallbackText: finalTranscript,
             locale: spectrum.locale,
           });
-          const dueDateYmd = orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null;
+          const dueDateYmd =
+            (orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null) ??
+            parseDueDateFromText(finalTranscript);
           const intentType = orchestration.localType === 'HABIT' ? 'HABIT' : 'TASK';
           await createLocalTemporalIntention({
             id: newId(),
@@ -338,31 +330,20 @@ export function TalkDebugScreen() {
             source: 'talk_debug_local_orchestrator',
           });
         } else if (action === 'habit') {
-          const routineId = newId();
-          const now = new Date();
-          await insertRoutine({
-            id: routineId,
-            title: finalTranscript || 'Routine',
-            description: '',
-            weekday: now.getDay(),
-            start_minutes: now.getHours() * 60 + now.getMinutes() + 60,
-            duration_min: 20,
-            weights: {
-              structure: spectrum.structure,
-              momentum: spectrum.momentum,
-              zen: spectrum.zen,
-              stats: spectrum.stats,
-            },
-            priority: 60,
-            platform_type: 'none',
-            platform_user_id: spectrum.platform_user_id?.trim() || '',
-            created_at: Date.now(),
+          await createLocalTemporalIntention({
+            id: newId(),
+            title: smartTitle || 'Habitude',
+            rawTranscript: finalTranscript,
+            localType: 'HABIT',
+            dueDateYmd: null,
+            suggestedTags: ['regulier'],
+            source: 'talk_debug_habit_local',
           });
-          await ensureRoutineIntentionInstancesForHorizon(
-            routineId,
-            spectrum.platform_user_id?.trim() || '',
-          );
         } else if (action === 'project') {
+          // Projet: le titre doit venir du Goal Gemini, pas du smart title local.
+          setTitleDraft('');
+          setLockedTitle('');
+          setIsTitleLocked(false);
           const stats = await getTrankilV2UserStats();
           if (stats.ia_credits <= 0) {
             Alert.alert(
@@ -447,10 +428,10 @@ export function TalkDebugScreen() {
       hasManualTitleEdit,
       isTitleLocked,
       lockedTitle,
+      parseDueDateFromText,
       persistAudioMemoFile,
       pushSuccessFeedback,
       rawTranscript,
-      saveIntention,
       saveQuickNoteToTimeline,
       spectrum,
       titleDraft,
@@ -472,8 +453,22 @@ export function TalkDebugScreen() {
     try {
       const consolidatedPrompt = `Voici mon projet : ${finalTranscript}. Je veux le terminer ${cleanedDeadline}. Genere un plan de taches structure en JSON.`;
       const expertRows = await atomizeProject(consolidatedPrompt);
+      const deadlineYmd = parseDueDateFromText(cleanedDeadline);
+      const normalizedRows = expertRows.map((row) => {
+        if (row.type !== 'TASK') return row;
+        return {
+          ...row,
+          metadata: {
+            ...(row.metadata ?? {}),
+            due_date:
+              deadlineYmd ??
+              String((row.metadata as { due_date?: unknown })?.due_date || '').trim() ||
+              null,
+          },
+        };
+      });
       setDeadlineModalVisible(false);
-      setProjectPlanPreview(buildProjectPlanPreview(finalTranscript, cleanedDeadline, expertRows));
+      setProjectPlanPreview(buildProjectPlanPreview(finalTranscript, cleanedDeadline, normalizedRows));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('PLAN_JSON_PARSE_ERROR')) {
@@ -484,7 +479,7 @@ export function TalkDebugScreen() {
     } finally {
       setIsGeneratingPlan(false);
     }
-  }, [deadlineText, rawTranscript, transcriptDraft]);
+  }, [deadlineText, parseDueDateFromText, rawTranscript, transcriptDraft]);
 
   const togglePlanTaskAlarm = useCallback((taskIndex: number) => {
     setProjectPlanPreview((prev) => {
