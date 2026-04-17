@@ -65,6 +65,23 @@ export type EmergencyLogRow = {
   created_at: number;
 };
 
+export type UserActivityLogActionType =
+  | 'TASK_DONE'
+  | 'HABIT_DONE'
+  | 'PROJECT_CREATED'
+  | 'IA_SPENT'
+  | 'ZEN_GAIN'
+  | 'CALENDAR_SYNC_ARCHIVE';
+
+export type UserActivityLogRow = {
+  id: string;
+  created_at: number;
+  day_key: string;
+  action_type: UserActivityLogActionType;
+  points_delta: number;
+  meta_json: string;
+};
+
 export type BonusEventType =
   | 'ia_credits'
   | 'zen_points'
@@ -175,6 +192,19 @@ export async function initTrankilV2Schema(): Promise<void> {
       intentions_json TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_activity_logs (
+      id TEXT PRIMARY KEY NOT NULL,
+      created_at INTEGER NOT NULL,
+      day_key TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      points_delta INTEGER NOT NULL DEFAULT 0,
+      meta_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_day_key
+      ON user_activity_logs (day_key);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_action_day
+      ON user_activity_logs (action_type, day_key);
   `);
   const cols = await db.getAllAsync<{ name: string }>(
     `PRAGMA table_info(intentions)`,
@@ -306,6 +336,20 @@ export async function initTrankilV2Schema(): Promise<void> {
   if (!hasRechargeLastVideoAt) {
     await db.execAsync(`ALTER TABLE user_stats ADD COLUMN recharge_last_video_at INTEGER;`);
   }
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS user_activity_logs (
+      id TEXT PRIMARY KEY NOT NULL,
+      created_at INTEGER NOT NULL,
+      day_key TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      points_delta INTEGER NOT NULL DEFAULT 0,
+      meta_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_day_key
+      ON user_activity_logs (day_key);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_action_day
+      ON user_activity_logs (action_type, day_key);
+  `);
   await db.execAsync(`UPDATE user_stats SET growth_score = COALESCE(growth_score, zen_points, 0) WHERE id = 1;`);
   await db.execAsync(`UPDATE user_stats SET zen_points = growth_score WHERE id = 1;`);
   const tableSql = await db.getFirstAsync<{ sql: string }>(
@@ -662,6 +706,13 @@ export async function consumeIaCredits(cost: number): Promise<TrankilV2UserStats
   const safeCost = Number.isFinite(cost) ? Math.max(0, cost) : 0;
   const nextRemaining = Math.max(0, Number(current.ia_credits || 0) - safeCost);
   await db.runAsync(`UPDATE user_stats SET ia_credits = ? WHERE id = 1`, [nextRemaining]);
+  if (safeCost > 0) {
+    void insertUserActivityLog({
+      action_type: 'IA_SPENT',
+      points_delta: -Math.round(safeCost),
+      meta_json: JSON.stringify({ source: 'consumeIaCredits' }),
+    }).catch(() => undefined);
+  }
   return {
     ...current,
     ia_credits: nextRemaining,
@@ -916,6 +967,15 @@ export async function updateTrankilV2IntentionClassification(
   if (nextOrganized === 1 && current.is_organized !== 1) {
     await db.runAsync(`UPDATE user_stats SET zen_points = zen_points + 0 WHERE id = 1`);
   }
+  const nextStatus = patch.status ?? current.status;
+  const nextType = patch.type ?? current.type;
+  if (current.status !== 'DONE' && nextStatus === 'DONE' && (nextType === 'TASK' || nextType === 'HABIT')) {
+    void insertUserActivityLog({
+      action_type: nextType === 'TASK' ? 'TASK_DONE' : 'HABIT_DONE',
+      points_delta: 0,
+      meta_json: JSON.stringify({ intention_id: id, source: 'updateTrankilV2IntentionClassification' }),
+    }).catch(() => undefined);
+  }
 }
 
 export async function getTrankilV2UnorganizedCount(): Promise<number> {
@@ -1033,7 +1093,18 @@ export async function listTrankilV2PendingAlarmIntentions(
 export async function markTrankilV2IntentionDone(id: string): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
+  const row = await db.getFirstAsync<{ type: TrankilIntentType }>(
+    `SELECT type FROM intentions WHERE id = ? LIMIT 1`,
+    [id],
+  );
   await db.runAsync(`UPDATE intentions SET status = 'DONE' WHERE id = ?`, [id]);
+  if (row?.type === 'TASK' || row?.type === 'HABIT') {
+    void insertUserActivityLog({
+      action_type: row.type === 'TASK' ? 'TASK_DONE' : 'HABIT_DONE',
+      points_delta: 0,
+      meta_json: JSON.stringify({ intention_id: id }),
+    }).catch(() => undefined);
+  }
 }
 
 export async function updateTrankilV2IntentionArchiveState(
@@ -1132,6 +1203,13 @@ export async function updateGrowth(points: number): Promise<TrankilV2UserStatsRo
     `UPDATE user_stats SET zen_points = ?, growth_score = ? WHERE id = 1`,
     [nextScore, nextScore],
   );
+  if (safePoints > 0) {
+    void insertUserActivityLog({
+      action_type: 'ZEN_GAIN',
+      points_delta: safePoints,
+      meta_json: JSON.stringify({ source: 'updateGrowth' }),
+    }).catch(() => undefined);
+  }
   return { ...decayed, zen_points: nextScore, growth_score: nextScore };
 }
 
@@ -1145,7 +1223,71 @@ export async function adjustZenPoints(delta: number): Promise<TrankilV2UserStats
     `UPDATE user_stats SET zen_points = ?, growth_score = ? WHERE id = 1`,
     [nextScore, nextScore],
   );
+  if (safeDelta > 0) {
+    void insertUserActivityLog({
+      action_type: 'ZEN_GAIN',
+      points_delta: safeDelta,
+      meta_json: JSON.stringify({ source: 'adjustZenPoints' }),
+    }).catch(() => undefined);
+  }
   return { ...current, zen_points: nextScore, growth_score: nextScore };
+}
+
+function localDayKeyFromMs(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export async function insertUserActivityLog(input: {
+  id?: string;
+  created_at?: number;
+  day_key?: string;
+  action_type: UserActivityLogActionType;
+  points_delta: number;
+  meta_json?: string;
+}): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const createdAt = Number.isFinite(input.created_at) ? Number(input.created_at) : Date.now();
+  const dayKey = String(input.day_key || localDayKeyFromMs(createdAt)).trim();
+  const pointsDelta = Number.isFinite(input.points_delta) ? Math.round(input.points_delta) : 0;
+  const id =
+    String(input.id || '').trim() ||
+    `ual_${createdAt.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  await db.runAsync(
+    `INSERT INTO user_activity_logs (
+      id, created_at, day_key, action_type, points_delta, meta_json
+    ) VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, createdAt, dayKey, input.action_type, pointsDelta, input.meta_json ?? '{}'],
+  );
+}
+
+export async function getDailyActivityStatsSeries(daysCount: number): Promise<
+  Array<{ day_key: string; action_type: string; points_total: number; actions_count: number }>
+> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const safeDays = Number.isFinite(daysCount) ? Math.max(1, Math.round(daysCount)) : 30;
+  return db.getAllAsync<{
+    day_key: string;
+    action_type: string;
+    points_total: number;
+    actions_count: number;
+  }>(
+    `SELECT
+       day_key,
+       action_type,
+       SUM(points_delta) AS points_total,
+       COUNT(*) AS actions_count
+     FROM user_activity_logs
+     WHERE day_key >= date('now', 'localtime', ?)
+     GROUP BY day_key, action_type
+     ORDER BY day_key ASC, action_type ASC`,
+    [`-${safeDays - 1} day`],
+  );
 }
 
 export async function spendZenPoints(cost: number): Promise<{

@@ -58,6 +58,12 @@ import type { RailAlarmSoundId } from '../services/railAlarmSound';
 import { palette } from '../theme/colors';
 import { STRINGS } from '../constants/Strings';
 import { atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
+import {
+  getKindnessBones,
+  getUserProfile,
+  type KindnessBones,
+  type UserProfile,
+} from '../services/userProfilingService';
 
 type ProjectPlanPreviewState = {
   projectTitle: string;
@@ -187,6 +193,8 @@ export function DebugScreen() {
   const [dbCounts, setDbCounts] = useState({ intentionsCount: 0, tasksCount: 0 });
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [languagePickerTarget, setLanguagePickerTarget] = useState<'ui' | 'ai'>('ui');
+  const [profilePreview, setProfilePreview] = useState<UserProfile | null>(null);
+  const [kindnessPreview, setKindnessPreview] = useState<KindnessBones | null>(null);
 
   const uiLanguageOptions: Array<{ id: AppLanguage; label: string }> = [
     { id: 'fr', label: t('ally.lang.fr') },
@@ -751,6 +759,21 @@ export function DebugScreen() {
     }
   }, [t]);
 
+  const refreshProfilingPreview = useCallback(async () => {
+    try {
+      const profile = await getUserProfile();
+      const bones = getKindnessBones(profile.id, language, spectrum.first_name || undefined);
+      setProfilePreview(profile);
+      setKindnessPreview(bones);
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    }
+  }, [language, spectrum.first_name]);
+
+  useEffect(() => {
+    void refreshProfilingPreview();
+  }, [refreshProfilingPreview]);
+
   return (
     <ScrollView
       style={[styles.flex, { backgroundColor: theme.colors.background }]}
@@ -1070,6 +1093,40 @@ export function DebugScreen() {
             {t('debug.aiLanguageLabel')}: {t(`ally.lang.${interactionLanguage}`)}
           </Text>
         </Pressable>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
+          Profiling Test
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          Verifie le profil et la variation des messages de bienveillance.
+        </Text>
+        <Button
+          mode="outlined"
+          onPress={() => void refreshProfilingPreview()}
+          style={[styles.btn, styles.btnSecond]}
+        >
+          Rafraichir le message
+        </Button>
+        <Text style={[styles.help, { color: theme.colors.onSurface }]}>
+          Profil: {profilePreview ? `${profilePreview.id} - ${profilePreview.label}` : '-'}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {profilePreview?.description || '-'}
+        </Text>
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          Insight
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurface }]}>
+          {kindnessPreview?.insight || '-'}
+        </Text>
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          Action Tip
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurface }]}>
+          {kindnessPreview?.action_tip || '-'}
+        </Text>
       </View>
 
       <View style={styles.section}>

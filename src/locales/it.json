@@ -14,7 +14,6 @@
     "stats": "Stats",
     "debug": "Debug",
     "meliMelo": "Méli-Mélo",
-    "zenGarden": "Giardino",
     "talkHome": "Talk"
   },
   "messaging": {
@@ -597,10 +596,6 @@
     "premiumQuota": "Premium quota",
     "premiumQuotaRemaining": "Premium quota remaining: {{count}}"
   },
-  "zenGarden": {
-    "screenTitle": "Zen Garden",
-    "whisper": "One gentle move, lasting clarity."
-  },
   "eveningRitual": {
     "title": "Star Ritual",
     "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
@@ -610,7 +605,17 @@
     "saving": "Anchoring...",
     "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
     "gratitudeLine2": "Every step counts. Your sky opens this evening.",
-    "gratitudeLine3": "Your consistency lights your path. Beautiful close."
+    "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
+    "temperamentLabel": "Il tuo temperamento attuale: {{profile}}",
+    "profileOverride": {
+      "4": {
+        "insight": "La tua mente e chiara, ordinata e al sicuro. Tutto cio che conta e ancorato nel tuo calendario.",
+        "action_tip": "Puoi lasciare il carico stasera: il tuo sistema e pulito e sotto controllo."
+      },
+      "1": {
+        "action_tip": "Va bene se non e tutto spuntato. Una sola azione chiara basta per domani."
+      }
+    }
   },
   "sorting": {
     "organization": "Organization",
@@ -619,9 +624,8 @@
     "webNoShake": "Shake sorting runs on device — open Méli-Mélo on your phone.",
     "empty": "Nothing waiting to sort — your open intentions will appear here.",
     "noCreditTitle": "Project momentum",
-    "noCreditBody": "A quick visit to the Zen Garden refills your Project credits for this magic sort.",
+    "noCreditBody": "A quick recharge refills your Project credits for this magic sort.",
     "noCreditCancel": "OK",
-    "goZenGarden": "Open Zen Garden",
     "noApiKeyTitle": "Gemini key",
     "noApiKeyBody": "Add EXPO_PUBLIC_GEMINI_API_KEY to enable smart sorting.",
     "errorTitle": "Sorting stumbled",

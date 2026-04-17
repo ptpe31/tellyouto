@@ -53,38 +53,20 @@ export function EveningStarModal() {
   const loadKindnessMessage = useCallback(async () => {
     const profile = await getUserProfile();
     const bones = getKindnessBones(profile.id, i18n.language);
-    let insight = bones.insight;
-    let actionTip = bones.action_tip;
-
-    if (profile.id === 4) {
-      if (i18n.language.startsWith('fr')) {
-        insight =
-          "Ton esprit est vide, trie et en securite. Tout est bien ancre dans ton calendrier.";
-        actionTip =
-          "Tu peux relacher la charge ce soir: ton systeme est propre et sous controle.";
-      } else {
-        insight =
-          'Your mind is clear, sorted, and safe. Everything important is anchored in your calendar.';
-        actionTip =
-          'You can release the load tonight: your system is clean and under control.';
-      }
-    } else if (profile.id === 1) {
-      if (i18n.language.startsWith('fr')) {
-        actionTip =
-          "Ce n'est pas grave si tout n'est pas coche. Une seule action claire suffit pour demain.";
-      } else {
-        actionTip =
-          "It is okay if not everything is checked off. One clear action is enough for tomorrow.";
-      }
-    }
+    const overrideInsight = t(`eveningRitual.profileOverride.${profile.id}.insight`, {
+      defaultValue: bones.insight,
+    });
+    const overrideActionTip = t(`eveningRitual.profileOverride.${profile.id}.action_tip`, {
+      defaultValue: bones.action_tip,
+    });
 
     setKindnessMessage({
       profileId: profile.id,
       profileLabel: profile.label,
-      insight,
-      actionTip,
+      insight: overrideInsight,
+      actionTip: overrideActionTip,
     });
-  }, [i18n.language]);
+  }, [i18n.language, t]);
 
   useEffect(() => {
     void (async () => {
@@ -234,9 +216,7 @@ export function EveningStarModal() {
           {kindnessMessage ? (
             <View style={styles.kindnessWrap}>
               <Text style={styles.temperamentLabel}>
-                {i18n.language.startsWith('fr')
-                  ? `Ton temperament actuel : ${kindnessMessage.profileLabel}`
-                  : `Your current temperament: ${kindnessMessage.profileLabel}`}
+                {t('eveningRitual.temperamentLabel', { profile: kindnessMessage.profileLabel })}
               </Text>
               <Text style={styles.poetic}>{kindnessMessage.insight}</Text>
               <Text style={styles.poeticAction}>{kindnessMessage.actionTip}</Text>

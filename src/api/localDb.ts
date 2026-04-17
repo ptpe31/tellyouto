@@ -20,6 +20,7 @@ import { deleteAsync } from 'expo-file-system/legacy';
 import { defaultDatabaseDirectory } from 'expo-sqlite';
 import { DeviceEventEmitter } from 'react-native';
 
+import { DATA_CHANGED_EVENT } from '../constants/appEvents';
 import { Platform } from '../utils/rnPlatform';
 
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
@@ -297,6 +298,7 @@ export async function dangerouslyResetDatabase(): Promise<void> {
     /* Expo Go / module indisponible */
   }
   DeviceEventEmitter.emit(LOCAL_DB_RESET_EVENT);
+  DeviceEventEmitter.emit(DATA_CHANGED_EVENT);
 }
 
 async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promise<void> {

@@ -14,7 +14,6 @@
     "stats": "統計",
     "debug": "Debug",
     "meliMelo": "メリメロ",
-    "zenGarden": "庭",
     "talkHome": "Talk"
   },
   "messaging": {
@@ -597,10 +596,6 @@
     "premiumQuota": "Premium quota",
     "premiumQuotaRemaining": "Premium quota remaining: {{count}}"
   },
-  "zenGarden": {
-    "screenTitle": "Zen Garden",
-    "whisper": "One gentle move, lasting clarity."
-  },
   "eveningRitual": {
     "title": "Star Ritual",
     "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
@@ -610,7 +605,17 @@
     "saving": "Anchoring...",
     "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
     "gratitudeLine2": "Every step counts. Your sky opens this evening.",
-    "gratitudeLine3": "Your consistency lights your path. Beautiful close."
+    "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
+    "temperamentLabel": "現在の気質: {{profile}}",
+    "profileOverride": {
+      "4": {
+        "insight": "あなたの頭の中は整理され、安全です。大切なことはすべてカレンダーに固定されています。",
+        "action_tip": "今夜は負荷を手放して大丈夫。あなたのシステムは整っていて安定しています。"
+      },
+      "1": {
+        "action_tip": "すべてにチェックが付いていなくても大丈夫。明日に向けて一つの明確な行動で十分です。"
+      }
+    }
   },
   "sorting": {
     "organization": "Organization",
@@ -619,9 +624,8 @@
     "webNoShake": "Shake sorting runs on device — open Méli-Mélo on your phone.",
     "empty": "Nothing waiting to sort — your open intentions will appear here.",
     "noCreditTitle": "Project momentum",
-    "noCreditBody": "A quick visit to the Zen Garden refills your Project credits for this magic sort.",
+    "noCreditBody": "A quick recharge refills your Project credits for this magic sort.",
     "noCreditCancel": "OK",
-    "goZenGarden": "Open Zen Garden",
     "noApiKeyTitle": "Gemini key",
     "noApiKeyBody": "Add EXPO_PUBLIC_GEMINI_API_KEY to enable smart sorting.",
     "errorTitle": "Sorting stumbled",

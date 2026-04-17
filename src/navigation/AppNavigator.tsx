@@ -1,17 +1,29 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { CommonActions } from '@react-navigation/native';
 import {
   BarChart3,
   Bug,
   CalendarDays,
   House,
-  Leaf,
   Mic,
   Shuffle,
 } from 'lucide-react-native';
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  DeviceEventEmitter,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+} from 'react-native';
 import { useTheme } from 'react-native-paper';
-import { ZenGardenScreen } from '../modules/zenGarden';
+
+import {
+  DATABASE_RESET_COMPLETE_EVENT,
+  INTENTIONS_CHANGED_EVENT_NAME,
+  LOCAL_DB_RESET_EVENT,
+} from '../api/localDb';
+import { DATA_CHANGED_EVENT } from '../constants/appEvents';
 import {
   DebugScreen,
   MeliMeloScreen,
@@ -19,13 +31,84 @@ import {
   TimelineScreen,
   TalkDebugScreen,
 } from '../screens';
+import { canShowStats } from '../services/userProfilingService';
+import { rootNavigationRef } from './rootNavigationRef';
 import type { AppTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 
+function findDeepestFocusedRouteName(state: unknown): string | undefined {
+  if (!state || typeof state !== 'object') return undefined;
+  const s = state as { index?: number; routes?: { name?: string; state?: unknown }[] };
+  const index = typeof s.index === 'number' ? s.index : 0;
+  const routes = s.routes;
+  if (!routes?.length) return undefined;
+  const route = routes[index];
+  if (!route) return undefined;
+  if (route.state) return findDeepestFocusedRouteName(route.state);
+  return typeof route.name === 'string' ? route.name : undefined;
+}
+
 export function AppNavigator() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const [isStatsVisible, setIsStatsVisible] = useState(false);
+
+  const updateStatsVisibility = useCallback(async () => {
+    try {
+      const next = await canShowStats();
+      setIsStatsVisible((prev) => {
+        if (prev !== next) {
+          if (Platform.OS === 'android') {
+            const ui = UIManager as { setLayoutAnimationEnabledExperimental?: (v: boolean) => void };
+            ui.setLayoutAnimationEnabledExperimental?.(true);
+          }
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        }
+        return next;
+      });
+    } catch {
+      setIsStatsVisible(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void updateStatsVisibility();
+  }, [updateStatsVisibility]);
+
+  useEffect(() => {
+    const subs = [
+      DeviceEventEmitter.addListener(DATA_CHANGED_EVENT, () => {
+        void updateStatsVisibility();
+      }),
+      DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
+        void updateStatsVisibility();
+      }),
+      DeviceEventEmitter.addListener(DATABASE_RESET_COMPLETE_EVENT, () => {
+        void updateStatsVisibility();
+      }),
+      DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => {
+        void updateStatsVisibility();
+      }),
+    ];
+    return () => {
+      subs.forEach((s) => s.remove());
+    };
+  }, [updateStatsVisibility]);
+
+  useEffect(() => {
+    if (isStatsVisible) return;
+    if (!rootNavigationRef.isReady()) return;
+    const root = rootNavigationRef.getRootState();
+    if (!root) return;
+    if (findDeepestFocusedRouteName(root) !== 'Stats') return;
+    rootNavigationRef.dispatch(
+      CommonActions.navigate({
+        name: 'App',
+        params: { screen: 'Tabs', params: { screen: 'TalkHome' } },
+      } as never),
+    );
+  }, [isStatsVisible]);
 
   return (
     <Tab.Navigator
@@ -76,17 +159,6 @@ export function AppNavigator() {
         }}
       />
       <Tab.Screen
-        name="ZenGarden"
-        component={ZenGardenScreen}
-        options={{
-          headerShown: false,
-          title: t('tabs.zenGarden'),
-          tabBarIcon: ({ color, size }) => (
-            <Leaf color={color} size={size} />
-          ),
-        }}
-      />
-      <Tab.Screen
         name="Timeline"
         component={TimelineScreen}
         options={{
@@ -96,16 +168,18 @@ export function AppNavigator() {
           ),
         }}
       />
-      <Tab.Screen
-        name="Stats"
-        component={StatsScreen}
-        options={{
-          title: t('tabs.stats'),
-          tabBarIcon: ({ color, size }) => (
-            <BarChart3 color={color} size={size} />
-          ),
-        }}
-      />
+      {isStatsVisible ? (
+        <Tab.Screen
+          name="Stats"
+          component={StatsScreen}
+          options={{
+            title: t('tabs.stats'),
+            tabBarIcon: ({ color, size }) => (
+              <BarChart3 color={color} size={size} />
+            ),
+          }}
+        />
+      ) : null}
       {__DEV__ ? (
         <Tab.Screen
           name="Debug"
