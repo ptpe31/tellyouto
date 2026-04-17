@@ -1,6 +1,6 @@
 import { BlurView } from 'expo-blur';
 import * as Battery from 'expo-battery';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   DeviceEventEmitter,
@@ -26,9 +26,17 @@ import { getTrankilV2UserStats } from '../api/trankilV2Db';
 import { useSaturation } from '../context/SaturationContext';
 import { notifyChargingEveningPrompt } from '../services/notifications';
 import { STRINGS } from '../constants/Strings';
+import { getKindnessBones, getUserProfile } from '../services/userProfilingService';
+
+type KindnessMessage = {
+  profileId: number;
+  profileLabel: string;
+  insight: string;
+  actionTip: string;
+};
 
 export function EveningStarModal() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { animationMultiplier, runWithWeight } = useSaturation();
   const [visible, setVisible] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
@@ -39,7 +47,44 @@ export function EveningStarModal() {
   const [isListening, setIsListening] = useState(false);
   const [loading, setLoading] = useState(false);
   const [growth, setGrowth] = useState(0);
+  const [kindnessMessage, setKindnessMessage] = useState<KindnessMessage | null>(null);
   const stars = useRef(Array.from({ length: 24 }, () => new Animated.Value(0.2))).current;
+
+  const loadKindnessMessage = useCallback(async () => {
+    const profile = await getUserProfile();
+    const bones = getKindnessBones(profile.id, i18n.language);
+    let insight = bones.insight;
+    let actionTip = bones.action_tip;
+
+    if (profile.id === 4) {
+      if (i18n.language.startsWith('fr')) {
+        insight =
+          "Ton esprit est vide, trie et en securite. Tout est bien ancre dans ton calendrier.";
+        actionTip =
+          "Tu peux relacher la charge ce soir: ton systeme est propre et sous controle.";
+      } else {
+        insight =
+          'Your mind is clear, sorted, and safe. Everything important is anchored in your calendar.';
+        actionTip =
+          'You can release the load tonight: your system is clean and under control.';
+      }
+    } else if (profile.id === 1) {
+      if (i18n.language.startsWith('fr')) {
+        actionTip =
+          "Ce n'est pas grave si tout n'est pas coche. Une seule action claire suffit pour demain.";
+      } else {
+        actionTip =
+          "It is okay if not everything is checked off. One clear action is enough for tomorrow.";
+      }
+    }
+
+    setKindnessMessage({
+      profileId: profile.id,
+      profileLabel: profile.label,
+      insight,
+      actionTip,
+    });
+  }, [i18n.language]);
 
   useEffect(() => {
     void (async () => {
@@ -55,9 +100,10 @@ export function EveningStarModal() {
       setDoneCount(payload.doneCount);
       setVictoryTitle(payload.victoryTitle);
       setChargingEntry(isCharging);
+      await loadKindnessMessage();
       setVisible(true);
     })();
-  }, []);
+  }, [loadKindnessMessage]);
 
   useEffect(() => {
     const sub = Battery.addBatteryStateListener(async ({ batteryState }) => {
@@ -73,10 +119,11 @@ export function EveningStarModal() {
       setDoneCount(payload.doneCount);
       setVictoryTitle(payload.victoryTitle);
       setChargingEntry(true);
+      await loadKindnessMessage();
       setVisible(true);
     });
     return () => sub.remove();
-  }, [visible]);
+  }, [loadKindnessMessage, visible]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('DEBUG_FORCE_EVENING', () => {
@@ -85,11 +132,12 @@ export function EveningStarModal() {
         setDoneCount(payload.doneCount);
         setVictoryTitle(payload.victoryTitle);
         setChargingEntry(true);
+        await loadKindnessMessage();
         setVisible(true);
       })();
     });
     return () => sub.remove();
-  }, []);
+  }, [loadKindnessMessage]);
 
   useEffect(() => {
     if (!visible) return;
@@ -105,16 +153,6 @@ export function EveningStarModal() {
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
   }, [visible, doneCount, stars]);
-
-  const gratitude = useMemo(() => {
-    const choices = [
-      t('eveningRitual.gratitudeLine1'),
-      t('eveningRitual.gratitudeLine2'),
-      t('eveningRitual.gratitudeLine3'),
-    ];
-    const idx = Math.floor(Math.random() * choices.length);
-    return choices[idx];
-  }, [t, visible]);
 
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results[0]?.transcript ?? '';
@@ -193,7 +231,17 @@ export function EveningStarModal() {
           <Text style={styles.message}>
             {t('eveningRitual.summary', { count: doneCount })}
           </Text>
-          <Text style={styles.poetic}>{gratitude}</Text>
+          {kindnessMessage ? (
+            <View style={styles.kindnessWrap}>
+              <Text style={styles.temperamentLabel}>
+                {i18n.language.startsWith('fr')
+                  ? `Ton temperament actuel : ${kindnessMessage.profileLabel}`
+                  : `Your current temperament: ${kindnessMessage.profileLabel}`}
+              </Text>
+              <Text style={styles.poetic}>{kindnessMessage.insight}</Text>
+              <Text style={styles.poeticAction}>{kindnessMessage.actionTip}</Text>
+            </View>
+          ) : null}
           {victoryTitle ? (
             <Text style={styles.victory}>
               {t('eveningRitual.victoryLabel')}: {victoryTitle}
@@ -266,7 +314,25 @@ const styles = StyleSheet.create({
   zenBadgeText: { color: '#99f6e4', fontWeight: '700' },
   title: { marginTop: 8, fontSize: 24, fontWeight: '800', color: '#e2e8f0' },
   message: { marginTop: 10, fontSize: 16, color: '#e2e8f0', textAlign: 'center', lineHeight: 22 },
+  kindnessWrap: {
+    marginTop: 10,
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.35)',
+    backgroundColor: 'rgba(30,41,59,0.42)',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  temperamentLabel: {
+    color: '#a7f3d0',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
   poetic: { marginTop: 8, fontSize: 14, color: '#cbd5e1', textAlign: 'center', fontStyle: 'italic' },
+  poeticAction: { marginTop: 8, fontSize: 14, color: '#e2e8f0', textAlign: 'center', fontWeight: '700' },
   victory: { marginTop: 8, fontSize: 13, color: '#f8fafc', textAlign: 'center', fontWeight: '700' },
   input: {
     marginTop: 14,
