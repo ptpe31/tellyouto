@@ -7,6 +7,7 @@ export { getFirebaseApp, getFirestoreDb } from './firebase';
 export {
   addRemainingIntents,
   addIaCredits,
+  refundIaCredit,
   applyAvailabilityReward,
   applyGrowthDecayIfNeeded,
   deleteTrankilV2IntentionById,
@@ -37,6 +38,9 @@ export {
   updateGrowth,
   updateTrankilV2IntentionOrganization,
   updateTrankilV2IntentionQuick,
+  updateTrankilV2IntentionAlarmFields,
+  listTrankilV2PendingAlarmIntentions,
+  getTrankilV2IntentionById,
 } from './trankilV2Db';
 export type {
   TrankilIntentStatus,

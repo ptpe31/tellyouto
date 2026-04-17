@@ -22,6 +22,10 @@ export type TrankilV2IntentionRow = {
   calendar_event_id?: string | null;
   calendar_name?: string | null;
   is_synced_calendar?: number;
+  alarm_enabled?: number;
+  remind_at?: number | null;
+  local_notification_id?: string | null;
+  recurrence_rrule?: string | null;
 };
 
 export type TrankilV2TimelineItemRow = {
@@ -122,7 +126,11 @@ export async function initTrankilV2Schema(): Promise<void> {
       created_at INTEGER NOT NULL,
       calendar_event_id TEXT,
       calendar_name TEXT,
-      is_synced_calendar INTEGER NOT NULL DEFAULT 0 CHECK (is_synced_calendar IN (0, 1))
+      is_synced_calendar INTEGER NOT NULL DEFAULT 0 CHECK (is_synced_calendar IN (0, 1)),
+      alarm_enabled INTEGER NOT NULL DEFAULT 0 CHECK (alarm_enabled IN (0, 1)),
+      remind_at INTEGER,
+      local_notification_id TEXT,
+      recurrence_rrule TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_intentions_type_status
@@ -212,6 +220,22 @@ export async function initTrankilV2Schema(): Promise<void> {
   const hasIsSyncedCalendar = cols.some((c) => c.name === 'is_synced_calendar');
   if (!hasIsSyncedCalendar) {
     await db.execAsync(`ALTER TABLE intentions ADD COLUMN is_synced_calendar INTEGER NOT NULL DEFAULT 0;`);
+  }
+  const hasAlarmEnabled = cols.some((c) => c.name === 'alarm_enabled');
+  if (!hasAlarmEnabled) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN alarm_enabled INTEGER NOT NULL DEFAULT 0;`);
+  }
+  const hasRemindAt = cols.some((c) => c.name === 'remind_at');
+  if (!hasRemindAt) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN remind_at INTEGER;`);
+  }
+  const hasLocalNotificationId = cols.some((c) => c.name === 'local_notification_id');
+  if (!hasLocalNotificationId) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN local_notification_id TEXT;`);
+  }
+  const hasRecurrenceRrule = cols.some((c) => c.name === 'recurrence_rrule');
+  if (!hasRecurrenceRrule) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN recurrence_rrule TEXT;`);
   }
   await db.execAsync(
     `UPDATE intentions
@@ -578,6 +602,11 @@ export async function addIaCredits(count: number): Promise<TrankilV2UserStatsRow
   };
 }
 
+export async function refundIaCredit(count: number = 1): Promise<TrankilV2UserStatsRow> {
+  const safe = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
+  return addIaCredits(safe);
+}
+
 export async function markIaRechargeWatch(nowMs: number = Date.now()): Promise<TrankilV2UserStatsRow> {
   await initTrankilV2Schema();
   const db = await getDb();
@@ -643,6 +672,10 @@ export type TrankilV2IntentionInsert = {
   calendar_event_id?: string | null;
   calendar_name?: string | null;
   is_synced_calendar?: number;
+  alarm_enabled?: number;
+  remind_at?: number | null;
+  local_notification_id?: string | null;
+  recurrence_rrule?: string | null;
 };
 
 export async function insertTrankilV2Intention(
@@ -652,8 +685,8 @@ export async function insertTrankilV2Intention(
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO intentions (
-      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.id,
       row.type,
@@ -673,6 +706,10 @@ export async function insertTrankilV2Intention(
       row.calendar_event_id ?? null,
       row.calendar_name ?? null,
       row.is_synced_calendar ?? 0,
+      row.alarm_enabled ?? 0,
+      row.remind_at ?? null,
+      row.local_notification_id ?? null,
+      row.recurrence_rrule ?? null,
     ],
   );
   const stats = await getTrankilV2UserStats();
@@ -859,6 +896,58 @@ export async function updateTrankilV2IntentionCalendarSync(
       patch.is_synced_calendar ?? current.is_synced_calendar ?? 0,
       id,
     ],
+  );
+}
+
+export async function updateTrankilV2IntentionAlarmFields(
+  id: string,
+  patch: {
+    alarm_enabled?: number;
+    remind_at?: number | null;
+    local_notification_id?: string | null;
+    recurrence_rrule?: string | null;
+  },
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const current = await getTrankilV2IntentionById(id);
+  if (!current) return;
+  await db.runAsync(
+    `UPDATE intentions
+     SET alarm_enabled = ?,
+         remind_at = ?,
+         local_notification_id = ?,
+         recurrence_rrule = ?
+     WHERE id = ?`,
+    [
+      patch.alarm_enabled ?? current.alarm_enabled ?? 0,
+      patch.remind_at === undefined ? current.remind_at ?? null : patch.remind_at,
+      patch.local_notification_id === undefined
+        ? current.local_notification_id ?? null
+        : patch.local_notification_id,
+      patch.recurrence_rrule === undefined
+        ? current.recurrence_rrule ?? null
+        : patch.recurrence_rrule,
+      id,
+    ],
+  );
+}
+
+export async function listTrankilV2PendingAlarmIntentions(
+  nowMs: number = Date.now(),
+): Promise<TrankilV2IntentionRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions
+     WHERE status = 'TODO'
+       AND alarm_enabled = 1
+       AND (
+         (remind_at IS NOT NULL AND remind_at > ?)
+         OR recurrence_rrule IS NOT NULL
+       )
+     ORDER BY COALESCE(remind_at, created_at) ASC`,
+    [nowMs],
   );
 }
 

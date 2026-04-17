@@ -890,6 +890,7 @@
     "projectAnchored": "Projet ancre et enregistre. Credits restants: {{credits}}",
     "projectAnchoredCalendar": "Evenement ajoute a votre calendrier {{calendar}}",
     "savedCalendarToast": "Enregistre + Calendrier",
+    "savedAlarmToast": "Enregistre + Alarme",
     "projectValidationError": "Erreur lors de la validation du plan.",
     "calendarPickerTitle": "Choisir un calendrier",
     "calendarPickerSubtitle": "Selectionne le calendrier de destination pour cette insertion.",

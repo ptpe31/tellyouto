@@ -13,8 +13,8 @@
  *   pourrait différer de ce que l’utilisateur a validé (sinon retour de la **dérive temporelle**).
  * - Si `is_flexible === true`, **aucune** alarme matérielle n’est planifiée : le créneau peut bouger ;
  *   programmer le OS ici casserait la promesse produit.
- * - Toute modification du flux **doit** garder la cohérence avec {@link extractClockMinutesFromText}
- *   / persistance dans `localDb` (révision croisée obligatoire).
+ * - Toute modification du flux **doit** garder la cohérence avec la persistance des champs d'alarme
+ *   dans `trankil_v2.db` (révision croisée obligatoire).
  *
  * @module alarmManager
  */
@@ -27,8 +27,12 @@ import {
   ensureNotificationPermissions,
   getNotifications,
 } from './notifications';
-import type { IntentionRow } from '../api/localDb';
-import { nextOccurrenceAfter, nextOccurrenceFrom } from './recurrenceRrule';
+import {
+  getTrankilV2IntentionById,
+  listTrankilV2PendingAlarmIntentions,
+  updateTrankilV2IntentionAlarmFields,
+  type TrankilV2IntentionRow,
+} from '../api/trankilV2Db';
 import {
   androidNotificationChannelIdForSound,
   bundledSoundFilenameForPreference,
@@ -110,8 +114,7 @@ async function scheduleRailStyleDateNotification(
     data: Record<string, unknown>;
   },
 ): Promise<string> {
-  const { getPreferredRailAlarmSoundId } = await import('../api/localDb');
-  const soundId = await getPreferredRailAlarmSoundId();
+  const soundId: RailAlarmSoundId = 'default';
   const filename = bundledSoundFilenameForPreference(soundId);
 
   let channelId = '';
@@ -166,9 +169,9 @@ function fallbackRailAlarmStartMinutes(now: Date): number {
 }
 
 /** Minuit local du jour d’ancrage (ou du jour courant si pas d’ancre). */
-function intentionAlarmAnchorMidnight(row: IntentionRow, now: Date): Date {
-  if (row.anchor_date_ymd) {
-    const parts = row.anchor_date_ymd.split('-').map(Number);
+function intentionAlarmAnchorMidnight(row: TrankilV2IntentionRow, now: Date): Date {
+  if (row.due_date) {
+    const parts = row.due_date.split('-').map(Number);
     const [y, m, d] = parts;
     if (
       parts.length === 3 &&
@@ -203,15 +206,14 @@ async function cancelScheduledIdsForIntention(
 }
 
 export async function cancelIntentionRailAlarm(intentionId: string): Promise<void> {
-  const { getIntentionById, setIntentionLocalNotificationId } = await import(
-    '../api/localDb'
-  );
-  const row = await getIntentionById(intentionId);
+  const row = await getTrankilV2IntentionById(intentionId);
   await cancelScheduledIdsForIntention(
     intentionId,
     row?.local_notification_id ?? undefined,
   );
-  await setIntentionLocalNotificationId(intentionId, null);
+  await updateTrankilV2IntentionAlarmFields(intentionId, {
+    local_notification_id: null,
+  });
 }
 
 /** Après purge locale des intentions — annule toutes les notifs rail encore planifiées. */
@@ -231,10 +233,10 @@ export async function cancelAllScheduledRailAlarms(): Promise<void> {
     /* */
   }
   try {
-    const { clearAllIntentionLocalNotificationHandles } = await import(
-      '../api/localDb'
-    );
-    await clearAllIntentionLocalNotificationHandles();
+    const rows = await listTrankilV2PendingAlarmIntentions(0);
+    for (const row of rows) {
+      await updateTrankilV2IntentionAlarmFields(row.id, { local_notification_id: null });
+    }
   } catch {
     /* SQLite indisponible */
   }
@@ -303,8 +305,9 @@ export async function scheduleDebugAgentDirectAlarmIn10Minutes(): Promise<string
 }
 
 async function persistScheduledId(intentionId: string, scheduledId: string): Promise<void> {
-  const { setIntentionLocalNotificationId } = await import('../api/localDb');
-  await setIntentionLocalNotificationId(intentionId, scheduledId);
+  await updateTrankilV2IntentionAlarmFields(intentionId, {
+    local_notification_id: scheduledId,
+  });
 }
 
 /**
@@ -313,7 +316,7 @@ async function persistScheduledId(intentionId: string, scheduledId: string): Pro
  * Pilotage 100 % local : permission vérifiée ici avant tout accès OS.
  */
 async function scheduleIntentionRailAlarmAtDate(
-  row: IntentionRow,
+  row: TrankilV2IntentionRow,
   when: Date,
   now: Date,
 ): Promise<void> {
@@ -331,8 +334,7 @@ async function scheduleIntentionRailAlarmAtDate(
     return;
   }
 
-  const { getIntentionById } = await import('../api/localDb');
-  const fresh = (await getIntentionById(row.id)) ?? row;
+  const fresh = (await getTrankilV2IntentionById(row.id)) ?? row;
   await cancelScheduledIdsForIntention(
     fresh.id,
     fresh.local_notification_id ?? undefined,
@@ -357,7 +359,7 @@ async function scheduleIntentionRailAlarmAtDate(
 }
 
 async function scheduleIntentionRailAlarm(
-  row: IntentionRow,
+  row: TrankilV2IntentionRow,
   startMinutes: number,
   now: Date,
 ): Promise<void> {
@@ -366,9 +368,18 @@ async function scheduleIntentionRailAlarm(
   await scheduleIntentionRailAlarmAtDate(row, when, now);
 }
 
-function computeNextRruleAlarmDate(row: IntentionRow, now: Date): Date | null {
-  if (!row.recurrence_rrule?.trim()) return null;
-  return nextOccurrenceFrom(row, now);
+function computeNextRruleAlarmDate(row: TrankilV2IntentionRow, now: Date): Date | null {
+  const rrule = String(row.recurrence_rrule ?? '').toUpperCase();
+  if (!rrule) return null;
+  const baseMs = Number(row.remind_at ?? 0);
+  const base = baseMs > 0 ? new Date(baseMs) : now;
+  const next = new Date(base);
+  if (rrule.includes('FREQ=WEEKLY')) {
+    next.setDate(next.getDate() + 7);
+  } else {
+    next.setDate(next.getDate() + 1);
+  }
+  return next.getTime() > now.getTime() ? next : null;
 }
 
 /**
@@ -421,22 +432,13 @@ async function runSyncRailAlarmsWithTimeline(args: { now: Date }): Promise<void>
   const n = getNotifications();
   if (!n) return;
 
-  const { listIntentionsDescending } = await import('../api/localDb');
   const { now } = args;
 
-  const pendingIntentions = (await listIntentionsDescending()).filter(
-    (r) => r.status !== 'done',
-  );
+  const pendingIntentions = await listTrankilV2PendingAlarmIntentions(now.getTime());
   if (pendingIntentions.length === 0) return;
 
   for (const row of pendingIntentions) {
-    if (!row.alarm_enabled) {
-      await cancelIntentionRailAlarm(row.id);
-      continue;
-    }
-
-    /** Alarme native uniquement pour ancres fixes (pas de créneau flexible). */
-    if (row.is_flexible) {
+    if (Number(row.alarm_enabled ?? 0) !== 1) {
       await cancelIntentionRailAlarm(row.id);
       continue;
     }
@@ -451,12 +453,17 @@ async function runSyncRailAlarmsWithTimeline(args: { now: Date }): Promise<void>
       continue;
     }
 
-    if (row.fixed_start_minutes == null) {
+    if (typeof row.remind_at === 'number' && row.remind_at > now.getTime()) {
+      await scheduleIntentionRailAlarmAtDate(row, new Date(row.remind_at), now);
+      continue;
+    }
+
+    if (!row.due_date) {
       await cancelIntentionRailAlarm(row.id);
       continue;
     }
 
-    await scheduleIntentionRailAlarm(row, row.fixed_start_minutes, now);
+    await scheduleIntentionRailAlarm(row, fallbackRailAlarmStartMinutes(now), now);
   }
 }
 
@@ -473,21 +480,14 @@ export async function handleRailAlarmDelivered(intentionId: string): Promise<voi
   if (t - prev < RAIL_ALARM_DEBOUNCE_MS) return;
   lastRailAlarmHandledAt.set(intentionId, t);
 
-  const { getIntentionById, advanceIntentionToNextRecurrenceSlot } = await import(
-    '../api/localDb'
-  );
-  const row = await getIntentionById(intentionId);
+  const row = await getTrankilV2IntentionById(intentionId);
   if (!row?.recurrence_rrule?.trim()) return;
-
-  const advanced = await advanceIntentionToNextRecurrenceSlot(intentionId);
-  if (!advanced) return;
-
-  const fresh = await getIntentionById(intentionId);
-  if (!fresh?.recurrence_rrule?.trim()) return;
-
   const now = new Date();
-  const when = nextOccurrenceAfter(fresh, now);
+  const when = computeNextRruleAlarmDate(row, now);
   if (!when) return;
+  await updateTrankilV2IntentionAlarmFields(intentionId, { remind_at: when.getTime() });
+  const fresh = await getTrankilV2IntentionById(intentionId);
+  if (!fresh) return;
   await scheduleIntentionRailAlarmAtDate(fresh, when, now);
 }
 
@@ -497,10 +497,9 @@ export async function handleRailAlarmDelivered(intentionId: string): Promise<voi
 export async function bootstrapNativeAlarmsOnAppStart(): Promise<void> {
   try {
     await refreshRailAlarmsAfterLocalDbChange();
-    const { listIntentionsDescending } = await import('../api/localDb');
-    const rows = await listIntentionsDescending();
+    const rows = await listTrankilV2PendingAlarmIntentions(Date.now());
     const count = rows.filter(
-      (r) => r.status === 'pending' && r.alarm_enabled,
+      (r) => Number(r.alarm_enabled ?? 0) === 1,
     ).length;
     if (__DEV__) {
       console.log(
@@ -510,4 +509,43 @@ export async function bootstrapNativeAlarmsOnAppStart(): Promise<void> {
   } catch (e) {
     if (__DEV__) console.warn('[TalkNDone] bootstrapNativeAlarmsOnAppStart', e);
   }
+}
+
+function guessReminderDateMs(row: TrankilV2IntentionRow): number | null {
+  if (typeof row.remind_at === 'number' && row.remind_at > Date.now() + 10_000) {
+    return row.remind_at;
+  }
+  if (row.due_date && /^\d{4}-\d{2}-\d{2}$/.test(row.due_date)) {
+    const [y, m, d] = row.due_date.split('-').map((v) => Number(v));
+    return new Date(y, m - 1, d, 9, 0, 0, 0).getTime();
+  }
+  return null;
+}
+
+export async function scheduleTrankilV2IntentionAlarmById(
+  intentionId: string,
+): Promise<{ ok: boolean; notificationId: string | null }> {
+  const row = await getTrankilV2IntentionById(intentionId);
+  if (!row) return { ok: false, notificationId: null };
+  const remindAt = guessReminderDateMs(row);
+  if (!remindAt) return { ok: false, notificationId: null };
+  await updateTrankilV2IntentionAlarmFields(intentionId, {
+    alarm_enabled: 1,
+    remind_at: remindAt,
+  });
+  const fresh = await getTrankilV2IntentionById(intentionId);
+  if (!fresh) return { ok: false, notificationId: null };
+  await scheduleIntentionRailAlarmAtDate(fresh, new Date(remindAt), new Date());
+  const synced = await getTrankilV2IntentionById(intentionId);
+  return { ok: true, notificationId: synced?.local_notification_id ?? null };
+}
+
+export async function disableTrankilV2IntentionAlarmById(
+  intentionId: string,
+): Promise<void> {
+  await cancelIntentionRailAlarm(intentionId);
+  await updateTrankilV2IntentionAlarmFields(intentionId, {
+    alarm_enabled: 0,
+    local_notification_id: null,
+  });
 }

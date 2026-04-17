@@ -29,10 +29,10 @@ import {
   INTENTIONS_CHANGED_EVENT_NAME,
 } from '../api/localDb';
 import {
-  consumeTrankilV2IntentCredit,
   consumeIaCredits,
   getTrankilV2UserStats,
   insertTrankilV2Intention,
+  refundIaCredit,
 } from '../api/trankilV2Db';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
@@ -71,6 +71,7 @@ import {
   setDefaultCalendarId,
   syncIntentionCalendarMirror,
 } from '../services/calendarMirrorSync';
+import { scheduleTrankilV2IntentionAlarmById } from '../services/alarmManager';
 
 function newId(): string {
   try {
@@ -88,6 +89,7 @@ type WritableDeviceCalendar = {
 
 const LAST_CALENDAR_STORAGE_KEY = '@tellyouto/talk_debug_last_calendar_id';
 const CALENDAR_SYNC_PREFS_KEY = '@tellyouto/talk_debug_calendar_sync_prefs';
+const ALARM_SYNC_PREFS_KEY = '@tellyouto/talk_debug_alarm_sync_prefs';
 
 export function TalkDebugScreen() {
   const { t, i18n } = useTranslation();
@@ -104,6 +106,7 @@ export function TalkDebugScreen() {
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [iaCredits, setIaCredits] = useState(0);
   const [deadlineModalVisible, setDeadlineModalVisible] = useState(false);
   const [deadlineText, setDeadlineText] = useState('');
   const [isDeadlineListening, setIsDeadlineListening] = useState(false);
@@ -120,6 +123,11 @@ export function TalkDebugScreen() {
     habit: false,
     project: true,
   });
+  const [alarmSyncByType, setAlarmSyncByType] = useState<Record<'task' | 'habit' | 'project', boolean>>({
+    task: false,
+    habit: false,
+    project: false,
+  });
   const [projectPlanPreview, setProjectPlanPreview] = useState<null | {
     projectTitle: string;
     rawInput: string;
@@ -132,6 +140,24 @@ export function TalkDebugScreen() {
   const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
   const deadlineCaptureActiveRef = useRef(false);
+  const captureCreditPendingRef = useRef(false);
+
+  const refreshCredits = useCallback(async () => {
+    if (spectrum.isProUser) return;
+    const stats = await getTrankilV2UserStats();
+    setIaCredits(stats.ia_credits);
+  }, [spectrum.isProUser]);
+
+  const markCaptureCreditCommitted = useCallback(() => {
+    captureCreditPendingRef.current = false;
+  }, []);
+
+  const refundPendingCaptureCredit = useCallback(async () => {
+    if (!captureCreditPendingRef.current || spectrum.isProUser) return;
+    await refundIaCredit(1);
+    captureCreditPendingRef.current = false;
+    await refreshCredits();
+  }, [refreshCredits, spectrum.isProUser]);
 
   const emitTalkDebug = useCallback((payload: TalkCaptureDebugPayload) => {
     DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, payload);
@@ -266,6 +292,36 @@ export function TalkDebugScreen() {
     })();
   }, []);
 
+  useEffect(() => {
+    void refreshCredits();
+  }, [refreshCredits]);
+
+  useEffect(() => {
+    return () => {
+      if (captureCreditPendingRef.current && !spectrum.isProUser) {
+        void refundIaCredit(1);
+      }
+    };
+  }, [spectrum.isProUser]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(ALARM_SYNC_PREFS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<Record<'task' | 'habit' | 'project', boolean>>;
+          setAlarmSyncByType({
+            task: Boolean(parsed.task),
+            habit: Boolean(parsed.habit),
+            project: Boolean(parsed.project),
+          });
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
   const toggleCalendarSyncFor = useCallback(
     (kind: 'task' | 'habit' | 'project') => {
       void (async () => {
@@ -290,6 +346,21 @@ export function TalkDebugScreen() {
       })();
     },
     [calendarSyncByType, ensureWritableCalendars, persistCalendarSyncPrefs, selectedCalendarId, selectCalendar, spectrum.isProUser],
+  );
+
+  const toggleAlarmSyncFor = useCallback(
+    (kind: 'task' | 'habit' | 'project') => {
+      void (async () => {
+        if (!spectrum.isProUser) {
+          setUpsellVisible(true);
+          return;
+        }
+        const next = { ...alarmSyncByType, [kind]: !alarmSyncByType[kind] };
+        setAlarmSyncByType(next);
+        await AsyncStorage.setItem(ALARM_SYNC_PREFS_KEY, JSON.stringify(next));
+      })();
+    },
+    [alarmSyncByType, spectrum.isProUser],
   );
 
   const ensureWritableCalendars = useCallback(async (): Promise<WritableDeviceCalendar[]> => {
@@ -367,6 +438,10 @@ export function TalkDebugScreen() {
 
   const startCapture = useCallback(async () => {
     if (isRecording || busy) return;
+    if (!spectrum.isProUser && iaCredits <= 0) {
+      setUpsellVisible(true);
+      return;
+    }
     setRawTranscript('');
     setLockedTitle('');
     setIsTitleLocked(false);
@@ -393,14 +468,20 @@ export function TalkDebugScreen() {
       setIsPaused(false);
       setCaptureStep('recording');
       waveformTimer.current = setInterval(() => setWaveTick((v) => v + 1), 180);
+      if (!spectrum.isProUser) {
+        await consumeIaCredits(1);
+        captureCreditPendingRef.current = true;
+        await refreshCredits();
+      }
     } catch (e) {
+      await refundPendingCaptureCredit();
       if (isLikelyMissingNativeModuleError(e)) {
         alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
       } else {
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
     }
-  }, [busy, ensureMicrophoneReady, i18n.language, isRecording, t]);
+  }, [busy, ensureMicrophoneReady, i18n.language, iaCredits, isRecording, refundPendingCaptureCredit, refreshCredits, spectrum.isProUser, t]);
 
   const stopCapture = useCallback(async () => {
     if (captureStep !== 'recording' || !isRecording) return;
@@ -454,9 +535,10 @@ export function TalkDebugScreen() {
     } catch {
       // Best effort cancel.
     } finally {
+      await refundPendingCaptureCredit();
       hardResetToIdle();
     }
-  }, [hardResetToIdle]);
+  }, [hardResetToIdle, refundPendingCaptureCredit]);
 
   const togglePauseCapture = useCallback(async () => {
     if (captureStep !== 'recording') return;
@@ -526,7 +608,6 @@ export function TalkDebugScreen() {
         const buildHabitMeta = async (): Promise<{ recurrence_rule?: GeminiHabitRecurrence }> => {
           const recurrence = await withTimeout(extractHabitRecurrence(finalTranscript), 2500);
           if (!recurrence) return {};
-          await consumeIaCredits(0.1);
           return { recurrence_rule: recurrence };
         };
         const buildAnniversaryMeta = async (): Promise<{
@@ -535,7 +616,6 @@ export function TalkDebugScreen() {
         }> => {
           const details = await withTimeout(extractAnniversaryDetails(finalTranscript), 2500);
           if (!details) return { details: null, dueDateYmd: null };
-          await consumeIaCredits(0.1);
           const dueDateYmd = computeNextYearlyDueDateFromNativeDate(details.native_date);
           return { details, dueDateYmd };
         };
@@ -546,9 +626,9 @@ export function TalkDebugScreen() {
           finalTranscript
         ).trim();
         if (action === 'note') {
-          if (!(await ensureCreditsForCapture())) return;
           await saveQuickNoteToTimeline(smartTitle || t('timeline.note'), finalTranscript);
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          markCaptureCreditCommitted();
           pushSuccessFeedback(t('talkDebug.noteSaved'));
           hardResetToIdle();
           return;
@@ -639,6 +719,10 @@ export function TalkDebugScreen() {
                 pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
               }
             }
+            if (alarmSyncByType.task && spectrum.isProUser) {
+              const alarm = await scheduleTrankilV2IntentionAlarmById(intentionId);
+              if (alarm.ok) pushSuccessFeedback(t('talkDebug.savedAlarmToast'));
+            }
           } else if (intentType === 'HABIT') {
             if (calendarSyncByType.habit && spectrum.isProUser) {
               const sync = await syncIntentionCalendarMirror({
@@ -654,9 +738,12 @@ export function TalkDebugScreen() {
                 pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
               }
             }
+            if (alarmSyncByType.habit && spectrum.isProUser) {
+              const alarm = await scheduleTrankilV2IntentionAlarmById(intentionId);
+              if (alarm.ok) pushSuccessFeedback(t('talkDebug.savedAlarmToast'));
+            }
           }
         } else if (action === 'habit') {
-          if (!(await ensureCreditsForCapture())) return;
           const hasAnniversary = hasAnniversaryKeyword(finalTranscript);
           const ann = hasAnniversary ? await buildAnniversaryMeta() : { details: null, dueDateYmd: null };
           const habitMeta = await buildHabitMeta();
@@ -706,8 +793,12 @@ export function TalkDebugScreen() {
               pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
             }
           }
+          if (alarmSyncByType.habit && spectrum.isProUser) {
+            const alarm = await scheduleTrankilV2IntentionAlarmById(intentionId);
+            if (alarm.ok) pushSuccessFeedback(t('talkDebug.savedAlarmToast'));
+          }
+          markCaptureCreditCommitted();
         } else if (action === 'project') {
-          if (!(await ensureCreditsForCapture())) return;
           // Projet: le titre doit venir du Goal Gemini, pas du smart title local.
           setTitleDraft('');
           setLockedTitle('');
@@ -747,14 +838,19 @@ export function TalkDebugScreen() {
             created_at: Date.now(),
           });
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          markCaptureCreditCommitted();
           pushSuccessFeedback(t('talkDebug.audioSaved'));
           hardResetToIdle();
           return;
         }
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+        if (action === 'task') {
+          markCaptureCreditCommitted();
+        }
         pushSuccessFeedback(t('talkDebug.actionSuccess'));
         hardResetToIdle();
       } catch (e) {
+        await refundPendingCaptureCredit();
         if (isLikelyMissingNativeModuleError(e)) {
           alertNativeModuleMissing('nativeModule.contextTalkHomePersist', e);
         } else {
@@ -781,7 +877,13 @@ export function TalkDebugScreen() {
       transcriptDraft,
       withTimeout,
       emitTalkDebug,
-      ensureCreditsForCapture,
+      alarmSyncByType.habit,
+      alarmSyncByType.task,
+      calendarSyncByType.habit,
+      calendarSyncByType.task,
+      selectedCalendarId,
+      markCaptureCreditCommitted,
+      refundPendingCaptureCredit,
     ],
   );
 
@@ -818,17 +920,6 @@ export function TalkDebugScreen() {
     }
   }, [ensureMicrophoneReady, i18n.language, isDeadlineListening, t]);
 
-  const ensureCreditsForCapture = useCallback(
-    async (): Promise<boolean> => {
-      if (spectrum.isProUser) return true;
-      const stats = await getTrankilV2UserStats();
-      if (stats.ia_credits > 0) return true;
-      setUpsellVisible(true);
-      return false;
-    },
-    [spectrum.isProUser],
-  );
-
   const onUpsellWatchVideo = useCallback(() => {
     void (async () => {
       setUpsellBusy(true);
@@ -845,12 +936,13 @@ export function TalkDebugScreen() {
           return;
         }
         setUpsellVisible(false);
+        await refreshCredits();
         Alert.alert(t('economy.recharge.modalTitle'), t('economy.recharge.rewardToast'));
       } finally {
         setUpsellBusy(false);
       }
     })();
-  }, [t]);
+  }, [refreshCredits, t]);
 
   const onUpsellGoUnlimited = useCallback(() => {
     setUpsellVisible(false);
@@ -868,11 +960,6 @@ export function TalkDebugScreen() {
     const finalTranscript = transcriptDraft.trim() || rawTranscript.trim();
     const cleanedDeadline = deadlineText.trim();
     if (!finalTranscript || !cleanedDeadline) return;
-    const stats = await getTrankilV2UserStats();
-    if (stats.ia_credits <= 0) {
-      Alert.alert(t('economy.labels.aiCredits'), t('talkDebug.notEnoughCreditsGenerate'));
-      return;
-    }
     setIsGeneratingPlan(true);
     setDeadlineError('');
     try {
@@ -940,11 +1027,6 @@ export function TalkDebugScreen() {
 
   const onValidateProjectPlan = useCallback(async (options?: { forceCalendarId?: string; skipPicker?: boolean }) => {
     if (!projectPlanPreview) return;
-    const stats = await getTrankilV2UserStats();
-    if (stats.ia_credits <= 0) {
-      Alert.alert(t('economy.labels.aiCredits'), t('talkDebug.notEnoughCreditsValidate'));
-      return;
-    }
     setBusy(true);
     try {
       await persistGeminiExpertRows(projectPlanPreview.rawInput, projectPlanPreview.rows, {
@@ -964,16 +1046,17 @@ export function TalkDebugScreen() {
           options?.forceCalendarId ?? selectedCalendarId ?? writableCalendars[0]?.id ?? null;
         if (currentCalendarId) await selectCalendar(currentCalendarId);
       }
-      const afterConsume = await consumeTrankilV2IntentCredit();
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       setProjectPlanPreview(null);
+      markCaptureCreditCommitted();
       pushSuccessFeedback(
         calendarSyncByType.project && spectrum.isProUser
           ? t('talkDebug.savedCalendarToast')
-          : t('talkDebug.projectAnchored', { credits: afterConsume.ia_credits }),
+          : t('talkDebug.projectAnchored', { credits: iaCredits }),
       );
       hardResetToIdle();
     } catch (e: unknown) {
+      await refundPendingCaptureCredit();
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert(t('common.projects'), msg || t('talkDebug.projectValidationError'));
     } finally {
@@ -986,8 +1069,11 @@ export function TalkDebugScreen() {
     calendarPickerVisible,
     ensureWritableCalendars,
     hardResetToIdle,
+    iaCredits,
+    markCaptureCreditCommitted,
     projectPlanPreview,
     pushSuccessFeedback,
+    refundPendingCaptureCredit,
     selectCalendar,
     selectedCalendarId,
     spectrum.isProUser,
@@ -997,6 +1083,9 @@ export function TalkDebugScreen() {
   return (
     <View style={styles.root}>
       <Text style={styles.title}>{t('talkDebug.screenTitle')}</Text>
+      {!spectrum.isProUser ? (
+        <Text style={styles.creditsBadge}>{t('economy.labels.aiCredits')}: {iaCredits}</Text>
+      ) : null}
       {captureStep === 'idle' ? (
         <View style={styles.stepIdleWrap}>
           <Pressable
@@ -1112,6 +1201,13 @@ export function TalkDebugScreen() {
                 <Text style={styles.fanBtnText}>{t('talkDebug.actionProject')}</Text>
               </Pressable>
               <Pressable
+                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, alarmSyncByType.project ? styles.calendarToggleOn : null]}
+                onPress={() => toggleAlarmSyncFor('project')}
+              >
+                <Bell size={16} color={alarmSyncByType.project ? '#ecfeff' : '#0f172a'} />
+                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
+              </Pressable>
+              <Pressable
                 style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.project ? styles.calendarToggleOn : null]}
                 onPress={() => toggleCalendarSyncFor('project')}
               >
@@ -1122,6 +1218,13 @@ export function TalkDebugScreen() {
             <View style={styles.actionRow}>
               <Pressable style={[styles.fanBtn, styles.actionMainBtn]} onPress={() => void onChooseAction('task')} disabled={busy}>
                 <Text style={styles.fanBtnText}>{t('talkDebug.actionTask')}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, alarmSyncByType.task ? styles.calendarToggleOn : null]}
+                onPress={() => toggleAlarmSyncFor('task')}
+              >
+                <Bell size={16} color={alarmSyncByType.task ? '#ecfeff' : '#0f172a'} />
+                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
               </Pressable>
               <Pressable
                 style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.task ? styles.calendarToggleOn : null]}
@@ -1137,6 +1240,13 @@ export function TalkDebugScreen() {
             <View style={styles.actionRow}>
               <Pressable style={[styles.fanBtn, styles.actionMainBtn]} onPress={() => void onChooseAction('habit')} disabled={busy}>
                 <Text style={styles.fanBtnText}>{t('talkDebug.actionHabit')}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, alarmSyncByType.habit ? styles.calendarToggleOn : null]}
+                onPress={() => toggleAlarmSyncFor('habit')}
+              >
+                <Bell size={16} color={alarmSyncByType.habit ? '#ecfeff' : '#0f172a'} />
+                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
               </Pressable>
               <Pressable
                 style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.habit ? styles.calendarToggleOn : null]}
@@ -1325,6 +1435,7 @@ export function TalkDebugScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#111827', padding: 20, justifyContent: 'space-between' },
   title: { color: '#e5e7eb', fontSize: 18, fontWeight: '700', marginTop: 12 },
+  creditsBadge: { color: '#67e8f9', fontSize: 13, fontWeight: '700', marginTop: 4 },
   stepIdleWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   stepRecordingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 26 },
   stepDecisionWrap: { flex: 1, justifyContent: 'space-between', paddingVertical: 12 },

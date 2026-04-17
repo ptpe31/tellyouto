@@ -1,4 +1,7 @@
 /**
+ * @deprecated Les notifications/alarmes doivent désormais être pilotées via `trankil_v2.db`.
+ * Éviter toute nouvelle écriture d'état d'alarme dans cette base legacy.
+ *
  * Couche **SQLite** : source de vérité **offline-first** pour les intentions, routines, file de sync.
  *
  * **Pourquoi** : le réseau est optionnel ; l’utilisateur doit voir et entendre ses engagements

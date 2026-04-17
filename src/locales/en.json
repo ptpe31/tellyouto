@@ -890,6 +890,7 @@
     "projectAnchored": "Project anchored and saved. Credits left: {{credits}}",
     "projectAnchoredCalendar": "Event added to your calendar {{calendar}}",
     "savedCalendarToast": "Saved + Calendar",
+    "savedAlarmToast": "Saved + Alarm",
     "projectValidationError": "Error while validating plan.",
     "calendarPickerTitle": "Choose a calendar",
     "calendarPickerSubtitle": "Select the destination calendar for this insertion.",
