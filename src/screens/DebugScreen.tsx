@@ -141,7 +141,8 @@ async function persistGeminiExpertRowsForDebug(
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, interactionLanguage, setInteractionLanguage } =
+    useLanguage();
   const { spectrum, setProUser, setPreferredAlarmSound } = useUserSpectrum();
   const power = usePower();
   const [busy, setBusy] = useState<
@@ -185,6 +186,7 @@ export function DebugScreen() {
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [dbCounts, setDbCounts] = useState({ intentionsCount: 0, tasksCount: 0 });
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+  const [languagePickerTarget, setLanguagePickerTarget] = useState<'ui' | 'ai'>('ui');
 
   const uiLanguageOptions: Array<{ id: AppLanguage; label: string }> = [
     { id: 'fr', label: t('ally.lang.fr') },
@@ -1044,10 +1046,24 @@ export function DebugScreen() {
         </Text>
         <Pressable
           style={styles.accordionBtn}
-          onPress={() => setLanguagePickerOpen(true)}
+          onPress={() => {
+            setLanguagePickerTarget('ui');
+            setLanguagePickerOpen(true);
+          }}
         >
           <Text style={styles.accordionText}>
             {t('debug.uiLanguageLabel')}: {t(`ally.lang.${language}`)}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={styles.accordionBtn}
+          onPress={() => {
+            setLanguagePickerTarget('ai');
+            setLanguagePickerOpen(true);
+          }}
+        >
+          <Text style={styles.accordionText}>
+            {t('debug.aiLanguageLabel')}: {t(`ally.lang.${interactionLanguage}`)}
           </Text>
         </Pressable>
       </View>
@@ -1249,17 +1265,38 @@ export function DebugScreen() {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{t('debug.uiLanguageLabel')}</Text>
+            <Text style={styles.modalTitle}>
+              {languagePickerTarget === 'ui'
+                ? t('debug.uiLanguageLabel')
+                : t('debug.aiLanguageLabel')}
+            </Text>
             {uiLanguageOptions.map((lang) => (
               <Pressable
                 key={lang.id}
-                style={[styles.modalBtn, lang.id === language ? styles.modalSave : styles.modalCancel]}
+                style={[
+                  styles.modalBtn,
+                  lang.id === (languagePickerTarget === 'ui' ? language : interactionLanguage)
+                    ? styles.modalSave
+                    : styles.modalCancel,
+                ]}
                 onPress={() => {
-                  void setLanguage(lang.id);
+                  if (languagePickerTarget === 'ui') {
+                    void setLanguage(lang.id);
+                  } else {
+                    void setInteractionLanguage(lang.id);
+                  }
                   setLanguagePickerOpen(false);
                 }}
               >
-                <Text style={lang.id === language ? styles.modalSaveText : styles.modalCancelText}>{lang.label}</Text>
+                <Text
+                  style={
+                    lang.id === (languagePickerTarget === 'ui' ? language : interactionLanguage)
+                      ? styles.modalSaveText
+                      : styles.modalCancelText
+                  }
+                >
+                  {lang.label}
+                </Text>
               </Pressable>
             ))}
           </View>

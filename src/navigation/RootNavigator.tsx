@@ -6,7 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, InteractionManager, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
-import { ProSubscriptionScreen } from '../screens';
+import { OnboardingScreen, ProSubscriptionScreen } from '../screens';
 import { MainStack } from './MainStack';
 import type { RootStackParamList } from './types';
 import { touchLocalDatabaseForStartup } from '../api/localDb';
@@ -19,11 +19,18 @@ function RootNavigatorInner() {
   const theme = useTheme();
   const { animationMultiplier } = useSaturation();
   const [ready, setReady] = useState(false);
+  const [onboardingComplete, setOnboardingComplete] = useState(false);
 
   const refreshRoute = useCallback(async () => {
-    await AsyncStorage.setItem('@tellyouto/onboarding_complete', 'true');
+    const done = await AsyncStorage.getItem('@tellyouto/onboarding_complete');
+    setOnboardingComplete(done === 'true');
     setReady(true);
   }, []);
+  const markOnboardingComplete = useCallback(async () => {
+    await AsyncStorage.setItem('@tellyouto/onboarding_complete', 'true');
+    setOnboardingComplete(true);
+  }, []);
+
 
   useEffect(() => {
     void refreshRoute();
@@ -66,7 +73,14 @@ function RootNavigatorInner() {
   }
 
   return (
-    <Stack.Navigator initialRouteName="App" screenOptions={{ headerShown: false }}>
+    <Stack.Navigator
+      key={onboardingComplete ? 'root-app' : 'root-onboarding'}
+      initialRouteName={onboardingComplete ? 'App' : 'Onboarding'}
+      screenOptions={{ headerShown: false }}
+    >
+      <Stack.Screen name="Onboarding">
+        {() => <OnboardingScreen onComplete={markOnboardingComplete} />}
+      </Stack.Screen>
       <Stack.Screen name="App" component={MainStack} />
       <Stack.Screen
         name="ProSubscription"

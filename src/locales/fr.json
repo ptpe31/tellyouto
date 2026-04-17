@@ -230,6 +230,14 @@
       "whatsappErrorBody": "Impossible d'ouvrir WhatsApp. Vérifie qu'il est installé.",
       "genericOpenErrorBody": "Impossible d'ouvrir le lien. Vérifie que l'application est installée.",
       "dictationHint": "Une fois dans WhatsApp, essaye la dictée vocale !"
+    },
+    "language": {
+      "question": "Dans quelle langue vas-tu me parler ?",
+      "systemDetected": "Langue détectée sur cet appareil : {{lang}}",
+      "syncTitle": "Synchroniser la langue de l'interface ?",
+      "syncBody": "Tu as choisi {{lang}} pour l'audio. Veux-tu aussi appliquer cette langue à l'interface ?",
+      "syncYes": "Oui, synchroniser",
+      "syncNo": "Non, garder l'interface"
     }
   },
   "radar": {
@@ -471,7 +479,8 @@
     "talkCaptureGeminiLabel": "Gemini (JSON complet)",
     "languageConfigTitle": "Configuration des Langues",
     "languageConfigHelp": "Change la langue UI instantanement via i18n.",
-    "uiLanguageLabel": "Langue Interface"
+    "uiLanguageLabel": "Langue Interface",
+    "aiLanguageLabel": "Langue IA"
   },
   "legal": {
     "screenTitle": "À propos",

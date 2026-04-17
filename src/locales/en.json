@@ -230,6 +230,14 @@
       "whatsappErrorBody": "Could not open WhatsApp. Check that it is installed.",
       "genericOpenErrorBody": "Could not open the link. Check that the app is installed.",
       "dictationHint": "In WhatsApp, try voice dictation!"
+    },
+    "language": {
+      "question": "Which language will you speak to me in?",
+      "systemDetected": "Detected device language: {{lang}}",
+      "syncTitle": "Sync interface language too?",
+      "syncBody": "You selected {{lang}} for audio. Do you also want to switch the interface to this language?",
+      "syncYes": "Yes, sync it",
+      "syncNo": "No, keep current UI"
     }
   },
   "radar": {
@@ -471,7 +479,8 @@
     "talkCaptureGeminiLabel": "Gemini (full JSON)",
     "languageConfigTitle": "Language Configuration",
     "languageConfigHelp": "Change UI language instantly through i18n.",
-    "uiLanguageLabel": "UI Language"
+    "uiLanguageLabel": "UI Language",
+    "aiLanguageLabel": "AI Language"
   },
   "legal": {
     "screenTitle": "About",
