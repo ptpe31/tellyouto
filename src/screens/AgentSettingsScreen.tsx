@@ -12,8 +12,13 @@ import { useDebugUnlock } from '../context/DebugUnlockContext';
 import { useAlly, type AllyTone, type AllyVoice } from '../context/AllyContext';
 import type { AppLanguage } from '../context/LanguageContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import type { AgentStackParamList } from '../navigation/AgentStack';
+import {
+  getAutoArchiveAfterCalendarSync,
+  setAutoArchiveAfterCalendarSync,
+} from '../services/premiumBridgeSettings';
 
 const LANGS: AppLanguage[] = [
   'fr',
@@ -42,6 +47,15 @@ export function AgentSettingsScreen() {
   const { language, setLanguage, interactionLanguage, setInteractionLanguage } =
     useLanguage();
   const { voice, tone, setVoice, setTone } = useAlly();
+  const { spectrum } = useUserSpectrum();
+  const [autoArchiveAfterCalendarSync, setAutoArchiveAfterSync] = React.useState(false);
+
+  React.useEffect(() => {
+    void (async () => {
+      const enabled = await getAutoArchiveAfterCalendarSync();
+      setAutoArchiveAfterSync(enabled);
+    })();
+  }, []);
 
   const onVersionPress = useCallback(() => {
     if (tapWindowRef.current) clearTimeout(tapWindowRef.current);
@@ -109,6 +123,24 @@ export function AgentSettingsScreen() {
             {t('debug.calendarConnectHelp')}
           </Text>
           <CalendarGranularSection />
+          <List.Item
+            title={t('settings.autoArchiveAfterCalendarSyncTitle')}
+            description={t('settings.autoArchiveAfterCalendarSyncDescription')}
+            disabled={!spectrum.isProUser}
+            right={() => (
+              <Switch
+                value={autoArchiveAfterCalendarSync}
+                disabled={!spectrum.isProUser}
+                onValueChange={(value) => {
+                  void (async () => {
+                    if (!spectrum.isProUser) return;
+                    setAutoArchiveAfterSync(value);
+                    await setAutoArchiveAfterCalendarSync(value);
+                  })();
+                }}
+              />
+            )}
+          />
         </NeumorphicCard>
 
         <NeumorphicCard style={styles.block}>

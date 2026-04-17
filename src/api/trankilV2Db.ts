@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 export type TrankilIntentType = 'TASK' | 'HABIT' | 'NOTE' | 'AUDIO' | 'PROJECT';
-export type TrankilIntentStatus = 'TODO' | 'DONE';
+export type TrankilIntentStatus = 'TODO' | 'DONE' | 'ARCHIVED';
 
 export type TrankilV2IntentionRow = {
   id: string;
@@ -39,6 +39,7 @@ export type TrankilV2TimelineItemRow = {
   project_title: string | null;
   display_title: string;
   section: 'TASK_HABIT' | 'PROJECT_SUBTASK' | 'NOTE_AUDIO';
+  is_synced_calendar: number;
 };
 
 export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
@@ -119,7 +120,7 @@ export async function initTrankilV2Schema(): Promise<void> {
       category_id TEXT,
       category TEXT,
       parent_id TEXT,
-      status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE')),
+      status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE', 'ARCHIVED')),
       is_organized INTEGER NOT NULL DEFAULT 0 CHECK (is_organized IN (0, 1)),
       is_local_processed INTEGER NOT NULL DEFAULT 0 CHECK (is_local_processed IN (0, 1)),
       complexity_level INTEGER NOT NULL DEFAULT 1,
@@ -307,6 +308,53 @@ export async function initTrankilV2Schema(): Promise<void> {
   }
   await db.execAsync(`UPDATE user_stats SET growth_score = COALESCE(growth_score, zen_points, 0) WHERE id = 1;`);
   await db.execAsync(`UPDATE user_stats SET zen_points = growth_score WHERE id = 1;`);
+  const tableSql = await db.getFirstAsync<{ sql: string }>(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='intentions'`,
+  );
+  const hasArchivedStatusInConstraint = String(tableSql?.sql || '').includes("'ARCHIVED'");
+  if (!hasArchivedStatusInConstraint) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS intentions_v2 (
+        id TEXT PRIMARY KEY NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT')),
+        title TEXT NOT NULL,
+        due_date TEXT,
+        content_raw TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        suggested_tags TEXT NOT NULL DEFAULT '[]',
+        category_id TEXT,
+        category TEXT,
+        parent_id TEXT,
+        status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE', 'ARCHIVED')),
+        is_organized INTEGER NOT NULL DEFAULT 0 CHECK (is_organized IN (0, 1)),
+        is_local_processed INTEGER NOT NULL DEFAULT 0 CHECK (is_local_processed IN (0, 1)),
+        complexity_level INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        calendar_event_id TEXT,
+        calendar_name TEXT,
+        is_synced_calendar INTEGER NOT NULL DEFAULT 0 CHECK (is_synced_calendar IN (0, 1)),
+        alarm_enabled INTEGER NOT NULL DEFAULT 0 CHECK (alarm_enabled IN (0, 1)),
+        remind_at INTEGER,
+        local_notification_id TEXT,
+        recurrence_rrule TEXT
+      );
+      INSERT INTO intentions_v2 (
+        id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
+        status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
+        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule
+      )
+      SELECT
+        id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
+        CASE WHEN status IN ('TODO', 'DONE', 'ARCHIVED') THEN status ELSE 'TODO' END,
+        is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
+        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule
+      FROM intentions;
+      DROP TABLE intentions;
+      ALTER TABLE intentions_v2 RENAME TO intentions;
+      CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);
+      CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);
+    `);
+  }
   const mustCompactUserStats =
     userStatsCols.some((c) => c.name === 'flower_boosts') ||
     userStatsCols.some((c) => c.name === 'pshitt_sprays') ||
@@ -367,7 +415,7 @@ export async function listTrankilV2TimelineItemsByDate(
   const db = await getDb();
   return db.getAllAsync<TrankilV2TimelineItemRow>(
     `
-    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section
+    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar
     FROM (
       SELECT
         i.id AS id,
@@ -380,6 +428,7 @@ export async function listTrankilV2TimelineItemsByDate(
         NULL AS project_title,
         i.title AS display_title,
         'TASK_HABIT' AS section,
+        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
         i.due_date AS effective_date,
         1 AS section_order
       FROM intentions i
@@ -400,6 +449,7 @@ export async function listTrankilV2TimelineItemsByDate(
         p.title AS project_title,
         i.title AS display_title,
         'PROJECT_SUBTASK' AS section,
+        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
         i.due_date AS effective_date,
         2 AS section_order
       FROM intentions i
@@ -422,6 +472,7 @@ export async function listTrankilV2TimelineItemsByDate(
         NULL AS project_title,
         i.title AS display_title,
         'NOTE_AUDIO' AS section,
+        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
         COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
         3 AS section_order
       FROM intentions i
@@ -440,6 +491,34 @@ export async function listTrankilV2TimelineItemsByDate(
     ORDER BY section_order ASC, created_at DESC
     `,
     [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd],
+  );
+}
+
+export async function listArchivedIntentions(limit: number = 200): Promise<TrankilV2TimelineItemRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.round(limit)) : 200;
+  return db.getAllAsync<TrankilV2TimelineItemRow>(
+    `SELECT
+       i.id AS id,
+       i.type AS type,
+       i.status AS status,
+       i.due_date AS due_date,
+       i.created_at AS created_at,
+       i.content_raw AS content_raw,
+       i.parent_id AS parent_id,
+       p.title AS project_title,
+       i.title AS display_title,
+       CASE WHEN i.type IN ('NOTE', 'AUDIO') THEN 'NOTE_AUDIO'
+            WHEN i.parent_id IS NOT NULL AND trim(i.parent_id) != '' THEN 'PROJECT_SUBTASK'
+            ELSE 'TASK_HABIT' END AS section,
+       COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar
+     FROM intentions i
+     LEFT JOIN intentions p ON p.id = i.parent_id AND p.type = 'PROJECT'
+     WHERE i.status = 'ARCHIVED'
+     ORDER BY i.created_at DESC
+     LIMIT ?`,
+    [safeLimit],
   );
 }
 
@@ -955,6 +1034,21 @@ export async function markTrankilV2IntentionDone(id: string): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
   await db.runAsync(`UPDATE intentions SET status = 'DONE' WHERE id = ?`, [id]);
+}
+
+export async function updateTrankilV2IntentionArchiveState(
+  id: string,
+  archived: boolean,
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE intentions
+     SET status = ?,
+         is_organized = ?
+     WHERE id = ?`,
+    [archived ? 'ARCHIVED' : 'TODO', archived ? 1 : 0, id],
+  );
 }
 
 export async function pickAvailabilityTask(): Promise<TrankilV2IntentionRow | null> {

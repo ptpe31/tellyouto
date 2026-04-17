@@ -1,17 +1,19 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { CalendarDays } from 'lucide-react-native';
+import { CalendarCheck, CalendarDays } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  listArchivedIntentions,
   listTrankilV2TimelineItemsByDate,
   type TrankilIntentStatus,
   type TrankilV2TimelineDateMode,
   type TrankilV2TimelineItemRow,
 } from '../api';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
 
 type QuickRange = 'TODAY' | 'TOMORROW' | 'WEEK';
@@ -69,6 +71,7 @@ function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
 
 export function TimelineScreen() {
   const { t } = useTranslation();
+  const { spectrum } = useUserSpectrum();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -76,6 +79,7 @@ export function TimelineScreen() {
   const [dateMode, setDateMode] = useState<TrankilV2TimelineDateMode>('DAY');
   const [items, setItems] = useState<TrankilV2TimelineItemRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [archivedItems, setArchivedItems] = useState<TrankilV2TimelineItemRow[]>([]);
 
   const selectedYmd = useMemo(() => toYmd(selectedDate), [selectedDate]);
 
@@ -85,6 +89,8 @@ export function TimelineScreen() {
       try {
         const rows = await listTrankilV2TimelineItemsByDate(toYmd(date), status, mode);
         setItems(rows);
+        const archived = await listArchivedIntentions(120);
+        setArchivedItems(archived);
       } finally {
         setLoading(false);
       }
@@ -108,8 +114,9 @@ export function TimelineScreen() {
       { key: 'TASK_HABIT' as const, rows: taskHabit },
       { key: 'PROJECT_SUBTASK' as const, rows: projectSubtasks },
       { key: 'NOTE_AUDIO' as const, rows: noteAudio },
+      { key: 'ARCHIVED_EXPORTS' as const, rows: archivedItems },
     ];
-  }, [items]);
+  }, [archivedItems, items]);
 
   const onQuickSelect = (range: QuickRange) => {
     const now = new Date();
@@ -241,7 +248,9 @@ export function TimelineScreen() {
         renderItem={({ item }) => (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
-              {t(sectionTitle(item.key))}
+              {item.key === 'ARCHIVED_EXPORTS'
+                ? t('timeline.sectionArchivedExports')
+                : t(sectionTitle(item.key as TrankilV2TimelineItemRow['section']))}
             </Text>
             {item.rows.length === 0 ? (
               <Text style={{ color: theme.colors.onSurfaceVariant }}>{t('timeline.noItems')}</Text>
@@ -257,9 +266,19 @@ export function TimelineScreen() {
                     },
                   ]}
                 >
-                  <Text style={[styles.cardTitle, { color: theme.colors.onSurface }]}>
-                    {t(resolveDisplayTitle(row))}
-                  </Text>
+                  <View style={styles.cardTitleRow}>
+                    <Text style={[styles.cardTitle, { color: theme.colors.onSurface }]}>
+                      {t(resolveDisplayTitle(row))}
+                    </Text>
+                    {spectrum.isProUser && row.is_synced_calendar === 1 ? (
+                      <View style={styles.syncBadge}>
+                        <CalendarCheck size={item.key === 'ARCHIVED_EXPORTS' ? 16 : 14} color="#0ea5a4" />
+                        {item.key === 'ARCHIVED_EXPORTS' ? (
+                          <Text style={styles.syncBadgeText}>{t('timeline.syncedBadge')}</Text>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
                   <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
                     {t(typeBadge(row.type))}
                     {row.section === 'PROJECT_SUBTASK' && row.project_title
@@ -302,6 +321,9 @@ const styles = StyleSheet.create({
   section: { paddingHorizontal: 16, paddingVertical: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
   card: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   cardTitle: { fontSize: 15, fontWeight: '600', marginBottom: 4 },
+  syncBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  syncBadgeText: { color: '#0ea5a4', fontSize: 11, fontWeight: '700' },
   emptyWrap: { paddingHorizontal: 16, paddingVertical: 20 },
 });

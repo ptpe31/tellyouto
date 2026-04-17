@@ -69,7 +69,13 @@ export function formatDueDateShort(input: string): string {
 export async function persistGeminiExpertRows(
   rawInput: string,
   rows: GeminiExpertIntention[],
-  options?: { taskAlarmIndexes?: number[]; selectedTaskIndexes?: number[]; audioUri?: string | null },
+  options?: {
+    taskAlarmIndexes?: number[];
+    selectedTaskIndexes?: number[];
+    audioUri?: string | null;
+    status?: 'TODO' | 'ARCHIVED';
+    isOrganized?: number;
+  },
 ): Promise<void> {
   let currentParentId: string | null = null;
   let taskCursor = 0;
@@ -104,8 +110,8 @@ export async function persistGeminiExpertRows(
       ),
       category_id: row.suggested_category || null,
       parent_id: row.type === 'PROJECT' ? null : currentParentId,
-      status: 'TODO',
-      is_organized: 0,
+      status: options?.status ?? 'TODO',
+      is_organized: options?.isOrganized ?? 0,
       complexity_level: 2,
       created_at: Date.now(),
     });

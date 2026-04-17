@@ -33,6 +33,7 @@ import {
   getTrankilV2UserStats,
   insertTrankilV2Intention,
   refundIaCredit,
+  updateTrankilV2IntentionArchiveState,
 } from '../api/trankilV2Db';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
@@ -72,6 +73,7 @@ import {
   syncIntentionCalendarMirror,
 } from '../services/calendarMirrorSync';
 import { scheduleTrankilV2IntentionAlarmById } from '../services/alarmManager';
+import { getAutoArchiveAfterCalendarSync } from '../services/premiumBridgeSettings';
 
 function newId(): string {
   try {
@@ -114,6 +116,7 @@ export function TalkDebugScreen() {
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [upsellVisible, setUpsellVisible] = useState(false);
   const [upsellBusy, setUpsellBusy] = useState(false);
+  const [autoArchiveAfterCalendarSync, setAutoArchiveAfterCalendarSync] = useState(false);
   const [calendarOptions, setCalendarOptions] = useState<WritableDeviceCalendar[]>([]);
   const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
   const [calendarPickerVisible, setCalendarPickerVisible] = useState(false);
@@ -295,6 +298,13 @@ export function TalkDebugScreen() {
   useEffect(() => {
     void refreshCredits();
   }, [refreshCredits]);
+
+  useEffect(() => {
+    void (async () => {
+      const enabled = await getAutoArchiveAfterCalendarSync();
+      setAutoArchiveAfterCalendarSync(enabled);
+    })();
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -706,6 +716,7 @@ export function TalkDebugScreen() {
             },
           });
           if (intentType === 'TASK') {
+            let syncedCalendar = false;
             if (calendarSyncByType.task && spectrum.isProUser) {
               const sync = await syncIntentionCalendarMirror({
                 intentionId,
@@ -716,14 +727,20 @@ export function TalkDebugScreen() {
                 calendarId: selectedCalendarId,
               });
               if (sync.synced) {
+                syncedCalendar = true;
                 pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
               }
+            }
+            if (syncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
+              await updateTrankilV2IntentionArchiveState(intentionId, true);
+              pushSuccessFeedback(t('talkDebug.savedCalendarArchivedToast'));
             }
             if (alarmSyncByType.task && spectrum.isProUser) {
               const alarm = await scheduleTrankilV2IntentionAlarmById(intentionId);
               if (alarm.ok) pushSuccessFeedback(t('talkDebug.savedAlarmToast'));
             }
           } else if (intentType === 'HABIT') {
+            let syncedCalendar = false;
             if (calendarSyncByType.habit && spectrum.isProUser) {
               const sync = await syncIntentionCalendarMirror({
                 intentionId,
@@ -735,8 +752,13 @@ export function TalkDebugScreen() {
                 calendarId: selectedCalendarId,
               });
               if (sync.synced) {
+                syncedCalendar = true;
                 pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
               }
+            }
+            if (syncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
+              await updateTrankilV2IntentionArchiveState(intentionId, true);
+              pushSuccessFeedback(t('talkDebug.savedCalendarArchivedToast'));
             }
             if (alarmSyncByType.habit && spectrum.isProUser) {
               const alarm = await scheduleTrankilV2IntentionAlarmById(intentionId);
@@ -884,6 +906,7 @@ export function TalkDebugScreen() {
       selectedCalendarId,
       markCaptureCreditCommitted,
       refundPendingCaptureCredit,
+      autoArchiveAfterCalendarSync,
     ],
   );
 
@@ -1029,10 +1052,16 @@ export function TalkDebugScreen() {
     if (!projectPlanPreview) return;
     setBusy(true);
     try {
+      const archiveProjectOnSave =
+        Boolean(autoArchiveAfterCalendarSync) &&
+        Boolean(calendarSyncByType.project) &&
+        Boolean(spectrum.isProUser);
       await persistGeminiExpertRows(projectPlanPreview.rawInput, projectPlanPreview.rows, {
         taskAlarmIndexes: projectPlanPreview.taskAlarmIndexes,
         selectedTaskIndexes: projectPlanPreview.selectedTaskIndexes,
         audioUri,
+        status: archiveProjectOnSave ? 'ARCHIVED' : 'TODO',
+        isOrganized: archiveProjectOnSave ? 1 : 0,
       });
       const writableCalendars =
         calendarOptions.length > 0 ? calendarOptions : await ensureWritableCalendars();
@@ -1049,6 +1078,9 @@ export function TalkDebugScreen() {
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       setProjectPlanPreview(null);
       markCaptureCreditCommitted();
+      if (archiveProjectOnSave) {
+        pushSuccessFeedback(t('talkDebug.savedCalendarArchivedToast'));
+      }
       pushSuccessFeedback(
         calendarSyncByType.project && spectrum.isProUser
           ? t('talkDebug.savedCalendarToast')
@@ -1071,6 +1103,7 @@ export function TalkDebugScreen() {
     hardResetToIdle,
     iaCredits,
     markCaptureCreditCommitted,
+    autoArchiveAfterCalendarSync,
     projectPlanPreview,
     pushSuccessFeedback,
     refundPendingCaptureCredit,

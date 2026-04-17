@@ -71,7 +71,9 @@
     "privateChannelSubtitle": "Telegram is included; WhatsApp, Slack, and LINE require Pro.",
     "channelsCatalogTitle": "Channels & extensions",
     "channelsCatalogLead": "Only one active channel at a time — that’s where your Ally sends your intentions.",
-    "channelsPrivacyFootnote": "Each Premium channel is an encrypted direct line between you and your local rail. Nothing is sold: it travels through a secure tunnel and is erased from the Cloud as soon as it has been synced to your phone."
+    "channelsPrivacyFootnote": "Each Premium channel is an encrypted direct line between you and your local rail. Nothing is sold: it travels through a secure tunnel and is erased from the Cloud as soon as it has been synced to your phone.",
+    "autoArchiveAfterCalendarSyncTitle": "Bridge Mode: Auto-archive after calendar export",
+    "autoArchiveAfterCalendarSyncDescription": "Items exported to your calendar are immediately marked as archived in the app to keep your Timeline clean."
   },
   "channels": {
     "connect": "Connect",
@@ -304,6 +306,8 @@
     "sectionTaskHabit": "Tasks & Habits",
     "sectionProjectSubtasks": "Project Subtasks",
     "sectionNoteAudio": "Notes & Audios",
+    "sectionArchivedExports": "Archives & Exports",
+    "syncedBadge": "Synced",
     "memoAudio": "Audio memo",
     "note": "Note",
     "untitled": "Untitled",
@@ -890,6 +894,7 @@
     "projectAnchored": "Project anchored and saved. Credits left: {{credits}}",
     "projectAnchoredCalendar": "Event added to your calendar {{calendar}}",
     "savedCalendarToast": "Saved + Calendar",
+    "savedCalendarArchivedToast": "Synced to calendar & Archived",
     "savedAlarmToast": "Saved + Alarm",
     "projectValidationError": "Error while validating plan.",
     "calendarPickerTitle": "Choose a calendar",
