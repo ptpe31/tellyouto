@@ -271,6 +271,35 @@ export function TalkDebugScreen() {
     [rawTranscript, spectrum],
   );
 
+  const saveQuickNoteToTimeline = useCallback(
+    async (title: string, transcript: string) => {
+      await insertTrankilV2Intention({
+        id: newId(),
+        type: 'NOTE',
+        title: title.trim() || 'Note',
+        due_date: null,
+        content_raw: transcript,
+        metadata_json: JSON.stringify(
+          {
+            source: 'talk_debug_quick_note',
+            local_stt_transcript: transcript,
+          },
+          null,
+          2,
+        ),
+        suggested_tags: JSON.stringify(['sans_pression']),
+        category_id: 'sans_pression',
+        parent_id: null,
+        status: 'TODO',
+        is_organized: 0,
+        is_local_processed: 1,
+        complexity_level: 0,
+        created_at: Date.now(),
+      });
+    },
+    [],
+  );
+
   const onChooseAction = useCallback(
     async (action: 'note' | 'task' | 'habit' | 'project' | 'audio' | 'cancel') => {
       if (action === 'cancel') {
@@ -287,7 +316,11 @@ export function TalkDebugScreen() {
           finalTranscript
         ).trim();
         if (action === 'note') {
-          await saveIntention('note', smartTitle || 'Note brute', '');
+          await saveQuickNoteToTimeline(smartTitle || 'Note', finalTranscript);
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          pushSuccessFeedback("Note classee dans Aujourd'hui");
+          hardResetToIdle();
+          return;
         } else if (action === 'task') {
           const orchestration = await runIntentOrchestration({
             fallbackText: finalTranscript,
@@ -418,6 +451,7 @@ export function TalkDebugScreen() {
       pushSuccessFeedback,
       rawTranscript,
       saveIntention,
+      saveQuickNoteToTimeline,
       spectrum,
       titleDraft,
       transcriptDraft,
@@ -528,6 +562,12 @@ export function TalkDebugScreen() {
 
       {captureStep === 'recording' ? (
         <View style={styles.stepRecordingWrap}>
+          {isTitleLocked && lockedTitle.trim() ? (
+            <View style={styles.liveTitleWrap}>
+              <Text style={styles.liveTitleLabel}>Smart Titre detecte</Text>
+              <Text style={styles.liveTitleValue}>{lockedTitle}</Text>
+            </View>
+          ) : null}
           <View style={styles.waveRow}>
             {waveHeights.map((h, idx) => (
               <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused ? 8 : h }]} />
@@ -603,6 +643,20 @@ export function TalkDebugScreen() {
             placeholderTextColor="#94a3b8"
             style={styles.decisionInput}
           />
+          <Pressable
+            style={[styles.quickNoteBtn, busy ? styles.disabled : null]}
+            onPress={() => void onChooseAction('note')}
+            disabled={busy}
+          >
+            <Text style={styles.quickNoteBtnText}>📝 Valider la Note (Gratuit)</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.quickAudioBtn, busy ? styles.disabled : null]}
+            onPress={() => void onChooseAction('audio')}
+            disabled={busy}
+          >
+            <Text style={styles.quickAudioBtnText}>🎙️ Valider l'Audio (Gratuit)</Text>
+          </Pressable>
           <View style={styles.fanMenu}>
             <Pressable style={styles.fanBtn} onPress={() => void onChooseAction('project')} disabled={busy}>
               <Text style={styles.fanBtnText}>🚀 Projet (-1 credit IA)</Text>
@@ -737,6 +791,28 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15,23,42,0.45)',
     fontWeight: '700',
   },
+  liveTitleWrap: {
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(45,212,191,0.5)',
+    backgroundColor: 'rgba(15,118,110,0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  liveTitleLabel: {
+    color: '#99f6e4',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  liveTitleValue: {
+    color: '#e6fffb',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   waveRow: { flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 20 },
   waveBar: { width: 8, backgroundColor: '#22d3ee', borderRadius: 999 },
   transcript: { color: '#cbd5e1', fontSize: 16, textAlign: 'center', paddingHorizontal: 8 },
@@ -752,6 +828,32 @@ const styles = StyleSheet.create({
     maxHeight: 220,
     textAlignVertical: 'top',
     backgroundColor: 'rgba(15,23,42,0.45)',
+  },
+  quickNoteBtn: {
+    marginTop: 10,
+    borderRadius: 12,
+    backgroundColor: '#0f766e',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  quickNoteBtnText: {
+    color: '#ecfeff',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  quickAudioBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    backgroundColor: '#0b5b8f',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  quickAudioBtnText: {
+    color: '#e0f2fe',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '800',
   },
   liveTranscriptWrap: {
     width: '100%',
