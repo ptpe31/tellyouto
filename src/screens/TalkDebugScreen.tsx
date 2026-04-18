@@ -179,12 +179,23 @@ export function TalkDebugScreen() {
       if (!raw) return null;
       const locale = (spectrum.locale || 'fr').toLowerCase();
       const ref = new Date();
-      const parsed =
-        locale.startsWith('fr')
-          ? chrono.fr.parseDate(raw, ref)
-          : locale.startsWith('en')
-            ? chrono.en.parseDate(raw, ref)
-            : chrono.parseDate(raw, ref);
+      const parseWith = (mod: { parseDate?: (t: string, r: Date) => Date | null }) =>
+        typeof mod?.parseDate === 'function' ? mod.parseDate(raw, ref) : null;
+      let parsed: Date | null = null;
+      if (locale.startsWith('fr')) parsed = parseWith(chrono.fr);
+      else if (locale.startsWith('en')) parsed = parseWith(chrono.en);
+      else if (locale.startsWith('de')) parsed = parseWith(chrono.de);
+      else if (locale.startsWith('it')) parsed = parseWith(chrono.it);
+      else if (locale.startsWith('es')) parsed = parseWith(chrono.es);
+      else if (locale.startsWith('ja')) parsed = parseWith(chrono.ja);
+      else if (locale.startsWith('zh')) parsed = parseWith(chrono.zh);
+      else if (locale.startsWith('nl')) parsed = parseWith(chrono.nl);
+      else if (locale.startsWith('sv')) parsed = parseWith(chrono.sv);
+      else if (typeof (chrono as { parseDate?: (t: string, r: Date) => Date | null }).parseDate === 'function') {
+        parsed = (chrono as { parseDate: (t: string, r: Date) => Date | null }).parseDate(raw, ref);
+      } else {
+        parsed = parseWith(chrono.en);
+      }
       if (!parsed) return null;
       return formatYmdLocal(parsed);
     },
@@ -766,9 +777,12 @@ export function TalkDebugScreen() {
               2,
             ),
           });
+          const scheduleDate =
+            orchestration.schedule instanceof Date && !Number.isNaN(orchestration.schedule.getTime())
+              ? orchestration.schedule
+              : null;
           const dueDateYmd =
-            (orchestration.schedule ? formatYmdLocal(orchestration.schedule) : null) ??
-            parseDueDateFromText(finalTranscript);
+            (scheduleDate ? formatYmdLocal(scheduleDate) : null) ?? parseDueDateFromText(finalTranscript);
           const finalTitle = smartTitle || t('talkDebug.quickTask');
           const suggestedTags = Array.from(
             new Set((orchestration.suggestedTags ?? []).filter((tag) => tag !== 'regulier')),
