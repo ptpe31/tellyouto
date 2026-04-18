@@ -916,6 +916,7 @@
     "taskQuickRecapCalendar": "Synchronisée au calendrier",
     "taskQuickRecapArchive": "Archivée automatiquement",
     "taskQuickRecapAlarm": "Alarme planifiée",
+    "habitQuickRecapIntro": "Habitude enregistrée",
     "birthdayLabel": "Anniversaire",
     "notEnoughCreditsGenerate": "Pas assez de credits IA pour generer un projet.",
     "notEnoughCreditsValidate": "Pas assez de credits IA pour valider ce plan.",

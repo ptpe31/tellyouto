@@ -916,6 +916,7 @@
     "taskQuickRecapCalendar": "Synced to calendar",
     "taskQuickRecapArchive": "Auto-archived",
     "taskQuickRecapAlarm": "Alarm scheduled",
+    "habitQuickRecapIntro": "Habit saved",
     "birthdayLabel": "Birthday",
     "notEnoughCreditsGenerate": "Not enough AI credits to generate a project.",
     "notEnoughCreditsValidate": "Not enough AI credits to validate this plan.",

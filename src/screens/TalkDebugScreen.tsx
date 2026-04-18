@@ -657,6 +657,58 @@ export function TalkDebugScreen() {
     ],
   );
 
+  const applyHabitPostSaveEffects = useCallback(
+    (params: { intentionId: string; title: string; dueDateYmd: string | null; metadataJson: string }) => {
+      void (async () => {
+        let syncedCalendar = false;
+        let archived = false;
+        let alarmOk = false;
+        try {
+          if (calendarSyncByType.habit && spectrum.isProUser) {
+            const sync = await syncIntentionCalendarMirror({
+              intentionId: params.intentionId,
+              type: 'HABIT',
+              title: params.title,
+              dueDateYmd: params.dueDateYmd,
+              metadataJson: params.metadataJson,
+              enabled: true,
+              calendarId: selectedCalendarId,
+            });
+            syncedCalendar = Boolean(sync.synced);
+          }
+          if (syncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
+            await updateTrankilV2IntentionArchiveState(params.intentionId, true);
+            void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
+              intention_id: params.intentionId,
+              intention_type: 'HABIT',
+            });
+            archived = true;
+          }
+          if (alarmSyncByType.habit && spectrum.isProUser) {
+            const alarm = await scheduleTrankilV2IntentionAlarmById(params.intentionId);
+            alarmOk = Boolean(alarm.ok);
+          }
+        } catch {
+          // best-effort : l'habitude est déjà persistée localement
+        }
+        const parts = [t('talkDebug.habitQuickRecapIntro')];
+        if (syncedCalendar) parts.push(t('talkDebug.taskQuickRecapCalendar'));
+        if (archived) parts.push(t('talkDebug.taskQuickRecapArchive'));
+        if (alarmOk) parts.push(t('talkDebug.taskQuickRecapAlarm'));
+        pushSuccessFeedback(parts.join(' · '));
+      })();
+    },
+    [
+      alarmSyncByType.habit,
+      autoArchiveAfterCalendarSync,
+      calendarSyncByType.habit,
+      pushSuccessFeedback,
+      selectedCalendarId,
+      spectrum.isProUser,
+      t,
+    ],
+  );
+
   const onChooseAction = useCallback(
     async (action: 'note' | 'task' | 'habit' | 'project' | 'audio' | 'cancel') => {
       if (action === 'cancel') {
@@ -743,10 +795,35 @@ export function TalkDebugScreen() {
           return;
         } else if (action === 'habit') {
           const hasAnniversary = hasAnniversaryKeyword(finalTranscript);
-          const ann = hasAnniversary ? await buildAnniversaryMeta() : { details: null, dueDateYmd: null };
-          const habitMeta = await buildHabitMeta();
+          let ann: { details: GeminiAnniversaryDetails | null; dueDateYmd: string | null };
+          let habitMeta: { recurrence_rule?: GeminiHabitRecurrence };
+          if (hasAnniversary) {
+            const [annResult, habitMetaResult] = await Promise.all([
+              buildAnniversaryMeta(),
+              buildHabitMeta(),
+            ]);
+            ann = annResult;
+            habitMeta = habitMetaResult;
+          } else {
+            ann = { details: null, dueDateYmd: null };
+            habitMeta = await buildHabitMeta();
+          }
           const intentionId = newId();
-          const finalHabitTitle = ann.details ? `🎂 ${t('talkDebug.birthdayLabel')} ${ann.details.personName}` : smartTitle || t('common.habits');
+          const finalHabitTitle = ann.details
+            ? `🎂 ${t('talkDebug.birthdayLabel')} ${ann.details.personName}`
+            : smartTitle || t('common.habits');
+          const anniversaryExtra = ann.details
+            ? {
+                type: 'ANNIVERSARY' as const,
+                recurrence: 'yearly' as const,
+                native_date: ann.details.native_date,
+                person_name: ann.details.personName,
+              }
+            : {};
+          const metadataForSync = JSON.stringify({
+            ...habitMeta,
+            ...anniversaryExtra,
+          });
           const created = await createLocalTemporalIntention({
             id: intentionId,
             title: finalHabitTitle,
@@ -757,55 +834,19 @@ export function TalkDebugScreen() {
             source: 'talk_debug_habit_local',
             metadataExtra: {
               ...habitMeta,
-              ...(ann.details
-                ? {
-                    type: 'ANNIVERSARY',
-                    recurrence: 'yearly',
-                    native_date: ann.details.native_date,
-                    person_name: ann.details.personName,
-                  }
-                : {}),
+              ...anniversaryExtra,
             },
           });
-          let habitPathSyncedCalendar = false;
-          if (calendarSyncByType.habit && spectrum.isProUser) {
-            const sync = await syncIntentionCalendarMirror({
-              intentionId,
-              type: 'HABIT',
-              title: finalHabitTitle,
-              dueDateYmd: created.dueDateYmd,
-              metadataJson: JSON.stringify({
-                ...habitMeta,
-                ...(ann.details
-                  ? {
-                      type: 'ANNIVERSARY',
-                      recurrence: 'yearly',
-                      native_date: ann.details.native_date,
-                      person_name: ann.details.personName,
-                    }
-                  : {}),
-              }),
-              enabled: true,
-              calendarId: selectedCalendarId,
-            });
-            if (sync.synced) {
-              habitPathSyncedCalendar = true;
-              pushSuccessFeedback(t('talkDebug.savedCalendarToast'));
-            }
-          }
-          if (habitPathSyncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
-            await updateTrankilV2IntentionArchiveState(intentionId, true);
-            void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
-              intention_id: intentionId,
-              intention_type: 'HABIT',
-            });
-            pushSuccessFeedback(t('talkDebug.savedCalendarArchivedToast'));
-          }
-          if (alarmSyncByType.habit && spectrum.isProUser) {
-            const alarm = await scheduleTrankilV2IntentionAlarmById(intentionId);
-            if (alarm.ok) pushSuccessFeedback(t('talkDebug.savedAlarmToast'));
-          }
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           markCaptureCreditCommitted();
+          void applyHabitPostSaveEffects({
+            intentionId,
+            title: finalHabitTitle,
+            dueDateYmd: created.dueDateYmd,
+            metadataJson: metadataForSync,
+          });
+          hardResetToIdle();
+          return;
         } else if (action === 'project') {
           // Projet: le titre doit venir du Goal Gemini, pas du smart title local.
           setTitleDraft('');
@@ -883,8 +924,7 @@ export function TalkDebugScreen() {
       withTimeout,
       emitTalkDebug,
       applyTaskPostSaveEffects,
-      alarmSyncByType.habit,
-      calendarSyncByType.habit,
+      applyHabitPostSaveEffects,
       selectedCalendarId,
       markCaptureCreditCommitted,
       refundPendingCaptureCredit,
