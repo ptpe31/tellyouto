@@ -105,7 +105,7 @@ export function AppNavigator() {
     rootNavigationRef.dispatch(
       CommonActions.navigate({
         name: 'App',
-        params: { screen: 'Tabs', params: { screen: 'TalkHome' } },
+        params: { screen: 'Tabs', params: { screen: 'TalkDebug' } },
       } as never),
     );
   }, [isStatsVisible]);
@@ -134,19 +134,17 @@ export function AppNavigator() {
           ),
         }}
       />
-      {__DEV__ ? (
-        <Tab.Screen
-          name="TalkDebug"
-          component={TalkDebugScreen}
-          options={{
-            headerShown: false,
-            title: 'Talk Debug',
-            tabBarIcon: ({ color, size }) => (
-              <Mic color={color} size={size} />
-            ),
-          }}
-        />
-      ) : null}
+      <Tab.Screen
+        name="TalkDebug"
+        component={TalkDebugScreen}
+        options={{
+          headerShown: false,
+          title: t('tabs.talkDebug'),
+          tabBarIcon: ({ color, size }) => (
+            <Mic color={color} size={size} />
+          ),
+        }}
+      />
       <Tab.Screen
         name="MeliMelo"
         component={MeliMeloScreen}

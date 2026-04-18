@@ -57,6 +57,7 @@
     "stats": "Stats",
     "debug": "Debug",
     "talkHome": "Talk",
+    "talkDebug": "Talk Debug",
     "meliMelo": "Méli-Mélo"
   },
   "messaging": {
@@ -680,6 +681,7 @@
     "railChannelName": "TellYouTo · Rail ({{soundId}})"
   },
   "common": {
+    "continue": "Continue",
     "habits": "Habits",
     "projects": "Projects",
     "premiumQuota": "Premium quota",
