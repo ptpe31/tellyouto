@@ -158,6 +158,11 @@
     "confirm": "Basculer",
     "cancel": "Annuler"
   },
+  "languageSelection": {
+    "title": "Choisis ta langue",
+    "subtitle": "Langue détectée : {{lang}}",
+    "pick": "Sélectionne ta langue"
+  },
   "onboarding": {
     "firstName": {
       "title": "Comment t’appelles-tu ?",

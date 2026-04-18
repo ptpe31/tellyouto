@@ -158,6 +158,11 @@
     "confirm": "Switch",
     "cancel": "Cancel"
   },
+  "languageSelection": {
+    "title": "Choose your language",
+    "subtitle": "Detected language: {{lang}}",
+    "pick": "Select your language"
+  },
   "onboarding": {
     "firstName": {
       "title": "What should we call you?",
