@@ -31,9 +31,7 @@ import {
 import {
   consumeIaCredits,
   getTrankilV2UserStats,
-  insertTrankilV2Intention,
   refundIaCredit,
-  updateTrankilV2IntentionArchiveState,
 } from '../api/trankilV2Db';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
@@ -41,38 +39,35 @@ import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../const
 import { AdCompanionBanner } from '../components/AdCompanionBanner';
 import { UpsellModal } from '../components/UpsellModal';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
+import type { GeminiExpertIntention } from '../services/GeminiExpert';
 import {
-  atomizeProject,
-  extractAnniversaryDetails,
-  extractHabitRecurrence,
-  type GeminiAnniversaryDetails,
-  type GeminiExpertIntention,
-  type GeminiHabitRecurrence,
-} from '../services/GeminiExpert';
-import { runIntentOrchestration } from '../services/IntentOrchestrator';
-import { createLocalTemporalIntention } from '../services/localTemporalIntention';
-import {
-  buildProjectPlanPreview,
   exportProjectPlanToIcs,
   formatDueDateShort,
-  persistGeminiExpertRows,
 } from '../services/ProjectPlanFlowService';
 import { cleanTranscriptText, generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
-import {
-  computeNextYearlyDueDateFromNativeDate,
-  formatYmdLocal,
-  hasAnniversaryKeyword,
-} from '../services/TimeSorter';
+import { formatYmdLocal } from '../services/TimeSorter';
 import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../utils/nativeModuleErrorAlert';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import {
   getDefaultCalendarId,
   setDefaultCalendarId,
-  syncIntentionCalendarMirror,
 } from '../services/calendarMirrorSync';
-import { scheduleTrankilV2IntentionAlarmById } from '../services/alarmManager';
 import { getAutoArchiveAfterCalendarSync } from '../services/premiumBridgeSettings';
 import { logActivity } from '../services/UserActivityService';
+import {
+  applyPostCaptureEffects,
+  buildFinalTranscriptForCapture,
+  buildTemporalCaptureRecap,
+  executeAudioMemoCapture,
+  executeHabitCapture,
+  executeQuickNoteCapture,
+  executeTaskCapture,
+  generateProjectPlanFromDeadline,
+  handleCaptureFlowError,
+  persistValidatedProjectPlan,
+  type CaptureStrategyDeps,
+  type PostCaptureEffectsConfig,
+} from '../services/captureStrategies';
 
 function newId(): string {
   try {
@@ -288,6 +283,32 @@ export function TalkDebugScreen() {
     [],
   );
 
+  const ensureWritableCalendars = useCallback(async (): Promise<WritableDeviceCalendar[]> => {
+    const permission = await Calendar.getCalendarPermissionsAsync();
+    if (permission.status !== 'granted') {
+      const req = await Calendar.requestCalendarPermissionsAsync();
+      if (req.status !== 'granted') {
+        setCalendarOptions([]);
+        setSelectedCalendarId(null);
+        return [];
+      }
+    }
+    const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+    const writable = calendars
+      .filter((item) => item.allowsModifications)
+      .map((item) => ({
+        id: item.id,
+        title: item.title || t('timeline.untitled'),
+        color: item.color || '#64748b',
+      }));
+    setCalendarOptions(writable);
+    const remembered = (await AsyncStorage.getItem(LAST_CALENDAR_STORAGE_KEY)) || (await getDefaultCalendarId());
+    const fallbackId = writable[0]?.id ?? null;
+    const nextId = writable.some((item) => item.id === remembered) ? remembered : fallbackId;
+    setSelectedCalendarId(nextId);
+    return writable;
+  }, [t]);
+
   useEffect(() => {
     void (async () => {
       try {
@@ -384,32 +405,6 @@ export function TalkDebugScreen() {
     [alarmSyncByType, spectrum.isProUser],
   );
 
-  const ensureWritableCalendars = useCallback(async (): Promise<WritableDeviceCalendar[]> => {
-    const permission = await Calendar.getCalendarPermissionsAsync();
-    if (permission.status !== 'granted') {
-      const req = await Calendar.requestCalendarPermissionsAsync();
-      if (req.status !== 'granted') {
-        setCalendarOptions([]);
-        setSelectedCalendarId(null);
-        return [];
-      }
-    }
-    const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-    const writable = calendars
-      .filter((item) => item.allowsModifications)
-      .map((item) => ({
-        id: item.id,
-        title: item.title || t('timeline.untitled'),
-        color: item.color || '#64748b',
-      }));
-    setCalendarOptions(writable);
-    const remembered = (await AsyncStorage.getItem(LAST_CALENDAR_STORAGE_KEY)) || (await getDefaultCalendarId());
-    const fallbackId = writable[0]?.id ?? null;
-    const nextId = writable.some((item) => item.id === remembered) ? remembered : fallbackId;
-    setSelectedCalendarId(nextId);
-    return writable;
-  }, [t]);
-
   const persistAudioMemoFile = useCallback(async (uri: string): Promise<string> => {
     const source = String(uri || '').trim();
     if (!source) throw new Error(t('talkDebug.errorAudioSourceEmpty'));
@@ -420,7 +415,28 @@ export function TalkDebugScreen() {
     const target = `${folder}/memo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}.m4a`;
     await FileSystem.copyAsync({ from: source, to: target });
     return target;
-  }, []);
+  }, [t]);
+
+  const captureStrategyDeps = useMemo<CaptureStrategyDeps>(
+    () => ({
+      newId,
+      spectrum: { locale: spectrum.locale, isProUser: spectrum.isProUser },
+      withTimeout,
+      parseDueDateFromText,
+      emitTalkDebug,
+      persistAudioMemoFile,
+      translate: (key, options) => t(key, options),
+    }),
+    [
+      emitTalkDebug,
+      parseDueDateFromText,
+      persistAudioMemoFile,
+      spectrum.isProUser,
+      spectrum.locale,
+      t,
+      withTimeout,
+    ],
+  );
 
   const ensureMicrophoneReady = useCallback(async (): Promise<boolean> => {
     const audioPerm = await Audio.requestPermissionsAsync();
@@ -588,138 +604,6 @@ export function TalkDebugScreen() {
     }
   }, [captureStep, i18n.language, isPaused, isRecording, t]);
 
-  const saveQuickNoteToTimeline = useCallback(
-    async (title: string, transcript: string) => {
-      await insertTrankilV2Intention({
-        id: newId(),
-        type: 'NOTE',
-        title: title.trim() || 'Note',
-        due_date: null,
-        content_raw: transcript,
-        metadata_json: JSON.stringify(
-          {
-            source: 'talk_debug_quick_note',
-            local_stt_transcript: transcript,
-          },
-          null,
-          2,
-        ),
-        suggested_tags: JSON.stringify(['sans_pression']),
-        category_id: 'sans_pression',
-        parent_id: null,
-        status: 'TODO',
-        is_organized: 0,
-        is_local_processed: 1,
-        complexity_level: 0,
-        created_at: Date.now(),
-      });
-    },
-    [],
-  );
-
-  const applyTaskPostSaveEffects = useCallback(
-    (params: { intentionId: string; title: string; dueDateYmd: string | null }) => {
-      void (async () => {
-        let syncedCalendar = false;
-        let archived = false;
-        let alarmOk = false;
-        try {
-          if (calendarSyncByType.task && spectrum.isProUser) {
-            const sync = await syncIntentionCalendarMirror({
-              intentionId: params.intentionId,
-              type: 'TASK',
-              title: params.title,
-              dueDateYmd: params.dueDateYmd,
-              enabled: true,
-              calendarId: selectedCalendarId,
-            });
-            syncedCalendar = Boolean(sync.synced);
-          }
-          if (syncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
-            await updateTrankilV2IntentionArchiveState(params.intentionId, true);
-            void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
-              intention_id: params.intentionId,
-              intention_type: 'TASK',
-            });
-            archived = true;
-          }
-          if (alarmSyncByType.task && spectrum.isProUser) {
-            const alarm = await scheduleTrankilV2IntentionAlarmById(params.intentionId);
-            alarmOk = Boolean(alarm.ok);
-          }
-        } catch {
-          // best-effort : la tâche est déjà persistée localement
-        }
-        const parts = [t('talkDebug.taskQuickRecapIntro')];
-        if (syncedCalendar) parts.push(t('talkDebug.taskQuickRecapCalendar'));
-        if (archived) parts.push(t('talkDebug.taskQuickRecapArchive'));
-        if (alarmOk) parts.push(t('talkDebug.taskQuickRecapAlarm'));
-        pushSuccessFeedback(parts.join(' · '));
-      })();
-    },
-    [
-      alarmSyncByType.task,
-      autoArchiveAfterCalendarSync,
-      calendarSyncByType.task,
-      pushSuccessFeedback,
-      selectedCalendarId,
-      spectrum.isProUser,
-      t,
-    ],
-  );
-
-  const applyHabitPostSaveEffects = useCallback(
-    (params: { intentionId: string; title: string; dueDateYmd: string | null; metadataJson: string }) => {
-      void (async () => {
-        let syncedCalendar = false;
-        let archived = false;
-        let alarmOk = false;
-        try {
-          if (calendarSyncByType.habit && spectrum.isProUser) {
-            const sync = await syncIntentionCalendarMirror({
-              intentionId: params.intentionId,
-              type: 'HABIT',
-              title: params.title,
-              dueDateYmd: params.dueDateYmd,
-              metadataJson: params.metadataJson,
-              enabled: true,
-              calendarId: selectedCalendarId,
-            });
-            syncedCalendar = Boolean(sync.synced);
-          }
-          if (syncedCalendar && autoArchiveAfterCalendarSync && spectrum.isProUser) {
-            await updateTrankilV2IntentionArchiveState(params.intentionId, true);
-            void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
-              intention_id: params.intentionId,
-              intention_type: 'HABIT',
-            });
-            archived = true;
-          }
-          if (alarmSyncByType.habit && spectrum.isProUser) {
-            const alarm = await scheduleTrankilV2IntentionAlarmById(params.intentionId);
-            alarmOk = Boolean(alarm.ok);
-          }
-        } catch {
-          // best-effort : l'habitude est déjà persistée localement
-        }
-        const parts = [t('talkDebug.habitQuickRecapIntro')];
-        if (syncedCalendar) parts.push(t('talkDebug.taskQuickRecapCalendar'));
-        if (archived) parts.push(t('talkDebug.taskQuickRecapArchive'));
-        if (alarmOk) parts.push(t('talkDebug.taskQuickRecapAlarm'));
-        pushSuccessFeedback(parts.join(' · '));
-      })();
-    },
-    [
-      alarmSyncByType.habit,
-      autoArchiveAfterCalendarSync,
-      calendarSyncByType.habit,
-      pushSuccessFeedback,
-      selectedCalendarId,
-      spectrum.isProUser,
-      t,
-    ],
-  );
-
   const onChooseAction = useCallback(
     async (action: 'note' | 'task' | 'habit' | 'project' | 'audio' | 'cancel') => {
       if (action === 'cancel') {
@@ -728,141 +612,90 @@ export function TalkDebugScreen() {
       }
       setBusy(true);
       try {
-        const finalTranscript = cleanTranscriptText(transcriptDraft.trim() || rawTranscript.trim());
-        const buildHabitMeta = async (): Promise<{ recurrence_rule?: GeminiHabitRecurrence }> => {
-          const recurrence = await withTimeout(extractHabitRecurrence(finalTranscript), 2500);
-          if (!recurrence) return {};
-          return { recurrence_rule: recurrence };
-        };
-        const buildAnniversaryMeta = async (): Promise<{
-          details: GeminiAnniversaryDetails | null;
-          dueDateYmd: string | null;
-        }> => {
-          const details = await withTimeout(extractAnniversaryDetails(finalTranscript), 2500);
-          if (!details) return { details: null, dueDateYmd: null };
-          const dueDateYmd = computeNextYearlyDueDateFromNativeDate(details.native_date);
-          return { details, dueDateYmd };
-        };
+        const finalTranscript = buildFinalTranscriptForCapture(transcriptDraft, rawTranscript);
         const smartTitle = (
           titleDraft.trim() ||
           (isTitleLocked ? lockedTitle : '') ||
           generateSmartTitle(finalTranscript, spectrum.locale) ||
           finalTranscript
         ).trim();
+
+        const postEffectsConfigFor = (mirrorType: 'TASK' | 'HABIT'): PostCaptureEffectsConfig => ({
+          isProUser: spectrum.isProUser,
+          calendarSyncEnabled: mirrorType === 'TASK' ? calendarSyncByType.task : calendarSyncByType.habit,
+          alarmSyncEnabled: mirrorType === 'TASK' ? alarmSyncByType.task : alarmSyncByType.habit,
+          autoArchiveAfterCalendarSync,
+          selectedCalendarId,
+        });
+
         if (action === 'note') {
-          await saveQuickNoteToTimeline(smartTitle || t('timeline.note'), finalTranscript);
+          const res = await executeQuickNoteCapture({
+            deps: captureStrategyDeps,
+            title: smartTitle || t('timeline.note'),
+            finalTranscript,
+            fallbackNoteTitle: t('timeline.note'),
+          });
+          if (!res.ok) throw res.error;
+          if (res.outcome.kind !== 'simple_note_or_audio') throw new Error('unexpected_capture_outcome');
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           markCaptureCreditCommitted();
-          pushSuccessFeedback(t('talkDebug.noteSaved'));
+          pushSuccessFeedback(t(res.outcome.successFeedbackI18nKey));
           hardResetToIdle();
           return;
-        } else if (action === 'task') {
-          const orchestration = await runIntentOrchestration({
-            fallbackText: finalTranscript,
-            locale: spectrum.locale,
+        }
+
+        if (action === 'task') {
+          const res = await executeTaskCapture({
+            deps: captureStrategyDeps,
+            finalTranscript,
+            smartTitle,
+            quickTaskLabel: t('talkDebug.quickTask'),
           });
-          emitTalkDebug({
-            mode: 'quick',
-            at: Date.now(),
-            rawTranscript: orchestration.rawText || finalTranscript,
-            localStructuredJson: JSON.stringify(
-              {
-                decision: orchestration.decision,
-                localType: orchestration.localType,
-                confidence: orchestration.confidence,
-                suggestedTags: orchestration.suggestedTags,
-                reason: orchestration.reason,
-              },
-              null,
-              2,
-            ),
-          });
-          const scheduleDate =
-            orchestration.schedule instanceof Date && !Number.isNaN(orchestration.schedule.getTime())
-              ? orchestration.schedule
-              : null;
-          const dueDateYmd =
-            (scheduleDate ? formatYmdLocal(scheduleDate) : null) ?? parseDueDateFromText(finalTranscript);
-          const finalTitle = smartTitle || t('talkDebug.quickTask');
-          const suggestedTags = Array.from(
-            new Set((orchestration.suggestedTags ?? []).filter((tag) => tag !== 'regulier')),
-          );
-          const intentionId = newId();
-          const created = await createLocalTemporalIntention({
-            id: intentionId,
-            title: finalTitle,
-            rawTranscript: finalTranscript,
-            localType: 'TASK',
-            dueDateYmd,
-            suggestedTags,
-            source: 'talk_debug_local_orchestrator',
-            metadataExtra: {},
-          });
+          if (!res.ok) throw res.error;
+          if (res.outcome.kind !== 'persisted_temporal') throw new Error('unexpected_capture_outcome');
+          const o = res.outcome;
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           markCaptureCreditCommitted();
-          void applyTaskPostSaveEffects({
-            intentionId,
-            title: finalTitle,
-            dueDateYmd: created.dueDateYmd,
-          });
+          const cfg = postEffectsConfigFor(o.mirrorType);
+          void (async () => {
+            const fx = await applyPostCaptureEffects(o.intentionId, o.mirrorType, {
+              title: o.title,
+              dueDateYmd: o.dueDateYmd,
+              metadataJson: o.metadataJson,
+            }, cfg);
+            pushSuccessFeedback(buildTemporalCaptureRecap(o.recapIntroI18nKey, fx, t));
+          })();
           hardResetToIdle();
           return;
-        } else if (action === 'habit') {
-          const hasAnniversary = hasAnniversaryKeyword(finalTranscript);
-          let ann: { details: GeminiAnniversaryDetails | null; dueDateYmd: string | null };
-          let habitMeta: { recurrence_rule?: GeminiHabitRecurrence };
-          if (hasAnniversary) {
-            const [annResult, habitMetaResult] = await Promise.all([
-              buildAnniversaryMeta(),
-              buildHabitMeta(),
-            ]);
-            ann = annResult;
-            habitMeta = habitMetaResult;
-          } else {
-            ann = { details: null, dueDateYmd: null };
-            habitMeta = await buildHabitMeta();
-          }
-          const intentionId = newId();
-          const finalHabitTitle = ann.details
-            ? `🎂 ${t('talkDebug.birthdayLabel')} ${ann.details.personName}`
-            : smartTitle || t('common.habits');
-          const anniversaryExtra = ann.details
-            ? {
-                type: 'ANNIVERSARY' as const,
-                recurrence: 'yearly' as const,
-                native_date: ann.details.native_date,
-                person_name: ann.details.personName,
-              }
-            : {};
-          const metadataForSync = JSON.stringify({
-            ...habitMeta,
-            ...anniversaryExtra,
+        }
+
+        if (action === 'habit') {
+          const res = await executeHabitCapture({
+            deps: captureStrategyDeps,
+            finalTranscript,
+            smartTitle,
+            habitsDefaultTitle: t('common.habits'),
+            birthdayLabel: t('talkDebug.birthdayLabel'),
           });
-          const created = await createLocalTemporalIntention({
-            id: intentionId,
-            title: finalHabitTitle,
-            rawTranscript: finalTranscript,
-            localType: 'HABIT',
-            dueDateYmd: ann.dueDateYmd,
-            suggestedTags: ['regulier'],
-            source: 'talk_debug_habit_local',
-            metadataExtra: {
-              ...habitMeta,
-              ...anniversaryExtra,
-            },
-          });
+          if (!res.ok) throw res.error;
+          if (res.outcome.kind !== 'persisted_temporal') throw new Error('unexpected_capture_outcome');
+          const o = res.outcome;
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           markCaptureCreditCommitted();
-          void applyHabitPostSaveEffects({
-            intentionId,
-            title: finalHabitTitle,
-            dueDateYmd: created.dueDateYmd,
-            metadataJson: metadataForSync,
-          });
+          const cfg = postEffectsConfigFor(o.mirrorType);
+          void (async () => {
+            const fx = await applyPostCaptureEffects(o.intentionId, o.mirrorType, {
+              title: o.title,
+              dueDateYmd: o.dueDateYmd,
+              metadataJson: o.metadataJson,
+            }, cfg);
+            pushSuccessFeedback(buildTemporalCaptureRecap(o.recapIntroI18nKey, fx, t));
+          })();
           hardResetToIdle();
           return;
-        } else if (action === 'project') {
-          // Projet: le titre doit venir du Goal Gemini, pas du smart title local.
+        }
+
+        if (action === 'project') {
           setTitleDraft('');
           setLockedTitle('');
           setIsTitleLocked(false);
@@ -870,79 +703,60 @@ export function TalkDebugScreen() {
           setDeadlineError('');
           setDeadlineModalVisible(true);
           return;
-        } else if (action === 'audio') {
-          if (!audioUri) {
-            Alert.alert(t('talkDebug.audioTitle'), t('talkDebug.audioMissing'));
-            return;
-          }
-          const storedUri = await persistAudioMemoFile(audioUri);
-          await insertTrankilV2Intention({
-            id: newId(),
-            type: 'AUDIO',
+        }
+
+        if (action === 'audio') {
+          const res = await executeAudioMemoCapture({
+            deps: captureStrategyDeps,
             title: smartTitle || t('timeline.memoAudio'),
-            due_date: null,
-            content_raw: finalTranscript,
-            metadata_json: JSON.stringify(
-              {
-                source: 'talk_debug_audio_memo',
-                local_stt_transcript: finalTranscript,
-                audio_uri: storedUri,
-              },
-              null,
-              2,
-            ),
-            suggested_tags: JSON.stringify(['sans_pression']),
-            category_id: 'sans_pression',
-            parent_id: null,
-            status: 'TODO',
-            is_organized: 0,
-            is_local_processed: 1,
-            complexity_level: 0,
-            created_at: Date.now(),
+            finalTranscript,
+            fallbackAudioTitle: t('timeline.memoAudio'),
+            audioUri,
           });
+          if (!res.ok) {
+            if (res.code === 'AUDIO_MISSING') {
+              Alert.alert(t('talkDebug.audioTitle'), t('talkDebug.audioMissing'));
+              return;
+            }
+            throw res.error;
+          }
+          if (res.outcome.kind !== 'simple_note_or_audio') throw new Error('unexpected_capture_outcome');
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           markCaptureCreditCommitted();
-          pushSuccessFeedback(t('talkDebug.audioSaved'));
+          pushSuccessFeedback(t(res.outcome.successFeedbackI18nKey));
           hardResetToIdle();
           return;
         }
-        DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-        pushSuccessFeedback(t('talkDebug.actionSuccess'));
-        hardResetToIdle();
       } catch (e) {
-        await refundPendingCaptureCredit();
-        if (isLikelyMissingNativeModuleError(e)) {
-          alertNativeModuleMissing('nativeModule.contextTalkHomePersist', e);
-        } else {
-          Alert.alert(t('tabs.debug'), e instanceof Error ? e.message : String(e));
-        }
+        await handleCaptureFlowError(e, {
+          refundPendingCaptureCredit,
+          translate: t,
+        });
       } finally {
         setBusy(false);
       }
     },
     [
+      alarmSyncByType.habit,
+      alarmSyncByType.task,
       audioUri,
+      autoArchiveAfterCalendarSync,
+      calendarSyncByType.habit,
+      calendarSyncByType.task,
+      captureStrategyDeps,
       hardResetToIdle,
-      hasManualTitleEdit,
       isTitleLocked,
       lockedTitle,
-      parseDueDateFromText,
-      persistAudioMemoFile,
+      markCaptureCreditCommitted,
       pushSuccessFeedback,
       rawTranscript,
-      saveQuickNoteToTimeline,
-      spectrum,
+      refundPendingCaptureCredit,
+      selectedCalendarId,
+      spectrum.isProUser,
+      spectrum.locale,
       t,
       titleDraft,
       transcriptDraft,
-      withTimeout,
-      emitTalkDebug,
-      applyTaskPostSaveEffects,
-      applyHabitPostSaveEffects,
-      selectedCalendarId,
-      markCaptureCreditCommitted,
-      refundPendingCaptureCredit,
-      autoArchiveAfterCalendarSync,
     ],
   );
 
@@ -1024,35 +838,27 @@ export function TalkDebugScreen() {
     setIsGeneratingPlan(true);
     setDeadlineError('');
     try {
-      const consolidatedPrompt = `Voici mon projet : ${cleanTranscriptText(finalTranscript)}. Je veux le terminer ${cleanedDeadline}. Genere un plan de taches structure en JSON.`;
-      const expertRows = await atomizeProject(consolidatedPrompt);
-      const deadlineYmd = parseDueDateFromText(cleanedDeadline);
-      const normalizedRows = expertRows.map((row) => {
-        if (row.type !== 'TASK') return row;
-        return {
-          ...row,
-          metadata: {
-            ...(row.metadata ?? {}),
-            due_date: (() => {
-              const fallback = String((row.metadata as { due_date?: unknown })?.due_date || '').trim();
-              return deadlineYmd ?? (fallback || null);
-            })(),
-          },
-        };
+      const preview = await generateProjectPlanFromDeadline({
+        finalTranscript,
+        deadlineText: cleanedDeadline,
+        parseDueDateFromText,
       });
       setDeadlineModalVisible(false);
-      setProjectPlanPreview(buildProjectPlanPreview(finalTranscript, cleanedDeadline, normalizedRows));
+      setProjectPlanPreview(preview);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('PLAN_JSON_PARSE_ERROR')) {
         setDeadlineError(t('talkDebug.planParseError'));
       } else {
-        Alert.alert(t('common.projects'), msg || t('talkDebug.projectGenerationError'));
+        Alert.alert(
+          t('common.projects'),
+          msg.trim() || t('talkDebug.projectGenerationError'),
+        );
       }
     } finally {
       setIsGeneratingPlan(false);
     }
-  }, [deadlineText, parseDueDateFromText, rawTranscript, transcriptDraft]);
+  }, [deadlineText, parseDueDateFromText, rawTranscript, transcriptDraft, t]);
 
   const togglePlanTaskAlarm = useCallback((taskIndex: number) => {
     setProjectPlanPreview((prev) => {
@@ -1094,16 +900,13 @@ export function TalkDebugScreen() {
         Boolean(autoArchiveAfterCalendarSync) &&
         Boolean(calendarSyncByType.project) &&
         Boolean(spectrum.isProUser);
-      await persistGeminiExpertRows(projectPlanPreview.rawInput, projectPlanPreview.rows, {
+      await persistValidatedProjectPlan({
+        preview: projectPlanPreview,
         taskAlarmIndexes: projectPlanPreview.taskAlarmIndexes,
         selectedTaskIndexes: projectPlanPreview.selectedTaskIndexes,
         audioUri,
         status: archiveProjectOnSave ? 'ARCHIVED' : 'TODO',
         isOrganized: archiveProjectOnSave ? 1 : 0,
-      });
-      void logActivity('PROJECT_CREATED', 0, {
-        source: 'talk_debug_project_plan',
-        selected_tasks: projectPlanPreview.selectedTaskIndexes.length,
       });
       const writableCalendars =
         calendarOptions.length > 0 ? calendarOptions : await ensureWritableCalendars();
@@ -1134,9 +937,12 @@ export function TalkDebugScreen() {
       );
       hardResetToIdle();
     } catch (e: unknown) {
-      await refundPendingCaptureCredit();
-      const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert(t('common.projects'), msg || t('talkDebug.projectValidationError'));
+      await handleCaptureFlowError(e, {
+        refundPendingCaptureCredit,
+        translate: t,
+        alertTitleKey: 'common.projects',
+        fallbackMessageKey: 'talkDebug.projectValidationError',
+      });
     } finally {
       setBusy(false);
     }

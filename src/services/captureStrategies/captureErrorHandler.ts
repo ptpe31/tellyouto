@@ -1,0 +1,35 @@
+import { Alert } from 'react-native';
+
+import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../../utils/nativeModuleErrorAlert';
+
+export type CaptureErrorHandlerContext = {
+  translate: (key: string, options?: Record<string, string | number>) => string;
+  /** Même logique que l’écran : `refundIaCredit` si crédit capture encore en attente. */
+  refundPendingCaptureCredit: () => Promise<void>;
+  alertTitleKey?: string;
+  /** Si le message d’erreur est vide, affiche cette clé i18n. */
+  fallbackMessageKey?: string;
+};
+
+/**
+ * Gestion d’erreur centralisée pour les flux de capture : remboursement crédit + alerte lisible.
+ */
+export async function handleCaptureFlowError(
+  error: unknown,
+  ctx: CaptureErrorHandlerContext,
+): Promise<void> {
+  await ctx.refundPendingCaptureCredit();
+
+  if (isLikelyMissingNativeModuleError(error)) {
+    alertNativeModuleMissing('nativeModule.contextTalkHomePersist', error);
+    return;
+  }
+
+  const title = ctx.translate(ctx.alertTitleKey ?? 'tabs.debug');
+  const raw = error instanceof Error ? error.message : String(error);
+  const message =
+    raw.trim() ||
+    (ctx.fallbackMessageKey ? ctx.translate(ctx.fallbackMessageKey) : '') ||
+    ctx.translate('tabs.debug');
+  Alert.alert(title, message);
+}
