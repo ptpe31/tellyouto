@@ -1,23 +1,69 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { CalendarCheck, CalendarDays, PiggyBank } from 'lucide-react-native';
+import { CalendarDays, PiggyBank } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, LayoutAnimation, Pressable, StyleSheet, Text, UIManager, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  bulkTrankilV2TaskChildStatsByParentIds,
   listArchivedIntentions,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
+  markTrankilV2IntentionDone,
+  syncNativeRailAlarmsAfterIntentionWrite,
   type TrankilIntentStatus,
+  type TrankilV2ChildTaskStats,
   type TrankilV2TimelineDateMode,
   type TrankilV2TimelineItemRow,
 } from '../api';
 import { IdeaBankModal } from '../components/IdeaBankModal';
+import { TimelineListItemRow } from '../components/TimelineListItemRow';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
 import { neumorphicRaised } from '../theme/neumorphism';
+import { Platform as RPlatform } from '../utils/rnPlatform';
+
+if (RPlatform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+async function safeSuccessHaptic(): Promise<void> {
+  try {
+    if (RPlatform.OS === 'web') return;
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function safeMediumHaptic(): Promise<void> {
+  try {
+    if (RPlatform.OS === 'web') return;
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  } catch {
+    /* ignore */
+  }
+}
+
+function progressLookupIdForRow(row: TrankilV2TimelineItemRow): string | null {
+  if (row.section === 'PROJECT_SUBTASK') {
+    const pid = String(row.parent_id ?? '').trim();
+    return pid.length > 0 ? pid : null;
+  }
+  if (row.section === 'TASK_HABIT' && (row.type === 'TASK' || row.type === 'HABIT')) {
+    return row.id;
+  }
+  return null;
+}
+
+function canShowCompleteOrb(listKey: string, status: TrankilIntentStatus, dimmed?: boolean): boolean {
+  if (dimmed) return false;
+  if (status !== 'TODO') return false;
+  return listKey === 'tasks' || listKey === 'habits' || listKey === 'projects';
+}
 
 type QuickRange = 'TODAY' | 'TOMORROW' | 'WEEK';
 
@@ -121,33 +167,149 @@ export function TimelineScreen() {
   const [loading, setLoading] = useState(false);
   const [archivedItems, setArchivedItems] = useState<TrankilV2TimelineItemRow[]>([]);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
+  const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
+  const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
+  const pendingLocalDoneRef = useRef<Set<string>>(new Set());
+  const pendingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const selectedYmd = useMemo(() => toYmd(selectedDate), [selectedDate]);
 
-  const load = useCallback(async (date: Date, status: TrankilIntentStatus, mode: TrankilV2TimelineDateMode) => {
-    setLoading(true);
-    try {
-      const [rows, undated, archived] = await Promise.all([
-        listTrankilV2TimelineItemsByDate(toYmd(date), status, mode),
-        listTrankilV2UndatedRootTasks(status),
-        listArchivedIntentions(120),
-      ]);
-      setItems(rows);
-      setUndatedTasks(undated);
-      setArchivedItems(archived);
-    } finally {
-      setLoading(false);
-    }
+  const syncPendingSet = useCallback((next: Set<string>) => {
+    pendingLocalDoneRef.current = next;
+    setPendingLocalDone(next);
   }, []);
+
+  const flushPendingCommits = useCallback(async () => {
+    const ids = [...pendingLocalDoneRef.current];
+    if (ids.length === 0) return;
+    for (const id of ids) {
+      const tm = pendingTimersRef.current.get(id);
+      if (tm) clearTimeout(tm);
+      pendingTimersRef.current.delete(id);
+    }
+    syncPendingSet(new Set());
+    for (const id of ids) {
+      await markTrankilV2IntentionDone(id);
+      await syncNativeRailAlarmsAfterIntentionWrite('timelineFlushPendingDone');
+    }
+  }, [syncPendingSet]);
+
+  const load = useCallback(
+    async (date: Date, status: TrankilIntentStatus, mode: TrankilV2TimelineDateMode) => {
+      await flushPendingCommits();
+      setLoading(true);
+      try {
+        const [rows, undated, archived] = await Promise.all([
+          listTrankilV2TimelineItemsByDate(toYmd(date), status, mode),
+          listTrankilV2UndatedRootTasks(status),
+          listArchivedIntentions(120),
+        ]);
+        setItems(rows);
+        setUndatedTasks(undated);
+        setArchivedItems(archived);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [flushPendingCommits],
+  );
 
   const reload = useCallback(() => {
     void load(selectedDate, statusFilter, dateMode);
   }, [dateMode, load, selectedDate, statusFilter]);
 
+  const finalizeSingleDone = useCallback(
+    async (rowId: string) => {
+      if (!pendingLocalDoneRef.current.has(rowId)) return;
+      const tm = pendingTimersRef.current.get(rowId);
+      if (tm) clearTimeout(tm);
+      pendingTimersRef.current.delete(rowId);
+      const next = new Set(pendingLocalDoneRef.current);
+      next.delete(rowId);
+      syncPendingSet(next);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      await markTrankilV2IntentionDone(rowId);
+      await syncNativeRailAlarmsAfterIntentionWrite('timelineTaskDone');
+      setItems((prev) => prev.filter((i) => i.id !== rowId));
+      setUndatedTasks((prev) => prev.filter((i) => i.id !== rowId));
+    },
+    [syncPendingSet],
+  );
+
+  const cancelPendingCommit = useCallback(
+    (rowId: string) => {
+      const tm = pendingTimersRef.current.get(rowId);
+      if (tm) clearTimeout(tm);
+      pendingTimersRef.current.delete(rowId);
+      if (!pendingLocalDoneRef.current.has(rowId)) return;
+      const next = new Set(pendingLocalDoneRef.current);
+      next.delete(rowId);
+      syncPendingSet(next);
+    },
+    [syncPendingSet],
+  );
+
+  const schedulePendingCommit = useCallback(
+    (rowId: string) => {
+      const next = new Set(pendingLocalDoneRef.current);
+      next.add(rowId);
+      syncPendingSet(next);
+      const tm = setTimeout(() => {
+        pendingTimersRef.current.delete(rowId);
+        void finalizeSingleDone(rowId);
+      }, 3000);
+      pendingTimersRef.current.set(rowId, tm);
+    },
+    [finalizeSingleDone, syncPendingSet],
+  );
+
+  const handleToggleRowComplete = useCallback(
+    async (row: TrankilV2TimelineItemRow) => {
+      if (pendingLocalDoneRef.current.has(row.id)) {
+        await safeMediumHaptic();
+        cancelPendingCommit(row.id);
+        return;
+      }
+      await safeSuccessHaptic();
+      schedulePendingCommit(row.id);
+    },
+    [cancelPendingCommit, schedulePendingCommit],
+  );
+
+  useEffect(() => {
+    const ids = new Set<string>();
+    for (const r of items) {
+      if (r.section === 'TASK_HABIT' && (r.type === 'TASK' || r.type === 'HABIT')) {
+        ids.add(r.id);
+      }
+      const pid = String(r.parent_id ?? '').trim();
+      if (r.section === 'PROJECT_SUBTASK' && pid.length > 0) {
+        ids.add(pid);
+      }
+    }
+    const arr = [...ids];
+    let cancelled = false;
+    if (arr.length === 0) {
+      setChildStats(new Map());
+      return () => {
+        cancelled = true;
+      };
+    }
+    void bulkTrankilV2TaskChildStatsByParentIds(arr).then((m) => {
+      if (!cancelled) setChildStats(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
   useFocusEffect(
     useCallback(() => {
       void load(selectedDate, statusFilter, dateMode);
-    }, [dateMode, load, selectedDate, statusFilter]),
+      return () => {
+        void flushPendingCommits();
+      };
+    }, [dateMode, flushPendingCommits, load, selectedDate, statusFilter]),
   );
 
   const stripDates = useMemo(() => buildDateStrip(selectedDate), [selectedDate]);
@@ -218,39 +380,31 @@ export function TimelineScreen() {
     const headingKey = displayHeading(resolved);
     const titleText = headingKey ? t(headingKey) : resolved;
     const createdLine = formatCreatedLine(row.created_at, i18n.language);
+    const showOrb = canShowCompleteOrb(listKey, statusFilter, dimmed);
+    const progressKey = progressLookupIdForRow(row);
+    const projectSuffix =
+      row.section === 'PROJECT_SUBTASK' && row.project_title
+        ? `${t('timeline.projectPrefix')}: ${row.project_title}`
+        : null;
+
     return (
-      <View
+      <TimelineListItemRow
         key={row.id}
-        style={[
-          styles.card,
-          {
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.outlineVariant,
-            opacity: dimmed ? 0.78 : 1,
-          },
-        ]}
-      >
-        <View style={styles.cardTitleRow}>
-          <Text style={[styles.cardTitle, { color: theme.colors.onSurface }]}>{titleText}</Text>
-          {spectrum.isProUser && row.is_synced_calendar === 1 ? (
-            <View style={styles.syncBadge}>
-              <CalendarCheck size={listKey === 'archives' ? 16 : 14} color="#0ea5a4" />
-              {listKey === 'archives' ? (
-                <Text style={styles.syncBadgeText}>{t('timeline.syncedBadge')}</Text>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
-        <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
-          {t(typeBadge(row.type))}
-          {row.section === 'PROJECT_SUBTASK' && row.project_title
-            ? ` • ${t('timeline.projectPrefix')}: ${row.project_title}`
-            : ''}
-        </Text>
-        <Text style={[styles.createdMeta, { color: theme.colors.onSurfaceVariant }]}>
-          {t('timeline.createdOn', { date: createdLine })}
-        </Text>
-      </View>
+        row={row}
+        listKey={listKey}
+        dimmed={dimmed}
+        theme={theme}
+        titleText={titleText}
+        badgeLabel={t(typeBadge(row.type))}
+        projectSuffix={projectSuffix}
+        createdCaption={t('timeline.createdOn', { date: createdLine })}
+        isPro={spectrum.isProUser}
+        showCompleteOrb={showOrb}
+        progressLookupId={progressKey}
+        childStats={childStats}
+        pendingLocalDone={pendingLocalDone.has(row.id)}
+        onToggleComplete={() => void handleToggleRowComplete(row)}
+      />
     );
   };
 
@@ -435,12 +589,6 @@ const styles = StyleSheet.create({
   filterToggle: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 },
   section: { paddingHorizontal: 16, paddingVertical: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
-  card: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  cardTitle: { fontSize: 15, fontWeight: '600', marginBottom: 4 },
-  createdMeta: { fontSize: 11, marginTop: 6 },
-  syncBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  syncBadgeText: { color: '#0ea5a4', fontSize: 11, fontWeight: '700' },
   emptyWrap: { paddingHorizontal: 16, paddingVertical: 20 },
   ideaBankPressable: {
     flexDirection: 'row',

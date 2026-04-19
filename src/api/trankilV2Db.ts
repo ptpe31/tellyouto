@@ -570,6 +570,37 @@ export async function listTrankilV2UndatedRootTasks(
   );
 }
 
+export type TrankilV2ChildTaskStats = { total: number; done: number };
+
+/** Compte les sous-tâches `TASK` rattachées à chaque `parent_id` (tâche racine ou projet). */
+export async function bulkTrankilV2TaskChildStatsByParentIds(
+  parentIds: string[],
+): Promise<Map<string, TrankilV2ChildTaskStats>> {
+  const unique = [...new Set(parentIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  const out = new Map<string, TrankilV2ChildTaskStats>();
+  if (unique.length === 0) return out;
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const placeholders = unique.map(() => '?').join(',');
+  const rows = await db.getAllAsync<{ parent_id: string; total: number; done: number }>(
+    `SELECT
+       parent_id AS parent_id,
+       COUNT(*) AS total,
+       SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) AS done
+     FROM intentions
+     WHERE type = 'TASK' AND parent_id IN (${placeholders})
+     GROUP BY parent_id`,
+    unique,
+  );
+  for (const r of rows) {
+    out.set(r.parent_id, {
+      total: Number(r.total ?? 0),
+      done: Number(r.done ?? 0),
+    });
+  }
+  return out;
+}
+
 export async function listArchivedIntentions(limit: number = 200): Promise<TrankilV2TimelineItemRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();

@@ -16,6 +16,8 @@ export { CalendarGranularSection } from './CalendarGranularSection';
 export { NeumorphicCard } from './NeumorphicCard';
 export { NeumorphicSurface } from './NeumorphicSurface';
 export { IdeaBankModal } from './IdeaBankModal';
+export { TaskCompletionOrb } from './TaskCompletionOrb';
+export { TimelineListItemRow } from './TimelineListItemRow';
 export { SafeExternalLink } from './SafeExternalLink';
 export { TimeIndicator } from './TimeIndicator';
 export { StartupPerfBanner } from './StartupPerfBanner';

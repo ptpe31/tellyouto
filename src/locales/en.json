@@ -332,6 +332,7 @@
     "badgeTask": "⚡ TASK",
     "badgeProject": "🚀 PROJECT",
     "projectPrefix": "Project",
+    "a11yTaskComplete": "Mark as done or cancel pending completion",
     "createdOn": "Created on {{date}}",
     "tasks": {
       "title": "My tasks"

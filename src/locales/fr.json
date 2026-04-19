@@ -332,6 +332,7 @@
     "badgeTask": "⚡ TACHE",
     "badgeProject": "🚀 PROJET",
     "projectPrefix": "Projet",
+    "a11yTaskComplete": "Marquer comme fait ou annuler la validation en cours",
     "createdOn": "Créé le {{date}}",
     "tasks": {
       "title": "Mes Tâches"

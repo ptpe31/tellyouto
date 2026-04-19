@@ -26,6 +26,7 @@ export {
   listTrankilV2Intentions,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
+  bulkTrankilV2TaskChildStatsByParentIds,
   listArchivedIntentions,
   listTrankilV2UnorganizedIntentions,
   markTrankilV2IntentionDone,
@@ -49,6 +50,7 @@ export {
 export type {
   TrankilIntentStatus,
   TrankilIntentType,
+  TrankilV2ChildTaskStats,
   TrankilV2IntentionRow,
   TrankilV2TimelineDateMode,
   TrankilV2TimelineItemRow,
