@@ -331,7 +331,36 @@
     "badgeHabit": "🔄 HABITUDE",
     "badgeTask": "⚡ TACHE",
     "badgeProject": "🚀 PROJET",
-    "projectPrefix": "Projet"
+    "projectPrefix": "Projet",
+    "createdOn": "Créé le {{date}}",
+    "tasks": {
+      "title": "Mes Tâches"
+    },
+    "habits": {
+      "title": "Habitudes"
+    },
+    "projects": {
+      "title": "Étapes de projets"
+    },
+    "notesAudio": {
+      "title": "Notes & Audios"
+    },
+    "ideaBank": {
+      "title": "La Tirelire à idées",
+      "button": "tâches dans la tirelire",
+      "done": "Fait",
+      "schedule": "Planifier",
+      "remove": "Retirer",
+      "removeConfirmTitle": "Retirer cette tâche ?",
+      "removeConfirmBody": "Elle sera supprimée définitivement de ton téléphone.",
+      "clearAll": "Tout vider",
+      "clearAllTitle": "Vider la tirelire ?",
+      "clearAllBody": "Toutes les tâches sans date seront supprimées.",
+      "scheduleTitle": "Choisir une date",
+      "empty": "Aucune tâche sans date.",
+      "close": "Fermer",
+      "cancel": "Annuler"
+    }
   },
   "focusMode": {
     "title": "Mode de session",
@@ -406,6 +435,8 @@
     "pilotTitle": "Outils de Pilotage",
     "note": "Outil interne — interface volontairement brute.",
     "firebaseProjectIdButton": "Voir projectId Firebase (SDK vs .env)",
+    "add99AiCreditsButton": "+99 crédits IA (test)",
+    "add99AiCreditsDone": "Solde actuel : {{count}} crédits IA",
     "soundSectionTitle": "Paramètres sonores",
     "soundHelp": "Choisit le fichier .wav bundlé pour les alarmes rail (rebuild natif si tu ajoutes des sons). Sous Android, un canal de notification par variante permet au système de jouer réellement le son choisi.",
     "soundDefault": "Défaut",

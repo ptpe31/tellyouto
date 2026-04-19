@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { CalendarCheck, CalendarDays } from 'lucide-react-native';
+import { CalendarCheck, CalendarDays, PiggyBank } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
@@ -9,12 +9,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   listArchivedIntentions,
   listTrankilV2TimelineItemsByDate,
+  listTrankilV2UndatedRootTasks,
   type TrankilIntentStatus,
   type TrankilV2TimelineDateMode,
   type TrankilV2TimelineItemRow,
 } from '../api';
+import { IdeaBankModal } from '../components/IdeaBankModal';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
+import { neumorphicRaised } from '../theme/neumorphism';
 
 type QuickRange = 'TODAY' | 'TOMORROW' | 'WEEK';
 
@@ -46,12 +49,7 @@ function buildDateStrip(center: Date, total: number = 15): Date[] {
   return Array.from({ length: total }, (_, idx) => addDays(center, idx - half));
 }
 
-function sectionTitle(section: TrankilV2TimelineItemRow['section']): string {
-  if (section === 'TASK_HABIT') return 'timeline.sectionTaskHabit';
-  if (section === 'PROJECT_SUBTASK') return 'timeline.sectionProjectSubtasks';
-  return 'timeline.sectionNoteAudio';
-}
-
+/** Texte affichable (contenu utilisateur ou clé i18n pour les titres dérivés). */
 function resolveDisplayTitle(row: TrankilV2TimelineItemRow): string {
   const base = String(row.display_title || '').trim();
   if (base) return base;
@@ -59,6 +57,17 @@ function resolveDisplayTitle(row: TrankilV2TimelineItemRow): string {
     return generateSmartTitle(row.content_raw || '') || (row.type === 'AUDIO' ? 'timeline.memoAudio' : 'timeline.note');
   }
   return 'timeline.untitled';
+}
+
+function displayHeading(textOrKey: string): string {
+  if (
+    textOrKey.startsWith('timeline.') ||
+    textOrKey.startsWith('tabs.') ||
+    textOrKey.startsWith('horizons.')
+  ) {
+    return textOrKey;
+  }
+  return '';
 }
 
 function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
@@ -69,8 +78,38 @@ function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
   return 'timeline.badgeProject';
 }
 
+function formatCreatedLine(createdAt: number, locale?: string): string {
+  try {
+    const d = new Date(createdAt);
+    const loc = locale || Intl.DateTimeFormat().resolvedOptions().locale;
+    return new Intl.DateTimeFormat(loc, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+    }).format(d);
+  } catch {
+    return '';
+  }
+}
+
+type RowSection = {
+  kind: 'rows';
+  listKey: string;
+  titleKey: string;
+  rows: TrankilV2TimelineItemRow[];
+  dimmed?: boolean;
+};
+
+type IdeaBankEntry = {
+  kind: 'ideaBank';
+  listKey: 'ideaBank';
+  count: number;
+};
+
+type ListEntry = RowSection | IdeaBankEntry;
+
 export function TimelineScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -78,25 +117,32 @@ export function TimelineScreen() {
   const [statusFilter, setStatusFilter] = useState<TrankilIntentStatus>('TODO');
   const [dateMode, setDateMode] = useState<TrankilV2TimelineDateMode>('DAY');
   const [items, setItems] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [undatedTasks, setUndatedTasks] = useState<TrankilV2TimelineItemRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [archivedItems, setArchivedItems] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [ideaBankOpen, setIdeaBankOpen] = useState(false);
 
   const selectedYmd = useMemo(() => toYmd(selectedDate), [selectedDate]);
 
-  const load = useCallback(
-    async (date: Date, status: TrankilIntentStatus, mode: TrankilV2TimelineDateMode) => {
-      setLoading(true);
-      try {
-        const rows = await listTrankilV2TimelineItemsByDate(toYmd(date), status, mode);
-        setItems(rows);
-        const archived = await listArchivedIntentions(120);
-        setArchivedItems(archived);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
+  const load = useCallback(async (date: Date, status: TrankilIntentStatus, mode: TrankilV2TimelineDateMode) => {
+    setLoading(true);
+    try {
+      const [rows, undated, archived] = await Promise.all([
+        listTrankilV2TimelineItemsByDate(toYmd(date), status, mode),
+        listTrankilV2UndatedRootTasks(status),
+        listArchivedIntentions(120),
+      ]);
+      setItems(rows);
+      setUndatedTasks(undated);
+      setArchivedItems(archived);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const reload = useCallback(() => {
+    void load(selectedDate, statusFilter, dateMode);
+  }, [dateMode, load, selectedDate, statusFilter]);
 
   useFocusEffect(
     useCallback(() => {
@@ -106,17 +152,50 @@ export function TimelineScreen() {
 
   const stripDates = useMemo(() => buildDateStrip(selectedDate), [selectedDate]);
 
-  const grouped = useMemo(() => {
+  const listEntries = useMemo((): ListEntry[] => {
     const taskHabit = items.filter((item) => item.section === 'TASK_HABIT');
+    const mesTaches = taskHabit.filter((r) => r.type === 'TASK');
+    const habitsDue = taskHabit.filter((r) => r.type === 'HABIT');
     const projectSubtasks = items.filter((item) => item.section === 'PROJECT_SUBTASK');
     const noteAudio = items.filter((item) => item.section === 'NOTE_AUDIO');
-    return [
-      { key: 'TASK_HABIT' as const, rows: taskHabit },
-      { key: 'PROJECT_SUBTASK' as const, rows: projectSubtasks },
-      { key: 'NOTE_AUDIO' as const, rows: noteAudio },
-      { key: 'ARCHIVED_EXPORTS' as const, rows: archivedItems },
-    ];
-  }, [archivedItems, items]);
+
+    const out: ListEntry[] = [];
+    if (mesTaches.length > 0) {
+      out.push({ kind: 'rows', listKey: 'tasks', titleKey: 'timeline.tasks.title', rows: mesTaches });
+    }
+    if (habitsDue.length > 0) {
+      out.push({ kind: 'rows', listKey: 'habits', titleKey: 'timeline.habits.title', rows: habitsDue });
+    }
+    if (undatedTasks.length > 0) {
+      out.push({ kind: 'ideaBank', listKey: 'ideaBank', count: undatedTasks.length });
+    }
+    if (projectSubtasks.length > 0) {
+      out.push({
+        kind: 'rows',
+        listKey: 'projects',
+        titleKey: 'timeline.projects.title',
+        rows: projectSubtasks,
+      });
+    }
+    if (noteAudio.length > 0) {
+      out.push({
+        kind: 'rows',
+        listKey: 'notes',
+        titleKey: 'timeline.notesAudio.title',
+        rows: noteAudio,
+      });
+    }
+    if (archivedItems.length > 0) {
+      out.push({
+        kind: 'rows',
+        listKey: 'archives',
+        titleKey: 'timeline.sections.archived',
+        rows: archivedItems,
+        dimmed: true,
+      });
+    }
+    return out;
+  }, [archivedItems, items, undatedTasks]);
 
   const onQuickSelect = (range: QuickRange) => {
     const now = new Date();
@@ -134,11 +213,52 @@ export function TimelineScreen() {
     setDateMode('WEEK');
   };
 
+  const renderRowCard = (row: TrankilV2TimelineItemRow, listKey: string, dimmed?: boolean) => {
+    const resolved = resolveDisplayTitle(row);
+    const headingKey = displayHeading(resolved);
+    const titleText = headingKey ? t(headingKey) : resolved;
+    const createdLine = formatCreatedLine(row.created_at, i18n.language);
+    return (
+      <View
+        key={row.id}
+        style={[
+          styles.card,
+          {
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.outlineVariant,
+            opacity: dimmed ? 0.78 : 1,
+          },
+        ]}
+      >
+        <View style={styles.cardTitleRow}>
+          <Text style={[styles.cardTitle, { color: theme.colors.onSurface }]}>{titleText}</Text>
+          {spectrum.isProUser && row.is_synced_calendar === 1 ? (
+            <View style={styles.syncBadge}>
+              <CalendarCheck size={listKey === 'archives' ? 16 : 14} color="#0ea5a4" />
+              {listKey === 'archives' ? (
+                <Text style={styles.syncBadgeText}>{t('timeline.syncedBadge')}</Text>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+        <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
+          {t(typeBadge(row.type))}
+          {row.section === 'PROJECT_SUBTASK' && row.project_title
+            ? ` • ${t('timeline.projectPrefix')}: ${row.project_title}`
+            : ''}
+        </Text>
+        <Text style={[styles.createdMeta, { color: theme.colors.onSurfaceVariant }]}>
+          {t('timeline.createdOn', { date: createdLine })}
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <FlatList
-        data={grouped}
-        keyExtractor={(item) => item.key}
+        data={listEntries}
+        keyExtractor={(item) => item.listKey}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         ListHeaderComponent={
           <View style={styles.header}>
@@ -245,59 +365,53 @@ export function TimelineScreen() {
             </View>
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>
-              {item.key === 'ARCHIVED_EXPORTS'
-                ? t('timeline.sections.archived')
-                : t(sectionTitle(item.key as TrankilV2TimelineItemRow['section']))}
-            </Text>
-            {item.rows.length === 0 ? (
-              <Text style={{ color: theme.colors.onSurfaceVariant }}>{t('timeline.noItems')}</Text>
-            ) : (
-              item.rows.map((row) => (
-                <View
-                  key={row.id}
+        renderItem={({ item }) => {
+          if (item.kind === 'ideaBank') {
+            return (
+              <View style={[styles.section, { paddingHorizontal: 16 }]}>
+                <Pressable
+                  onPress={() => setIdeaBankOpen(true)}
                   style={[
-                    styles.card,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.outlineVariant,
-                      opacity: item.key === 'ARCHIVED_EXPORTS' ? 0.78 : 1,
-                    },
+                    neumorphicRaised(theme),
+                    styles.ideaBankPressable,
+                    { borderWidth: 1, borderColor: theme.colors.outlineVariant },
                   ]}
                 >
-                  <View style={styles.cardTitleRow}>
-                    <Text style={[styles.cardTitle, { color: theme.colors.onSurface }]}>
-                      {t(resolveDisplayTitle(row))}
+                  <PiggyBank size={28} color="#FF8C00" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
+                      {item.count} {t('timeline.ideaBank.button')}
                     </Text>
-                    {spectrum.isProUser && row.is_synced_calendar === 1 ? (
-                      <View style={styles.syncBadge}>
-                        <CalendarCheck size={item.key === 'ARCHIVED_EXPORTS' ? 16 : 14} color="#0ea5a4" />
-                        {item.key === 'ARCHIVED_EXPORTS' ? (
-                          <Text style={styles.syncBadgeText}>{t('timeline.syncedBadge')}</Text>
-                        ) : null}
-                      </View>
-                    ) : null}
                   </View>
-                  <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
-                    {t(typeBadge(row.type))}
-                    {row.section === 'PROJECT_SUBTASK' && row.project_title
-                      ? ` • ${t('timeline.projectPrefix')}: ${row.project_title}`
-                      : ''}
-                  </Text>
-                </View>
-              ))
-            )}
-          </View>
-        )}
+                </Pressable>
+              </View>
+            );
+          }
+          return (
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>{t(item.titleKey)}</Text>
+              {item.rows.map((row) => renderRowCard(row, item.listKey, item.dimmed))}
+            </View>
+          );
+        }}
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={{ color: theme.colors.onSurfaceVariant }}>
-              {loading ? t('stats.loading') : t('timeline.noContentForDate')}
-            </Text>
-          </View>
+          listEntries.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Text style={{ color: theme.colors.onSurfaceVariant }}>
+                {loading ? t('stats.loading') : t('timeline.noContentForDate')}
+              </Text>
+            </View>
+          ) : null
         }
+      />
+
+      <IdeaBankModal
+        visible={ideaBankOpen}
+        onClose={() => setIdeaBankOpen(false)}
+        items={undatedTasks}
+        status={statusFilter}
+        anchorDate={selectedDate}
+        onChanged={reload}
       />
     </View>
   );
@@ -324,7 +438,17 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   cardTitle: { fontSize: 15, fontWeight: '600', marginBottom: 4 },
+  createdMeta: { fontSize: 11, marginTop: 6 },
   syncBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   syncBadgeText: { color: '#0ea5a4', fontSize: 11, fontWeight: '700' },
   emptyWrap: { paddingHorizontal: 16, paddingVertical: 20 },
+  ideaBankPressable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: 18,
+  },
+  ideaBankLabel: { fontSize: 16, fontWeight: '700' },
 });

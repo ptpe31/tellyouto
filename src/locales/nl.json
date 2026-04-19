@@ -13,5 +13,36 @@
       "nl": "Nederlands",
       "sv": "Svenska"
     }
+  },
+  "timeline": {
+    "createdOn": "Gemaakt op {{date}}",
+    "tasks": {
+      "title": "Mijn taken"
+    },
+    "habits": {
+      "title": "Gewoontes"
+    },
+    "projects": {
+      "title": "Projectstappen"
+    },
+    "notesAudio": {
+      "title": "Notities en audio"
+    },
+    "ideaBank": {
+      "title": "Ideeënbus",
+      "button": "taken in de ideeënbus",
+      "done": "Klaar",
+      "schedule": "Inplannen",
+      "remove": "Verwijderen",
+      "removeConfirmTitle": "Taak verwijderen?",
+      "removeConfirmBody": "Permanent van je apparaat gewist.",
+      "clearAll": "Alles legen",
+      "clearAllTitle": "Ideeënbus legen?",
+      "clearAllBody": "Alle taken zonder datum worden verwijderd.",
+      "scheduleTitle": "Kies een datum",
+      "empty": "Geen taken zonder datum.",
+      "close": "Sluiten",
+      "cancel": "Annuleren"
+    }
   }
 }

@@ -13,5 +13,36 @@
       "nl": "Nederlands",
       "sv": "Svenska"
     }
+  },
+  "timeline": {
+    "createdOn": "Skapad {{date}}",
+    "tasks": {
+      "title": "Mina uppgifter"
+    },
+    "habits": {
+      "title": "Vanor"
+    },
+    "projects": {
+      "title": "Projektsteg"
+    },
+    "notesAudio": {
+      "title": "Anteckningar och ljud"
+    },
+    "ideaBank": {
+      "title": "Idéspargrisen",
+      "button": "uppgifter i spargrisen",
+      "done": "Klar",
+      "schedule": "Planera",
+      "remove": "Ta bort",
+      "removeConfirmTitle": "Ta bort uppgiften?",
+      "removeConfirmBody": "Den raderas permanent från enheten.",
+      "clearAll": "Töm allt",
+      "clearAllTitle": "Tömma spargrisen?",
+      "clearAllBody": "Alla uppgifter utan datum raderas.",
+      "scheduleTitle": "Välj datum",
+      "empty": "Inga uppgifter utan datum.",
+      "close": "Stäng",
+      "cancel": "Avbryt"
+    }
   }
 }

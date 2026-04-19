@@ -15,6 +15,7 @@ export type { IntentionOrbitalRef, OrbitalSlot } from './IntentionOrbital';
 export { CalendarGranularSection } from './CalendarGranularSection';
 export { NeumorphicCard } from './NeumorphicCard';
 export { NeumorphicSurface } from './NeumorphicSurface';
+export { IdeaBankModal } from './IdeaBankModal';
 export { SafeExternalLink } from './SafeExternalLink';
 export { TimeIndicator } from './TimeIndicator';
 export { StartupPerfBanner } from './StartupPerfBanner';

@@ -253,7 +253,36 @@
     "todoFilter": "Da fare",
     "doneFilter": "Fatto",
     "noItems": "Nessun elemento",
-    "noContentForDate": "Nessun contenuto per questa data"
+    "noContentForDate": "Nessun contenuto per questa data",
+    "createdOn": "Creato il {{date}}",
+    "tasks": {
+      "title": "Le mie attività"
+    },
+    "habits": {
+      "title": "Abitudini"
+    },
+    "projects": {
+      "title": "Passi di progetto"
+    },
+    "notesAudio": {
+      "title": "Note e audio"
+    },
+    "ideaBank": {
+      "title": "Salvadanaio delle idee",
+      "button": "attività nel salvadanaio",
+      "done": "Fatto",
+      "schedule": "Pianifica",
+      "remove": "Rimuovi",
+      "removeConfirmTitle": "Rimuovere questa attività?",
+      "removeConfirmBody": "Verrà eliminata definitivamente dal dispositivo.",
+      "clearAll": "Svuota tutto",
+      "clearAllTitle": "Svuotare il salvadanaio?",
+      "clearAllBody": "Tutte le attività senza data verranno eliminate.",
+      "scheduleTitle": "Scegli una data",
+      "empty": "Nessuna attività senza data.",
+      "close": "Chiudi",
+      "cancel": "Annulla"
+    }
   },
   "focusMode": {
     "title": "Modalità sessione",

@@ -357,8 +357,11 @@ export async function initTrankilV2Schema(): Promise<void> {
   );
   const hasArchivedStatusInConstraint = String(tableSql?.sql || '').includes("'ARCHIVED'");
   if (!hasArchivedStatusInConstraint) {
+    // Reliquat d'une migration interrompue : intentions_v2 peut déjà exister avec des lignes ;
+    // sans DROP, le second INSERT relève une contrainte UNIQUE sur id (ex. après +crédits → init).
     await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS intentions_v2 (
+      DROP TABLE IF EXISTS intentions_v2;
+      CREATE TABLE intentions_v2 (
         id TEXT PRIMARY KEY NOT NULL,
         type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT')),
         title TEXT NOT NULL,
@@ -535,6 +538,35 @@ export async function listTrankilV2TimelineItemsByDate(
     ORDER BY section_order ASC, created_at DESC
     `,
     [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd],
+  );
+}
+
+/** Tâches racine sans échéance (« tirelire »), pour le même filtre de statut que la Timeline. */
+export async function listTrankilV2UndatedRootTasks(
+  status: TrankilIntentStatus,
+): Promise<TrankilV2TimelineItemRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2TimelineItemRow>(
+    `SELECT
+       i.id AS id,
+       i.type AS type,
+       i.status AS status,
+       i.due_date AS due_date,
+       i.created_at AS created_at,
+       i.content_raw AS content_raw,
+       i.parent_id AS parent_id,
+       NULL AS project_title,
+       i.title AS display_title,
+       'TASK_HABIT' AS section,
+       COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar
+     FROM intentions i
+     WHERE i.status = ?
+       AND i.type = 'TASK'
+       AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+       AND (i.due_date IS NULL OR trim(i.due_date) = '')
+     ORDER BY i.created_at DESC`,
+    [status],
   );
 }
 

@@ -331,7 +331,36 @@
     "badgeHabit": "🔄 HABIT",
     "badgeTask": "⚡ TASK",
     "badgeProject": "🚀 PROJECT",
-    "projectPrefix": "Project"
+    "projectPrefix": "Project",
+    "createdOn": "Created on {{date}}",
+    "tasks": {
+      "title": "My tasks"
+    },
+    "habits": {
+      "title": "Habits"
+    },
+    "projects": {
+      "title": "Project steps"
+    },
+    "notesAudio": {
+      "title": "Notes & Audios"
+    },
+    "ideaBank": {
+      "title": "The Idea Bank",
+      "button": "tasks in the jar",
+      "done": "Done",
+      "schedule": "Schedule",
+      "remove": "Remove",
+      "removeConfirmTitle": "Remove this task?",
+      "removeConfirmBody": "It will be permanently deleted from your device.",
+      "clearAll": "Clear all",
+      "clearAllTitle": "Empty the idea bank?",
+      "clearAllBody": "All undated tasks will be deleted.",
+      "scheduleTitle": "Pick a date",
+      "empty": "No undated tasks.",
+      "close": "Close",
+      "cancel": "Cancel"
+    }
   },
   "focusMode": {
     "title": "Session mode",
@@ -406,6 +435,8 @@
     "pilotTitle": "Piloting tools",
     "note": "Internal tool — minimal UI polish.",
     "firebaseProjectIdButton": "Show Firebase projectId (SDK vs .env)",
+    "add99AiCreditsButton": "+99 AI credits (test)",
+    "add99AiCreditsDone": "Current balance: {{count}} AI credits",
     "soundSectionTitle": "Sound settings",
     "soundHelp": "Selects the bundled .wav for rail alarms (native rebuild after adding files). Android uses one notification channel per variant so the OS actually plays the selected sound.",
     "soundDefault": "Default",

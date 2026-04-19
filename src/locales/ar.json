@@ -13,5 +13,36 @@
       "nl": "Nederlands",
       "sv": "Svenska"
     }
+  },
+  "timeline": {
+    "createdOn": "أُنشئ في {{date}}",
+    "tasks": {
+      "title": "مهامي"
+    },
+    "habits": {
+      "title": "عادات"
+    },
+    "projects": {
+      "title": "خطوات المشاريع"
+    },
+    "notesAudio": {
+      "title": "ملاحظات وصوتيات"
+    },
+    "ideaBank": {
+      "title": "حصالة الأفكار",
+      "button": "مهام في الحصالة",
+      "done": "تم",
+      "schedule": "جدولة",
+      "remove": "إزالة",
+      "removeConfirmTitle": "إزالة هذه المهمة؟",
+      "removeConfirmBody": "ستُحذف نهائياً من جهازك.",
+      "clearAll": "مسح الكل",
+      "clearAllTitle": "إفراغ الحصالة؟",
+      "clearAllBody": "ستُحذف كل المهام بلا تاريخ.",
+      "scheduleTitle": "اختر تاريخاً",
+      "empty": "لا توجد مهام بلا تاريخ.",
+      "close": "إغلاق",
+      "cancel": "إلغاء"
+    }
   }
 }

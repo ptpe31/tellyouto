@@ -253,7 +253,36 @@
     "todoFilter": "待办",
     "doneFilter": "已完成",
     "noItems": "暂无项目",
-    "noContentForDate": "该日期暂无内容"
+    "noContentForDate": "该日期暂无内容",
+    "createdOn": "创建于 {{date}}",
+    "tasks": {
+      "title": "我的任务"
+    },
+    "habits": {
+      "title": "习惯"
+    },
+    "projects": {
+      "title": "项目步骤"
+    },
+    "notesAudio": {
+      "title": "笔记与音频"
+    },
+    "ideaBank": {
+      "title": "创意存钱罐",
+      "button": "存钱罐中的任务",
+      "done": "完成",
+      "schedule": "安排日期",
+      "remove": "移除",
+      "removeConfirmTitle": "移除此任务？",
+      "removeConfirmBody": "将从本机永久删除。",
+      "clearAll": "全部清空",
+      "clearAllTitle": "清空存钱罐？",
+      "clearAllBody": "将删除所有无日期的任务。",
+      "scheduleTitle": "选择日期",
+      "empty": "没有无日期的任务。",
+      "close": "关闭",
+      "cancel": "取消"
+    }
   },
   "focusMode": {
     "title": "会话模式",

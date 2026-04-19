@@ -253,7 +253,36 @@
     "todoFilter": "Offen",
     "doneFilter": "Erledigt",
     "noItems": "Keine Eintraege",
-    "noContentForDate": "Keine Inhalte fuer dieses Datum"
+    "noContentForDate": "Keine Inhalte fuer dieses Datum",
+    "createdOn": "Erstellt am {{date}}",
+    "tasks": {
+      "title": "Meine Aufgaben"
+    },
+    "habits": {
+      "title": "Gewohnheiten"
+    },
+    "projects": {
+      "title": "Projektschritte"
+    },
+    "notesAudio": {
+      "title": "Notizen & Audios"
+    },
+    "ideaBank": {
+      "title": "Ideensparschwein",
+      "button": "Aufgaben im Spar-Schwein",
+      "done": "Erledigt",
+      "schedule": "Planen",
+      "remove": "Entfernen",
+      "removeConfirmTitle": "Aufgabe entfernen?",
+      "removeConfirmBody": "Sie wird dauerhaft von deinem Gerät gelöscht.",
+      "clearAll": "Alles leeren",
+      "clearAllTitle": "Spar-Schwein leeren?",
+      "clearAllBody": "Alle Aufgaben ohne Datum werden gelöscht.",
+      "scheduleTitle": "Datum wählen",
+      "empty": "Keine Aufgaben ohne Datum.",
+      "close": "Schließen",
+      "cancel": "Abbrechen"
+    }
   },
   "focusMode": {
     "title": "Sitzungsmodus",

@@ -253,7 +253,36 @@
     "todoFilter": "Por hacer",
     "doneFilter": "Hecho",
     "noItems": "Sin elementos",
-    "noContentForDate": "Sin contenido para esta fecha"
+    "noContentForDate": "Sin contenido para esta fecha",
+    "createdOn": "Creado el {{date}}",
+    "tasks": {
+      "title": "Mis tareas"
+    },
+    "habits": {
+      "title": "Hábitos"
+    },
+    "projects": {
+      "title": "Etapas de proyectos"
+    },
+    "notesAudio": {
+      "title": "Notas y audios"
+    },
+    "ideaBank": {
+      "title": "Hucha de ideas",
+      "button": "tareas en la hucha",
+      "done": "Hecho",
+      "schedule": "Planificar",
+      "remove": "Quitar",
+      "removeConfirmTitle": "¿Quitar esta tarea?",
+      "removeConfirmBody": "Se eliminará permanentemente de tu dispositivo.",
+      "clearAll": "Vaciar todo",
+      "clearAllTitle": "¿Vaciar la hucha?",
+      "clearAllBody": "Se eliminarán todas las tareas sin fecha.",
+      "scheduleTitle": "Elegir una fecha",
+      "empty": "No hay tareas sin fecha.",
+      "close": "Cerrar",
+      "cancel": "Cancelar"
+    }
   },
   "focusMode": {
     "title": "Modo de sesión",

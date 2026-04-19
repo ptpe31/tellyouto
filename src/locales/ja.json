@@ -253,7 +253,36 @@
     "todoFilter": "未完了",
     "doneFilter": "完了",
     "noItems": "項目なし",
-    "noContentForDate": "この日付の内容はありません"
+    "noContentForDate": "この日付の内容はありません",
+    "createdOn": "{{date}} に作成",
+    "tasks": {
+      "title": "マイタスク"
+    },
+    "habits": {
+      "title": "習慣"
+    },
+    "projects": {
+      "title": "プロジェクトのステップ"
+    },
+    "notesAudio": {
+      "title": "メモと音声"
+    },
+    "ideaBank": {
+      "title": "アイデア貯金箱",
+      "button": "貯金箱のタスク",
+      "done": "完了",
+      "schedule": "予定を入れる",
+      "remove": "削除",
+      "removeConfirmTitle": "このタスクを削除しますか？",
+      "removeConfirmBody": "端末から完全に削除されます。",
+      "clearAll": "すべて空にする",
+      "clearAllTitle": "貯金箱を空にしますか？",
+      "clearAllBody": "日付のないタスクがすべて削除されます。",
+      "scheduleTitle": "日付を選ぶ",
+      "empty": "日付のないタスクはありません。",
+      "close": "閉じる",
+      "cancel": "キャンセル"
+    }
   },
   "focusMode": {
     "title": "セッションモード",
