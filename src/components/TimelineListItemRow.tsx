@@ -1,7 +1,7 @@
 import { CalendarCheck } from 'lucide-react-native';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
 
 import type { TrankilV2ChildTaskStats, TrankilV2TimelineItemRow } from '../api';
@@ -23,6 +23,9 @@ export type TimelineListItemRowProps = {
   childStats: Map<string, TrankilV2ChildTaskStats>;
   pendingLocalDone: boolean;
   onToggleComplete: () => void;
+  offlineAiChipLabel?: string | null;
+  onRetryAiSort?: () => void;
+  retryAiSortBusy?: boolean;
 };
 
 function statsForLookup(
@@ -48,6 +51,9 @@ export function TimelineListItemRow({
   childStats,
   pendingLocalDone,
   onToggleComplete,
+  offlineAiChipLabel,
+  onRetryAiSort,
+  retryAiSortBusy,
 }: TimelineListItemRowProps) {
   const { t } = useTranslation();
   const st = statsForLookup(childStats, progressLookupId);
@@ -102,6 +108,32 @@ export function TimelineListItemRow({
             {badgeLabel}
             {projectSuffix ? ` • ${projectSuffix}` : ''}
           </Text>
+          {offlineAiChipLabel ? (
+            <View style={styles.offlineChipWrap}>
+              <Text style={[styles.offlineChip, { borderColor: '#008080', color: '#006666' }]}>
+                {offlineAiChipLabel}
+              </Text>
+            </View>
+          ) : null}
+          {onRetryAiSort ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={onRetryAiSort}
+              disabled={retryAiSortBusy}
+              style={({ pressed }) => [
+                styles.retryBtn,
+                {
+                  opacity: retryAiSortBusy ? 0.55 : pressed ? 0.85 : 1,
+                  borderColor: '#FF8C00',
+                  backgroundColor: 'rgba(255, 140, 0, 0.12)',
+                },
+              ]}
+            >
+              <Text style={[styles.retryBtnText, { color: '#cc7000' }]}>
+                {retryAiSortBusy ? '…' : t('timeline.retryAiSort')}
+              </Text>
+            </Pressable>
+          ) : null}
           <Text style={[styles.createdMeta, { color: theme.colors.onSurfaceVariant }]}>
             {createdCaption}
           </Text>
@@ -112,6 +144,25 @@ export function TimelineListItemRow({
 }
 
 const styles = StyleSheet.create({
+  offlineChipWrap: { marginTop: 6, alignSelf: 'flex-start' },
+  offlineChip: {
+    fontSize: 11,
+    fontWeight: '600',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  retryBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  retryBtnText: { fontSize: 12, fontWeight: '700' },
   card: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
   cardMainRow: { flexDirection: 'row', alignItems: 'flex-start' },
   cardBody: { flex: 1, minWidth: 0 },

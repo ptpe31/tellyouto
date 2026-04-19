@@ -12,6 +12,11 @@
   "talkCapture": {
     "hintTap": "Appuie pour capturer une piste vocale"
   },
+  "capture": {
+    "offlineNoteGenericToast": "Note sauvegardée localement. L'organisation intelligente sera finalisée dès le retour du réseau.",
+    "offlineRetryOkToast": "Tri IA terminé — ta Timeline est à jour.",
+    "pendingAiNetworkBack": "{{count}} idée(s) attendent encore le tri par l'IA — tu peux toucher « Réessayer le tri IA » sur la carte."
+  },
   "quota": {
     "format": "{{current}}/{{total}}"
   },
@@ -316,8 +321,13 @@
       "contextPiggy": "Tirelire",
       "contextArchives": "Archives",
       "todo": "A faire",
-      "done": "Fait"
+      "done": "Fait",
+      "specificDate": "Date",
+      "pickedDateShort": "Le {{date}}",
+      "changeDate": "Changer de jour"
     },
+    "customDayEmpty": "Rien de prévu ce jour-là.",
+    "customDayAddTask": "Ajouter une tâche ?",
     "todoFilter": "A faire",
     "doneFilter": "Fait",
     "noItems": "Aucun element",
@@ -341,6 +351,9 @@
     "projectPrefix": "Projet",
     "a11yTaskComplete": "Marquer comme fait ou annuler la validation en cours",
     "createdOn": "Créé le {{date}}",
+    "aiPendingChip": "Tri IA en attente",
+    "aiFailedChip": "Traitement IA échoué",
+    "retryAiSort": "Réessayer le tri IA",
     "tasks": {
       "title": "Mes Tâches",
       "scheduledToday": "Prévu aujourd’hui",

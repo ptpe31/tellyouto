@@ -12,6 +12,7 @@ export {
   applyGrowthDecayIfNeeded,
   deleteTrankilV2IntentionById,
   consumeTrankilV2IntentCredit,
+  countOfflineFirstAiPendingNotes,
   getEveningDoneSummaryToday,
   grantViralBonus,
   getLocalEcoScore,

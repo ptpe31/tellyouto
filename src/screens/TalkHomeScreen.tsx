@@ -50,6 +50,7 @@ import {
 import {
   applyGrowthDecayIfNeeded,
   consumeTrankilV2IntentCredit,
+  deleteTrankilV2IntentionById,
   getTrankilV2UserStats,
   growthPointsForType,
   insertTrankilV2Intention,
@@ -85,6 +86,9 @@ import {
   type VoiceIntentKind,
 } from '../services/TranscriptionService';
 import { askGeminiExpert, atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
+import { safeParseGeminiExpertRows } from '../services/geminiResponseGuards';
+import { showAppToast } from '../services/appToast';
+import { applyOfflineFirstShellFailure } from '../services/captureOfflineFirstUtils';
 import { createLocalTemporalIntention } from '../services/localTemporalIntention';
 import { transcribeWithWhisperLocal } from '../services/WhisperAdapter';
 import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusEngine';
@@ -1818,21 +1822,65 @@ export function TalkHomeScreen() {
         }
         await resetLocalStreakOnExpert();
         setIsExpertLoading(true);
-        const expertRows =
-          voiceConfirm.captureChannel === 'projet'
-            ? await atomizeProject(rawTranscript)
-            : await askGeminiExpert(rawTranscript);
-        if (expertRows.length > 0) {
-          await persistGeminiExpertRows(rawTranscript, expertRows);
-          const expertPoints = growthPointsFromExpertRows(expertRows);
-          if (expertPoints > 0) {
-            const next = expertRows.some((r) => r.type === 'PROJECT')
-              ? (await awardZenForAction('PROJECT_VALIDATION')).stats
-              : (await awardZenForAction('TASK_VALIDATION')).stats;
-            setGrowthScore(next.zen_points);
-            setFlowerPulseKey((k) => k + 1);
-            setFlowerNeedsAttention(false);
+        const shellId = newTalkEntityId();
+        const captureKind =
+          voiceConfirm.captureChannel === 'projet' ? ('PROJECT_ATOMIZE' as const) : ('GEMINI_EXPERT' as const);
+        await insertTrankilV2Intention({
+          id: shellId,
+          type: 'NOTE',
+          title: trimmedTitle,
+          content_raw: rawTranscript,
+          metadata_json: JSON.stringify(
+            {
+              source: 'talk_home_offline_first_shell',
+              offline_first_pending_ai: true,
+              ai_capture_kind: captureKind,
+              talk_home_capture_channel: voiceConfirm.captureChannel,
+            },
+            null,
+            2,
+          ),
+          suggested_tags: JSON.stringify(
+            voiceConfirm.suggestedTags.length ? voiceConfirm.suggestedTags : [STRINGS.TAG_KEYS.A_TRIER],
+          ),
+          category_id: (voiceConfirm.suggestedTags[0] ?? STRINGS.TAG_KEYS.A_TRIER).toLowerCase(),
+          parent_id: null,
+          status: 'TODO',
+          is_organized: 0,
+          is_local_processed: 0,
+          complexity_level: 0,
+          created_at: Date.now(),
+          is_pending_ai: 1,
+        });
+        DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+        try {
+          const rawRows =
+            voiceConfirm.captureChannel === 'projet'
+              ? await atomizeProject(rawTranscript)
+              : await askGeminiExpert(rawTranscript);
+          const expertRows = safeParseGeminiExpertRows(rawRows);
+          if (expertRows.length > 0) {
+            await deleteTrankilV2IntentionById(shellId);
+            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+            await persistGeminiExpertRows(rawTranscript, expertRows);
+            const expertPoints = growthPointsFromExpertRows(expertRows);
+            if (expertPoints > 0) {
+              const next = expertRows.some((r) => r.type === 'PROJECT')
+                ? (await awardZenForAction('PROJECT_VALIDATION')).stats
+                : (await awardZenForAction('TASK_VALIDATION')).stats;
+              setGrowthScore(next.zen_points);
+              setFlowerPulseKey((k) => k + 1);
+              setFlowerNeedsAttention(false);
+            }
+          } else {
+            await applyOfflineFirstShellFailure(shellId, new Error('GEMINI_ROWS_INVALID'));
+            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+            showAppToast(t('capture.offlineNoteGenericToast'));
           }
+        } catch (complexErr) {
+          await applyOfflineFirstShellFailure(shellId, complexErr);
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          showAppToast(t('capture.offlineNoteGenericToast'));
         }
         const afterConsume = await consumeTrankilV2IntentCredit();
         setRemainingIntents(afterConsume.ia_credits);

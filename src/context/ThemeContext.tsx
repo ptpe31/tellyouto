@@ -8,6 +8,7 @@ import {
   createTellYouToDarkTheme,
   createTellYouToLightTheme,
 } from '../theme/paperTheme';
+import { AppToastHost } from '../components/AppToastHost';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -56,7 +57,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeContext.Provider value={value}>
-      <PaperProvider theme={paperTheme}>{children}</PaperProvider>
+      <PaperProvider theme={paperTheme}>
+        {children}
+        <AppToastHost />
+      </PaperProvider>
     </ThemeContext.Provider>
   );
 }

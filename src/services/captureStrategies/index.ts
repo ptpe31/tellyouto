@@ -13,6 +13,7 @@ export { buildFinalTranscriptForCapture, executeTaskCapture } from './TaskStrate
 export type {
   CaptureChooseActionResult,
   CaptureStrategyDeps,
+  OfflineRawNoteSavedOutcome,
   OpenProjectModalOutcome,
   PostCaptureEffectsConfig,
   PostCaptureEffectsResult,

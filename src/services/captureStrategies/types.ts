@@ -51,10 +51,17 @@ export interface OpenProjectModalOutcome {
   kind: 'open_project_deadline_modal';
 }
 
+/** Note brute conservée après échec IA ou réseau (offline-first). */
+export interface OfflineRawNoteSavedOutcome {
+  kind: 'offline_raw_note_saved';
+  intentionId: string;
+}
+
 export type CaptureChooseActionSuccess =
   | { outcome: TemporalPersistedOutcome }
   | { outcome: SimpleCaptureOutcome }
-  | { outcome: OpenProjectModalOutcome };
+  | { outcome: OpenProjectModalOutcome }
+  | { outcome: OfflineRawNoteSavedOutcome };
 
 export type CaptureChooseActionResult =
   | ({ ok: true } & CaptureChooseActionSuccess)

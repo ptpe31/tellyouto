@@ -1,10 +1,11 @@
+import { finalizeOfflineFirstHabitFromShell, insertTrankilV2Intention } from '../../api/trankilV2Db';
 import type { GeminiAnniversaryDetails, GeminiHabitRecurrence } from '../GeminiExpert';
 import { extractAnniversaryDetails, extractHabitRecurrence } from '../GeminiExpert';
-import { createLocalTemporalIntention } from '../localTemporalIntention';
 import {
   computeNextYearlyDueDateFromNativeDate,
   hasAnniversaryKeyword,
 } from '../TimeSorter';
+import { applyOfflineFirstShellFailure } from '../captureOfflineFirstUtils';
 import type { CaptureChooseActionResult, CaptureStrategyDeps } from './types';
 
 export async function executeHabitCapture(params: {
@@ -15,6 +16,38 @@ export async function executeHabitCapture(params: {
   birthdayLabel: string;
 }): Promise<CaptureChooseActionResult> {
   const { deps, finalTranscript, smartTitle, habitsDefaultTitle, birthdayLabel } = params;
+  const intentionId = deps.newId();
+  const draftTitle = (smartTitle || habitsDefaultTitle || finalTranscript).trim().slice(0, 200) || habitsDefaultTitle;
+
+  try {
+    await insertTrankilV2Intention({
+      id: intentionId,
+      type: 'NOTE',
+      title: draftTitle,
+      content_raw: finalTranscript,
+      metadata_json: JSON.stringify(
+        {
+          source: 'offline_first_habit_shell',
+          offline_first_pending_ai: true,
+          ai_capture_kind: 'HABIT',
+        },
+        null,
+        2,
+      ),
+      suggested_tags: JSON.stringify(['sans_pression']),
+      category_id: 'sans_pression',
+      parent_id: null,
+      status: 'TODO',
+      is_organized: 0,
+      is_local_processed: 0,
+      complexity_level: 0,
+      created_at: Date.now(),
+      is_pending_ai: 1,
+    });
+  } catch (error) {
+    return { ok: false, error };
+  }
+
   try {
     const buildHabitMeta = async (): Promise<{ recurrence_rule?: GeminiHabitRecurrence }> => {
       const recurrence = await deps.withTimeout(extractHabitRecurrence(finalTranscript), 2500);
@@ -43,7 +76,6 @@ export async function executeHabitCapture(params: {
       habitMeta = await buildHabitMeta();
     }
 
-    const intentionId = deps.newId();
     const finalHabitTitle = ann.details
       ? `🎂 ${birthdayLabel} ${ann.details.personName}`
       : smartTitle || habitsDefaultTitle;
@@ -55,23 +87,25 @@ export async function executeHabitCapture(params: {
           person_name: ann.details.personName,
         }
       : {};
-    const metadataForSync = JSON.stringify({
-      ...habitMeta,
-      ...anniversaryExtra,
-    });
-    const created = await createLocalTemporalIntention({
-      id: intentionId,
-      title: finalHabitTitle,
-      rawTranscript: finalTranscript,
-      localType: 'HABIT',
-      dueDateYmd: ann.dueDateYmd,
-      suggestedTags: ['regulier'],
-      source: 'talk_debug_habit_local',
-      metadataExtra: {
+    const metadataForSync = JSON.stringify(
+      {
         ...habitMeta,
         ...anniversaryExtra,
+        source: 'talk_debug_habit_local',
       },
+      null,
+      2,
+    );
+    const suggestedTags = ann.dueDateYmd ? JSON.stringify(['regulier']) : JSON.stringify(['sans_pression']);
+
+    await finalizeOfflineFirstHabitFromShell(intentionId, {
+      title: finalHabitTitle,
+      due_date: ann.dueDateYmd,
+      metadata_json: metadataForSync,
+      suggested_tags: suggestedTags,
+      category_id: 'regulier',
     });
+
     return {
       ok: true,
       outcome: {
@@ -79,12 +113,19 @@ export async function executeHabitCapture(params: {
         intentionId,
         mirrorType: 'HABIT',
         title: finalHabitTitle,
-        dueDateYmd: created.dueDateYmd,
+        dueDateYmd: ann.dueDateYmd,
         metadataJson: metadataForSync,
         recapIntroI18nKey: 'talkDebug.habitQuickRecapIntro',
       },
     };
   } catch (error) {
-    return { ok: false, error };
+    await applyOfflineFirstShellFailure(intentionId, error);
+    return {
+      ok: true,
+      outcome: {
+        kind: 'offline_raw_note_saved' as const,
+        intentionId,
+      },
+    };
   }
 }

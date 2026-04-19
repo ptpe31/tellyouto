@@ -3,6 +3,7 @@ import Share from 'react-native-share';
 
 import { insertTrankilV2Intention } from '../api/trankilV2Db';
 import type { GeminiExpertIntention } from './GeminiExpert';
+import { safeParseGeminiExpertRows } from './geminiResponseGuards';
 
 export type ProjectPlanPreview = {
   projectTitle: string;
@@ -77,11 +78,15 @@ export async function persistGeminiExpertRows(
     isOrganized?: number;
   },
 ): Promise<void> {
+  const safeRows = safeParseGeminiExpertRows(rows);
+  if (safeRows.length === 0) {
+    throw new Error('GEMINI_ROWS_INVALID');
+  }
   let currentParentId: string | null = null;
   let taskCursor = 0;
   const alarmSet = new Set(options?.taskAlarmIndexes ?? []);
   const selectedSet = new Set(options?.selectedTaskIndexes ?? []);
-  for (const row of rows) {
+  for (const row of safeRows) {
     if (row.type === 'TASK' && selectedSet.size > 0 && !selectedSet.has(taskCursor)) {
       taskCursor += 1;
       continue;

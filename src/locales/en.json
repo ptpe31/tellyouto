@@ -12,6 +12,11 @@
   "talkCapture": {
     "hintTap": "Tap to capture a voice thread"
   },
+  "capture": {
+    "offlineNoteGenericToast": "Saved on this device. Smart sorting will finish when the connection is back.",
+    "offlineRetryOkToast": "AI sorting finished — your timeline is up to date.",
+    "pendingAiNetworkBack": "{{count}} idea(s) still waiting for AI sorting — tap “Retry AI sort” on the card if you like."
+  },
   "quota": {
     "format": "{{current}}/{{total}}"
   },
@@ -316,8 +321,13 @@
       "contextPiggy": "Piggy bank",
       "contextArchives": "Archives",
       "todo": "To do",
-      "done": "Done"
+      "done": "Done",
+      "specificDate": "Date",
+      "pickedDateShort": "{{date}}",
+      "changeDate": "Pick another day"
     },
+    "customDayEmpty": "Nothing scheduled that day.",
+    "customDayAddTask": "Add a task?",
     "todoFilter": "To do",
     "doneFilter": "Done",
     "noItems": "No items",
@@ -341,6 +351,9 @@
     "projectPrefix": "Project",
     "a11yTaskComplete": "Mark as done or cancel pending completion",
     "createdOn": "Created on {{date}}",
+    "aiPendingChip": "AI sort pending",
+    "aiFailedChip": "AI processing failed",
+    "retryAiSort": "Retry AI sort",
     "tasks": {
       "title": "My tasks",
       "scheduledToday": "Due today",

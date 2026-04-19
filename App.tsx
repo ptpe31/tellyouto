@@ -12,6 +12,7 @@ import { PowerProvider } from './src/context/PowerContext';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { FocusProtectionProvider } from './src/context/FocusProtectionContext';
 import { IntentionSyncBootstrap } from './src/components/IntentionSyncBootstrap';
+import { OfflineFirstPendingBootstrap } from './src/components/OfflineFirstPendingBootstrap';
 import { StartupPerfBanner } from './src/components/StartupPerfBanner';
 import { SystemHealthBanner } from './src/components/SystemHealthBanner';
 import { MorningDewModal } from './src/components/MorningDewModal';
@@ -76,6 +77,7 @@ export default function App() {
                       <SaturationProvider>
                       <FocusProtectionProvider>
                           <IntentionSyncBootstrap />
+                          <OfflineFirstPendingBootstrap />
                           <SystemHealthBanner />
                           <MorningDewModal />
                           <EveningStarModal />

@@ -39,6 +39,8 @@ import {
 } from '../api';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
+import { showAppToast } from '../services/appToast';
+import { retryOfflineFirstAiSort, timelineRowEligibleForOfflineAiRetry } from '../services/offlineFirstAiRetry';
 import { IdeaBankModal } from '../components/IdeaBankModal';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
 import { NeumorphicCard } from '../components/NeumorphicCard';
@@ -191,9 +193,24 @@ function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
   return 'timeline.badgeProject';
 }
 
+function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: string) => string): string | null {
+  if (row.type !== 'NOTE' && row.type !== 'AUDIO') return null;
+  const pending = row.is_pending_ai === 1;
+  let failed = false;
+  try {
+    const m = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
+    failed = Boolean(m.ai_processing_failed);
+  } catch {
+    /* ignore */
+  }
+  if (pending) return translate('timeline.aiPendingChip');
+  if (failed) return translate('timeline.aiFailedChip');
+  return null;
+}
+
 const SECTION_HEADER_H = 36;
 const IDEA_BANK_H = 58;
-const CARD_ROW_H = 126;
+const CARD_ROW_H = 156;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
   if (bubble === 'HOME') return 'HOME';
@@ -269,6 +286,9 @@ type TimelineCardRowProps = {
   childStats: Map<string, TrankilV2ChildTaskStats>;
   onToggleComplete: () => void;
   onMutationReload: () => void;
+  offlineAiChipLabel: string | null;
+  onRetryAiSort?: () => void;
+  retryAiSortBusy: boolean;
 };
 
 const TimelineCardRow = memo(function TimelineCardRow({
@@ -289,6 +309,9 @@ const TimelineCardRow = memo(function TimelineCardRow({
   childStats,
   onToggleComplete,
   onMutationReload,
+  offlineAiChipLabel,
+  onRetryAiSort,
+  retryAiSortBusy,
 }: TimelineCardRowProps) {
   const card = (
     <TimelineListItemRow
@@ -306,6 +329,9 @@ const TimelineCardRow = memo(function TimelineCardRow({
       childStats={childStats}
       pendingLocalDone={pendingLocalDone}
       onToggleComplete={onToggleComplete}
+      offlineAiChipLabel={offlineAiChipLabel}
+      onRetryAiSort={onRetryAiSort}
+      retryAiSortBusy={retryAiSortBusy}
     />
   );
   return (
@@ -521,6 +547,44 @@ export function TimelineScreen() {
   const reload = useCallback(() => {
     void loadPack();
   }, [loadPack]);
+
+  const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), ms);
+    });
+    return (await Promise.race([promise, timeout])) as T | null;
+  }, []);
+
+  const [retryAiBusyId, setRetryAiBusyId] = useState<string | null>(null);
+  const retryAiLockRef = useRef(false);
+
+  const handleRetryOfflineAi = useCallback(
+    async (intentionId: string) => {
+      if (retryAiLockRef.current) return;
+      retryAiLockRef.current = true;
+      setRetryAiBusyId(intentionId);
+      try {
+        const res = await retryOfflineFirstAiSort({
+          intentionId,
+          withTimeout,
+          locale: spectrum.locale || 'fr',
+          birthdayLabel: t('talkDebug.birthdayLabel'),
+          habitsDefaultTitle: t('common.habits'),
+        });
+        if (res.ok) {
+          showAppToast(t('capture.offlineRetryOkToast'));
+        } else {
+          showAppToast(t('capture.offlineNoteGenericToast'));
+        }
+        DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+        reload();
+      } finally {
+        retryAiLockRef.current = false;
+        setRetryAiBusyId(null);
+      }
+    },
+    [reload, spectrum.locale, t, withTimeout],
+  );
 
   const loadMoreRows = useCallback(async () => {
     if (loading || loadingMore) return;
@@ -962,6 +1026,8 @@ export function TimelineScreen() {
         row.section === 'PROJECT_SUBTASK' && row.project_title
           ? `${t('timeline.projectPrefix')}: ${row.project_title}`
           : null;
+      const offlineChip = offlineAiChipForRow(row, t);
+      const showRetry = timelineRowEligibleForOfflineAiRetry(row);
       return (
         <View style={{ paddingHorizontal: 16, paddingBottom: 2 }}>
           <TimelineCardRow
@@ -981,6 +1047,9 @@ export function TimelineScreen() {
             childStats={childStats}
             onToggleComplete={() => void handleToggleRowComplete(row)}
             onMutationReload={reload}
+            offlineAiChipLabel={offlineChip}
+            onRetryAiSort={showRetry ? () => void handleRetryOfflineAi(row.id) : undefined}
+            retryAiSortBusy={retryAiBusyId === row.id}
           />
         </View>
       );
@@ -988,10 +1057,12 @@ export function TimelineScreen() {
     [
       anchorDate,
       childStats,
+      handleRetryOfflineAi,
       handleToggleRowComplete,
       i18n.language,
       pendingLocalDone,
       reload,
+      retryAiBusyId,
       spectrum.isProUser,
       statusFilter,
       t,

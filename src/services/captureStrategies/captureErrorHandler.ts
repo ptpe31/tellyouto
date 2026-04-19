@@ -1,5 +1,7 @@
 import { Alert } from 'react-native';
 
+import { showAppToast } from '../appToast';
+import { isLikelyTransientNetworkCaptureError } from '../captureOfflineFirstUtils';
 import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../../utils/nativeModuleErrorAlert';
 
 export type CaptureErrorHandlerContext = {
@@ -25,8 +27,18 @@ export async function handleCaptureFlowError(
     return;
   }
 
-  const title = ctx.translate(ctx.alertTitleKey ?? 'tabs.debug');
   const raw = error instanceof Error ? error.message : String(error);
+  const lower = raw.toLowerCase();
+  if (
+    isLikelyTransientNetworkCaptureError(error) ||
+    lower.includes('gemini') ||
+    lower.includes('network') ||
+    lower.includes('fetch')
+  ) {
+    showAppToast(ctx.translate('capture.offlineNoteGenericToast'));
+    return;
+  }
+  const title = ctx.translate(ctx.alertTitleKey ?? 'tabs.debug');
   const message =
     raw.trim() ||
     (ctx.fallbackMessageKey ? ctx.translate(ctx.fallbackMessageKey) : '') ||

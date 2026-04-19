@@ -30,8 +30,13 @@ import {
 } from '../api/localDb';
 import {
   consumeIaCredits,
+  deleteTrankilV2IntentionById,
+  getTrankilV2IntentionById,
   getTrankilV2UserStats,
+  insertTrankilV2Intention,
   refundIaCredit,
+  updateTrankilV2IntentionMetadataJson,
+  updateTrankilV2IntentionPendingAiFlag,
 } from '../api/trankilV2Db';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { runManualIaRechargeVideo } from '../services/AdManager';
@@ -54,6 +59,8 @@ import {
 } from '../services/calendarMirrorSync';
 import { getAutoArchiveAfterCalendarSync } from '../services/premiumBridgeSettings';
 import { logActivity } from '../services/UserActivityService';
+import { showAppToast } from '../services/appToast';
+import { applyOfflineFirstShellFailure, mergeIntentionMetadataJson } from '../services/captureOfflineFirstUtils';
 import {
   applyPostCaptureEffects,
   buildFinalTranscriptForCapture,
@@ -139,6 +146,7 @@ export function TalkDebugScreen() {
   const liveScrollRef = useRef<ScrollView | null>(null);
   const deadlineCaptureActiveRef = useRef(false);
   const captureCreditPendingRef = useRef(false);
+  const projectShellIdRef = useRef<string | null>(null);
 
   const refreshCredits = useCallback(async () => {
     if (spectrum.isProUser) return;
@@ -678,6 +686,13 @@ export function TalkDebugScreen() {
             birthdayLabel: t('talkDebug.birthdayLabel'),
           });
           if (!res.ok) throw res.error;
+          if (res.outcome.kind === 'offline_raw_note_saved') {
+            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+            markCaptureCreditCommitted();
+            showAppToast(t('capture.offlineNoteGenericToast'));
+            hardResetToIdle();
+            return;
+          }
           if (res.outcome.kind !== 'persisted_temporal') throw new Error('unexpected_capture_outcome');
           const o = res.outcome;
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
@@ -837,28 +852,69 @@ export function TalkDebugScreen() {
     if (!finalTranscript || !cleanedDeadline) return;
     setIsGeneratingPlan(true);
     setDeadlineError('');
+    const shellId = newId();
+    projectShellIdRef.current = shellId;
+    const shellTitle = (generateSmartTitle(finalTranscript, spectrum.locale) || finalTranscript).trim().slice(0, 200) || t('common.projects');
+    try {
+      await insertTrankilV2Intention({
+        id: shellId,
+        type: 'NOTE',
+        title: shellTitle,
+        content_raw: finalTranscript,
+        metadata_json: JSON.stringify(
+          {
+            source: 'offline_first_project_shell',
+            offline_first_pending_ai: true,
+            ai_capture_kind: 'PROJECT_ATOMIZE',
+            project_deadline_text: cleanedDeadline,
+          },
+          null,
+          2,
+        ),
+        suggested_tags: JSON.stringify(['sans_pression']),
+        category_id: 'sans_pression',
+        parent_id: null,
+        status: 'TODO',
+        is_organized: 0,
+        is_local_processed: 0,
+        complexity_level: 0,
+        created_at: Date.now(),
+        is_pending_ai: 1,
+      });
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+    } catch {
+      projectShellIdRef.current = null;
+      setIsGeneratingPlan(false);
+      return;
+    }
     try {
       const preview = await generateProjectPlanFromDeadline({
         finalTranscript,
         deadlineText: cleanedDeadline,
         parseDueDateFromText,
       });
+      const shellRow = await getTrankilV2IntentionById(shellId);
+      const mergedMeta = mergeIntentionMetadataJson(shellRow?.metadata_json, {
+        awaiting_project_validation: true,
+        offline_first_pending_ai: false,
+      });
+      await updateTrankilV2IntentionMetadataJson(shellId, mergedMeta);
+      await updateTrankilV2IntentionPendingAiFlag(shellId, 0);
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       setDeadlineModalVisible(false);
       setProjectPlanPreview(preview);
     } catch (e: unknown) {
+      await applyOfflineFirstShellFailure(shellId, e);
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes('PLAN_JSON_PARSE_ERROR')) {
+      if (msg.includes('PLAN_JSON_PARSE_ERROR') || msg.includes('GEMINI_ROWS_INVALID')) {
         setDeadlineError(t('talkDebug.planParseError'));
-      } else {
-        Alert.alert(
-          t('common.projects'),
-          msg.trim() || t('talkDebug.projectGenerationError'),
-        );
       }
+      showAppToast(t('capture.offlineNoteGenericToast'));
     } finally {
       setIsGeneratingPlan(false);
     }
-  }, [deadlineText, parseDueDateFromText, rawTranscript, transcriptDraft, t]);
+  }, [deadlineText, parseDueDateFromText, rawTranscript, spectrum.locale, transcriptDraft, t]);
 
   const togglePlanTaskAlarm = useCallback((taskIndex: number) => {
     setProjectPlanPreview((prev) => {
@@ -908,6 +964,10 @@ export function TalkDebugScreen() {
         status: archiveProjectOnSave ? 'ARCHIVED' : 'TODO',
         isOrganized: archiveProjectOnSave ? 1 : 0,
       });
+      if (projectShellIdRef.current) {
+        await deleteTrankilV2IntentionById(projectShellIdRef.current);
+        projectShellIdRef.current = null;
+      }
       const writableCalendars =
         calendarOptions.length > 0 ? calendarOptions : await ensureWritableCalendars();
       if (calendarSyncByType.project && spectrum.isProUser) {

@@ -1,5 +1,6 @@
 import type { GeminiExpertIntention } from '../GeminiExpert';
 import { atomizeProject } from '../GeminiExpert';
+import { safeParseGeminiExpertRows } from '../geminiResponseGuards';
 import {
   buildProjectPlanPreview,
   type ProjectPlanPreview,
@@ -19,7 +20,11 @@ export async function generateProjectPlanFromDeadline(params: {
     throw new Error('MISSING_PROJECT_INPUT');
   }
   const consolidatedPrompt = `Voici mon projet : ${cleanTranscriptText(finalTranscript)}. Je veux le terminer ${cleanedDeadline}. Genere un plan de taches structure en JSON.`;
-  const expertRows = await atomizeProject(consolidatedPrompt);
+  const expertRowsRaw = await atomizeProject(consolidatedPrompt);
+  const expertRows = safeParseGeminiExpertRows(expertRowsRaw);
+  if (expertRows.length === 0) {
+    throw new Error('GEMINI_ROWS_INVALID');
+  }
   const deadlineYmd = params.parseDueDateFromText(cleanedDeadline);
   const normalizedRows = expertRows.map((row) => {
     if (row.type !== 'TASK') return row;
