@@ -32,7 +32,13 @@
     "privateChannelSubtitle": "Telegram は含まれます。WhatsApp・Slack・LINE は Pro が必要です。",
     "channelsCatalogTitle": "チャネルと拡張",
     "channelsCatalogLead": "同時に有効にできるのは1チャネルのみ — アリーが意図を送る先です。",
-    "channelsPrivacyFootnote": "各プレミアムチャネルは、あなたとローカルレール間の暗号化された専用回線です。データは販売されません。安全なトンネルを経由し、スマートフォンに同期された後はクラウドから直ちに削除されます。"
+    "channelsPrivacyFootnote": "各プレミアムチャネルは、あなたとローカルレール間の暗号化された専用回線です。データは販売されません。安全なトンネルを経由し、スマートフォンに同期された後はクラウドから直ちに削除されます。",
+    "memorySectionTitle": "メモリ管理",
+    "archivePurgeTitle": "アーカイブを完全に削除するまでの期間",
+    "archivePurgeHint": "アプリ起動時に実行されます。アーカイブ日時がこの期間より古い行だけが削除されます。",
+    "archivePurge7": "7日",
+    "archivePurge30": "30日",
+    "archivePurgeNever": "しない"
   },
   "channels": {
     "connect": "接続",
@@ -667,6 +673,16 @@
     "actionTitle": "Meli-Melo アクション",
     "manualSortFree": "手動で整理（無料）",
     "aiSortPaid": "AIで整理（1クレジット）"
+  },
+  "melimelo": {
+    "lifecycle": {
+      "vrac": "未整理",
+      "focus": "フォーカス",
+      "archives": "アーカイブ",
+      "archivesEmpty": "アーカイブはまだありません。",
+      "badgeArchived": "アーカイブ済み",
+      "badgeDone": "完了"
+    }
   },
   "economy": {
     "labels": {

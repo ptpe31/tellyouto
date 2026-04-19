@@ -3,23 +3,33 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native';
 import { CalendarDays, PiggyBank } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { FlatList, LayoutAnimation, Pressable, StyleSheet, Text, UIManager, View } from 'react-native';
+import {
+  DeviceEventEmitter,
+  FlatList,
+  LayoutAnimation,
+  Pressable,
+  StyleSheet,
+  Text,
+  UIManager,
+  View,
+} from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   bulkTrankilV2TaskChildStatsByParentIds,
-  listArchivedIntentions,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
-  markTrankilV2IntentionDone,
   syncNativeRailAlarmsAfterIntentionWrite,
+  toggleIntentionDone,
   type TrankilIntentStatus,
   type TrankilV2ChildTaskStats,
   type TrankilV2TimelineDateMode,
   type TrankilV2TimelineItemRow,
 } from '../api';
+import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { IdeaBankModal } from '../components/IdeaBankModal';
+import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
 import { TimelineListItemRow } from '../components/TimelineListItemRow';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
@@ -165,7 +175,6 @@ export function TimelineScreen() {
   const [items, setItems] = useState<TrankilV2TimelineItemRow[]>([]);
   const [undatedTasks, setUndatedTasks] = useState<TrankilV2TimelineItemRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [archivedItems, setArchivedItems] = useState<TrankilV2TimelineItemRow[]>([]);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
@@ -189,7 +198,7 @@ export function TimelineScreen() {
     }
     syncPendingSet(new Set());
     for (const id of ids) {
-      await markTrankilV2IntentionDone(id);
+      await toggleIntentionDone(id);
       await syncNativeRailAlarmsAfterIntentionWrite('timelineFlushPendingDone');
     }
   }, [syncPendingSet]);
@@ -228,7 +237,7 @@ export function TimelineScreen() {
       next.delete(rowId);
       syncPendingSet(next);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      await markTrankilV2IntentionDone(rowId);
+      await toggleIntentionDone(rowId);
       await syncNativeRailAlarmsAfterIntentionWrite('timelineTaskDone');
       setItems((prev) => prev.filter((i) => i.id !== rowId));
       setUndatedTasks((prev) => prev.filter((i) => i.id !== rowId));
@@ -312,6 +321,13 @@ export function TimelineScreen() {
     }, [dateMode, flushPendingCommits, load, selectedDate, statusFilter]),
   );
 
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
+      void load(selectedDate, statusFilter, dateMode);
+    });
+    return () => sub.remove();
+  }, [dateMode, load, selectedDate, statusFilter]);
+
   const stripDates = useMemo(() => buildDateStrip(selectedDate), [selectedDate]);
 
   const listEntries = useMemo((): ListEntry[] => {
@@ -347,17 +363,8 @@ export function TimelineScreen() {
         rows: noteAudio,
       });
     }
-    if (archivedItems.length > 0) {
-      out.push({
-        kind: 'rows',
-        listKey: 'archives',
-        titleKey: 'timeline.sections.archived',
-        rows: archivedItems,
-        dimmed: true,
-      });
-    }
     return out;
-  }, [archivedItems, items, undatedTasks]);
+  }, [items, undatedTasks]);
 
   const onQuickSelect = (range: QuickRange) => {
     const now = new Date();
@@ -387,24 +394,33 @@ export function TimelineScreen() {
         ? `${t('timeline.projectPrefix')}: ${row.project_title}`
         : null;
 
+    const longPressEnabled = !dimmed;
+
     return (
-      <TimelineListItemRow
+      <IntentInteractionWrapper
         key={row.id}
-        row={row}
-        listKey={listKey}
-        dimmed={dimmed}
-        theme={theme}
-        titleText={titleText}
-        badgeLabel={t(typeBadge(row.type))}
-        projectSuffix={projectSuffix}
-        createdCaption={t('timeline.createdOn', { date: createdLine })}
-        isPro={spectrum.isProUser}
-        showCompleteOrb={showOrb}
-        progressLookupId={progressKey}
-        childStats={childStats}
-        pendingLocalDone={pendingLocalDone.has(row.id)}
-        onToggleComplete={() => void handleToggleRowComplete(row)}
-      />
+        intentionId={row.id}
+        anchorDate={selectedDate}
+        enabled={longPressEnabled}
+        onMutation={reload}
+      >
+        <TimelineListItemRow
+          row={row}
+          listKey={listKey}
+          dimmed={dimmed}
+          theme={theme}
+          titleText={titleText}
+          badgeLabel={t(typeBadge(row.type))}
+          projectSuffix={projectSuffix}
+          createdCaption={t('timeline.createdOn', { date: createdLine })}
+          isPro={spectrum.isProUser}
+          showCompleteOrb={showOrb}
+          progressLookupId={progressKey}
+          childStats={childStats}
+          pendingLocalDone={pendingLocalDone.has(row.id)}
+          onToggleComplete={() => void handleToggleRowComplete(row)}
+        />
+      </IntentInteractionWrapper>
     );
   };
 

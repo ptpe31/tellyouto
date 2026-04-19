@@ -44,5 +44,23 @@
       "close": "Sluiten",
       "cancel": "Annuleren"
     }
+  },
+  "melimelo": {
+    "lifecycle": {
+      "vrac": "Vrac",
+      "focus": "Focus",
+      "archives": "Archief",
+      "archivesEmpty": "Nog niets in het archief.",
+      "badgeArchived": "Gearchiveerd",
+      "badgeDone": "Klaar"
+    }
+  },
+  "settings": {
+    "memorySectionTitle": "Geheugenbeheer",
+    "archivePurgeTitle": "Gearchiveerde items definitief verwijderen na",
+    "archivePurgeHint": "Wordt bij app-start uitgevoerd. Alleen rijen met een archiefdatum ouder dan dit venster worden verwijderd.",
+    "archivePurge7": "7 dagen",
+    "archivePurge30": "30 dagen",
+    "archivePurgeNever": "Nooit"
   }
 }

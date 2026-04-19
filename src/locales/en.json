@@ -2,6 +2,13 @@
   "app": {
     "name": "TellYouTo"
   },
+  "intentInteraction": {
+    "menuTitle": "Intention",
+    "archive": "Archive",
+    "pinDue": "Reschedule / pin date",
+    "pickDate": "Pick a date",
+    "cancel": "Cancel"
+  },
   "quota": {
     "format": "{{current}}/{{total}}"
   },
@@ -26,6 +33,16 @@
     "actionTitle": "Meli-Melo action",
     "manualSortFree": "Sort manually (free)",
     "aiSortPaid": "Sort with AI (1 credit)"
+  },
+  "melimelo": {
+    "lifecycle": {
+      "vrac": "Unsorted",
+      "focus": "Focus",
+      "archives": "Archives",
+      "archivesEmpty": "Nothing in the archive yet.",
+      "badgeArchived": "Archived",
+      "badgeDone": "Done"
+    }
   },
   "eveningRitual": {
     "title": "Star Ritual",
@@ -80,7 +97,13 @@
     "autoArchiveTitle": "Bridge Mode",
     "autoArchiveDesc": "Archives automatically after sending to the calendar",
     "autoArchiveAfterCalendarSyncTitle": "Bridge Mode: Auto-archive after calendar export",
-    "autoArchiveAfterCalendarSyncDescription": "Items exported to your calendar are immediately marked as archived in the app to keep your Timeline clean."
+    "autoArchiveAfterCalendarSyncDescription": "Items exported to your calendar are immediately marked as archived in the app to keep your Timeline clean.",
+    "memorySectionTitle": "Memory management",
+    "archivePurgeTitle": "Permanently delete archived items after",
+    "archivePurgeHint": "Runs when the app starts. Only rows with an archive date older than this window are removed.",
+    "archivePurge7": "7 days",
+    "archivePurge30": "30 days",
+    "archivePurgeNever": "Never"
   },
   "channels": {
     "connect": "Connect",

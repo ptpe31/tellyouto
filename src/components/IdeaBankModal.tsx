@@ -21,6 +21,7 @@ import {
   type TrankilV2TimelineItemRow,
 } from '../api';
 import { syncNativeRailAlarmsAfterIntentionWrite } from '../api/intentionHardwareSync';
+import { IntentInteractionWrapper } from './IntentInteractionWrapper';
 import { generateSmartTitle } from '../services/smartTitle';
 
 type Props = {
@@ -188,54 +189,60 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                   const title = formatLineTitle(resolveDisplayTitle(row), t);
                   const createdLine = formatCreatedLine(row.created_at, i18n.language);
                   return (
-                    <View
+                    <IntentInteractionWrapper
                       key={row.id}
-                      style={[
-                        styles.rowCard,
-                        {
-                          backgroundColor: theme.colors.elevation.level1,
-                          borderColor: theme.colors.outlineVariant,
-                        },
-                      ]}
+                      intentionId={row.id}
+                      anchorDate={anchorDate}
+                      onMutation={refresh}
                     >
-                      <Text style={[styles.rowTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
-                        {title}
-                      </Text>
-                      <Text style={[styles.createdHint, { color: theme.colors.onSurfaceVariant }]}>
-                        {t('timeline.createdOn', { date: createdLine })}
-                      </Text>
-                      <View style={styles.rowActions}>
-                        {status === 'TODO' ? (
+                      <View
+                        style={[
+                          styles.rowCard,
+                          {
+                            backgroundColor: theme.colors.elevation.level1,
+                            borderColor: theme.colors.outlineVariant,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.rowTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+                          {title}
+                        </Text>
+                        <Text style={[styles.createdHint, { color: theme.colors.onSurfaceVariant }]}>
+                          {t('timeline.createdOn', { date: createdLine })}
+                        </Text>
+                        <View style={styles.rowActions}>
+                          {status === 'TODO' ? (
+                            <Pressable
+                              style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
+                              onPress={() => void onMarkDone(row.id)}
+                            >
+                              <Check size={18} color={theme.colors.primary} />
+                              <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
+                                {t('timeline.ideaBank.done')}
+                              </Text>
+                            </Pressable>
+                          ) : null}
                           <Pressable
                             style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
-                            onPress={() => void onMarkDone(row.id)}
+                            onPress={() => setScheduleForId(row.id)}
                           >
-                            <Check size={18} color={theme.colors.primary} />
+                            <CalendarDays size={18} color={theme.colors.secondary} />
                             <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
-                              {t('timeline.ideaBank.done')}
+                              {t('timeline.ideaBank.schedule')}
                             </Text>
                           </Pressable>
-                        ) : null}
-                        <Pressable
-                          style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
-                          onPress={() => setScheduleForId(row.id)}
-                        >
-                          <CalendarDays size={18} color={theme.colors.secondary} />
-                          <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
-                            {t('timeline.ideaBank.schedule')}
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
-                          onPress={() => onDelete(row.id)}
-                        >
-                          <Trash2 size={18} color={theme.colors.error} />
-                          <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
-                            {t('timeline.ideaBank.remove')}
-                          </Text>
-                        </Pressable>
+                          <Pressable
+                            style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
+                            onPress={() => onDelete(row.id)}
+                          >
+                            <Trash2 size={18} color={theme.colors.error} />
+                            <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
+                              {t('timeline.ideaBank.remove')}
+                            </Text>
+                          </Pressable>
+                        </View>
                       </View>
-                    </View>
+                    </IntentInteractionWrapper>
                   );
                 })}
               </ScrollView>

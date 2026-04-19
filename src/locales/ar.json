@@ -44,5 +44,23 @@
       "close": "إغلاق",
       "cancel": "إلغاء"
     }
+  },
+  "melimelo": {
+    "lifecycle": {
+      "vrac": "غير مرتب",
+      "focus": "التركيز",
+      "archives": "الأرشيف",
+      "archivesEmpty": "لا عناصر في الأرشيف بعد.",
+      "badgeArchived": "مؤرشف",
+      "badgeDone": "منجز"
+    }
+  },
+  "settings": {
+    "memorySectionTitle": "إدارة الذاكرة",
+    "archivePurgeTitle": "حذف العناصر المؤرشفة نهائياً بعد",
+    "archivePurgeHint": "يُنفّذ عند بدء التطبيق. تُحذف فقط الصفوف ذات تاريخ أرشفة أقدم من هذه المدة.",
+    "archivePurge7": "7 أيام",
+    "archivePurge30": "30 يوماً",
+    "archivePurgeNever": "أبداً"
   }
 }

@@ -2,6 +2,13 @@
   "app": {
     "name": "TellYouTo"
   },
+  "intentInteraction": {
+    "menuTitle": "Intention",
+    "archive": "Archiver",
+    "pinDue": "Reporter / épingler la date",
+    "pickDate": "Choisir une date",
+    "cancel": "Annuler"
+  },
   "quota": {
     "format": "{{current}}/{{total}}"
   },
@@ -26,6 +33,16 @@
     "actionTitle": "Action Meli-Melo",
     "manualSortFree": "Ranger manuellement (gratuit)",
     "aiSortPaid": "Ranger avec l'IA (1 credit)"
+  },
+  "melimelo": {
+    "lifecycle": {
+      "vrac": "Vrac",
+      "focus": "Focus",
+      "archives": "Archives",
+      "archivesEmpty": "Rien dans les archives pour l'instant.",
+      "badgeArchived": "Archivé",
+      "badgeDone": "Fait"
+    }
   },
   "eveningRitual": {
     "title": "Rituel des Etoiles",
@@ -80,7 +97,13 @@
     "autoArchiveTitle": "Mode Passerelle",
     "autoArchiveDesc": "Archive automatiquement après l'envoi au calendrier",
     "autoArchiveAfterCalendarSyncTitle": "Mode Passerelle : Archiver automatiquement après export calendrier",
-    "autoArchiveAfterCalendarSyncDescription": "Les éléments envoyés au calendrier seront directement marqués comme archivés dans l'application pour ne pas encombrer votre Timeline."
+    "autoArchiveAfterCalendarSyncDescription": "Les éléments envoyés au calendrier seront directement marqués comme archivés dans l'application pour ne pas encombrer votre Timeline.",
+    "memorySectionTitle": "Gestion de la mémoire",
+    "archivePurgeTitle": "Supprimer définitivement les archives après",
+    "archivePurgeHint": "S'exécute au lancement de l'app. Seules les lignes avec une date d'archivage plus ancienne que ce délai sont supprimées.",
+    "archivePurge7": "7 jours",
+    "archivePurge30": "30 jours",
+    "archivePurgeNever": "Jamais"
   },
   "channels": {
     "connect": "Connexion",

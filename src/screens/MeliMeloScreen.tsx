@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Alert,
   Animated,
+  DeviceEventEmitter,
   LayoutAnimation,
   Modal,
   Pressable,
@@ -25,16 +26,19 @@ import {
   getTrankilV2UserStats,
   incrementBehaviorScores,
   growthPointsForType,
+  listTrankilV2MeliArchivesIntentions,
   listTrankilV2OrganizedIntentions,
   listTrankilV2UnorganizedIntentions,
-  markTrankilV2IntentionDone,
+  toggleIntentionDone,
   updateTrankilV2IntentionClassification,
   updateTrankilV2IntentionOrganization,
   updateTrankilV2IntentionQuick,
   updateTrankilV2IntentionTemporal,
   type TrankilV2IntentionRow,
-} from '../api/trankilV2Db';
+} from '../api';
+import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
 import { LifeFlower } from '../components/LifeFlower';
+import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { STRINGS } from '../constants/Strings';
 import { useSaturation } from '../context/SaturationContext';
 import { askGeminiExpert } from '../services/GeminiExpert';
@@ -69,7 +73,7 @@ const SHAKE_HIT_WINDOW_MS = 700;
 const SHAKE_REQUIRED_HITS = 4;
 const SHAKE_COOLDOWN_MS = 2400;
 
-type ViewMode = 'vrac' | 'focus';
+type ViewMode = 'vrac' | 'focus' | 'archives';
 
 type SortClassification = {
   type: 'TASK' | 'HABIT' | 'PROJECT' | 'NOTE';
@@ -178,6 +182,7 @@ export function MeliMeloScreen() {
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<TrankilV2IntentionRow[]>([]);
   const [organizedItems, setOrganizedItems] = useState<TrankilV2IntentionRow[]>([]);
+  const [archiveItems, setArchiveItems] = useState<TrankilV2IntentionRow[]>([]);
   const [editing, setEditing] = useState<TrankilV2IntentionRow | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editCategory, setEditCategory] = useState('');
@@ -204,13 +209,15 @@ export function MeliMeloScreen() {
   }, []);
 
   const reload = useCallback(async () => {
-    const [rows, organized, stats] = await Promise.all([
+    const [rows, organized, archived, stats] = await Promise.all([
       listTrankilV2UnorganizedIntentions(),
       listTrankilV2OrganizedIntentions(),
+      listTrankilV2MeliArchivesIntentions(),
       getTrankilV2UserStats(),
     ]);
     setItems(rows);
     setOrganizedItems(organized);
+    setArchiveItems(archived);
     setRemainingCredits(stats.ia_credits);
     setGrowthScore(stats.zen_points);
     setMorningFocusId(stats.morning_focus_item_id ?? null);
@@ -221,6 +228,13 @@ export function MeliMeloScreen() {
       void reload();
     }, [reload]),
   );
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
+      void reload();
+    });
+    return () => sub.remove();
+  }, [reload]);
 
   useEffect(() => {
     Accelerometer.setUpdateInterval(110);
@@ -244,10 +258,11 @@ export function MeliMeloScreen() {
   }, [isSorting, showShakeConfirm, items.length, viewMode]);
 
   const mentalLoad = useMemo(() => {
+    if (viewMode === 'archives') return '';
     if (items.length === 0) return STRINGS.GARDEN_RITUALS.ALL_CLEAR;
     if (items.length > 5) return STRINGS.GARDEN_RITUALS.SWARM_WARNING;
     return `${STRINGS.GARDEN_RITUALS.IN_PROGRESS}: ${items.length} brouillon(s).`;
-  }, [items.length]);
+  }, [items.length, viewMode]);
 
   const onDelete = useCallback(
     (id: string) => {
@@ -461,23 +476,23 @@ export function MeliMeloScreen() {
 
   const horizonCandidates = useMemo(
     () =>
-      [...items, ...organizedItems].filter(
+      items.filter(
         (it) =>
           it.status !== 'DONE' &&
           (it.type === 'TASK' || it.type === 'HABIT' || it.type === 'PROJECT'),
       ),
-    [items, organizedItems],
+    [items],
   );
 
   const parentTitleById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const row of [...items, ...organizedItems]) {
+    for (const row of [...items, ...organizedItems, ...archiveItems]) {
       if (row.type === 'PROJECT') {
         map.set(row.id, row.title);
       }
     }
     return map;
-  }, [items, organizedItems]);
+  }, [archiveItems, items, organizedItems]);
 
   const horizons = useMemo(
     () => groupIntentionsByTimeHorizon(horizonCandidates),
@@ -491,9 +506,9 @@ export function MeliMeloScreen() {
 
   const completeItem = useCallback(
     async (item: TrankilV2IntentionRow) => {
-      if (item.status === 'DONE') return;
-      await markTrankilV2IntentionDone(item.id);
-      if (growthPointsForType(item.type) > 0) {
+      const wasTodo = item.status === 'TODO';
+      await toggleIntentionDone(item.id);
+      if (wasTodo && growthPointsForType(item.type) > 0) {
         const next =
           item.type === 'PROJECT'
             ? (await awardZenForAction('PROJECT_VALIDATION')).stats
@@ -555,13 +570,18 @@ export function MeliMeloScreen() {
 
       <View style={styles.modeRow}>
         <Pressable style={[styles.modeBtn, viewMode === 'vrac' ? styles.modeBtnActive : null]} onPress={() => setViewMode('vrac')}>
-          <Text style={[styles.modeBtnText, viewMode === 'vrac' ? styles.modeBtnTextActive : null]}>
-            {STRINGS.GARDEN_RITUALS.VRAC}
+          <Text style={[styles.modeBtnText, viewMode === 'vrac' ? styles.modeBtnTextActive : null]} numberOfLines={1}>
+            {t('melimelo.lifecycle.vrac')}
           </Text>
         </Pressable>
         <Pressable style={[styles.modeBtn, viewMode === 'focus' ? styles.modeBtnActive : null]} onPress={() => setViewMode('focus')}>
-          <Text style={[styles.modeBtnText, viewMode === 'focus' ? styles.modeBtnTextActive : null]}>
-            {STRINGS.GARDEN_RITUALS.FOCUS_CIRCLES}
+          <Text style={[styles.modeBtnText, viewMode === 'focus' ? styles.modeBtnTextActive : null]} numberOfLines={1}>
+            {t('melimelo.lifecycle.focus')}
+          </Text>
+        </Pressable>
+        <Pressable style={[styles.modeBtn, viewMode === 'archives' ? styles.modeBtnActive : null]} onPress={() => setViewMode('archives')}>
+          <Text style={[styles.modeBtnText, viewMode === 'archives' ? styles.modeBtnTextActive : null]} numberOfLines={1}>
+            {t('melimelo.lifecycle.archives')}
           </Text>
         </Pressable>
       </View>
@@ -594,6 +614,12 @@ export function MeliMeloScreen() {
                         )}
                       >
                         <Animated.View style={animatedCardStyle}>
+                          <IntentInteractionWrapper
+                            intentionId={item.id}
+                            anchorDate={new Date()}
+                            enabled={!isSorting}
+                            onMutation={reload}
+                          >
                           <Pressable
                             style={[styles.card, { backgroundColor: bg }]}
                             onPress={() => setActiveVracItem(item)}
@@ -631,6 +657,7 @@ export function MeliMeloScreen() {
                               </View>
                             ) : null}
                           </Pressable>
+                          </IntentInteractionWrapper>
                         </Animated.View>
                       </Swipeable>
                     );
@@ -643,29 +670,41 @@ export function MeliMeloScreen() {
             ) : null}
           </ScrollView>
         </>
-      ) : (
+      ) : viewMode === 'focus' ? (
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.circlesRow}>
             {FOCUS_CIRCLES.map((circle) => {
               const selected = selectedCircle === circle.id;
+              const primaryForCircle = organizedItems.find(
+                (it) =>
+                  (it.type === 'TASK' || it.type === 'HABIT' || it.type === 'PROJECT') &&
+                  matchesCircle(it, circle.id),
+              );
               return (
-                <Pressable
+                <IntentInteractionWrapper
                   key={circle.id}
-                  style={[styles.circle, selected ? styles.circleSelected : null]}
-                  onPress={() =>
-                    runWithWeight(() => {
-                      if (isSaturated) {
-                        setSaturationToast(STRINGS.saturation.overloadedToast);
-                        setTimeout(() => setSaturationToast(''), 1500);
-                        return;
-                      }
-                      setSelectedCircle(circle.id);
-                    })
-                  }
+                  intentionId={primaryForCircle?.id ?? circle.id}
+                  anchorDate={new Date()}
+                  enabled={Boolean(primaryForCircle)}
+                  onMutation={reload}
                 >
-                  <Text style={styles.circleEmoji}>{circle.emoji}</Text>
-                  <Text style={styles.circleLabel}>{circle.label}</Text>
-                </Pressable>
+                  <Pressable
+                    style={[styles.circle, selected ? styles.circleSelected : null]}
+                    onPress={() =>
+                      runWithWeight(() => {
+                        if (isSaturated) {
+                          setSaturationToast(STRINGS.saturation.overloadedToast);
+                          setTimeout(() => setSaturationToast(''), 1500);
+                          return;
+                        }
+                        setSelectedCircle(circle.id);
+                      })
+                    }
+                  >
+                    <Text style={styles.circleEmoji}>{circle.emoji}</Text>
+                    <Text style={styles.circleLabel}>{circle.label}</Text>
+                  </Pressable>
+                </IntentInteractionWrapper>
               );
             })}
           </ScrollView>
@@ -686,13 +725,20 @@ export function MeliMeloScreen() {
                   <View style={styles.sectionBlock}>
                     <Text style={styles.sectionTitle}>🔨 {STRINGS.GARDEN_RITUALS.ACTIONS}</Text>
                     {actionItems.map((item) => (
-                      <Pressable key={item.id} style={[styles.rowItem, item.id === morningFocusId ? styles.focusGlow : null]} onPress={() => void completeItem(item)}>
-                        <Text style={styles.checkbox}>{item.status === 'DONE' ? '☑️' : '⬜️'}</Text>
-                        <Text style={[styles.rowText, item.status === 'DONE' ? styles.doneText : null]}>
-                          {item.title}
-                        </Text>
-                        {item.is_local_processed === 1 ? <Text style={styles.ecoMini}>🍃</Text> : null}
-                      </Pressable>
+                      <IntentInteractionWrapper
+                        key={item.id}
+                        intentionId={item.id}
+                        anchorDate={new Date()}
+                        onMutation={reload}
+                      >
+                        <Pressable style={[styles.rowItem, item.id === morningFocusId ? styles.focusGlow : null]} onPress={() => void completeItem(item)}>
+                          <Text style={styles.checkbox}>{item.status === 'DONE' ? '☑️' : '⬜️'}</Text>
+                          <Text style={[styles.rowText, item.status === 'DONE' ? styles.doneText : null]}>
+                            {item.title}
+                          </Text>
+                          {item.is_local_processed === 1 ? <Text style={styles.ecoMini}>🍃</Text> : null}
+                        </Pressable>
+                      </IntentInteractionWrapper>
                     ))}
                   </View>
                 ) : null}
@@ -701,14 +747,21 @@ export function MeliMeloScreen() {
                   <View style={styles.sectionBlock}>
                     <Text style={styles.sectionTitle}>🔄 {STRINGS.GARDEN_RITUALS.RITUALS}</Text>
                     {ritualItems.map((item) => (
-                      <Pressable key={item.id} style={[styles.rowItem, item.id === morningFocusId ? styles.focusGlow : null]} onPress={() => void completeItem(item)}>
-                        <Text style={styles.checkbox}>{item.status === 'DONE' ? '☑️' : '⬜️'}</Text>
-                        <View style={styles.ritualCol}>
-                          <Text style={[styles.rowText, item.status === 'DONE' ? styles.doneText : null]}>{item.title}</Text>
-                          {item.is_local_processed === 1 ? <Text style={styles.ecoMini}>🍃</Text> : null}
-                          <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${growthScore}%` }]} /></View>
-                        </View>
-                      </Pressable>
+                      <IntentInteractionWrapper
+                        key={item.id}
+                        intentionId={item.id}
+                        anchorDate={new Date()}
+                        onMutation={reload}
+                      >
+                        <Pressable style={[styles.rowItem, item.id === morningFocusId ? styles.focusGlow : null]} onPress={() => void completeItem(item)}>
+                          <Text style={styles.checkbox}>{item.status === 'DONE' ? '☑️' : '⬜️'}</Text>
+                          <View style={styles.ritualCol}>
+                            <Text style={[styles.rowText, item.status === 'DONE' ? styles.doneText : null]}>{item.title}</Text>
+                            {item.is_local_processed === 1 ? <Text style={styles.ecoMini}>🍃</Text> : null}
+                            <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${growthScore}%` }]} /></View>
+                          </View>
+                        </Pressable>
+                      </IntentInteractionWrapper>
                     ))}
                   </View>
                 ) : null}
@@ -717,9 +770,16 @@ export function MeliMeloScreen() {
                   <View style={styles.sectionBlock}>
                     <Text style={styles.sectionTitle}>💡 {STRINGS.GARDEN_RITUALS.REFLECTIONS}</Text>
                     {noteItems.map((item) => (
-                      <View key={item.id} style={styles.noteBox}>
-                        <Text style={styles.noteText}>{item.title}</Text>
-                      </View>
+                      <IntentInteractionWrapper
+                        key={item.id}
+                        intentionId={item.id}
+                        anchorDate={new Date()}
+                        onMutation={reload}
+                      >
+                        <View style={styles.noteBox}>
+                          <Text style={styles.noteText}>{item.title}</Text>
+                        </View>
+                      </IntentInteractionWrapper>
                     ))}
                   </View>
                 ) : null}
@@ -728,16 +788,61 @@ export function MeliMeloScreen() {
                   <View style={styles.sectionBlock}>
                     <Text style={styles.sectionTitle}>🎙️ {STRINGS.GARDEN_RITUALS.AUDIOS}</Text>
                     {audioItems.map((item) => (
-                      <View key={item.id} style={styles.audioMini}>
-                        <Text style={styles.audioPlay}>▶︎</Text>
-                        <Text style={styles.audioText}>{item.title || STRINGS.GARDEN_RITUALS.RAW_AUDIO}</Text>
-                      </View>
+                      <IntentInteractionWrapper
+                        key={item.id}
+                        intentionId={item.id}
+                        anchorDate={new Date()}
+                        onMutation={reload}
+                      >
+                        <View style={styles.audioMini}>
+                          <Text style={styles.audioPlay}>▶︎</Text>
+                          <Text style={styles.audioText}>{item.title || STRINGS.GARDEN_RITUALS.RAW_AUDIO}</Text>
+                        </View>
+                      </IntentInteractionWrapper>
                     ))}
                   </View>
                 ) : null}
               </ScrollView>
             )}
           </View>
+        </>
+      ) : (
+        <>
+          {mentalLoad ? <Text style={styles.mentalLoad}>{mentalLoad}</Text> : null}
+          <ScrollView contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 24 }]}>
+            {archiveItems.length === 0 ? (
+              <Text style={styles.empty}>{t('melimelo.lifecycle.archivesEmpty')}</Text>
+            ) : (
+              archiveItems.map((item) => {
+                const bg = pastelFromCategory(item.category_id);
+                const icon = TYPE_ICON[item.type] ?? '📌';
+                const statusLabel =
+                  item.status === 'ARCHIVED' || item.is_archived === 1
+                    ? t('melimelo.lifecycle.badgeArchived')
+                    : t('melimelo.lifecycle.badgeDone');
+                return (
+                  <IntentInteractionWrapper
+                    key={item.id}
+                    intentionId={item.id}
+                    anchorDate={new Date()}
+                    onMutation={reload}
+                  >
+                    <Pressable style={[styles.card, { backgroundColor: bg }]} onPress={() => void completeItem(item)}>
+                      <View style={styles.titleWithEco}>
+                        <Text style={styles.cardTitle}>
+                          {icon} {item.title}
+                        </Text>
+                        <Text style={styles.archiveStatusPill}>{statusLabel}</Text>
+                      </View>
+                      <Text style={styles.cardMeta}>
+                        {item.type} · {item.category_id || '—'}
+                      </Text>
+                    </Pressable>
+                  </IntentInteractionWrapper>
+                );
+              })
+            )}
+          </ScrollView>
         </>
       )}
 
@@ -851,8 +956,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  modeRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 10, marginBottom: 10 },
-  modeBtn: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.65)' },
+  modeRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 6, marginBottom: 10 },
+  modeBtn: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255,255,255,0.65)',
+    alignItems: 'center',
+  },
+  archiveStatusPill: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#155e75',
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
   modeBtnActive: { backgroundColor: '#dbeafe', borderWidth: 1, borderColor: 'rgba(45,111,112,0.35)' },
   modeBtnText: { color: '#4b5563', fontWeight: '700', fontSize: 12 },
   modeBtnTextActive: { color: '#155e75' },

@@ -19,6 +19,11 @@ import {
   getAutoArchiveAfterCalendarSync,
   setAutoArchiveAfterCalendarSync,
 } from '../services/premiumBridgeSettings';
+import {
+  getArchiveRetentionChoice,
+  setArchiveRetentionChoice,
+  type ArchiveRetentionChoice,
+} from '../services/archiveRetentionSettings';
 
 const LANGS: AppLanguage[] = [
   'fr',
@@ -49,11 +54,14 @@ export function AgentSettingsScreen() {
   const { voice, tone, setVoice, setTone } = useAlly();
   const { spectrum } = useUserSpectrum();
   const [autoArchiveAfterCalendarSync, setAutoArchiveAfterSync] = React.useState(false);
+  const [archiveRetention, setArchiveRetention] = React.useState<ArchiveRetentionChoice>('7');
 
   React.useEffect(() => {
     void (async () => {
       const enabled = await getAutoArchiveAfterCalendarSync();
       setAutoArchiveAfterSync(enabled);
+      const retention = await getArchiveRetentionChoice();
+      setArchiveRetention(retention);
     })();
   }, []);
 
@@ -155,6 +163,32 @@ export function AgentSettingsScreen() {
               thumbColor={autoArchiveAfterCalendarSync ? theme.colors.primary : '#f4f4f5'}
             />
           </View>
+        </NeumorphicCard>
+
+        <NeumorphicCard style={styles.block}>
+          <Text style={[styles.section, { color: theme.colors.primary }]}>
+            {t('settings.memorySectionTitle')}
+          </Text>
+          <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>
+            {t('settings.archivePurgeHint')}
+          </Text>
+          <Text style={[styles.bridgeTitle, { color: theme.colors.onSurface, marginTop: 6 }]}>
+            {t('settings.archivePurgeTitle')}
+          </Text>
+          <SegmentedButtons
+            value={archiveRetention}
+            onValueChange={(v) => {
+              const next = v as ArchiveRetentionChoice;
+              setArchiveRetention(next);
+              void setArchiveRetentionChoice(next);
+            }}
+            buttons={[
+              { value: '7', label: t('settings.archivePurge7') },
+              { value: '30', label: t('settings.archivePurge30') },
+              { value: 'never', label: t('settings.archivePurgeNever') },
+            ]}
+            style={styles.segment}
+          />
         </NeumorphicCard>
 
         <NeumorphicCard style={styles.block}>

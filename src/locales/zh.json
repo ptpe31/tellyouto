@@ -32,7 +32,13 @@
     "privateChannelSubtitle": "包含 Telegram；WhatsApp、Slack、LINE 需 Pro。",
     "channelsCatalogTitle": "频道与扩展",
     "channelsCatalogLead": "同时只能激活一个频道 — 盟友在此向你发送意图。",
-    "channelsPrivacyFootnote": "每个高级频道都是你与本地轨道之间的加密直连。不出售任何数据：经安全隧道传输，并在同步到你的手机后立即从云端清除。"
+    "channelsPrivacyFootnote": "每个高级频道都是你与本地轨道之间的加密直连。不出售任何数据：经安全隧道传输，并在同步到你的手机后立即从云端清除。",
+    "memorySectionTitle": "存储管理",
+    "archivePurgeTitle": "在多久后永久删除已归档项",
+    "archivePurgeHint": "在应用启动时执行。仅删除归档时间早于该期限的行。",
+    "archivePurge7": "7 天",
+    "archivePurge30": "30 天",
+    "archivePurgeNever": "永不"
   },
   "channels": {
     "connect": "连接",
@@ -667,6 +673,16 @@
     "actionTitle": "Meli-Melo 操作",
     "manualSortFree": "手动整理（免费）",
     "aiSortPaid": "AI 整理（1 点信用）"
+  },
+  "melimelo": {
+    "lifecycle": {
+      "vrac": "杂项",
+      "focus": "聚焦",
+      "archives": "归档",
+      "archivesEmpty": "归档中还没有内容。",
+      "badgeArchived": "已归档",
+      "badgeDone": "已完成"
+    }
   },
   "economy": {
     "labels": {

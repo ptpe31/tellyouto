@@ -44,5 +44,23 @@
       "close": "Stäng",
       "cancel": "Avbryt"
     }
+  },
+  "melimelo": {
+    "lifecycle": {
+      "vrac": "Vrac",
+      "focus": "Fokus",
+      "archives": "Arkiv",
+      "archivesEmpty": "Inget i arkivet ännu.",
+      "badgeArchived": "Arkiverad",
+      "badgeDone": "Klar"
+    }
+  },
+  "settings": {
+    "memorySectionTitle": "Minneshantering",
+    "archivePurgeTitle": "Radera arkiverade objekt permanent efter",
+    "archivePurgeHint": "Körs när appen startar. Endast rader med arkivdatum äldre än detta fönster tas bort.",
+    "archivePurge7": "7 dagar",
+    "archivePurge30": "30 dagar",
+    "archivePurgeNever": "Aldrig"
   }
 }

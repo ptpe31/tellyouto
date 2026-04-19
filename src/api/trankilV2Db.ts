@@ -1,4 +1,7 @@
 import * as SQLite from 'expo-sqlite';
+import { DeviceEventEmitter } from 'react-native';
+
+import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 
 export type TrankilIntentType = 'TASK' | 'HABIT' | 'NOTE' | 'AUDIO' | 'PROJECT';
 export type TrankilIntentStatus = 'TODO' | 'DONE' | 'ARCHIVED';
@@ -26,6 +29,12 @@ export type TrankilV2IntentionRow = {
   remind_at?: number | null;
   local_notification_id?: string | null;
   recurrence_rrule?: string | null;
+  /** 0/1 — synchronisé avec status DONE */
+  is_done?: number;
+  done_at?: number | null;
+  /** 0/1 — synchronisé avec status ARCHIVED */
+  is_archived?: number;
+  archived_at?: number | null;
 };
 
 export type TrankilV2TimelineItemRow = {
@@ -55,6 +64,8 @@ export type TrankilV2UserStatsRow = {
   recharge_window_started_at: number | null;
   recharge_videos_in_window: number;
   recharge_last_video_at: number | null;
+  /** Optionnel — colonne absente tant que non migrée. */
+  morning_focus_item_id?: string | null;
 };
 
 export type EmergencyLogRow = {
@@ -116,6 +127,19 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
     dbPromise = SQLite.openDatabaseAsync(DB_NAME);
   }
   return dbPromise;
+}
+
+function notifyIntentionsChanged(payload?: { id?: string; reason?: string }): void {
+  DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME, { source: 'trankil_v2', ...payload });
+}
+
+async function syncAfterIntentionWrite(reason: string): Promise<void> {
+  try {
+    const { syncNativeRailAlarmsAfterIntentionWrite } = await import('./intentionHardwareSync');
+    await syncNativeRailAlarmsAfterIntentionWrite(reason);
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -383,18 +407,27 @@ export async function initTrankilV2Schema(): Promise<void> {
         alarm_enabled INTEGER NOT NULL DEFAULT 0 CHECK (alarm_enabled IN (0, 1)),
         remind_at INTEGER,
         local_notification_id TEXT,
-        recurrence_rrule TEXT
+        recurrence_rrule TEXT,
+        is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1)),
+        done_at INTEGER,
+        is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1)),
+        archived_at INTEGER
       );
       INSERT INTO intentions_v2 (
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
         status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
-        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule
+        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+        is_done, done_at, is_archived, archived_at
       )
       SELECT
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
         CASE WHEN status IN ('TODO', 'DONE', 'ARCHIVED') THEN status ELSE 'TODO' END,
         is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
-        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule
+        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+        CASE WHEN status = 'DONE' THEN 1 ELSE 0 END,
+        CASE WHEN status = 'DONE' THEN created_at ELSE NULL END,
+        CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END,
+        CASE WHEN status = 'ARCHIVED' THEN created_at ELSE NULL END
       FROM intentions;
       DROP TABLE intentions;
       ALTER TABLE intentions_v2 RENAME TO intentions;
@@ -443,6 +476,35 @@ export async function initTrankilV2Schema(): Promise<void> {
       ALTER TABLE user_stats_compact RENAME TO user_stats;
     `);
   }
+
+  const colsIntentions = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(intentions)`);
+  if (!colsIntentions.some((c) => c.name === 'is_done')) {
+    await db.execAsync(
+      `ALTER TABLE intentions ADD COLUMN is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1));`,
+    );
+  }
+  if (!colsIntentions.some((c) => c.name === 'done_at')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN done_at INTEGER;`);
+  }
+  if (!colsIntentions.some((c) => c.name === 'is_archived')) {
+    await db.execAsync(
+      `ALTER TABLE intentions ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1));`,
+    );
+  }
+  if (!colsIntentions.some((c) => c.name === 'archived_at')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN archived_at INTEGER;`);
+  }
+  await db.execAsync(
+    `UPDATE intentions SET
+       is_done = CASE WHEN status = 'DONE' THEN 1 ELSE 0 END,
+       is_archived = CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END`,
+  );
+  await db.execAsync(
+    `UPDATE intentions SET done_at = COALESCE(done_at, created_at) WHERE status = 'DONE' AND done_at IS NULL`,
+  );
+  await db.execAsync(
+    `UPDATE intentions SET archived_at = COALESCE(archived_at, created_at) WHERE status = 'ARCHIVED' AND archived_at IS NULL`,
+  );
 }
 
 export async function listTrankilV2Intentions(): Promise<TrankilV2IntentionRow[]> {
@@ -480,6 +542,7 @@ export async function listTrankilV2TimelineItemsByDate(
         1 AS section_order
       FROM intentions i
       WHERE i.status = ?
+        AND COALESCE(i.is_archived, 0) = 0
         AND i.type IN ('TASK', 'HABIT')
         AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
 
@@ -502,6 +565,7 @@ export async function listTrankilV2TimelineItemsByDate(
       FROM intentions i
       LEFT JOIN intentions p ON p.id = i.parent_id AND p.type = 'PROJECT'
       WHERE i.status = ?
+        AND COALESCE(i.is_archived, 0) = 0
         AND i.type = 'TASK'
         AND i.parent_id IS NOT NULL
         AND trim(i.parent_id) != ''
@@ -524,6 +588,7 @@ export async function listTrankilV2TimelineItemsByDate(
         3 AS section_order
       FROM intentions i
       WHERE i.status = ?
+        AND COALESCE(i.is_archived, 0) = 0
         AND i.type IN ('NOTE', 'AUDIO')
     )
     WHERE
@@ -562,6 +627,7 @@ export async function listTrankilV2UndatedRootTasks(
        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar
      FROM intentions i
      WHERE i.status = ?
+       AND COALESCE(i.is_archived, 0) = 0
        AND i.type = 'TASK'
        AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
        AND (i.due_date IS NULL OR trim(i.due_date) = '')
@@ -687,20 +753,81 @@ export async function purgeTrankilV2IntentionsCascade(): Promise<{
   };
 }
 
+/** Méli-Mélo « Vrac » : brouillon sans étiquette ni date, actif, non archivé. */
 export async function listTrankilV2UnorganizedIntentions(): Promise<TrankilV2IntentionRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();
   return db.getAllAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions WHERE is_organized = 0 ORDER BY created_at DESC`,
+    `SELECT * FROM intentions
+     WHERE status = 'TODO'
+       AND COALESCE(is_archived, 0) = 0
+       AND is_organized = 0
+       AND (category_id IS NULL OR trim(category_id) = '')
+       AND (due_date IS NULL OR trim(due_date) = '')
+     ORDER BY created_at DESC`,
   );
 }
 
+/** Méli-Mélo « Focus » : actif, non archivé, avec organisation / étiquette / date. */
 export async function listTrankilV2OrganizedIntentions(): Promise<TrankilV2IntentionRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();
   return db.getAllAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions WHERE is_organized = 1 ORDER BY created_at DESC`,
+    `SELECT * FROM intentions
+     WHERE status = 'TODO'
+       AND COALESCE(is_archived, 0) = 0
+       AND (
+         is_organized = 1
+         OR (category_id IS NOT NULL AND trim(category_id) != '')
+         OR (due_date IS NOT NULL AND trim(due_date) != '')
+       )
+     ORDER BY created_at DESC`,
   );
+}
+
+/** Méli-Mélo « Archives » : terminées ou archivées (cycle de vie). */
+export async function listTrankilV2MeliArchivesIntentions(): Promise<TrankilV2IntentionRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions
+     WHERE status IN ('DONE', 'ARCHIVED')
+        OR COALESCE(is_done, 0) = 1
+        OR COALESCE(is_archived, 0) = 1
+     ORDER BY COALESCE(archived_at, done_at, created_at) DESC`,
+  );
+}
+
+/**
+ * Supprime définitivement les intentions archivées dont `archived_at` dépasse la rétention
+ * (préférence {@link getArchiveRetentionChoice} dans `archiveRetentionSettings`).
+ */
+export async function cleanOldArchives(): Promise<number> {
+  const { getArchiveRetentionChoice } = await import('../services/archiveRetentionSettings');
+  const choice = await getArchiveRetentionChoice();
+  if (choice === 'never') return 0;
+  const days = choice === '30' ? 30 : 7;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const before = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions
+     WHERE COALESCE(is_archived, 0) = 1
+       AND archived_at IS NOT NULL
+       AND archived_at < ?`,
+    [cutoff],
+  );
+  const n = Number(before?.n ?? 0);
+  if (n === 0) return 0;
+  await db.runAsync(
+    `DELETE FROM intentions
+     WHERE COALESCE(is_archived, 0) = 1
+       AND archived_at IS NOT NULL
+       AND archived_at < ?`,
+    [cutoff],
+  );
+  notifyIntentionsChanged({ reason: 'clean_old_archives' });
+  return n;
 }
 
 export async function getTrankilV2UserStats(): Promise<TrankilV2UserStatsRow> {
@@ -878,8 +1005,9 @@ export async function insertTrankilV2Intention(
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO intentions (
-      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+      is_done, done_at, is_archived, archived_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`,
     [
       row.id,
       row.type,
@@ -907,6 +1035,8 @@ export async function insertTrankilV2Intention(
   );
   const stats = await getTrankilV2UserStats();
   void stats;
+  await syncAfterIntentionWrite('insertTrankilV2Intention');
+  notifyIntentionsChanged({ id: row.id, reason: 'insert' });
 }
 
 export async function updateTrankilV2IntentionQuick(
@@ -958,6 +1088,8 @@ export async function updateTrankilV2IntentionTemporal(
       id,
     ],
   );
+  await syncAfterIntentionWrite('updateTrankilV2IntentionTemporal');
+  notifyIntentionsChanged({ id, reason: 'temporal' });
 }
 
 export async function updateTrankilV2IntentionOrganization(
@@ -1039,13 +1171,36 @@ export async function updateTrankilV2IntentionClassification(
       meta_json: JSON.stringify({ intention_id: id, source: 'updateTrankilV2IntentionClassification' }),
     }).catch(() => undefined);
   }
+  await db.runAsync(
+    `UPDATE intentions SET
+       is_done = CASE WHEN status = 'DONE' THEN 1 ELSE 0 END,
+       is_archived = CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END
+     WHERE id = ?`,
+    [id],
+  );
+  const now = Date.now();
+  await db.runAsync(
+    `UPDATE intentions SET done_at = ? WHERE id = ? AND status = 'DONE' AND done_at IS NULL`,
+    [now, id],
+  );
+  await db.runAsync(`UPDATE intentions SET done_at = NULL WHERE id = ? AND status != 'DONE'`, [id]);
+  await db.runAsync(
+    `UPDATE intentions SET archived_at = ? WHERE id = ? AND status = 'ARCHIVED' AND archived_at IS NULL`,
+    [now, id],
+  );
+  await db.runAsync(`UPDATE intentions SET archived_at = NULL WHERE id = ? AND status != 'ARCHIVED'`, [id]);
 }
 
 export async function getTrankilV2UnorganizedCount(): Promise<number> {
   await initTrankilV2Schema();
   const db = await getDb();
   const row = await db.getFirstAsync<{ total: number }>(
-    `SELECT COUNT(*) AS total FROM intentions WHERE is_organized = 0`,
+    `SELECT COUNT(*) AS total FROM intentions
+     WHERE status = 'TODO'
+       AND COALESCE(is_archived, 0) = 0
+       AND is_organized = 0
+       AND (category_id IS NULL OR trim(category_id) = '')
+       AND (due_date IS NULL OR trim(due_date) = '')`,
   );
   return Number(row?.total ?? 0);
 }
@@ -1063,6 +1218,8 @@ export async function deleteTrankilV2IntentionById(id: string): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
   await db.runAsync(`DELETE FROM intentions WHERE id = ?`, [id]);
+  await syncAfterIntentionWrite('deleteTrankilV2IntentionById');
+  notifyIntentionsChanged({ id, reason: 'delete' });
 }
 
 export async function getTrankilV2IntentionById(id: string): Promise<TrankilV2IntentionRow | null> {
@@ -1156,18 +1313,57 @@ export async function listTrankilV2PendingAlarmIntentions(
 export async function markTrankilV2IntentionDone(id: string): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
-  const row = await db.getFirstAsync<{ type: TrankilIntentType }>(
-    `SELECT type FROM intentions WHERE id = ? LIMIT 1`,
+  const row = await db.getFirstAsync<{ type: TrankilIntentType; status: TrankilIntentStatus }>(
+    `SELECT type, status FROM intentions WHERE id = ? LIMIT 1`,
     [id],
   );
-  await db.runAsync(`UPDATE intentions SET status = 'DONE' WHERE id = ?`, [id]);
-  if (row?.type === 'TASK' || row?.type === 'HABIT') {
+  if (!row || row.status !== 'TODO') return;
+  const now = Date.now();
+  await db.runAsync(
+    `UPDATE intentions SET status = 'DONE', is_done = 1, done_at = ? WHERE id = ?`,
+    [now, id],
+  );
+  if (row.type === 'TASK' || row.type === 'HABIT') {
     void insertUserActivityLog({
       action_type: row.type === 'TASK' ? 'TASK_DONE' : 'HABIT_DONE',
       points_delta: 0,
       meta_json: JSON.stringify({ intention_id: id }),
     }).catch(() => undefined);
   }
+  await syncAfterIntentionWrite('markTrankilV2IntentionDone');
+  notifyIntentionsChanged({ id, reason: 'mark_done' });
+}
+
+/** Bascule TODO ⟷ DONE (hors archives), avec horodatage `done_at`. */
+export async function toggleIntentionDone(id: string): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ type: TrankilIntentType; status: TrankilIntentStatus }>(
+    `SELECT type, status FROM intentions WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  if (!row || row.status === 'ARCHIVED') return;
+  const now = Date.now();
+  if (row.status === 'DONE') {
+    await db.runAsync(
+      `UPDATE intentions SET status = 'TODO', is_done = 0, done_at = NULL WHERE id = ?`,
+      [id],
+    );
+  } else {
+    await db.runAsync(
+      `UPDATE intentions SET status = 'DONE', is_done = 1, done_at = ? WHERE id = ?`,
+      [now, id],
+    );
+    if (row.type === 'TASK' || row.type === 'HABIT') {
+      void insertUserActivityLog({
+        action_type: row.type === 'TASK' ? 'TASK_DONE' : 'HABIT_DONE',
+        points_delta: 0,
+        meta_json: JSON.stringify({ intention_id: id, source: 'toggleIntentionDone' }),
+      }).catch(() => undefined);
+    }
+  }
+  await syncAfterIntentionWrite('toggleIntentionDone');
+  notifyIntentionsChanged({ id, reason: 'toggle_done' });
 }
 
 export async function updateTrankilV2IntentionArchiveState(
@@ -1176,13 +1372,35 @@ export async function updateTrankilV2IntentionArchiveState(
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
-  await db.runAsync(
-    `UPDATE intentions
-     SET status = ?,
-         is_organized = ?
-     WHERE id = ?`,
-    [archived ? 'ARCHIVED' : 'TODO', archived ? 1 : 0, id],
-  );
+  const now = Date.now();
+  if (archived) {
+    await db.runAsync(
+      `UPDATE intentions
+       SET status = 'ARCHIVED',
+           is_organized = 1,
+           is_archived = 1,
+           archived_at = COALESCE(archived_at, ?)
+       WHERE id = ?`,
+      [now, id],
+    );
+  } else {
+    await db.runAsync(
+      `UPDATE intentions
+       SET status = 'TODO',
+           is_organized = 0,
+           is_archived = 0,
+           archived_at = NULL
+       WHERE id = ?`,
+      [id],
+    );
+  }
+  await syncAfterIntentionWrite('updateTrankilV2IntentionArchiveState');
+  notifyIntentionsChanged({ id, reason: 'archive_state' });
+}
+
+/** Archive l’intention (alias menu — voir {@link updateTrankilV2IntentionArchiveState}). */
+export async function archiveIntention(id: string): Promise<void> {
+  await updateTrankilV2IntentionArchiveState(id, true);
 }
 
 export async function pickAvailabilityTask(): Promise<TrankilV2IntentionRow | null> {

@@ -32,7 +32,13 @@
     "privateChannelSubtitle": "Telegram è incluso; WhatsApp, Slack e LINE richiedono Pro.",
     "channelsCatalogTitle": "Canali ed estensioni",
     "channelsCatalogLead": "Un solo canale attivo alla volta — è lì che l’Alleato invia le tue intenzioni.",
-    "channelsPrivacyFootnote": "Ogni canale Premium è una linea diretta crittografata tra te e il tuo rail locale. Nessun dato viene venduto: transita in un tunnel sicuro e viene cancellato dal Cloud non appena sincronizzato sul telefono."
+    "channelsPrivacyFootnote": "Ogni canale Premium è una linea diretta crittografata tra te e il tuo rail locale. Nessun dato viene venduto: transita in un tunnel sicuro e viene cancellato dal Cloud non appena sincronizzato sul telefono.",
+    "memorySectionTitle": "Gestione della memoria",
+    "archivePurgeTitle": "Elimina definitivamente gli archivi dopo",
+    "archivePurgeHint": "Viene eseguito all’avvio dell’app. Vengono rimosse solo le righe con data di archiviazione più vecchia di questa finestra.",
+    "archivePurge7": "7 giorni",
+    "archivePurge30": "30 giorni",
+    "archivePurgeNever": "Mai"
   },
   "channels": {
     "connect": "Connetti",
@@ -667,6 +673,16 @@
     "actionTitle": "Azione Meli-Melo",
     "manualSortFree": "Ordina manualmente (gratis)",
     "aiSortPaid": "Ordina con IA (1 credito)"
+  },
+  "melimelo": {
+    "lifecycle": {
+      "vrac": "Vrac",
+      "focus": "Focus",
+      "archives": "Archivio",
+      "archivesEmpty": "Niente nell’archivio per ora.",
+      "badgeArchived": "Archiviato",
+      "badgeDone": "Fatto"
+    }
   },
   "economy": {
     "labels": {
