@@ -21,6 +21,7 @@ import { defaultDatabaseDirectory } from 'expo-sqlite';
 import { DeviceEventEmitter } from 'react-native';
 
 import { DATA_CHANGED_EVENT } from '../constants/appEvents';
+import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { Platform } from '../utils/rnPlatform';
 
 import type { SpectrumWeights } from '../context/UserSpectrumContext';
@@ -1306,7 +1307,7 @@ export async function listIntentionsDescending(): Promise<IntentionRow[]> {
 }
 
 /**
- * Intentions encore « en vrac » pour Méli-Mélo : en attente, sans cluster sémantique.
+ * Intentions encore « en vrac » : en attente, sans cluster sémantique.
  */
 export async function listUnclusteredPendingIntentions(): Promise<IntentionRow[]> {
   return runSerializedSqlite(async () => {
@@ -1322,7 +1323,7 @@ export async function listUnclusteredPendingIntentions(): Promise<IntentionRow[]
 }
 
 /**
- * Applique le regroupement Méli-Mélo : un `semantic_cluster_id` par pile + tag `melimelo:<titre>`.
+ * Applique le regroupement sémantique : un `semantic_cluster_id` par pile + tag `melimelo:<titre>` (préfixe historique).
  */
 export async function applyMelimeloGrouping(
   groups: { clusterId: string; themeLabel: string; intentionIds: string[] }[],
@@ -1549,11 +1550,7 @@ export async function checkpointLocalDatabase(): Promise<void> {
   }
 }
 
-/**
- * Aligné sur `INTENTIONS_CHANGED_EVENT` (`externalIntentIngest`) — évite import circulaire.
- * Tous les écrans qui écoutent `talkndone/intentions_changed` sont notifiés.
- */
-export const INTENTIONS_CHANGED_EVENT_NAME = 'talkndone/intentions_changed';
+export { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 
 /**
  * Supprime toutes les intentions locales (+ contrôles micro-habitudes) — tests Debug / profils.

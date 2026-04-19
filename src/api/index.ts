@@ -65,7 +65,6 @@ export type {
 } from './trankilV2Db';
 export {
   withLocalDatabase,
-  applyMelimeloGrouping,
   createIntention,
   insertIntention,
   listCompletedSessionsBetween,

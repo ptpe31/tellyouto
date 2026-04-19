@@ -1,13 +1,6 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions } from '@react-navigation/native';
-import {
-  BarChart3,
-  Bug,
-  CalendarDays,
-  House,
-  Mic,
-  Shuffle,
-} from 'lucide-react-native';
+import { BarChart3, Bug, CalendarDays, House, Mic } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -24,13 +17,7 @@ import {
   LOCAL_DB_RESET_EVENT,
 } from '../api/localDb';
 import { DATA_CHANGED_EVENT } from '../constants/appEvents';
-import {
-  DebugScreen,
-  MeliMeloScreen,
-  StatsScreen,
-  TimelineScreen,
-  TalkDebugScreen,
-} from '../screens';
+import { DebugScreen, StatsScreen, TimelineScreen, TalkDebugScreen } from '../screens';
 import { canShowStats } from '../services/userProfilingService';
 import { rootNavigationRef } from './rootNavigationRef';
 import type { AppTabParamList } from './types';
@@ -142,17 +129,6 @@ export function AppNavigator() {
           title: t('tabs.talkDebug'),
           tabBarIcon: ({ color, size }) => (
             <Mic color={color} size={size} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="MeliMelo"
-        component={MeliMeloScreen}
-        options={{
-          headerShown: false,
-          title: t('tabs.meliMelo'),
-          tabBarIcon: ({ color, size }) => (
-            <Shuffle color={color} size={size} />
           ),
         }}
       />

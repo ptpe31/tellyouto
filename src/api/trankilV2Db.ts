@@ -802,7 +802,7 @@ export async function purgeTrankilV2IntentionsCascade(): Promise<{
   };
 }
 
-/** Méli-Mélo « Vrac » : brouillon sans étiquette ni date, actif, non archivé. */
+/** Vrac Timeline : brouillon sans étiquette ni date, actif, non archivé (`is_organized = 0`). */
 export async function listTrankilV2UnorganizedIntentions(): Promise<TrankilV2IntentionRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();
@@ -817,7 +817,7 @@ export async function listTrankilV2UnorganizedIntentions(): Promise<TrankilV2Int
   );
 }
 
-/** Méli-Mélo « Focus » : actif, non archivé, avec organisation / étiquette / date. */
+/** Intentions organisées : actif, non archivé, avec organisation / étiquette / date. */
 export async function listTrankilV2OrganizedIntentions(): Promise<TrankilV2IntentionRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();
@@ -834,7 +834,7 @@ export async function listTrankilV2OrganizedIntentions(): Promise<TrankilV2Inten
   );
 }
 
-/** Méli-Mélo « Archives » : terminées ou archivées (cycle de vie). */
+/** Archives cycle de vie : terminées ou archivées. */
 export async function listTrankilV2MeliArchivesIntentions(): Promise<TrankilV2IntentionRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();

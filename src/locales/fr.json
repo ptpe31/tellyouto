@@ -15,38 +15,6 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
-  "sorting": {
-    "screenTitle": "Méli-Mélo",
-    "shakeInstruction": "Secouez pour ranger votre esprit",
-    "webNoShake": "Le secouement est disponible sur l’appareil — ouvre Méli-Mélo sur téléphone.",
-    "empty": "Rien en attente de tri — vos intentions ouvertes apparaîtront ici.",
-    "noCreditTitle": "Élan projet",
-    "noCreditBody": "Un petit passage recharge tes credits Projet pour ce rangement magique.",
-    "noCreditCancel": "OK",
-    "noApiKeyTitle": "Clé Gemini",
-    "noApiKeyBody": "Ajoute EXPO_PUBLIC_GEMINI_API_KEY pour activer le tri intelligent.",
-    "errorTitle": "Le tri a chancelé",
-    "orphanGroup": "Divers",
-    "pileCount": "{{count}} note(s)",
-    "dismiss": "Continuer",
-    "organization": "Organisation",
-    "classifiedIn": "Classe dans : {{category}}",
-    "addedToPile": "Ajoute au Vrac",
-    "intentToClarify": "Intention a clarifier",
-    "actionTitle": "Action Meli-Melo",
-    "manualSortFree": "Ranger manuellement (gratuit)",
-    "aiSortPaid": "Ranger avec l'IA (1 credit)"
-  },
-  "melimelo": {
-    "lifecycle": {
-      "vrac": "Vrac",
-      "focus": "Focus",
-      "archives": "Archives",
-      "archivesEmpty": "Rien dans les archives pour l'instant.",
-      "badgeArchived": "Archivé",
-      "badgeDone": "Fait"
-    }
-  },
   "eveningRitual": {
     "title": "Rituel des Etoiles",
     "summary": "Aujourd'hui, tu as libere ton esprit de {{count}} pensees. Ton ciel est magnifique.",
@@ -77,8 +45,7 @@
     "stats": "Stats",
     "debug": "Debug",
     "talkHome": "Talk",
-    "talkDebug": "Talk Debug",
-    "meliMelo": "Méli-Mélo"
+    "talkDebug": "Talk Debug"
   },
   "messaging": {
     "lead": "Liens profonds TellYouTo — ouvre l’app directement sur Radar, Timeline ou Recharge.",

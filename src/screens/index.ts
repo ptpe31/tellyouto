@@ -1,4 +1,3 @@
-export { MeliMeloScreen } from './MeliMeloScreen';
 export { RadarScreen } from './RadarScreen';
 export { TimelineScreen } from './TimelineScreen';
 export { AgentIAScreen } from './AgentIAScreen';

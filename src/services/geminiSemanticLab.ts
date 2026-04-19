@@ -426,7 +426,7 @@ export async function geminiDeepIntentionFromTranscript(
   return { parsed, rawResponseText };
 }
 
-/** Groupe renvoyé par Gemini pour Méli-Mélo (clés JSON en anglais, titres en langue UI). */
+/** Groupe renvoyé par Gemini pour le tri sémantique (clés JSON en anglais, titres en langue UI). */
 export type MelimeloGeminiGroup = {
   title: string;
   icon: string;
@@ -486,7 +486,7 @@ function parseMelimeloClusterJson(
   const obj = JSON.parse(s) as { groups?: unknown };
   const groupsRaw = obj.groups;
   if (!Array.isArray(groupsRaw)) {
-    throw new Error('Gemini Méli-Mélo: groups missing');
+    throw new Error('Gemini semantic sort: groups missing');
   }
   const used = new Set<string>();
   const out: MelimeloGeminiGroup[] = [];
@@ -551,7 +551,7 @@ export async function geminiMelimeloClusterNotes(
   });
   const rawResponseText = extractTextFromGenerateResponse(data);
   if (!rawResponseText) {
-    throw new Error('Gemini Méli-Mélo: réponse vide');
+    throw new Error('Gemini semantic sort: empty response');
   }
   const groups = parseMelimeloClusterJson(
     rawResponseText,
@@ -559,7 +559,7 @@ export async function geminiMelimeloClusterNotes(
     (options.orphanTitle ?? 'Notes').trim() || 'Notes',
   );
   if (groups.length === 0) {
-    throw new Error('Gemini Méli-Mélo: aucun groupe valide');
+    throw new Error('Gemini semantic sort: no valid group');
   }
   return { groups, rawResponseText };
 }

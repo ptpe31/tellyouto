@@ -61,16 +61,6 @@
       "cancel": "Annuleren"
     }
   },
-  "melimelo": {
-    "lifecycle": {
-      "vrac": "Vrac",
-      "focus": "Focus",
-      "archives": "Archief",
-      "archivesEmpty": "Nog niets in het archief.",
-      "badgeArchived": "Gearchiveerd",
-      "badgeDone": "Klaar"
-    }
-  },
   "settings": {
     "memorySectionTitle": "Geheugenbeheer",
     "archivePurgeTitle": "Gearchiveerde items definitief verwijderen na",

@@ -13,7 +13,6 @@
     "messaging": "消息",
     "stats": "统计",
     "debug": "调试",
-    "meliMelo": "杂乱集",
     "talkHome": "Talk"
   },
   "messaging": {
@@ -666,38 +665,6 @@
       "1": {
         "action_tip": "即使没有全部勾选也没关系。为明天保留一个清晰的小行动就足够。"
       }
-    }
-  },
-  "sorting": {
-    "organization": "Organization",
-    "screenTitle": "Méli-Mélo",
-    "shakeInstruction": "Shake to clear your mind",
-    "webNoShake": "Shake sorting runs on device — open Méli-Mélo on your phone.",
-    "empty": "Nothing waiting to sort — your open intentions will appear here.",
-    "noCreditTitle": "Project momentum",
-    "noCreditBody": "A quick recharge refills your Project credits for this magic sort.",
-    "noCreditCancel": "OK",
-    "noApiKeyTitle": "Gemini key",
-    "noApiKeyBody": "Add EXPO_PUBLIC_GEMINI_API_KEY to enable smart sorting.",
-    "errorTitle": "Sorting stumbled",
-    "orphanGroup": "Misc",
-    "pileCount": "{{count}} note(s)",
-    "dismiss": "Continue",
-    "classifiedIn": "已归类到：{{category}}",
-    "addedToPile": "已加入 Vrac",
-    "intentToClarify": "待澄清意图",
-    "actionTitle": "Meli-Melo 操作",
-    "manualSortFree": "手动整理（免费）",
-    "aiSortPaid": "AI 整理（1 点信用）"
-  },
-  "melimelo": {
-    "lifecycle": {
-      "vrac": "杂项",
-      "focus": "聚焦",
-      "archives": "归档",
-      "archivesEmpty": "归档中还没有内容。",
-      "badgeArchived": "已归档",
-      "badgeDone": "已完成"
     }
   },
   "economy": {

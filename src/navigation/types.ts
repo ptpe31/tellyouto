@@ -21,7 +21,6 @@ export type MainStackParamList = {
 export type AppTabParamList = {
   TalkHome: undefined;
   TalkDebug: undefined;
-  MeliMelo: undefined;
   Radar: undefined;
   Timeline: undefined;
   AgentIA: NavigatorScreenParams<AgentStackParamList> | undefined;

@@ -15,38 +15,6 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
-  "sorting": {
-    "screenTitle": "Méli-Mélo",
-    "shakeInstruction": "Shake to clear your mind",
-    "webNoShake": "Shake sorting runs on device — open Méli-Mélo on your phone.",
-    "empty": "Nothing waiting to sort — your open intentions will appear here.",
-    "noCreditTitle": "Project momentum",
-    "noCreditBody": "A quick recharge refills your Project credits for this magic sort.",
-    "noCreditCancel": "OK",
-    "noApiKeyTitle": "Gemini key",
-    "noApiKeyBody": "Add EXPO_PUBLIC_GEMINI_API_KEY to enable smart sorting.",
-    "errorTitle": "Sorting stumbled",
-    "orphanGroup": "Misc",
-    "pileCount": "{{count}} note(s)",
-    "dismiss": "Continue",
-    "organization": "Organization",
-    "classifiedIn": "Filed in: {{category}}",
-    "addedToPile": "Added to pile",
-    "intentToClarify": "Intention to clarify",
-    "actionTitle": "Meli-Melo action",
-    "manualSortFree": "Sort manually (free)",
-    "aiSortPaid": "Sort with AI (1 credit)"
-  },
-  "melimelo": {
-    "lifecycle": {
-      "vrac": "Unsorted",
-      "focus": "Focus",
-      "archives": "Archives",
-      "archivesEmpty": "Nothing in the archive yet.",
-      "badgeArchived": "Archived",
-      "badgeDone": "Done"
-    }
-  },
   "eveningRitual": {
     "title": "Star Ritual",
     "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
@@ -77,8 +45,7 @@
     "stats": "Stats",
     "debug": "Debug",
     "talkHome": "Talk",
-    "talkDebug": "Talk Debug",
-    "meliMelo": "Méli-Mélo"
+    "talkDebug": "Talk Debug"
   },
   "messaging": {
     "lead": "TellYouTo deep links — open the app on Radar, Timeline, or Recharge.",

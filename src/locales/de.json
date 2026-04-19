@@ -13,7 +13,6 @@
     "messaging": "Nachrichten",
     "stats": "Stats",
     "debug": "Debug",
-    "meliMelo": "Méli-Mélo",
     "talkHome": "Talk"
   },
   "messaging": {
@@ -666,38 +665,6 @@
       "1": {
         "action_tip": "Es ist okay, wenn nicht alles abgehakt ist. Eine klare Aktion reicht fur morgen."
       }
-    }
-  },
-  "sorting": {
-    "organization": "Organization",
-    "screenTitle": "Méli-Mélo",
-    "shakeInstruction": "Shake to clear your mind",
-    "webNoShake": "Shake sorting runs on device — open Méli-Mélo on your phone.",
-    "empty": "Nothing waiting to sort — your open intentions will appear here.",
-    "noCreditTitle": "Project momentum",
-    "noCreditBody": "A quick recharge refills your Project credits for this magic sort.",
-    "noCreditCancel": "OK",
-    "noApiKeyTitle": "Gemini key",
-    "noApiKeyBody": "Add EXPO_PUBLIC_GEMINI_API_KEY to enable smart sorting.",
-    "errorTitle": "Sorting stumbled",
-    "orphanGroup": "Misc",
-    "pileCount": "{{count}} note(s)",
-    "dismiss": "Continue",
-    "classifiedIn": "Einsortiert in: {{category}}",
-    "addedToPile": "Zum Vrac hinzugefuegt",
-    "intentToClarify": "Intention klaeren",
-    "actionTitle": "Meli-Melo Aktion",
-    "manualSortFree": "Manuell sortieren (kostenlos)",
-    "aiSortPaid": "Mit KI sortieren (1 Kredit)"
-  },
-  "melimelo": {
-    "lifecycle": {
-      "vrac": "Vrac",
-      "focus": "Fokus",
-      "archives": "Archiv",
-      "archivesEmpty": "Noch nichts im Archiv.",
-      "badgeArchived": "Archiviert",
-      "badgeDone": "Erledigt"
     }
   },
   "economy": {
