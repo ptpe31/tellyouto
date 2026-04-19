@@ -5,6 +5,17 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "Pro werden",
+    "proLabel": "PRO",
+    "a11yCredits": "Capture-Credits — Aufladen öffnen",
+    "a11yCalendar": "Heute in der Timeline öffnen",
+    "a11yPiggy": "Eingang — ungeordnete Ideen",
+    "rechargeModalBody": "Öffne Aufladen für Pro und mehr Klarheit.",
+    "openRecharge": "Aufladen anzeigen"
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Zeit",

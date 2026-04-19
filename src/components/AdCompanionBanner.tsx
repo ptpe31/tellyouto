@@ -13,6 +13,8 @@ export type AdCompanionBannerProps = {
   isProUser: boolean;
   /** Interpolation {{name}} dans les briques de bienveillance. */
   displayName?: string;
+  /** Décalage depuis le bas de l’écran (px), ex. au-dessus d’un dock micro. */
+  bottomOffset?: number;
 };
 
 const SUBTITLE_FONT =
@@ -26,7 +28,7 @@ const SUBTITLE_FONT =
  * Bandeau discret en bas d’écran pendant une pub : uniquement l’insight (bienveillance),
  * style sous-titre — fond flouté semi-transparent.
  */
-export function AdCompanionBanner({ active, isProUser, displayName }: AdCompanionBannerProps) {
+export function AdCompanionBanner({ active, isProUser, displayName, bottomOffset = 0 }: AdCompanionBannerProps) {
   const { i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const [insight, setInsight] = useState('');
@@ -60,7 +62,7 @@ export function AdCompanionBanner({ active, isProUser, displayName }: AdCompanio
   return (
     <View
       pointerEvents="none"
-      style={[styles.anchor, { paddingBottom: bottomPad }]}
+      style={[styles.anchor, { paddingBottom: bottomPad, bottom: bottomOffset }]}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >

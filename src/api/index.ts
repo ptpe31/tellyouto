@@ -1,3 +1,10 @@
+/**
+ * Point d’entrée **public** des modules `src/api/*` : Firebase, SQLite Trankil v2,
+ * sync et utilitaires d’intentions. Préférer cet index aux imports profonds pour
+ * limiter le couplage et faciliter les refactors.
+ *
+ * @packageDocumentation
+ */
 export {
   AccountLinkingRequiredError,
   ensureAuthenticatedUser,
@@ -17,6 +24,13 @@ export {
   grantViralBonus,
   getLocalEcoScore,
   getTrankilV2UnorganizedCount,
+  countTrankilV2RootTodoTasksDueOnLocalDate,
+  getFreeCaptureQuotaSnapshot,
+  consumeFreeCaptureSuccessOnce,
+  FREE_DAILY_CAPTURE_MAX,
+  FREE_DAILY_LIST_MAX,
+  getListFreeQuotaSnapshot,
+  consumeListFreeSuccessOnce,
   getTrankilV2UserStats,
   growthPointsForType,
   initTrankilV2Schema,
@@ -67,6 +81,8 @@ export type {
   TrankilV2TimelineDateMode,
   TrankilV2TimelineItemRow,
   TrankilV2UserStatsRow,
+  FreeCaptureQuotaSnapshot,
+  ListFreeQuotaSnapshot,
 } from './trankilV2Db';
 export {
   withLocalDatabase,

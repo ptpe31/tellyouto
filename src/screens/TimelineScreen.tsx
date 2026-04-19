@@ -1,8 +1,8 @@
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { CommonActions, useFocusEffect } from '@react-navigation/native';
-import { CalendarDays } from 'lucide-react-native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { CommonActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -21,6 +21,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   bulkTrankilV2TaskChildStatsByParentIds,
+  countTrankilV2RootTodoTasksDueOnLocalDate,
+  getFreeCaptureQuotaSnapshot,
   getTrankilV2UnorganizedCount,
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
@@ -38,15 +40,20 @@ import {
   type TrankilV2TimelineItemRow,
 } from '../api';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
+import { PilotStatusHeader } from '../components/PilotStatusHeader';
+import type { AppTabParamList } from '../navigation/types';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import { showAppToast } from '../services/appToast';
 import { retryOfflineFirstAiSort, timelineRowEligibleForOfflineAiRetry } from '../services/offlineFirstAiRetry';
 import { IdeaBankModal } from '../components/IdeaBankModal';
+import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
+import { ListIntentionCard } from '../components/ListIntentionCard';
 import { NeumorphicCard } from '../components/NeumorphicCard';
 import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
 import { TimelineListItemRow } from '../components/TimelineListItemRow';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { formatYmdLocal } from '../services/TimeSorter';
 import { generateSmartTitle } from '../services/smartTitle';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
@@ -190,10 +197,12 @@ function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
   if (type === 'NOTE') return 'timeline.badgeNote';
   if (type === 'HABIT') return 'timeline.badgeHabit';
   if (type === 'TASK') return 'timeline.badgeTask';
+  if (type === 'LIST') return 'timeline.badgeList';
   return 'timeline.badgeProject';
 }
 
 function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: string) => string): string | null {
+  if (row.type === 'LIST') return null;
   if (row.type !== 'NOTE' && row.type !== 'AUDIO') return null;
   const pending = row.is_pending_ai === 1;
   let failed = false;
@@ -211,6 +220,7 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 const SECTION_HEADER_H = 36;
 const IDEA_BANK_H = 58;
 const CARD_ROW_H = 156;
+const LIST_CARD_H = 348;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
   if (bubble === 'HOME') return 'HOME';
@@ -234,6 +244,13 @@ type TimelineFlatItem =
       row: TrankilV2TimelineItemRow;
       listKey: string;
       rowVariant: 'default' | 'noPressure';
+    }
+  | {
+      kind: 'listCard';
+      id: string;
+      row: TrankilV2TimelineItemRow;
+      listKey: string;
+      rowVariant: 'default' | 'noPressure';
     };
 
 function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
@@ -245,8 +262,9 @@ function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
     }
     out.push({ kind: 'section', id: `sec-${e.listKey}-${e.titleKey}`, titleKey: e.titleKey });
     for (const r of e.rows) {
+      const isList = r.type === 'LIST' || r.section === 'LIST_CARD';
       out.push({
-        kind: 'card',
+        kind: isList ? 'listCard' : 'card',
         id: r.id,
         row: r,
         listKey: e.listKey,
@@ -261,7 +279,13 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
   let off = 0;
   return items.map((it) => {
     const len =
-      it.kind === 'section' ? SECTION_HEADER_H : it.kind === 'ideaBankRow' ? IDEA_BANK_H : CARD_ROW_H;
+      it.kind === 'section'
+        ? SECTION_HEADER_H
+        : it.kind === 'ideaBankRow'
+          ? IDEA_BANK_H
+          : it.kind === 'listCard'
+            ? LIST_CARD_H
+            : CARD_ROW_H;
     const cur = { length: len, offset: off };
     off += len;
     return cur;
@@ -396,6 +420,8 @@ export function TimelineScreen() {
   const { spectrum } = useUserSpectrum();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  const route = useRoute<RouteProp<AppTabParamList, 'Timeline'>>();
   const [timeNav, setTimeNav] = useState<TimeNav>('TODAY');
   const [customPickedDate, setCustomPickedDate] = useState<Date | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -407,6 +433,8 @@ export function TimelineScreen() {
   const [archivedRows, setArchivedRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [unorganizedTodo, setUnorganizedTodo] = useState<TrankilV2TimelineItemRow[]>([]);
   const [unorganizedCount, setUnorganizedCount] = useState(0);
+  const [headerTodayRootTodoCount, setHeaderTodayRootTodoCount] = useState(0);
+  const [freeQuotaSnapshot, setFreeQuotaSnapshot] = useState<{ remaining: number; max: number } | null>(null);
   const [primaryHasMore, setPrimaryHasMore] = useState(false);
   const [archivedHasMore, setArchivedHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -420,6 +448,19 @@ export function TimelineScreen() {
   const anchorDate = useMemo(
     () => resolveAnchor(timeNav, customPickedDate).anchor,
     [timeNav, customPickedDate],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const params = route.params;
+      if (!params?.initialTimeNav && !params?.initialContext) return;
+      if (params.initialTimeNav) setTimeNav(params.initialTimeNav);
+      if (params.initialContext) setContextBubble(params.initialContext);
+      navigation.setParams({
+        initialTimeNav: undefined,
+        initialContext: undefined,
+      } as never);
+    }, [navigation, route.params]),
   );
 
   const syncPendingSet = useCallback((next: Set<string>) => {
@@ -451,6 +492,7 @@ export function TimelineScreen() {
       offset: number,
     ): Promise<{
       unorganizedCount: number;
+      todayRootTodoCount: number;
       unorganizedTodo: TrankilV2TimelineItemRow[];
       primary: TrankilV2TimelineItemRow[];
       primaryHasMore: boolean;
@@ -461,8 +503,10 @@ export function TimelineScreen() {
       const ctx = sqlContextFromBubble(bubble);
       const { anchor, mode } = resolveAnchor(nav, custom);
       const ymd = toYmd(anchor);
-      const [count, unorganizedRaw] = await Promise.all([
+      const todayYmd = formatYmdLocal(new Date());
+      const [count, todayRootTodos, unorganizedRaw] = await Promise.all([
         getTrankilV2UnorganizedCount(),
+        countTrankilV2RootTodoTasksDueOnLocalDate(todayYmd),
         listTrankilV2UnorganizedIntentions({
           paging: { limit: 400, offset: 0 },
           context: 'ALL',
@@ -477,6 +521,7 @@ export function TimelineScreen() {
         const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
         return {
           unorganizedCount: count,
+          todayRootTodoCount: todayRootTodos,
           unorganizedTodo: unorganizedRaw,
           primary: slice,
           primaryHasMore: hasMore,
@@ -494,6 +539,7 @@ export function TimelineScreen() {
         const { slice, hasMore } = takePage(mapped, TIMELINE_PAGE_SIZE);
         return {
           unorganizedCount: count,
+          todayRootTodoCount: todayRootTodos,
           unorganizedTodo: unorganizedRaw,
           primary: [],
           primaryHasMore: false,
@@ -518,6 +564,7 @@ export function TimelineScreen() {
       const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
       return {
         unorganizedCount: count,
+        todayRootTodoCount: todayRootTodos,
         unorganizedTodo: unorganizedRaw,
         primary: slice,
         primaryHasMore: hasMore,
@@ -534,15 +581,21 @@ export function TimelineScreen() {
     try {
       const b = await fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0);
       setUnorganizedCount(b.unorganizedCount);
+      setHeaderTodayRootTodoCount(b.todayRootTodoCount);
       setUnorganizedTodo(b.unorganizedTodo);
       setPrimaryRows(b.primary);
       setPrimaryHasMore(b.primaryHasMore);
       setArchivedRows(b.archived);
       setArchivedHasMore(b.archivedHasMore);
+      if (!spectrum.isProUser) {
+        setFreeQuotaSnapshot(await getFreeCaptureQuotaSnapshot());
+      } else {
+        setFreeQuotaSnapshot(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, statusFilter, timeNav]);
+  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, spectrum.isProUser, statusFilter, timeNav]);
 
   const reload = useCallback(() => {
     void loadPack();
@@ -786,6 +839,7 @@ export function TimelineScreen() {
     const allTasks = taskHabit.filter((r) => r.type === 'TASK');
     const projectSubtasks = filteredPool.filter((item) => item.section === 'PROJECT_SUBTASK');
     const noteAudio = filteredPool.filter((item) => item.section === 'NOTE_AUDIO');
+    const listRows = filteredPool.filter((item) => item.section === 'LIST_CARD');
 
     const todayYmd = toYmd(anchorDate);
     const splitTodayTasks =
@@ -840,6 +894,14 @@ export function TimelineScreen() {
         rows: projectSubtasks,
       });
     }
+    if (listRows.length > 0) {
+      out.push({
+        kind: 'rows',
+        listKey: 'lists',
+        titleKey: 'timeline.lists.title',
+        rows: listRows,
+      });
+    }
     if (noteAudio.length > 0) {
       out.push({
         kind: 'rows',
@@ -857,11 +919,6 @@ export function TimelineScreen() {
     statusFilter,
     timeNav,
   ]);
-
-  const todayTodoCount = useMemo(() => {
-    if (timeNav !== 'TODAY' || statusFilter !== 'TODO') return 0;
-    return filteredPool.filter((r) => r.type === 'TASK' || r.type === 'HABIT' || r.type === 'PROJECT').length;
-  }, [filteredPool, statusFilter, timeNav]);
 
   const flatRowIds = useMemo(() => {
     const ids = new Set<string>();
@@ -918,6 +975,7 @@ export function TimelineScreen() {
           try {
             const b = await fetchTimelineSlice('TODAY', null, contextBubble, statusFilter, 0);
             setUnorganizedCount(b.unorganizedCount);
+            setHeaderTodayRootTodoCount(b.todayRootTodoCount);
             setUnorganizedTodo(b.unorganizedTodo);
             setPrimaryRows(b.primary);
             setPrimaryHasMore(b.primaryHasMore);
@@ -935,7 +993,7 @@ export function TimelineScreen() {
         timelineBlurredRef.current = true;
         void flushPendingCommits();
       };
-    }, [contextBubble, fetchTimelineSlice, flushPendingCommits, statusFilter]),
+    }, [contextBubble, fetchTimelineSlice, flushPendingCommits, spectrum.isProUser, statusFilter]),
   );
 
   useEffect(() => {
@@ -1015,6 +1073,16 @@ export function TimelineScreen() {
           </View>
         );
       }
+      if (item.kind === 'listCard') {
+        const row = item.row;
+        return (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 2 }}>
+            <IntentInteractionWrapper intentionId={row.id} anchorDate={anchorDate} onMutation={reload}>
+              <ListIntentionCard row={row} theme={theme} spectrumIsPro={spectrum.isProUser} />
+            </IntentInteractionWrapper>
+          </View>
+        );
+      }
       const row = item.row;
       const resolved = resolveDisplayTitle(row);
       const headingKey = displayHeading(resolved);
@@ -1078,8 +1146,37 @@ export function TimelineScreen() {
     { id: 'ARCHIVES', label: t('timeline.pilot.contextArchives'), emoji: '📦' },
   ];
 
+  const openRecharge = useCallback(() => {
+    navigation.navigate('Recharge');
+  }, [navigation]);
+
   return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
+      <View style={{ paddingTop: insets.top, paddingHorizontal: 16, paddingBottom: 6 }}>
+        <PilotStatusHeader
+          variant="timeline"
+          isProUser={spectrum.isProUser}
+          freeRemaining={freeQuotaSnapshot?.remaining ?? 0}
+          freeMax={freeQuotaSnapshot?.max ?? 3}
+          dayOfMonth={new Date().getDate()}
+          todayTodoCount={headerTodayRootTodoCount}
+          piggyCount={unorganizedCount}
+          onPressCredits={openRecharge}
+          onPressCalendar={() =>
+            navigation.navigate('Timeline', {
+              initialTimeNav: 'TODAY',
+              initialContext: 'ALL',
+            })
+          }
+          onPressPiggy={() =>
+            navigation.navigate('Timeline', {
+              initialTimeNav: 'TODAY',
+              initialContext: 'PIGGY',
+            })
+          }
+          translate={t}
+        />
+      </View>
       <FlatList
         style={styles.listFlex}
         data={flatListItems}
@@ -1110,16 +1207,15 @@ export function TimelineScreen() {
         ListHeaderComponent={
           <View style={styles.headerStack}>
             <View style={styles.headTitleRow}>
-              <CalendarDays color={theme.colors.primary} size={20} />
               <Text style={[styles.screenTitle, { color: theme.colors.onBackground }]}>{t('timeline.pilot.title')}</Text>
             </View>
 
             <NeumorphicCard style={styles.cardBlock}>
               <View style={styles.segmentLabelRow}>
                 <Text style={[styles.cardLabel, { color: theme.colors.primary }]}>{t('timeline.pilot.timeNav')}</Text>
-                {timeNav === 'TODAY' && todayTodoCount > 0 ? (
+                {timeNav === 'TODAY' && headerTodayRootTodoCount > 0 ? (
                   <View style={styles.timeBadge}>
-                    <Text style={styles.timeBadgeText}>{todayTodoCount}</Text>
+                    <Text style={styles.timeBadgeText}>{headerTodayRootTodoCount}</Text>
                   </View>
                 ) : null}
               </View>
@@ -1250,7 +1346,7 @@ export function TimelineScreen() {
       />
 
       {RPlatform.OS !== 'web' && datePickerOpen ? (
-        <DateTimePicker
+        <TimelineDatePickerLazy
           value={customPickedDate ?? startOfToday()}
           mode="date"
           display="default"

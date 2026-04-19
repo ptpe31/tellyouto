@@ -1,7 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Pause, Play, Send, Trash2 } from 'lucide-react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Mic, Pause, Play, Send, Trash2 } from 'lucide-react-native';
 
 export type UiMode = 'IDLE' | 'RECORDING' | 'DECISION';
 export type MainConceptTarget = 'PROJECT' | 'TASK' | 'NOTE';
@@ -108,7 +107,7 @@ export function MainInterface({
           </View>
         ) : (
           <Pressable style={styles.micBtn} onPress={onMicStartPress} disabled={micDisabled}>
-            <Ionicons name="mic" size={26} color="#e4edf5" />
+            <Mic size={26} color="#e4edf5" />
           </Pressable>
         )}
       </View>

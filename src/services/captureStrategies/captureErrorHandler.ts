@@ -6,8 +6,8 @@ import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../.
 
 export type CaptureErrorHandlerContext = {
   translate: (key: string, options?: Record<string, string | number>) => string;
-  /** Même logique que l’écran : `refundIaCredit` si crédit capture encore en attente. */
-  refundPendingCaptureCredit: () => Promise<void>;
+  /** Ancien flux pré-débit micro ; laisser vide avec la politique « succès uniquement ». */
+  refundPendingCaptureCredit?: () => Promise<void>;
   alertTitleKey?: string;
   /** Si le message d’erreur est vide, affiche cette clé i18n. */
   fallbackMessageKey?: string;
@@ -20,7 +20,9 @@ export async function handleCaptureFlowError(
   error: unknown,
   ctx: CaptureErrorHandlerContext,
 ): Promise<void> {
-  await ctx.refundPendingCaptureCredit();
+  if (ctx.refundPendingCaptureCredit) {
+    await ctx.refundPendingCaptureCredit();
+  }
 
   if (isLikelyMissingNativeModuleError(error)) {
     alertNativeModuleMissing('nativeModule.contextTalkHomePersist', error);

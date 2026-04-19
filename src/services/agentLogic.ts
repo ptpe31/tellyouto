@@ -1228,8 +1228,8 @@ export function getDominantSpectrumAxis(w: SpectrumWeights): SpectrumAxis {
 export { isRailConnectionHandshakeMessage } from './railMessaging';
 
 /** Félicitations + tonalité : Zen = plus posé / long ; Momentum = plus court et dynamique */
-const ENCOURAGEMENT: Record<
-  AppLanguage,
+const ENCOURAGEMENT_CORE: Record<
+  'fr' | 'en' | 'es' | 'de' | 'it' | 'ja' | 'zh',
   Record<SpectrumAxis, string>
 > = {
   fr: {
@@ -1302,6 +1302,15 @@ const ENCOURAGEMENT: Record<
     stats:
       '信号清晰，路径更锐。保持这份精确。',
   },
+};
+
+/** Couvre toutes les {@link AppLanguage} ; les locales sans pack dédié réutilisent l’anglais. */
+const ENCOURAGEMENT: Record<AppLanguage, Record<SpectrumAxis, string>> = {
+  ...ENCOURAGEMENT_CORE,
+  ar: ENCOURAGEMENT_CORE.en,
+  ko: ENCOURAGEMENT_CORE.en,
+  nl: ENCOURAGEMENT_CORE.en,
+  sv: ENCOURAGEMENT_CORE.en,
 };
 
 /**

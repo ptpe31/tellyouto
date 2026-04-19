@@ -21,6 +21,7 @@ import { Bell } from 'lucide-react-native';
 import { CalendarGranularSection } from '../components';
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
 import {
+  addIaCredits,
   consumeTrankilV2IntentCredit,
   getLastTrankilV2IntentionRaw,
   getTrankilV2IntentionTaskCounts,
@@ -359,6 +360,15 @@ export function DebugScreen() {
     await setAdState({ ia_credits: 0 });
     Alert.alert(STRINGS.admin.title, STRINGS.admin.resetDone);
   }, []);
+
+  const onAdd99IaCredits = useCallback(async () => {
+    try {
+      const next = await addIaCredits(99);
+      Alert.alert(t('debug.pilotTitle'), t('debug.add99AiCreditsDone', { count: next.ia_credits }));
+    } catch (e) {
+      Alert.alert(t('debug.pilotTitle'), e instanceof Error ? e.message : String(e));
+    }
+  }, [t]);
 
   const onResetProfile = useCallback(async () => {
     setLastError(null);
@@ -813,6 +823,11 @@ export function DebugScreen() {
           </Button>
           <Button mode="contained-tonal" onPress={() => void onResetCredits()} style={styles.btnCompact}>
             {STRINGS.admin.resetCredits}
+          </Button>
+        </View>
+        <View style={styles.godRow}>
+          <Button mode="contained" onPress={() => void onAdd99IaCredits()} style={styles.btnCompact}>
+            {t('debug.add99AiCreditsButton')}
           </Button>
         </View>
       </View>

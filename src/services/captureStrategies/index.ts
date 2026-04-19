@@ -1,5 +1,6 @@
 export { handleCaptureFlowError, type CaptureErrorHandlerContext } from './captureErrorHandler';
 export { executeHabitCapture } from './HabitStrategy';
+export { executeListInventoryCapture } from './ListStrategy';
 export {
   executeAudioMemoCapture,
   executeQuickNoteCapture,

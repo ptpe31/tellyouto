@@ -3,7 +3,7 @@ import { DeviceEventEmitter } from 'react-native';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 
-export type TrankilIntentType = 'TASK' | 'HABIT' | 'NOTE' | 'AUDIO' | 'PROJECT';
+export type TrankilIntentType = 'TASK' | 'HABIT' | 'NOTE' | 'AUDIO' | 'PROJECT' | 'LIST';
 export type TrankilIntentStatus = 'TODO' | 'DONE' | 'ARCHIVED';
 
 export type TrankilV2IntentionRow = {
@@ -49,7 +49,7 @@ export type TrankilV2TimelineItemRow = {
   parent_id: string | null;
   project_title: string | null;
   display_title: string;
-  section: 'TASK_HABIT' | 'PROJECT_SUBTASK' | 'NOTE_AUDIO';
+  section: 'TASK_HABIT' | 'PROJECT_SUBTASK' | 'NOTE_AUDIO' | 'LIST_CARD';
   is_synced_calendar: number;
   /** Présent lorsque la requête Timeline le joint (filtres contexte). */
   category_id?: string | null;
@@ -60,6 +60,12 @@ export type TrankilV2TimelineItemRow = {
 };
 
 export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
+
+/** Plafond offre Free : captures micro réussies / jour (date locale), sans cumul. */
+export const FREE_DAILY_CAPTURE_MAX = 3;
+
+/** Quota Free distinct : listes inventaire réussies / jour (date locale), sans cumul. */
+export const FREE_DAILY_LIST_MAX = 1;
 
 export type TrankilV2UserStatsRow = {
   ia_credits: number;
@@ -201,7 +207,7 @@ export async function initTrankilV2Schema(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS intentions (
       id TEXT PRIMARY KEY NOT NULL,
-      type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT')),
+      type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT', 'LIST')),
       title TEXT NOT NULL,
       due_date TEXT,
       content_raw TEXT NOT NULL DEFAULT '',
@@ -409,6 +415,16 @@ export async function initTrankilV2Schema(): Promise<void> {
   if (!hasRechargeLastVideoAt) {
     await db.execAsync(`ALTER TABLE user_stats ADD COLUMN recharge_last_video_at INTEGER;`);
   }
+  const hasFreeCaptureDay = userStatsCols.some((c) => c.name === 'free_capture_day_ymd');
+  if (!hasFreeCaptureDay) {
+    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN free_capture_day_ymd TEXT;`);
+  }
+  const hasFreeCaptureRemaining = userStatsCols.some((c) => c.name === 'free_capture_remaining');
+  if (!hasFreeCaptureRemaining) {
+    await db.execAsync(
+      `ALTER TABLE user_stats ADD COLUMN free_capture_remaining INTEGER NOT NULL DEFAULT 3;`,
+    );
+  }
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS user_activity_logs (
       id TEXT PRIMARY KEY NOT NULL,
@@ -436,7 +452,7 @@ export async function initTrankilV2Schema(): Promise<void> {
       DROP TABLE IF EXISTS intentions_v2;
       CREATE TABLE intentions_v2 (
         id TEXT PRIMARY KEY NOT NULL,
-        type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT')),
+        type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT', 'LIST')),
         title TEXT NOT NULL,
         due_date TEXT,
         content_raw TEXT NOT NULL DEFAULT '',
@@ -502,10 +518,12 @@ export async function initTrankilV2Schema(): Promise<void> {
         pending_sync_ia_credits INTEGER NOT NULL DEFAULT 0,
         recharge_window_started_at INTEGER,
         recharge_videos_in_window INTEGER NOT NULL DEFAULT 0,
-        recharge_last_video_at INTEGER
+        recharge_last_video_at INTEGER,
+        free_capture_day_ymd TEXT,
+        free_capture_remaining INTEGER NOT NULL DEFAULT 3
       );
       INSERT OR REPLACE INTO user_stats_compact (
-        id, ia_credits, zen_points, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at
+        id, ia_credits, zen_points, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at, free_capture_day_ymd, free_capture_remaining
       )
       SELECT
         1,
@@ -518,7 +536,9 @@ export async function initTrankilV2Schema(): Promise<void> {
         0,
         NULL,
         0,
-        NULL
+        NULL,
+        NULL,
+        3
       FROM user_stats
       WHERE id = 1;
       DROP TABLE user_stats;
@@ -560,6 +580,74 @@ export async function initTrankilV2Schema(): Promise<void> {
     await db.execAsync(
       `ALTER TABLE intentions ADD COLUMN is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1));`,
     );
+  }
+
+  const userStatsCols2 = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(user_stats)`);
+  if (!userStatsCols2.some((c) => c.name === 'list_free_day_ymd')) {
+    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN list_free_day_ymd TEXT;`);
+  }
+  if (!userStatsCols2.some((c) => c.name === 'list_free_remaining')) {
+    await db.execAsync(
+      `ALTER TABLE user_stats ADD COLUMN list_free_remaining INTEGER NOT NULL DEFAULT 1;`,
+    );
+  }
+
+  const tableSqlListType = await db.getFirstAsync<{ sql: string }>(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='intentions'`,
+  );
+  if (!String(tableSqlListType?.sql || '').includes("'LIST'")) {
+    await db.execAsync(`
+      DROP TABLE IF EXISTS intentions_list_mig;
+      CREATE TABLE intentions_list_mig (
+        id TEXT PRIMARY KEY NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT', 'LIST')),
+        title TEXT NOT NULL,
+        due_date TEXT,
+        content_raw TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        suggested_tags TEXT NOT NULL DEFAULT '[]',
+        category_id TEXT,
+        category TEXT,
+        parent_id TEXT,
+        status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE', 'ARCHIVED')),
+        is_organized INTEGER NOT NULL DEFAULT 0 CHECK (is_organized IN (0, 1)),
+        is_local_processed INTEGER NOT NULL DEFAULT 0 CHECK (is_local_processed IN (0, 1)),
+        complexity_level INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        calendar_event_id TEXT,
+        calendar_name TEXT,
+        is_synced_calendar INTEGER NOT NULL DEFAULT 0 CHECK (is_synced_calendar IN (0, 1)),
+        alarm_enabled INTEGER NOT NULL DEFAULT 0 CHECK (alarm_enabled IN (0, 1)),
+        remind_at INTEGER,
+        local_notification_id TEXT,
+        recurrence_rrule TEXT,
+        is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1)),
+        done_at INTEGER,
+        is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1)),
+        archived_at INTEGER,
+        is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1))
+      );
+      INSERT INTO intentions_list_mig (
+        id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
+        status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
+        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+        is_done, done_at, is_archived, archived_at, is_pending_ai
+      )
+      SELECT
+        id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
+        status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
+        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+        COALESCE(is_done, CASE WHEN status = 'DONE' THEN 1 ELSE 0 END),
+        done_at,
+        COALESCE(is_archived, CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END),
+        archived_at,
+        COALESCE(is_pending_ai, 0)
+      FROM intentions;
+      DROP TABLE intentions;
+      ALTER TABLE intentions_list_mig RENAME TO intentions;
+      CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);
+      CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);
+    `);
   }
 }
 
@@ -649,7 +737,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.parent_id AS parent_id,
         NULL AS project_title,
         i.title AS display_title,
-        'NOTE_AUDIO' AS section,
+        CASE WHEN i.type = 'LIST' THEN 'LIST_CARD' ELSE 'NOTE_AUDIO' END AS section,
         COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
         i.category_id AS category_id,
         i.suggested_tags AS suggested_tags,
@@ -660,7 +748,7 @@ export async function listTrankilV2TimelineItemsByDate(
       FROM intentions i
       WHERE i.status = ?
         AND COALESCE(i.is_archived, 0) = 0
-        AND i.type IN ('NOTE', 'AUDIO')
+        AND i.type IN ('NOTE', 'AUDIO', 'LIST')
         ${ctx}
     )
     WHERE
@@ -758,7 +846,7 @@ WITH dated AS (
       i.parent_id AS parent_id,
       NULL AS project_title,
       i.title AS display_title,
-      'NOTE_AUDIO' AS section,
+      CASE WHEN i.type = 'LIST' THEN 'LIST_CARD' ELSE 'NOTE_AUDIO' END AS section,
       COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
       i.category_id AS category_id,
       i.suggested_tags AS suggested_tags,
@@ -769,7 +857,7 @@ WITH dated AS (
     FROM intentions i
     WHERE i.status = ?
       AND COALESCE(i.is_archived, 0) = 0
-      AND i.type IN ('NOTE', 'AUDIO')
+      AND i.type IN ('NOTE', 'AUDIO', 'LIST')
       ${ctx}
   ) z
   WHERE z.effective_date = ?
@@ -958,7 +1046,8 @@ export async function listArchivedIntentions(limit: number = 200): Promise<Trank
        i.parent_id AS parent_id,
        p.title AS project_title,
        i.title AS display_title,
-       CASE WHEN i.type IN ('NOTE', 'AUDIO') THEN 'NOTE_AUDIO'
+       CASE WHEN i.type = 'LIST' THEN 'LIST_CARD'
+            WHEN i.type IN ('NOTE', 'AUDIO') THEN 'NOTE_AUDIO'
             WHEN i.parent_id IS NOT NULL AND trim(i.parent_id) != '' THEN 'PROJECT_SUBTASK'
             ELSE 'TASK_HABIT' END AS section,
        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
@@ -1112,11 +1201,13 @@ export async function listTrankilV2IsArchivedIntentions(opts?: {
 export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow): TrankilV2TimelineItemRow {
   const pid = String(row.parent_id ?? '').trim();
   const section: TrankilV2TimelineItemRow['section'] =
-    row.type === 'NOTE' || row.type === 'AUDIO'
-      ? 'NOTE_AUDIO'
-      : row.type === 'TASK' && pid
-        ? 'PROJECT_SUBTASK'
-        : 'TASK_HABIT';
+    row.type === 'LIST'
+      ? 'LIST_CARD'
+      : row.type === 'NOTE' || row.type === 'AUDIO'
+        ? 'NOTE_AUDIO'
+        : row.type === 'TASK' && pid
+          ? 'PROJECT_SUBTASK'
+          : 'TASK_HABIT';
   return {
     id: row.id,
     type: row.type,
@@ -1263,6 +1354,141 @@ export async function addIaCredits(count: number): Promise<TrankilV2UserStatsRow
 export async function refundIaCredit(count: number = 1): Promise<TrankilV2UserStatsRow> {
   const safe = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
   return addIaCredits(safe);
+}
+
+function formatYmdLocalForQuota(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function ensureFreeDailyCaptureResetForDb(db: SQLite.SQLiteDatabase): Promise<void> {
+  const today = formatYmdLocalForQuota(new Date());
+  const row = await db.getFirstAsync<{
+    free_capture_day_ymd: string | null;
+    free_capture_remaining: number | null;
+  }>(`SELECT free_capture_day_ymd, free_capture_remaining FROM user_stats WHERE id = 1`);
+  if (!row) return;
+  if (row.free_capture_day_ymd !== today) {
+    await db.runAsync(
+      `UPDATE user_stats SET free_capture_day_ymd = ?, free_capture_remaining = ? WHERE id = 1`,
+      [today, FREE_DAILY_CAPTURE_MAX],
+    );
+  }
+}
+
+export type FreeCaptureQuotaSnapshot = {
+  remaining: number;
+  max: number;
+  dayYmd: string;
+};
+
+export async function getFreeCaptureQuotaSnapshot(): Promise<FreeCaptureQuotaSnapshot> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  await ensureFreeDailyCaptureResetForDb(db);
+  const row = await db.getFirstAsync<{
+    free_capture_day_ymd: string | null;
+    free_capture_remaining: number | null;
+  }>(`SELECT free_capture_day_ymd, free_capture_remaining FROM user_stats WHERE id = 1`);
+  const today = formatYmdLocalForQuota(new Date());
+  const remaining = Math.max(
+    0,
+    Math.min(
+      FREE_DAILY_CAPTURE_MAX,
+      Number(row?.free_capture_remaining ?? FREE_DAILY_CAPTURE_MAX),
+    ),
+  );
+  return {
+    remaining,
+    max: FREE_DAILY_CAPTURE_MAX,
+    dayYmd: row?.free_capture_day_ymd ?? today,
+  };
+}
+
+/**
+ * Décrémente d’une unité le quota Free après une capture micro réussie (hors Pro).
+ * Émet {@link INTENTIONS_CHANGED_EVENT_NAME} pour rafraîchir les badges.
+ */
+export async function consumeFreeCaptureSuccessOnce(): Promise<FreeCaptureQuotaSnapshot> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  await ensureFreeDailyCaptureResetForDb(db);
+  const before = await db.getFirstAsync<{ free_capture_remaining: number | null }>(
+    `SELECT free_capture_remaining FROM user_stats WHERE id = 1`,
+  );
+  const cur = Math.max(
+    0,
+    Math.min(FREE_DAILY_CAPTURE_MAX, Number(before?.free_capture_remaining ?? 0)),
+  );
+  if (cur <= 0) {
+    return getFreeCaptureQuotaSnapshot();
+  }
+  const next = cur - 1;
+  await db.runAsync(`UPDATE user_stats SET free_capture_remaining = ? WHERE id = 1`, [next]);
+  notifyIntentionsChanged({ reason: 'free_capture_consumed' });
+  const today = formatYmdLocalForQuota(new Date());
+  return { remaining: next, max: FREE_DAILY_CAPTURE_MAX, dayYmd: today };
+}
+
+async function ensureListFreeDailyResetForDb(db: SQLite.SQLiteDatabase): Promise<void> {
+  const today = formatYmdLocalForQuota(new Date());
+  const row = await db.getFirstAsync<{
+    list_free_day_ymd: string | null;
+    list_free_remaining: number | null;
+  }>(`SELECT list_free_day_ymd, list_free_remaining FROM user_stats WHERE id = 1`);
+  if (!row) return;
+  if (row.list_free_day_ymd !== today) {
+    await db.runAsync(
+      `UPDATE user_stats SET list_free_day_ymd = ?, list_free_remaining = ? WHERE id = 1`,
+      [today, FREE_DAILY_LIST_MAX],
+    );
+  }
+}
+
+export type ListFreeQuotaSnapshot = {
+  remaining: number;
+  max: number;
+  dayYmd: string;
+};
+
+export async function getListFreeQuotaSnapshot(): Promise<ListFreeQuotaSnapshot> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  await ensureListFreeDailyResetForDb(db);
+  const row = await db.getFirstAsync<{
+    list_free_day_ymd: string | null;
+    list_free_remaining: number | null;
+  }>(`SELECT list_free_day_ymd, list_free_remaining FROM user_stats WHERE id = 1`);
+  const today = formatYmdLocalForQuota(new Date());
+  const remaining = Math.max(
+    0,
+    Math.min(FREE_DAILY_LIST_MAX, Number(row?.list_free_remaining ?? FREE_DAILY_LIST_MAX)),
+  );
+  return {
+    remaining,
+    max: FREE_DAILY_LIST_MAX,
+    dayYmd: row?.list_free_day_ymd ?? today,
+  };
+}
+
+export async function consumeListFreeSuccessOnce(): Promise<ListFreeQuotaSnapshot> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  await ensureListFreeDailyResetForDb(db);
+  const before = await db.getFirstAsync<{ list_free_remaining: number | null }>(
+    `SELECT list_free_remaining FROM user_stats WHERE id = 1`,
+  );
+  const cur = Math.max(0, Math.min(FREE_DAILY_LIST_MAX, Number(before?.list_free_remaining ?? 0)));
+  if (cur <= 0) {
+    return getListFreeQuotaSnapshot();
+  }
+  const next = cur - 1;
+  await db.runAsync(`UPDATE user_stats SET list_free_remaining = ? WHERE id = 1`, [next]);
+  notifyIntentionsChanged({ reason: 'list_free_consumed' });
+  const today = formatYmdLocalForQuota(new Date());
+  return { remaining: next, max: FREE_DAILY_LIST_MAX, dayYmd: today };
 }
 
 export async function markIaRechargeWatch(nowMs: number = Date.now()): Promise<TrankilV2UserStatsRow> {
@@ -1546,6 +1772,28 @@ export async function getTrankilV2UnorganizedCount(): Promise<number> {
   return Number(row?.total ?? 0);
 }
 
+/** Tâches / habitudes racine dont l’échéance correspond au jour local (YYYY-MM-DD ou YYYYMMDD). */
+export async function countTrankilV2RootTodoTasksDueOnLocalDate(ymdHyphen: string): Promise<number> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const ymd = String(ymdHyphen || '').trim();
+  if (!ymd) return 0;
+  const compact = ymd.replace(/-/g, '');
+  const row = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM intentions i
+     WHERE i.status = 'TODO'
+       AND COALESCE(i.is_archived, 0) = 0
+       AND i.type IN ('TASK', 'HABIT')
+       AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+       AND (
+         trim(coalesce(i.due_date, '')) = ?
+         OR replace(trim(coalesce(i.due_date, '')), '-', '') = ?
+       )`,
+    [ymd, compact],
+  );
+  return Number(row?.total ?? 0);
+}
+
 export async function getLocalEcoScore(): Promise<number> {
   await initTrankilV2Schema();
   const db = await getDb();
@@ -1620,10 +1868,15 @@ export async function finalizeOfflineFirstHabitFromShell(
   notifyIntentionsChanged({ id, reason: 'offline_first_habit' });
 }
 
-export async function updateTrankilV2IntentionMetadataJson(id: string, metadata_json: string): Promise<void> {
+export async function updateTrankilV2IntentionMetadataJson(
+  id: string,
+  metadata_json: string,
+  opts?: { silent?: boolean },
+): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
   await db.runAsync(`UPDATE intentions SET metadata_json = ? WHERE id = ?`, [metadata_json, id]);
+  if (opts?.silent) return;
   await syncAfterIntentionWrite('updateTrankilV2IntentionMetadataJson');
   notifyIntentionsChanged({ id, reason: 'metadata' });
 }
@@ -1874,6 +2127,7 @@ export function growthPointsForType(type: TrankilIntentType): number {
   if (type === 'HABIT') return 5;
   if (type === 'PROJECT') return 15;
   if (type === 'TASK') return 2;
+  if (type === 'LIST') return 0;
   return 0;
 }
 

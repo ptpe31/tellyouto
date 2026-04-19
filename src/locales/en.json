@@ -20,6 +20,17 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "Go Pro",
+    "proLabel": "PRO",
+    "a11yCredits": "Capture credits — open Recharge",
+    "a11yCalendar": "Open today on Timeline",
+    "a11yPiggy": "Inbox — unorganized items",
+    "rechargeModalBody": "Open Recharge to go Pro and unlock more clarity.",
+    "openRecharge": "View Recharge"
+  },
   "eveningRitual": {
     "title": "Star Ritual",
     "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
@@ -347,6 +358,7 @@
     "badgeNote": "📝 NOTE",
     "badgeHabit": "🔄 HABIT",
     "badgeTask": "⚡ TASK",
+    "badgeList": "📋 LIST",
     "badgeProject": "🚀 PROJECT",
     "projectPrefix": "Project",
     "a11yTaskComplete": "Mark as done or cancel pending completion",
@@ -367,6 +379,9 @@
     },
     "notesAudio": {
       "title": "Notes & Audios"
+    },
+    "lists": {
+      "title": "Lists & inventories"
     },
     "ideaBank": {
       "title": "The Idea Bank",
@@ -956,6 +971,35 @@
     "watchVideoCta": "Watch a video (+5 credits)",
     "unlimited_price": "Go unlimited ({{price}}/month)"
   },
+  "listIntention": {
+    "proTeaserTitle": "Pro",
+    "proTeaserBody": "Go Pro to instantly scale your lists (guests, gear, logistics).",
+    "unreadable": "This list could not be loaded.",
+    "a11yDecrease": "Decrease scale",
+    "a11yIncrease": "Increase scale",
+    "units": {
+      "g": {
+        "one": "{{count}} g",
+        "other": "{{count}} g"
+      },
+      "kg": {
+        "one": "{{count}} kg",
+        "other": "{{count}} kg"
+      },
+      "cl": {
+        "one": "{{count}} cl",
+        "other": "{{count}} cl"
+      },
+      "l": {
+        "one": "{{count}} l",
+        "other": "{{count}} l"
+      },
+      "piece": {
+        "one": "{{count}} piece",
+        "other": "{{count}} pieces"
+      }
+    }
+  },
   "talkDebug": {
     "noteSaved": "Note saved",
     "audioTitle": "Audio memo",
@@ -978,7 +1022,7 @@
     "projectGenerationError": "Error while generating plan.",
     "exportAgendaTitle": "Calendar export",
     "exportAgendaError": "Unable to export plan.",
-    "projectAnchored": "Project anchored and saved. Credits left: {{credits}}",
+    "projectAnchored": "Project anchored and saved.",
     "projectAnchoredCalendar": "Event added to your calendar {{calendar}}",
     "savedCalendarToast": "Saved + Calendar",
     "savedCalendarArchivedToast": "Synced to calendar & Archived",
@@ -988,6 +1032,8 @@
     "calendarPickerSubtitle": "Select the destination calendar for this insertion.",
     "calendarDefaultLabel": "Calendar: {{calendar}}",
     "screenTitle": "Talk Debug - Post Choice",
+    "a11yOpenTimelineToday": "Open Timeline — today",
+    "a11yOpenTimelinePiggy": "Open Timeline — piggy bank",
     "smartTitleDetected": "Smart title detected",
     "crystallizedTitleEditable": "Crystallized title (editable)",
     "emptyTranscription": "(Empty transcription)",
@@ -996,6 +1042,10 @@
     "actionProject": "🚀 Project (-1 AI credit)",
     "actionTask": "⚡ Task",
     "actionHabit": "🔄 Habit",
+    "actionList": "📋 List",
+    "listFallbackTitle": "List",
+    "listSavedToast": "List saved",
+    "listQuotaExhaustedToast": "Your free list for today is used. Open Recharge to go Pro.",
     "deadlineTitle": "When is it due?",
     "deadlineSubtitle": "Add a time constraint to make the plan more reliable.",
     "oneWeek": "1 week",

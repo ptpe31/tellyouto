@@ -57,11 +57,18 @@ export interface OfflineRawNoteSavedOutcome {
   intentionId: string;
 }
 
+export interface ListCaptureOutcome {
+  kind: 'list_inventory_persisted';
+  intentionId: string;
+  successFeedbackI18nKey: string;
+}
+
 export type CaptureChooseActionSuccess =
   | { outcome: TemporalPersistedOutcome }
   | { outcome: SimpleCaptureOutcome }
   | { outcome: OpenProjectModalOutcome }
-  | { outcome: OfflineRawNoteSavedOutcome };
+  | { outcome: OfflineRawNoteSavedOutcome }
+  | { outcome: ListCaptureOutcome };
 
 export type CaptureChooseActionResult =
   | ({ ok: true } & CaptureChooseActionSuccess)

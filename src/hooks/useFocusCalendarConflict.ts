@@ -4,12 +4,22 @@ import type { FocusCapsuleMode } from '../navigation/types';
 import { slotOverlapsBusyIntervals } from '../services/agentLogic';
 
 /**
- * Détecte si une session focus démarrée « maintenant » chevauche un créneau
- * calendrier (données locales uniquement).
+ * Hook **sans état serveur** : compare une session focus « maintenant » aux
+ * intervalles occupés du calendrier connecté (contexte d’intégration local).
+ *
+ * @returns Objet `{ shouldWarnForLaunch }` : fonction utilitaire pour savoir
+ *   s’il faut avertir l’utilisateur avant de lancer une capsule focus.
  */
 export function useFocusCalendarConflict() {
   const { connectEnabled, busyIntervals } = useCalendarIntegration();
 
+  /**
+   * Indique si le lancement immédiat d’une capsule chevauche un créneau « busy ».
+   *
+   * @param mode — `pomodoro` (25 min) ou chrono basé sur `estimated_duration`.
+   * @param intention — Intention SQLite source de la durée estimée.
+   * @returns `true` si l’utilisateur devrait voir un message de conflit calendrier.
+   */
   const shouldWarnForLaunch = (
     mode: FocusCapsuleMode,
     intention: IntentionRow,

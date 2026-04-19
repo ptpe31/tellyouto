@@ -8,6 +8,8 @@
 
 import Constants from 'expo-constants';
 
+import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
+
 const DEFAULT_MODEL = 'gemini-1.5-flash-latest';
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const FALLBACK_MODELS = [
@@ -562,4 +564,52 @@ export async function geminiMelimeloClusterNotes(
     throw new Error('Gemini semantic sort: no valid group');
   }
   return { groups, rawResponseText };
+}
+
+/**
+ * Liste inventaire (courses, matériel, valises) — JSON structuré via Gemini Flash.
+ */
+export async function geminiListInventoryFromTranscript(
+  transcript: string,
+  options: { isProContext: boolean; uiLocale: string },
+): Promise<{ parsed: GeminiListInventoryJson; rawResponseText: string }> {
+  const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
+  const loc = String(options.uiLocale || 'fr').toLowerCase();
+  const langHint =
+    loc.startsWith('en') ? 'Respond with category names and item names in English.' : '';
+  const proHint = options.isProContext
+    ? `If the dictation sounds professional (office, project, stock), use professional category names (e.g. "Marketing", "Technique", "Logistique") where relevant.`
+    : 'Prefer everyday categories (e.g. "Frais", "Épicerie", "Logistique") for personal lists.';
+  const prompt = `You are an expert organizer. Analyze the dictated list and output ONE valid JSON object only — no markdown, no commentary.
+
+${proHint}
+${langHint}
+
+Transcription:
+"""${safe.replace(/"/g, '\\"')}"""
+
+Return exactly this shape (keys in English as shown):
+{"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "qty": number, "unit": string, "scalable": boolean}]}]}
+
+Rules:
+- title: short explicit name (e.g. "Weekly groceries", "Trade show kit").
+- baseCount: usually 1 (reference headcount or base unit for the list).
+- unitLabel: short label for what the multiplier scales (e.g. "personne", "guest", "day").
+- categories: logical groups (e.g. "Fresh", "Dry goods").
+- items: name clear; qty is quantity for ONE base unit; unit must be one of: g, kg, piece, cl, l.
+- scalable: true if quantity should scale when the user changes the multiplier (e.g. pasta portions); false for fixed items (e.g. toothpaste tube).`;
+
+  const data = await postGenerateContent({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.18,
+      maxOutputTokens: 2048,
+    },
+  });
+  const rawResponseText = extractTextFromGenerateResponse(data);
+  if (!rawResponseText) {
+    throw new Error('Gemini: empty list inventory response');
+  }
+  const parsed = parseGeminiListInventoryJson(rawResponseText);
+  return { parsed, rawResponseText };
 }

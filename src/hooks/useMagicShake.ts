@@ -16,7 +16,14 @@ type Options = {
 };
 
 /**
- * Accéléromètre + intensité 0–1 pour l’agitation visuelle ; retour haptique type selection en boucle pendant le secouement.
+ * Écoute l’**accéléromètre** pour détecter un secouement soutenu, anime `intensitySV` (0–1)
+ * et déclenche un retour **haptique** type sélection tant que le mouvement est fort.
+ *
+ * @param options.enabled — Active ou coupe l’écoute capteur et remet l’intensité à 0.
+ * @param options.intensitySV — Valeur partagée Reanimated pilotée par l’excès d’accélération.
+ * @param options.gateOpenRef — Si `false`, le callback shake est ignoré (ex. tri en cours).
+ * @param options.onSustainedShake — Invoké après une fenêtre de secousses suffisantes.
+ * @returns void (effet de bord uniquement).
  */
 export function useMagicShake({
   enabled,

@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   DeviceEventEmitter,
+  Dimensions,
   Linking,
   Pressable,
   ScrollView,
@@ -21,29 +22,40 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Bell, Calendar as CalendarIcon, Check, Lock, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
+import {
+  Bell,
+  Calendar as CalendarIcon,
+  Check,
+  ListChecks,
+  Lock,
+  Mic,
+  Pause,
+  Play,
+  SendHorizontal,
+  Trash2,
+} from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
+import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
 import {
-  INTENTIONS_CHANGED_EVENT_NAME,
-} from '../api/localDb';
-import {
-  consumeIaCredits,
+  consumeFreeCaptureSuccessOnce,
+  countTrankilV2RootTodoTasksDueOnLocalDate,
   deleteTrankilV2IntentionById,
+  getFreeCaptureQuotaSnapshot,
   getTrankilV2IntentionById,
-  getTrankilV2UserStats,
+  getTrankilV2UnorganizedCount,
   insertTrankilV2Intention,
-  refundIaCredit,
   updateTrankilV2IntentionMetadataJson,
   updateTrankilV2IntentionPendingAiFlag,
 } from '../api/trankilV2Db';
+import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { runManualIaRechargeVideo } from '../services/AdManager';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
-import { AdCompanionBanner } from '../components/AdCompanionBanner';
-import { UpsellModal } from '../components/UpsellModal';
-import { rootNavigationRef } from '../navigation/rootNavigationRef';
+import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import type { GeminiExpertIntention } from '../services/GeminiExpert';
 import {
   exportProjectPlanToIcs,
@@ -59,6 +71,7 @@ import {
 } from '../services/calendarMirrorSync';
 import { getAutoArchiveAfterCalendarSync } from '../services/premiumBridgeSettings';
 import { logActivity } from '../services/UserActivityService';
+import type { AppTabParamList } from '../navigation/types';
 import { showAppToast } from '../services/appToast';
 import { applyOfflineFirstShellFailure, mergeIntentionMetadataJson } from '../services/captureOfflineFirstUtils';
 import {
@@ -67,6 +80,7 @@ import {
   buildTemporalCaptureRecap,
   executeAudioMemoCapture,
   executeHabitCapture,
+  executeListInventoryCapture,
   executeQuickNoteCapture,
   executeTaskCapture,
   generateProjectPlanFromDeadline,
@@ -97,6 +111,9 @@ const ALARM_SYNC_PREFS_KEY = '@tellyouto/talk_debug_alarm_sync_prefs';
 export function TalkDebugScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  const windowH = Dimensions.get('window').height;
   const [captureStep, setCaptureStep] = useState<'idle' | 'recording' | 'deciding'>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -109,15 +126,12 @@ export function TalkDebugScreen() {
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
-  const [iaCredits, setIaCredits] = useState(0);
+  const [freeQuotaSnapshot, setFreeQuotaSnapshot] = useState<{ remaining: number; max: number } | null>(null);
   const [deadlineModalVisible, setDeadlineModalVisible] = useState(false);
   const [deadlineText, setDeadlineText] = useState('');
   const [isDeadlineListening, setIsDeadlineListening] = useState(false);
   const [deadlineError, setDeadlineError] = useState('');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
-  const [upsellVisible, setUpsellVisible] = useState(false);
-  const [adCompanionActive, setAdCompanionActive] = useState(false);
-  const [upsellBusy, setUpsellBusy] = useState(false);
   const [autoArchiveAfterCalendarSync, setAutoArchiveAfterCalendarSync] = useState(false);
   const [calendarOptions, setCalendarOptions] = useState<WritableDeviceCalendar[]>([]);
   const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
@@ -140,34 +154,53 @@ export function TalkDebugScreen() {
     selectedTaskIndexes: number[];
     taskAlarmIndexes: number[];
   }>(null);
-  const [waveTick, setWaveTick] = useState(0);
   const recRef = useRef<Audio.Recording | null>(null);
-  const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
   const deadlineCaptureActiveRef = useRef(false);
-  const captureCreditPendingRef = useRef(false);
   const projectShellIdRef = useRef<string | null>(null);
+  const [todayTodoCount, setTodayTodoCount] = useState(0);
+  const [headerUnorganizedCount, setHeaderUnorganizedCount] = useState(0);
 
-  const refreshCredits = useCallback(async () => {
-    if (spectrum.isProUser) return;
-    const stats = await getTrankilV2UserStats();
-    setIaCredits(stats.ia_credits);
+  const refreshPilotHeader = useCallback(async () => {
+    const ymd = formatYmdLocal(new Date());
+    const [unorg, todayN, snap] = await Promise.all([
+      getTrankilV2UnorganizedCount(),
+      countTrankilV2RootTodoTasksDueOnLocalDate(ymd),
+      spectrum.isProUser ? Promise.resolve(null) : getFreeCaptureQuotaSnapshot(),
+    ]);
+    setHeaderUnorganizedCount(unorg);
+    setTodayTodoCount(todayN);
+    if (snap) {
+      setFreeQuotaSnapshot({ remaining: snap.remaining, max: snap.max });
+    } else {
+      setFreeQuotaSnapshot(null);
+    }
   }, [spectrum.isProUser]);
 
-  const markCaptureCreditCommitted = useCallback(() => {
-    captureCreditPendingRef.current = false;
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      void refreshPilotHeader();
+    }, [refreshPilotHeader]),
+  );
 
-  const refundPendingCaptureCredit = useCallback(async () => {
-    if (!captureCreditPendingRef.current || spectrum.isProUser) return;
-    await refundIaCredit(1);
-    captureCreditPendingRef.current = false;
-    await refreshCredits();
-  }, [refreshCredits, spectrum.isProUser]);
+  useEffect(() => {
+    const subs = [
+      DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => void refreshPilotHeader()),
+      DeviceEventEmitter.addListener(DATABASE_RESET_COMPLETE_EVENT, () => void refreshPilotHeader()),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, [refreshPilotHeader]);
 
   const emitTalkDebug = useCallback((payload: TalkCaptureDebugPayload) => {
     DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, payload);
   }, []);
+
+  const maybeConsumeFreeCaptureSuccess = useCallback(async () => {
+    if (spectrum.isProUser) return;
+    await consumeFreeCaptureSuccessOnce();
+    const snap = await getFreeCaptureQuotaSnapshot();
+    setFreeQuotaSnapshot({ remaining: snap.remaining, max: snap.max });
+  }, [spectrum.isProUser]);
 
   const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
     const timeout = new Promise<null>((resolve) => {
@@ -231,16 +264,7 @@ export function TalkDebugScreen() {
     }
   });
 
-  const waveHeights = useMemo(() => {
-    return Array.from({ length: 9 }).map((_, i) => {
-      const base = 8 + ((waveTick + i * 7) % 20);
-      return isRecording ? base : 8;
-    });
-  }, [isRecording, waveTick]);
-
   const hardResetToIdle = useCallback(() => {
-    if (waveformTimer.current) clearInterval(waveformTimer.current);
-    waveformTimer.current = null;
     recRef.current = null;
     deadlineCaptureActiveRef.current = false;
     try {
@@ -336,23 +360,11 @@ export function TalkDebugScreen() {
   }, []);
 
   useEffect(() => {
-    void refreshCredits();
-  }, [refreshCredits]);
-
-  useEffect(() => {
     void (async () => {
       const enabled = await getAutoArchiveAfterCalendarSync();
       setAutoArchiveAfterCalendarSync(enabled);
     })();
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (captureCreditPendingRef.current && !spectrum.isProUser) {
-        void refundIaCredit(1);
-      }
-    };
-  }, [spectrum.isProUser]);
 
   useEffect(() => {
     void (async () => {
@@ -376,7 +388,7 @@ export function TalkDebugScreen() {
     (kind: 'task' | 'habit' | 'project') => {
       void (async () => {
         if (!spectrum.isProUser) {
-          setUpsellVisible(true);
+          navigation.navigate('Recharge');
           return;
         }
         const next = {
@@ -395,14 +407,14 @@ export function TalkDebugScreen() {
         }
       })();
     },
-    [calendarSyncByType, ensureWritableCalendars, persistCalendarSyncPrefs, selectedCalendarId, selectCalendar, spectrum.isProUser],
+    [calendarSyncByType, ensureWritableCalendars, navigation, persistCalendarSyncPrefs, selectedCalendarId, selectCalendar, spectrum.isProUser],
   );
 
   const toggleAlarmSyncFor = useCallback(
     (kind: 'task' | 'habit' | 'project') => {
       void (async () => {
         if (!spectrum.isProUser) {
-          setUpsellVisible(true);
+          navigation.navigate('Recharge');
           return;
         }
         const next = { ...alarmSyncByType, [kind]: !alarmSyncByType[kind] };
@@ -410,7 +422,7 @@ export function TalkDebugScreen() {
         await AsyncStorage.setItem(ALARM_SYNC_PREFS_KEY, JSON.stringify(next));
       })();
     },
-    [alarmSyncByType, spectrum.isProUser],
+    [alarmSyncByType, navigation, spectrum.isProUser],
   );
 
   const persistAudioMemoFile = useCallback(async (uri: string): Promise<string> => {
@@ -483,9 +495,12 @@ export function TalkDebugScreen() {
 
   const startCapture = useCallback(async () => {
     if (isRecording || busy) return;
-    if (!spectrum.isProUser && iaCredits <= 0) {
-      setUpsellVisible(true);
-      return;
+    if (!spectrum.isProUser) {
+      const snap = await getFreeCaptureQuotaSnapshot();
+      if (snap.remaining <= 0) {
+        navigation.navigate('Recharge');
+        return;
+      }
     }
     setRawTranscript('');
     setLockedTitle('');
@@ -512,21 +527,14 @@ export function TalkDebugScreen() {
       setIsRecording(true);
       setIsPaused(false);
       setCaptureStep('recording');
-      waveformTimer.current = setInterval(() => setWaveTick((v) => v + 1), 180);
-      if (!spectrum.isProUser) {
-        await consumeIaCredits(1);
-        captureCreditPendingRef.current = true;
-        await refreshCredits();
-      }
     } catch (e) {
-      await refundPendingCaptureCredit();
       if (isLikelyMissingNativeModuleError(e)) {
         alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
       } else {
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
     }
-  }, [busy, ensureMicrophoneReady, i18n.language, iaCredits, isRecording, refundPendingCaptureCredit, refreshCredits, spectrum.isProUser, t]);
+  }, [busy, ensureMicrophoneReady, i18n.language, isRecording, navigation, spectrum.isProUser, t]);
 
   const stopCapture = useCallback(async () => {
     if (captureStep !== 'recording' || !isRecording) return;
@@ -545,8 +553,6 @@ export function TalkDebugScreen() {
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
     } finally {
-      if (waveformTimer.current) clearInterval(waveformTimer.current);
-      waveformTimer.current = null;
       setIsRecording(false);
       setIsPaused(false);
       const nextTranscript = rawTranscript;
@@ -580,10 +586,9 @@ export function TalkDebugScreen() {
     } catch {
       // Best effort cancel.
     } finally {
-      await refundPendingCaptureCredit();
       hardResetToIdle();
     }
-  }, [hardResetToIdle, refundPendingCaptureCredit]);
+  }, [hardResetToIdle]);
 
   const togglePauseCapture = useCallback(async () => {
     if (captureStep !== 'recording') return;
@@ -613,7 +618,7 @@ export function TalkDebugScreen() {
   }, [captureStep, i18n.language, isPaused, isRecording, t]);
 
   const onChooseAction = useCallback(
-    async (action: 'note' | 'task' | 'habit' | 'project' | 'audio' | 'cancel') => {
+    async (action: 'note' | 'task' | 'habit' | 'project' | 'audio' | 'list' | 'cancel') => {
       if (action === 'cancel') {
         hardResetToIdle();
         return;
@@ -645,8 +650,7 @@ export function TalkDebugScreen() {
           });
           if (!res.ok) throw res.error;
           if (res.outcome.kind !== 'simple_note_or_audio') throw new Error('unexpected_capture_outcome');
-          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          markCaptureCreditCommitted();
+          await maybeConsumeFreeCaptureSuccess();
           pushSuccessFeedback(t(res.outcome.successFeedbackI18nKey));
           hardResetToIdle();
           return;
@@ -662,8 +666,7 @@ export function TalkDebugScreen() {
           if (!res.ok) throw res.error;
           if (res.outcome.kind !== 'persisted_temporal') throw new Error('unexpected_capture_outcome');
           const o = res.outcome;
-          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          markCaptureCreditCommitted();
+          await maybeConsumeFreeCaptureSuccess();
           const cfg = postEffectsConfigFor(o.mirrorType);
           void (async () => {
             const fx = await applyPostCaptureEffects(o.intentionId, o.mirrorType, {
@@ -687,16 +690,13 @@ export function TalkDebugScreen() {
           });
           if (!res.ok) throw res.error;
           if (res.outcome.kind === 'offline_raw_note_saved') {
-            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-            markCaptureCreditCommitted();
             showAppToast(t('capture.offlineNoteGenericToast'));
             hardResetToIdle();
             return;
           }
           if (res.outcome.kind !== 'persisted_temporal') throw new Error('unexpected_capture_outcome');
           const o = res.outcome;
-          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          markCaptureCreditCommitted();
+          await maybeConsumeFreeCaptureSuccess();
           const cfg = postEffectsConfigFor(o.mirrorType);
           void (async () => {
             const fx = await applyPostCaptureEffects(o.intentionId, o.mirrorType, {
@@ -736,17 +736,33 @@ export function TalkDebugScreen() {
             throw res.error;
           }
           if (res.outcome.kind !== 'simple_note_or_audio') throw new Error('unexpected_capture_outcome');
-          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          markCaptureCreditCommitted();
+          await maybeConsumeFreeCaptureSuccess();
+          pushSuccessFeedback(t(res.outcome.successFeedbackI18nKey));
+          hardResetToIdle();
+          return;
+        }
+
+        if (action === 'list') {
+          const res = await executeListInventoryCapture({
+            deps: captureStrategyDeps,
+            finalTranscript,
+            fallbackTitle: t('talkDebug.listFallbackTitle'),
+          });
+          if (!res.ok) {
+            if (res.code === 'LIST_QUOTA') {
+              showAppToast(t('talkDebug.listQuotaExhaustedToast'));
+              navigation.navigate('Recharge');
+              return;
+            }
+            throw res.error;
+          }
+          if (res.outcome.kind !== 'list_inventory_persisted') throw new Error('unexpected_capture_outcome');
           pushSuccessFeedback(t(res.outcome.successFeedbackI18nKey));
           hardResetToIdle();
           return;
         }
       } catch (e) {
-        await handleCaptureFlowError(e, {
-          refundPendingCaptureCredit,
-          translate: t,
-        });
+        await handleCaptureFlowError(e, { translate: t });
       } finally {
         setBusy(false);
       }
@@ -762,10 +778,10 @@ export function TalkDebugScreen() {
       hardResetToIdle,
       isTitleLocked,
       lockedTitle,
-      markCaptureCreditCommitted,
+      maybeConsumeFreeCaptureSuccess,
+      navigation,
       pushSuccessFeedback,
       rawTranscript,
-      refundPendingCaptureCredit,
       selectedCalendarId,
       spectrum.isProUser,
       spectrum.locale,
@@ -807,39 +823,6 @@ export function TalkDebugScreen() {
       }
     }
   }, [ensureMicrophoneReady, i18n.language, isDeadlineListening, t]);
-
-  const onUpsellWatchVideo = useCallback(() => {
-    void (async () => {
-      setUpsellBusy(true);
-      if (!spectrum.isProUser) setAdCompanionActive(true);
-      try {
-        const recharge = await runManualIaRechargeVideo();
-        if (!recharge.ok) {
-          const msg =
-            recharge.reason === 'daily_limit_reached'
-              ? t('economy.recharge.dailyCapReached')
-              : recharge.reason === 'recharge_cooldown'
-                ? t('economy.recharge.cooldown')
-                : t('economy.recharge.unavailableTitle');
-          Alert.alert(t('economy.recharge.modalTitle'), msg);
-          return;
-        }
-        setUpsellVisible(false);
-        await refreshCredits();
-        Alert.alert(t('economy.recharge.modalTitle'), t('economy.recharge.rewardToast'));
-      } finally {
-        setAdCompanionActive(false);
-        setUpsellBusy(false);
-      }
-    })();
-  }, [refreshCredits, spectrum.isProUser, t]);
-
-  const onUpsellGoUnlimited = useCallback(() => {
-    setUpsellVisible(false);
-    if (rootNavigationRef.isReady()) {
-      rootNavigationRef.navigate('ProSubscription');
-    }
-  }, []);
 
   useEffect(() => {
     if (!projectPlanPreview) return;
@@ -982,7 +965,6 @@ export function TalkDebugScreen() {
       }
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       setProjectPlanPreview(null);
-      markCaptureCreditCommitted();
       if (archiveProjectOnSave) {
         void logActivity('CALENDAR_SYNC_ARCHIVE', 0, {
           intention_type: 'PROJECT',
@@ -993,12 +975,11 @@ export function TalkDebugScreen() {
       pushSuccessFeedback(
         calendarSyncByType.project && spectrum.isProUser
           ? t('talkDebug.savedCalendarToast')
-          : t('talkDebug.projectAnchored', { credits: iaCredits }),
+          : t('talkDebug.projectAnchored'),
       );
       hardResetToIdle();
     } catch (e: unknown) {
       await handleCaptureFlowError(e, {
-        refundPendingCaptureCredit,
         translate: t,
         alertTitleKey: 'common.projects',
         fallbackMessageKey: 'talkDebug.projectValidationError',
@@ -1013,12 +994,9 @@ export function TalkDebugScreen() {
     calendarPickerVisible,
     ensureWritableCalendars,
     hardResetToIdle,
-    iaCredits,
-    markCaptureCreditCommitted,
     autoArchiveAfterCalendarSync,
     projectPlanPreview,
     pushSuccessFeedback,
-    refundPendingCaptureCredit,
     selectCalendar,
     selectedCalendarId,
     spectrum.isProUser,
@@ -1027,84 +1005,39 @@ export function TalkDebugScreen() {
 
   return (
     <View style={styles.root}>
-      <Text style={styles.title}>{t('talkDebug.screenTitle')}</Text>
-      {!spectrum.isProUser ? (
-        <Text style={styles.creditsBadge}>{t('economy.labels.aiCredits')}: {iaCredits}</Text>
-      ) : null}
-      {captureStep === 'idle' ? (
-        <View style={styles.stepIdleWrap}>
-          <Pressable
-            onPress={() => void startCapture()}
-            disabled={busy}
-            style={[styles.micBtn, busy ? styles.disabled : null]}
-          >
-            <Mic size={24} color="#fff" />
-          </Pressable>
-        </View>
-      ) : null}
-
-      {captureStep === 'recording' ? (
-        <View style={styles.stepRecordingWrap}>
-          {isTitleLocked && lockedTitle.trim() ? (
-            <View style={styles.liveTitleWrap}>
-              <Text style={styles.liveTitleLabel}>{t('talkDebug.smartTitleDetected')}</Text>
-              <Text style={styles.liveTitleValue}>{lockedTitle}</Text>
-            </View>
-          ) : null}
-          <View style={styles.waveRow}>
-            {waveHeights.map((h, idx) => (
-              <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused ? 8 : h }]} />
-            ))}
-          </View>
-          <View style={styles.liveTranscriptWrap}>
-            <ScrollView
-              ref={(ref) => {
-                liveScrollRef.current = ref;
-              }}
-              style={styles.liveTranscriptScroll}
-              contentContainerStyle={styles.liveTranscriptContent}
-              showsVerticalScrollIndicator={false}
-              onContentSizeChange={() => {
-                if (captureStep === 'recording') {
-                  liveScrollRef.current?.scrollToEnd({ animated: true });
-                }
-              }}
-            >
-              <Text style={styles.liveTranscript}>
-                {rawTranscript.trim() ? rawTranscript : t('talkHome.listeningNow')}
-              </Text>
-            </ScrollView>
-            <LinearGradient
-              pointerEvents="none"
-              colors={['#111827', 'rgba(17,24,39,0)']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={styles.transcriptFadeTop}
-            />
-            <LinearGradient
-              pointerEvents="none"
-              colors={['rgba(17,24,39,0)', '#111827']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={styles.transcriptFadeBottom}
-            />
-          </View>
-          <View style={styles.pilotRow}>
-            <Pressable style={styles.ctrlBtn} onPress={() => void cancelCapture()} disabled={busy}>
-              <Trash2 size={18} color="#fff" />
-            </Pressable>
-            <Pressable style={styles.ctrlBtn} onPress={() => void togglePauseCapture()} disabled={busy}>
-              {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
-            </Pressable>
-            <Pressable style={styles.ctrlBtn} onPress={() => void stopCapture()} disabled={busy}>
-              <SendHorizontal size={18} color="#fff" />
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
+      <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
+        <PilotStatusHeader
+          variant="talkDebug"
+          isProUser={spectrum.isProUser}
+          freeRemaining={freeQuotaSnapshot?.remaining ?? 0}
+          freeMax={freeQuotaSnapshot?.max ?? 3}
+          dayOfMonth={new Date().getDate()}
+          todayTodoCount={todayTodoCount}
+          piggyCount={headerUnorganizedCount}
+          onPressCredits={() => navigation.navigate('Recharge')}
+          onPressCalendar={() =>
+            navigation.navigate('Timeline', {
+              initialTimeNav: 'TODAY',
+              initialContext: 'ALL',
+            })
+          }
+          onPressPiggy={() =>
+            navigation.navigate('Timeline', {
+              initialTimeNav: 'TODAY',
+              initialContext: 'PIGGY',
+            })
+          }
+          translate={t}
+        />
+      </View>
 
       {captureStep === 'deciding' ? (
-        <View style={styles.stepDecisionWrap}>
+        <ScrollView
+          style={styles.middleScroll}
+          contentContainerStyle={styles.middleScrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.titleDraftWrap}>
             <Text style={styles.titleDraftLabel}>{t('talkDebug.crystallizedTitleEditable')}</Text>
             <TextInput
@@ -1198,12 +1131,92 @@ export function TalkDebugScreen() {
                 {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
               </Pressable>
             </View>
+            <View style={styles.actionRow}>
+              <Pressable
+                style={[styles.fanBtn, styles.actionMainBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }]}
+                onPress={() => void onChooseAction('list')}
+                disabled={busy}
+              >
+                <ListChecks size={18} color="#0f172a" />
+                <Text style={styles.fanBtnText}>{t('talkDebug.actionList')}</Text>
+              </Pressable>
+            </View>
             <Pressable style={[styles.fanBtn, styles.cancelBtn]} onPress={() => void onChooseAction('cancel')} disabled={busy}>
               <Text style={styles.fanBtnText}>{t('common.later')}</Text>
             </Pressable>
           </View>
-        </View>
-      ) : null}
+        </ScrollView>
+      ) : (
+        <View style={styles.middleSpacer} />
+      )}
+
+      <View
+        style={[
+          styles.captureDock,
+          {
+            paddingBottom: Math.max(insets.bottom, 10),
+            justifyContent: captureStep === 'idle' ? 'flex-end' : 'flex-start',
+          },
+        ]}
+      >
+        {captureStep === 'recording' ? (
+          <View style={styles.captureTranscriptShell}>
+            <ScrollView
+              ref={(ref) => {
+                liveScrollRef.current = ref;
+              }}
+              style={[styles.captureTranscriptScroll, { maxHeight: Math.min(280, windowH * 0.34) }]}
+              contentContainerStyle={styles.liveTranscriptContent}
+              showsVerticalScrollIndicator={false}
+              onContentSizeChange={() => {
+                liveScrollRef.current?.scrollToEnd({ animated: true });
+              }}
+            >
+              <Text style={styles.liveTranscript}>{rawTranscript.trim() ? rawTranscript : ' '}</Text>
+            </ScrollView>
+            <LinearGradient
+              pointerEvents="none"
+              colors={['#111827', 'rgba(17,24,39,0)']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={styles.transcriptFadeTop}
+            />
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(17,24,39,0)', '#111827']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={styles.transcriptFadeBottom}
+            />
+          </View>
+        ) : null}
+        {captureStep === 'idle' ? (
+          <Pressable
+            onPress={() => void startCapture()}
+            disabled={busy}
+            style={[styles.micBtn, busy ? styles.disabled : null]}
+          >
+            <Mic size={24} color="#fff" />
+          </Pressable>
+        ) : null}
+        {captureStep === 'recording' ? (
+          <View style={styles.pilotRowDocked}>
+            <Pressable style={styles.ctrlBtn} onPress={() => void cancelCapture()} disabled={busy}>
+              <Trash2 size={18} color="#fff" />
+            </Pressable>
+            <Pressable style={styles.ctrlBtn} onPress={() => void togglePauseCapture()} disabled={busy}>
+              {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
+            </Pressable>
+            <Pressable
+              style={[styles.micBtn, styles.ctrlBtnPrimary, busy ? styles.disabled : null]}
+              onPress={() => void stopCapture()}
+              disabled={busy}
+            >
+              <SendHorizontal size={22} color="#fff" />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
 
       {deadlineModalVisible ? (
         <View style={styles.overlayBackdrop}>
@@ -1323,14 +1336,6 @@ export function TalkDebugScreen() {
           <Text style={styles.successToastText}>{successMessage}</Text>
         </View>
       ) : null}
-      <UpsellModal
-        visible={upsellVisible}
-        busy={upsellBusy}
-        price="4,50€"
-        onClose={() => setUpsellVisible(false)}
-        onWatchVideo={onUpsellWatchVideo}
-        onGoUnlimited={onUpsellGoUnlimited}
-      />
       {calendarPickerVisible ? (
         <View style={styles.overlayBackdrop}>
           <View style={styles.overlayCard}>
@@ -1370,18 +1375,82 @@ export function TalkDebugScreen() {
           </View>
         </View>
       ) : null}
-      <AdCompanionBanner active={adCompanionActive} isProUser={spectrum.isProUser} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#111827', padding: 20, justifyContent: 'space-between' },
-  title: { color: '#e5e7eb', fontSize: 18, fontWeight: '700', marginTop: 12 },
-  creditsBadge: { color: '#67e8f9', fontSize: 13, fontWeight: '700', marginTop: 4 },
-  stepIdleWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  stepRecordingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 26 },
-  stepDecisionWrap: { flex: 1, justifyContent: 'space-between', paddingVertical: 12 },
+  root: { flex: 1, backgroundColor: '#111827' },
+  headerSafe: { paddingHorizontal: 16, paddingBottom: 8 },
+  statusHeaderRow: { flexDirection: 'row', alignItems: 'center' },
+  statusHeaderSpacer: { flex: 1 },
+  statusHeaderCluster: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  calendarGlyph: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 128, 128, 0.45)',
+    backgroundColor: 'rgba(0, 128, 128, 0.16)',
+  },
+  calendarGlyphDay: { color: '#F5F5F0', fontSize: 22, fontWeight: '800', minWidth: 26, textAlign: 'center' },
+  softBadgeTodo: {
+    minWidth: 26,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0, 128, 128, 0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 128, 128, 0.55)',
+  },
+  softBadgeTodoText: { color: '#ecfeff', fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  zeroTodoCheck: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 128, 128, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(245, 245, 240, 0.12)',
+  },
+  softBadgePiggy: {
+    minWidth: 26,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 140, 0, 0.28)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 140, 0, 0.5)',
+  },
+  softBadgePiggyText: { color: '#fff7ed', fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  middleScroll: { flex: 1, minHeight: 0 },
+  middleScrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
+  middleSpacer: { flex: 1, minHeight: 0 },
+  monetizationStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148, 163, 184, 0.25)',
+  },
+  creditsMini: { color: 'rgba(226, 232, 240, 0.85)', fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  captureDock: { paddingHorizontal: 20, paddingTop: 10, minHeight: 120 },
+  captureTranscriptShell: { width: '100%', position: 'relative', marginBottom: 14 },
+  captureTranscriptScroll: { width: '100%' },
+  pilotRowDocked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 20,
+    marginTop: 4,
+  },
+  ctrlBtnPrimary: { width: 72, height: 72, borderRadius: 999, backgroundColor: '#008080' },
   titleDraftWrap: { marginBottom: 10 },
   titleDraftLabel: {
     color: '#94a3b8',
@@ -1502,7 +1571,7 @@ const styles = StyleSheet.create({
   },
   micBtn: {
     alignSelf: 'center',
-    marginBottom: 30,
+    marginBottom: 8,
     width: 72,
     height: 72,
     borderRadius: 999,

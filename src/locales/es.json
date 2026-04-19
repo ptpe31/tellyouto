@@ -5,6 +5,17 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "Pasar a Pro",
+    "proLabel": "PRO",
+    "a11yCredits": "Créditos de captura — abrir Recarga",
+    "a11yCalendar": "Abrir hoy en la Timeline",
+    "a11yPiggy": "Bandeja — ideas sin ordenar",
+    "rechargeModalBody": "Abre Recarga para pasar a Pro y ganar claridad.",
+    "openRecharge": "Ver Recarga"
+  },
   "tabs": {
     "radar": "Radar",
     "timeline": "Línea",

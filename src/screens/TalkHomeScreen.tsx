@@ -1,6 +1,5 @@
 import { Audio } from 'expo-av';
-import { useFocusEffect } from '@react-navigation/native';
-import { useNavigation } from '@react-navigation/native';
+import { CommonActions, useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
@@ -13,7 +12,6 @@ import {
 } from 'expo-speech-recognition';
 import { Bell, Check, Lock, Mic, Pencil, UserCircle2, Waves, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AdCompanionBanner } from '../components/AdCompanionBanner';
 import { RewardToast } from '../components/RewardToast';
 import {
   ActivityIndicator,
@@ -49,8 +47,9 @@ import {
 } from '../api/localDb';
 import {
   applyGrowthDecayIfNeeded,
-  consumeTrankilV2IntentCredit,
+  consumeFreeCaptureSuccessOnce,
   deleteTrankilV2IntentionById,
+  getFreeCaptureQuotaSnapshot,
   getTrankilV2UserStats,
   growthPointsForType,
   insertTrankilV2Intention,
@@ -89,7 +88,7 @@ import { askGeminiExpert, atomizeProject, type GeminiExpertIntention } from '../
 import { safeParseGeminiExpertRows } from '../services/geminiResponseGuards';
 import { showAppToast } from '../services/appToast';
 import { applyOfflineFirstShellFailure } from '../services/captureOfflineFirstUtils';
-import { createLocalTemporalIntention } from '../services/localTemporalIntention';
+import { createLocalTemporalIntention, type LocalTemporalType } from '../services/localTemporalIntention';
 import { transcribeWithWhisperLocal } from '../services/WhisperAdapter';
 import { onLocalAiValidated, resetLocalStreakOnExpert } from '../services/BonusEngine';
 import { runIntentOrchestration, type OrchestratorDecision } from '../services/IntentOrchestrator';
@@ -113,7 +112,6 @@ import {
   stopCaptureProcessingForeground,
 } from '../services/CaptureProcessingService';
 import { STRINGS } from '../constants/Strings';
-import { runManualIaRechargeVideo } from '../services/AdManager';
 import { generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
 import {
   alertNativeModuleMissing,
@@ -352,7 +350,6 @@ export function TalkHomeScreen() {
   const [remainingIntents, setRemainingIntents] = useState(10);
   const [microToast, setMicroToast] = useState('');
   const [rewardToast, setRewardToast] = useState('');
-  const [adCompanionActive, setAdCompanionActive] = useState(false);
   const [growthScore, setGrowthScore] = useState(0);
   const [flowerPulseKey, setFlowerPulseKey] = useState(0);
   const [flowerNeedsAttention, setFlowerNeedsAttention] = useState(false);
@@ -452,7 +449,12 @@ export function TalkHomeScreen() {
     try {
       await applyGrowthDecayIfNeeded();
       const stats = await getTrankilV2UserStats();
-      setRemainingIntents(stats.ia_credits);
+      if (spectrum.isProUser) {
+        setRemainingIntents(stats.ia_credits);
+      } else {
+        const q = await getFreeCaptureQuotaSnapshot();
+        setRemainingIntents(q.remaining);
+      }
       setGrowthScore(stats.zen_points);
       setLocalEcoScore(await getLocalEcoScore());
       setFlowerNeedsAttention(false);
@@ -463,7 +465,7 @@ export function TalkHomeScreen() {
       setDailyQuestCanClaim(quest.canClaim);
       setDailyQuestClaimed(quest.claimed);
     } catch {
-      setRemainingIntents(10);
+      setRemainingIntents(spectrum.isProUser ? 10 : 3);
       setGrowthScore(0);
       setFlowerNeedsAttention(false);
       setLocalEcoScore(0);
@@ -473,7 +475,7 @@ export function TalkHomeScreen() {
       setDailyQuestCanClaim(false);
       setDailyQuestClaimed(false);
     }
-  }, []);
+  }, [spectrum.isProUser]);
 
   const onClaimDailyQuest = useCallback(async () => {
     if (!dailyQuestCanClaim || isBusy) return;
@@ -496,42 +498,15 @@ export function TalkHomeScreen() {
   const adFreeActive = isAdFreeModeActive(spectrum);
 
   const promptIaRechargeModal = useCallback(() => {
-    Alert.alert(
-      t('economy.recharge.modalTitle'),
-      t('economy.recharge.modalBody'),
-      [
-        { text: t('common.later'), style: 'cancel' },
-        {
-          text: t('economy.recharge.watchVideoCta'),
-          onPress: () => {
-            void (async () => {
-              if (!spectrum.isProUser) setAdCompanionActive(true);
-              setIsBusy(true);
-              try {
-                const res = await runManualIaRechargeVideo();
-                if (!res.ok) {
-                  const reason =
-                    res.reason === 'daily_limit_reached'
-                      ? t('economy.recharge.dailyCapReached')
-                      : res.reason === 'recharge_cooldown'
-                        ? t('economy.recharge.cooldown')
-                        : t('common.tryAgainSoon');
-                  Alert.alert(t('economy.recharge.unavailableTitle'), reason);
-                  return;
-                }
-                setRemainingIntents(res.creditsAfter);
-                setMicroToast(t('economy.recharge.rewardToast'));
-                await refreshRemainingIntents();
-              } finally {
-                setAdCompanionActive(false);
-                setIsBusy(false);
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [refreshRemainingIntents, spectrum.isProUser, t]);
+    Alert.alert(t('economy.recharge.modalTitle'), t('pilotHeader.rechargeModalBody'), [
+      { text: t('common.later'), style: 'cancel' },
+      {
+        text: t('pilotHeader.openRecharge'),
+        onPress: () =>
+          navigation.dispatch(CommonActions.navigate({ name: 'Tabs', params: { screen: 'Recharge' } })),
+      },
+    ]);
+  }, [navigation, t]);
 
   useEffect(() => {
     void refreshRemainingIntents();
@@ -910,7 +885,7 @@ export function TalkHomeScreen() {
     setIsBusy(true);
     try {
       await unloadAvRecording();
-      await clearProjectAudioFile(projectRefine?.audioUri ?? null);
+      await clearProjectAudioFile(null);
       const permissionResponse = await Audio.requestPermissionsAsync();
       if (!permissionResponse.granted) {
         Alert.alert(
@@ -1585,14 +1560,6 @@ export function TalkHomeScreen() {
       const baseText = deadlineCapture.baseText.trim() || projectRefine.editedText.trim();
       const cleanedDeadline = deadlineText.trim();
       if (!baseText || !cleanedDeadline) return;
-      if (remainingIntents <= 0) {
-        if (adFreeActive) {
-          promptIaRechargeModal();
-        } else {
-          Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
-        }
-        return;
-      }
       await stopDeadlineCapture();
       setProjectRefine((prev) => (prev ? { ...prev, isGeneratingPlan: true } : prev));
       setDeadlineCapture((prev) => ({ ...prev, visible: false, isListening: false }));
@@ -1640,7 +1607,7 @@ export function TalkHomeScreen() {
         setIsBusy(false);
       }
     },
-    [deadlineCapture.baseText, projectRefine, remainingIntents, stopDeadlineCapture, t],
+    [deadlineCapture.baseText, projectRefine, stopDeadlineCapture, t],
   );
 
   const openDeadlineCapture = useCallback(async () => {
@@ -1716,14 +1683,6 @@ export function TalkHomeScreen() {
 
   const onValidateProjectPlan = useCallback(async () => {
     if (!projectPlanPreview) return;
-    if (remainingIntents <= 0) {
-      if (adFreeActive) {
-        promptIaRechargeModal();
-      } else {
-        Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
-      }
-      return;
-    }
     setIsBusy(true);
     try {
       await resetLocalStreakOnExpert();
@@ -1740,8 +1699,6 @@ export function TalkHomeScreen() {
         setFlowerPulseKey((k) => k + 1);
         setFlowerNeedsAttention(false);
       }
-      const afterConsume = await consumeTrankilV2IntentCredit();
-      setRemainingIntents(afterConsume.ia_credits);
       setProjectPlanPreview(null);
       await cancelProjectRefine();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1754,7 +1711,7 @@ export function TalkHomeScreen() {
     } finally {
       setIsBusy(false);
     }
-  }, [cancelProjectRefine, projectPlanPreview, remainingIntents, t]);
+  }, [cancelProjectRefine, projectPlanPreview, t]);
 
   const onProcessVoice = useCallback(async () => {
     if (!voiceConfirm) return;
@@ -1806,19 +1763,26 @@ export function TalkHomeScreen() {
           complexity_level: 0,
           created_at: Date.now(),
         });
+        if (!spectrum.isProUser) {
+          const q = await consumeFreeCaptureSuccessOnce();
+          setRemainingIntents(q.remaining);
+        }
         resetVoiceConfirm();
         setMicroToast('');
         return;
       }
 
       if (routeDecision === 'COMPLEX') {
-        if (remainingIntents <= 0) {
-          if (adFreeActive) {
-            promptIaRechargeModal();
-          } else {
-            Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+        if (!spectrum.isProUser) {
+          const gate = await getFreeCaptureQuotaSnapshot();
+          if (gate.remaining <= 0) {
+            if (adFreeActive) {
+              promptIaRechargeModal();
+            } else {
+              Alert.alert(t('talkHome.deepNoCreditsTitle'), t('talkHome.deepNoCreditsBody'));
+            }
+            return;
           }
-          return;
         }
         await resetLocalStreakOnExpert();
         setIsExpertLoading(true);
@@ -1872,6 +1836,10 @@ export function TalkHomeScreen() {
               setFlowerPulseKey((k) => k + 1);
               setFlowerNeedsAttention(false);
             }
+            if (!spectrum.isProUser) {
+              const q = await consumeFreeCaptureSuccessOnce();
+              setRemainingIntents(q.remaining);
+            }
           } else {
             await applyOfflineFirstShellFailure(shellId, new Error('GEMINI_ROWS_INVALID'));
             DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
@@ -1882,13 +1850,12 @@ export function TalkHomeScreen() {
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           showAppToast(t('capture.offlineNoteGenericToast'));
         }
-        const afterConsume = await consumeTrankilV2IntentCredit();
-        setRemainingIntents(afterConsume.ia_credits);
       } else {
-        const localType =
+        const rawLocalType =
           voiceConfirm.localType === 'NOTE'
             ? 'NOTE'
             : mapVoiceKindToIntentType(localTypeToVoiceKind(voiceConfirm.localType));
+        const localType: LocalTemporalType = rawLocalType === 'PROJECT' ? 'NOTE' : rawLocalType;
         const inserted = await createLocalTemporalIntention({
           id: newTalkEntityId(),
           title: trimmedTitle,
@@ -1921,6 +1888,10 @@ export function TalkHomeScreen() {
           setRewardToast(localBonus.message);
           setTimeout(() => setRewardToast(''), 2300);
         }
+        if (!spectrum.isProUser) {
+          const q = await consumeFreeCaptureSuccessOnce();
+          setRemainingIntents(q.remaining);
+        }
       }
       resetVoiceConfirm();
       setMicroToast('');
@@ -1936,10 +1907,13 @@ export function TalkHomeScreen() {
       setIsBusy(false);
     }
   }, [
+    adFreeActive,
     i18n.language,
-    voiceConfirm,
+    promptIaRechargeModal,
+    spectrum.isProUser,
     t,
     resetVoiceConfirm,
+    voiceConfirm,
   ]);
 
   const onDictateWhenField = useCallback(async () => {
@@ -2626,7 +2600,6 @@ export function TalkHomeScreen() {
           </View>
         </View>
       </Modal>
-      <AdCompanionBanner active={adCompanionActive} isProUser={spectrum.isProUser} />
     </View>
   );
 }

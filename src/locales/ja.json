@@ -5,6 +5,17 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "Proへ",
+    "proLabel": "PRO",
+    "a11yCredits": "キャプチャクレジット — リチャージを開く",
+    "a11yCalendar": "今日のタイムラインを開く",
+    "a11yPiggy": "受信箱 — 未整理",
+    "rechargeModalBody": "リチャージでProに進み、さらに明瞭に。",
+    "openRecharge": "リチャージを見る"
+  },
   "tabs": {
     "radar": "レーダー",
     "timeline": "タイムライン",

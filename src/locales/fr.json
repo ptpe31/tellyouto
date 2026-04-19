@@ -20,6 +20,17 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "Passer Pro",
+    "proLabel": "PRO",
+    "a11yCredits": "Crédits capture — ouvrir Recharge",
+    "a11yCalendar": "Ouvrir la Timeline du jour",
+    "a11yPiggy": "Vrac — idées non rangées",
+    "rechargeModalBody": "Ouvre Recharge pour passer Pro et débloquer plus de clarté.",
+    "openRecharge": "Voir Recharge"
+  },
   "eveningRitual": {
     "title": "Rituel des Etoiles",
     "summary": "Aujourd'hui, tu as libere ton esprit de {{count}} pensees. Ton ciel est magnifique.",
@@ -347,6 +358,7 @@
     "badgeNote": "📝 NOTE",
     "badgeHabit": "🔄 HABITUDE",
     "badgeTask": "⚡ TACHE",
+    "badgeList": "📋 LISTE",
     "badgeProject": "🚀 PROJET",
     "projectPrefix": "Projet",
     "a11yTaskComplete": "Marquer comme fait ou annuler la validation en cours",
@@ -367,6 +379,9 @@
     },
     "notesAudio": {
       "title": "Notes & Audios"
+    },
+    "lists": {
+      "title": "Listes & inventaires"
     },
     "ideaBank": {
       "title": "La Tirelire à idées",
@@ -956,6 +971,35 @@
     "watchVideoCta": "Regarder une video (+5 credits)",
     "unlimited_price": "Passer en illimite ({{price}}/mois)"
   },
+  "listIntention": {
+    "proTeaserTitle": "Pro",
+    "proTeaserBody": "Passez Pro pour adapter instantanément vos listes (convives, matériel, logistique).",
+    "unreadable": "Impossible d'afficher cette liste.",
+    "a11yDecrease": "Diminuer l'échelle",
+    "a11yIncrease": "Augmenter l'échelle",
+    "units": {
+      "g": {
+        "one": "{{count}} g",
+        "other": "{{count}} g"
+      },
+      "kg": {
+        "one": "{{count}} kg",
+        "other": "{{count}} kg"
+      },
+      "cl": {
+        "one": "{{count}} cl",
+        "other": "{{count}} cl"
+      },
+      "l": {
+        "one": "{{count}} l",
+        "other": "{{count}} l"
+      },
+      "piece": {
+        "one": "{{count}} pièce",
+        "other": "{{count}} pièces"
+      }
+    }
+  },
   "talkDebug": {
     "noteSaved": "Note enregistree",
     "audioTitle": "Memo audio",
@@ -978,7 +1022,7 @@
     "projectGenerationError": "Erreur lors de la generation du plan.",
     "exportAgendaTitle": "Export agenda",
     "exportAgendaError": "Impossible d'exporter le plan.",
-    "projectAnchored": "Projet ancre et enregistre. Credits restants: {{credits}}",
+    "projectAnchored": "Projet ancré et enregistré.",
     "projectAnchoredCalendar": "Evenement ajoute a votre calendrier {{calendar}}",
     "savedCalendarToast": "Enregistre + Calendrier",
     "savedCalendarArchivedToast": "Synchronise avec le calendrier & Archive",
@@ -988,6 +1032,8 @@
     "calendarPickerSubtitle": "Selectionne le calendrier de destination pour cette insertion.",
     "calendarDefaultLabel": "Calendrier: {{calendar}}",
     "screenTitle": "Talk Debug - Post-Choix",
+    "a11yOpenTimelineToday": "Ouvrir la Timeline — aujourd'hui",
+    "a11yOpenTimelinePiggy": "Ouvrir la Timeline — tirelire",
     "smartTitleDetected": "Smart Titre detecte",
     "crystallizedTitleEditable": "Titre cristallise (editable)",
     "emptyTranscription": "(Transcription vide)",
@@ -996,6 +1042,10 @@
     "actionProject": "🚀 Projet (-1 credit IA)",
     "actionTask": "⚡ Tache",
     "actionHabit": "🔄 Habitude",
+    "actionList": "📋 Liste",
+    "listFallbackTitle": "Liste",
+    "listSavedToast": "Liste enregistrée",
+    "listQuotaExhaustedToast": "Ta liste gratuite du jour est utilisée. Ouvre Recharge pour passer Pro.",
     "deadlineTitle": "C'est pour quand ?",
     "deadlineSubtitle": "Ajoute une contrainte temporelle pour fiabiliser le plan.",
     "oneWeek": "1 semaine",

@@ -5,6 +5,17 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "升级 Pro",
+    "proLabel": "PRO",
+    "a11yCredits": "捕获额度 — 打开充能",
+    "a11yCalendar": "打开今日时间线",
+    "a11yPiggy": "收集箱 — 未整理",
+    "rechargeModalBody": "前往充能升级 Pro，解锁更高清晰度。",
+    "openRecharge": "查看充能"
+  },
   "tabs": {
     "radar": "雷达",
     "timeline": "时间线",
