@@ -126,6 +126,47 @@ function normalizeDueDate(raw: string | null | undefined): string | null {
   return null;
 }
 
+/** Filtre pilotage Timeline (Maison / Travail) — aligné sur l’ancien filtre JS. */
+export type TimelineSqlContext = 'ALL' | 'HOME' | 'WORK';
+
+export type TimelinePaging = {
+  limit?: number;
+  offset?: number;
+};
+
+export const TIMELINE_PAGE_SIZE = 50;
+
+function timelineContextWhere(context: TimelineSqlContext, alias = 'i'): string {
+  if (context === 'HOME') {
+    return ` AND (
+      lower(coalesce(${alias}.category_id, '')) LIKE '%maison%'
+      OR lower(coalesce(${alias}.category_id, '')) LIKE '%home%'
+      OR lower(coalesce(${alias}.category_id, '')) LIKE '%famille%'
+    )`;
+  }
+  if (context === 'WORK') {
+    return ` AND (
+      lower(coalesce(${alias}.category_id, '')) LIKE '%travail%'
+      OR lower(coalesce(${alias}.category_id, '')) LIKE '%work%'
+      OR lower(coalesce(${alias}.category_id, '')) LIKE '%pro%'
+    )`;
+  }
+  return '';
+}
+
+function appendTimelinePaging(
+  sql: string,
+  params: (string | number)[],
+  paging?: TimelinePaging,
+): { sql: string; params: (string | number)[] } {
+  if (paging?.limit != null && Number.isFinite(paging.limit)) {
+    const lim = Math.max(1, Math.min(500, Math.floor(Number(paging.limit))));
+    const off = Math.max(0, Math.floor(Number(paging.offset ?? 0)));
+    return { sql: `${sql}\n    LIMIT ? OFFSET ?`, params: [...params, lim, off] };
+  }
+  return { sql, params };
+}
+
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = SQLite.openDatabaseAsync(DB_NAME);
@@ -523,11 +564,12 @@ export async function listTrankilV2TimelineItemsByDate(
   selectedDateYmd: string,
   status: TrankilIntentStatus,
   mode: TrankilV2TimelineDateMode = 'DAY',
+  opts?: { paging?: TimelinePaging; context?: TimelineSqlContext },
 ): Promise<TrankilV2TimelineItemRow[]> {
+  const ctx = timelineContextWhere(opts?.context ?? 'ALL');
   await initTrankilV2Schema();
   const db = await getDb();
-  return db.getAllAsync<TrankilV2TimelineItemRow>(
-    `
+  const inner = `
     SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags
     FROM (
       SELECT
@@ -551,6 +593,7 @@ export async function listTrankilV2TimelineItemsByDate(
         AND COALESCE(i.is_archived, 0) = 0
         AND i.type IN ('TASK', 'HABIT')
         AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+        ${ctx}
 
       UNION ALL
 
@@ -577,6 +620,7 @@ export async function listTrankilV2TimelineItemsByDate(
         AND i.type = 'TASK'
         AND i.parent_id IS NOT NULL
         AND trim(i.parent_id) != ''
+        ${ctx}
 
       UNION ALL
 
@@ -600,6 +644,7 @@ export async function listTrankilV2TimelineItemsByDate(
       WHERE i.status = ?
         AND COALESCE(i.is_archived, 0) = 0
         AND i.type IN ('NOTE', 'AUDIO')
+        ${ctx}
     )
     WHERE
       (
@@ -610,20 +655,170 @@ export async function listTrankilV2TimelineItemsByDate(
         ? = 'WEEK'
         AND effective_date BETWEEN ? AND date(?, '+6 day')
       )
-    ORDER BY section_order ASC, created_at DESC
-    `,
-    [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd],
-  );
+    ORDER BY section_order ASC, created_at DESC`;
+  const baseParams = [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd];
+  const { sql, params } = appendTimelinePaging(inner, baseParams, opts?.paging);
+  return db.getAllAsync<TrankilV2TimelineItemRow>(sql, params);
+}
+
+/**
+ * « Aujourd’hui » : journée courante + tâches « sans pression » non déjà présentes (fusion SQL + tri).
+ */
+export async function listTrankilV2MergedTodayTimelineWithLowPressure(
+  selectedDateYmd: string,
+  status: TrankilIntentStatus,
+  context: TimelineSqlContext,
+  paging: TimelinePaging,
+): Promise<TrankilV2TimelineItemRow[]> {
+  const ctx = timelineContextWhere(context);
+  const ymdCompact = selectedDateYmd.replace(/-/g, '');
+  const lim = Math.max(1, Math.min(500, Math.floor(Number(paging.limit ?? TIMELINE_PAGE_SIZE))));
+  const off = Math.max(0, Math.floor(Number(paging.offset ?? 0)));
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const sql = `
+WITH dated AS (
+  SELECT * FROM (
+    SELECT
+      i.id AS id,
+      i.type AS type,
+      i.status AS status,
+      i.due_date AS due_date,
+      i.created_at AS created_at,
+      i.content_raw AS content_raw,
+      i.parent_id AS parent_id,
+      NULL AS project_title,
+      i.title AS display_title,
+      'TASK_HABIT' AS section,
+      COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+      i.category_id AS category_id,
+      i.suggested_tags AS suggested_tags,
+      i.due_date AS effective_date,
+      1 AS section_order
+    FROM intentions i
+    WHERE i.status = ?
+      AND COALESCE(i.is_archived, 0) = 0
+      AND i.type IN ('TASK', 'HABIT')
+      AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+      ${ctx}
+    UNION ALL
+    SELECT
+      i.id AS id,
+      i.type AS type,
+      i.status AS status,
+      i.due_date AS due_date,
+      i.created_at AS created_at,
+      i.content_raw AS content_raw,
+      i.parent_id AS parent_id,
+      p.title AS project_title,
+      i.title AS display_title,
+      'PROJECT_SUBTASK' AS section,
+      COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+      i.category_id AS category_id,
+      i.suggested_tags AS suggested_tags,
+      i.due_date AS effective_date,
+      2 AS section_order
+    FROM intentions i
+    LEFT JOIN intentions p ON p.id = i.parent_id AND p.type = 'PROJECT'
+    WHERE i.status = ?
+      AND COALESCE(i.is_archived, 0) = 0
+      AND i.type = 'TASK'
+      AND i.parent_id IS NOT NULL
+      AND trim(i.parent_id) != ''
+      ${ctx}
+    UNION ALL
+    SELECT
+      i.id AS id,
+      i.type AS type,
+      i.status AS status,
+      i.due_date AS due_date,
+      i.created_at AS created_at,
+      i.content_raw AS content_raw,
+      i.parent_id AS parent_id,
+      NULL AS project_title,
+      i.title AS display_title,
+      'NOTE_AUDIO' AS section,
+      COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+      i.category_id AS category_id,
+      i.suggested_tags AS suggested_tags,
+      COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
+      3 AS section_order
+    FROM intentions i
+    WHERE i.status = ?
+      AND COALESCE(i.is_archived, 0) = 0
+      AND i.type IN ('NOTE', 'AUDIO')
+      ${ctx}
+  ) z
+  WHERE z.effective_date = ?
+),
+lowp AS (
+  SELECT
+    i.id AS id,
+    i.type AS type,
+    i.status AS status,
+    i.due_date AS due_date,
+    i.created_at AS created_at,
+    i.content_raw AS content_raw,
+    i.parent_id AS parent_id,
+    NULL AS project_title,
+    i.title AS display_title,
+    'TASK_HABIT' AS section,
+    COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+    i.category_id AS category_id,
+    i.suggested_tags AS suggested_tags,
+    NULL AS effective_date,
+    1 AS section_order
+  FROM intentions i
+  WHERE i.status = ?
+    AND COALESCE(i.is_archived, 0) = 0
+    AND i.type = 'TASK'
+    AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+    AND (
+      (i.due_date IS NULL OR trim(i.due_date) = '')
+      OR (instr(i.suggested_tags, '"a_trier"') > 0)
+    )
+    ${ctx}
+    AND NOT EXISTS (SELECT 1 FROM dated d WHERE d.id = i.id)
+)
+SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags
+FROM (
+  SELECT * FROM dated
+  UNION ALL
+  SELECT * FROM lowp
+) u
+ORDER BY u.section_order ASC,
+  CASE WHEN u.type = 'HABIT' THEN 0 ELSE 1 END,
+  CASE
+    WHEN u.type = 'TASK' AND (
+      (length(trim(u.due_date)) = 10 AND u.due_date = ?)
+      OR (length(trim(u.due_date)) = 8 AND u.due_date = ?)
+    ) THEN 0
+    ELSE 1
+  END,
+  u.created_at DESC
+LIMIT ? OFFSET ?`;
+  return db.getAllAsync<TrankilV2TimelineItemRow>(sql, [
+    status,
+    status,
+    status,
+    selectedDateYmd,
+    status,
+    selectedDateYmd,
+    ymdCompact,
+    lim,
+    off,
+  ]);
 }
 
 /** Tâches racine sans échéance (« tirelire »), pour le même filtre de statut que la Timeline. */
 export async function listTrankilV2UndatedRootTasks(
   status: TrankilIntentStatus,
+  opts?: { paging?: TimelinePaging; context?: TimelineSqlContext },
 ): Promise<TrankilV2TimelineItemRow[]> {
+  const ctx = timelineContextWhere(opts?.context ?? 'ALL');
   await initTrankilV2Schema();
   const db = await getDb();
-  return db.getAllAsync<TrankilV2TimelineItemRow>(
-    `SELECT
+  const inner = `SELECT
        i.id AS id,
        i.type AS type,
        i.status AS status,
@@ -643,9 +838,10 @@ export async function listTrankilV2UndatedRootTasks(
        AND i.type = 'TASK'
        AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
        AND (i.due_date IS NULL OR trim(i.due_date) = '')
-     ORDER BY i.created_at DESC`,
-    [status],
-  );
+       ${ctx}
+     ORDER BY i.created_at DESC`;
+  const { sql, params } = appendTimelinePaging(inner, [status], opts?.paging);
+  return db.getAllAsync<TrankilV2TimelineItemRow>(sql, params);
 }
 
 /**
@@ -653,11 +849,12 @@ export async function listTrankilV2UndatedRootTasks(
  */
 export async function listTrankilV2LowPressureRootTasks(
   status: TrankilIntentStatus,
+  opts?: { paging?: TimelinePaging; context?: TimelineSqlContext },
 ): Promise<TrankilV2TimelineItemRow[]> {
+  const ctx = timelineContextWhere(opts?.context ?? 'ALL');
   await initTrankilV2Schema();
   const db = await getDb();
-  return db.getAllAsync<TrankilV2TimelineItemRow>(
-    `SELECT
+  const inner = `SELECT
        i.id AS id,
        i.type AS type,
        i.status AS status,
@@ -680,9 +877,10 @@ export async function listTrankilV2LowPressureRootTasks(
          (i.due_date IS NULL OR trim(i.due_date) = '')
          OR (instr(i.suggested_tags, '"a_trier"') > 0)
        )
-     ORDER BY i.created_at DESC`,
-    [status],
-  );
+       ${ctx}
+     ORDER BY i.created_at DESC`;
+  const { sql, params } = appendTimelinePaging(inner, [status], opts?.paging);
+  return db.getAllAsync<TrankilV2TimelineItemRow>(sql, params);
 }
 
 export type TrankilV2ChildTaskStats = { total: number; done: number };
@@ -803,18 +1001,23 @@ export async function purgeTrankilV2IntentionsCascade(): Promise<{
 }
 
 /** Vrac Timeline : brouillon sans étiquette ni date, actif, non archivé (`is_organized = 0`). */
-export async function listTrankilV2UnorganizedIntentions(): Promise<TrankilV2IntentionRow[]> {
+export async function listTrankilV2UnorganizedIntentions(opts?: {
+  paging?: TimelinePaging;
+  context?: TimelineSqlContext;
+}): Promise<TrankilV2IntentionRow[]> {
+  const ctx = timelineContextWhere(opts?.context ?? 'ALL', 'intentions');
   await initTrankilV2Schema();
   const db = await getDb();
-  return db.getAllAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions
+  const inner = `SELECT * FROM intentions
      WHERE status = 'TODO'
        AND COALESCE(is_archived, 0) = 0
        AND is_organized = 0
        AND (category_id IS NULL OR trim(category_id) = '')
        AND (due_date IS NULL OR trim(due_date) = '')
-     ORDER BY created_at DESC`,
-  );
+       ${ctx}
+     ORDER BY created_at DESC`;
+  const { sql, params } = appendTimelinePaging(inner, [], opts?.paging);
+  return db.getAllAsync<TrankilV2IntentionRow>(sql, params);
 }
 
 /** Intentions organisées : actif, non archivé, avec organisation / étiquette / date. */
@@ -848,14 +1051,28 @@ export async function listTrankilV2MeliArchivesIntentions(): Promise<TrankilV2In
 }
 
 /** Intentions avec drapeau `is_archived` (pilotage Timeline « Archives »). */
-export async function listTrankilV2IsArchivedIntentions(): Promise<TrankilV2IntentionRow[]> {
+export async function listTrankilV2IsArchivedIntentions(opts?: {
+  paging?: TimelinePaging;
+  /** Aligné sur le segment TODO / Done de la Timeline. */
+  statusFilter?: 'TODO' | 'DONE';
+  context?: TimelineSqlContext;
+}): Promise<TrankilV2IntentionRow[]> {
+  const ctx = timelineContextWhere(opts?.context ?? 'ALL', 'i');
+  const statusPart =
+    opts?.statusFilter === 'DONE'
+      ? `AND i.status = 'DONE'`
+      : opts?.statusFilter === 'TODO'
+        ? `AND (i.status IN ('TODO', 'ARCHIVED'))`
+        : '';
   await initTrankilV2Schema();
   const db = await getDb();
-  return db.getAllAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions
-     WHERE COALESCE(is_archived, 0) = 1
-     ORDER BY COALESCE(archived_at, created_at) DESC`,
-  );
+  const inner = `SELECT i.* FROM intentions i
+     WHERE COALESCE(i.is_archived, 0) = 1
+     ${statusPart}
+     ${ctx}
+     ORDER BY COALESCE(i.archived_at, i.created_at) DESC`;
+  const { sql, params } = appendTimelinePaging(inner, [], opts?.paging);
+  return db.getAllAsync<TrankilV2IntentionRow>(sql, params);
 }
 
 /** Projection légère d’une ligne `intentions` vers le modèle liste Timeline. */

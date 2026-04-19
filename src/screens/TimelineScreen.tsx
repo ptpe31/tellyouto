@@ -1,9 +1,11 @@
 import * as Haptics from 'expo-haptics';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import { CalendarDays } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import {
+  ActivityIndicator,
   DeviceEventEmitter,
   FlatList,
   LayoutAnimation,
@@ -14,23 +16,24 @@ import {
   UIManager,
   View,
 } from 'react-native';
-import { SegmentedButtons, useTheme } from 'react-native-paper';
+import { SegmentedButtons, useTheme, type MD3Theme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   bulkTrankilV2TaskChildStatsByParentIds,
   getTrankilV2UnorganizedCount,
   listTrankilV2IsArchivedIntentions,
-  listTrankilV2LowPressureRootTasks,
+  listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
   listTrankilV2UnorganizedIntentions,
   mapTrankilIntentionToTimelineItemRow,
   syncNativeRailAlarmsAfterIntentionWrite,
+  TIMELINE_PAGE_SIZE,
   toggleIntentionDone,
   type TrankilIntentStatus,
+  type TimelineSqlContext,
   type TrankilV2ChildTaskStats,
-  type TrankilV2IntentionRow,
   type TrankilV2TimelineDateMode,
   type TrankilV2TimelineItemRow,
 } from '../api';
@@ -43,6 +46,7 @@ import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
 import { TimelineListItemRow } from '../components/TimelineListItemRow';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
+import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 
@@ -85,7 +89,7 @@ function canShowCompleteOrb(listKey: string, status: TrankilIntentStatus, dimmed
   return listKey === 'tasks' || listKey === 'habits' || listKey === 'projects';
 }
 
-type TimeNav = 'TODAY' | 'TOMORROW' | 'WEEK';
+type TimeNav = 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM';
 type ContextBubble = 'ALL' | 'HOME' | 'WORK' | 'PIGGY' | 'ARCHIVES';
 
 function pad2(n: number): string {
@@ -119,11 +123,25 @@ function startOfToday(): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
 }
 
-function resolveAnchor(timeNav: TimeNav): { anchor: Date; mode: TrankilV2TimelineDateMode } {
+function dateAtNoon(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
+}
+
+/** Affichage court type 25/04 pour le segment « Date ». */
+function formatPilotDayChip(d: Date): string {
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
+}
+
+function resolveAnchor(
+  timeNav: TimeNav,
+  customPickedDate: Date | null,
+): { anchor: Date; mode: TrankilV2TimelineDateMode } {
   const now = startOfToday();
   if (timeNav === 'TODAY') return { anchor: now, mode: 'DAY' };
   if (timeNav === 'TOMORROW') return { anchor: addDays(now, 1), mode: 'DAY' };
-  return { anchor: now, mode: 'WEEK' };
+  if (timeNav === 'WEEK') return { anchor: now, mode: 'WEEK' };
+  const anchor = customPickedDate ? dateAtNoon(customPickedDate) : now;
+  return { anchor, mode: 'DAY' };
 }
 
 function normalizeCat(c: string | null | undefined): string {
@@ -173,6 +191,149 @@ function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
   return 'timeline.badgeProject';
 }
 
+const SECTION_HEADER_H = 36;
+const IDEA_BANK_H = 58;
+const CARD_ROW_H = 126;
+
+function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
+  if (bubble === 'HOME') return 'HOME';
+  if (bubble === 'WORK') return 'WORK';
+  return 'ALL';
+}
+
+function takePage<T>(rows: T[], pageSize: number): { slice: T[]; hasMore: boolean } {
+  if (rows.length > pageSize) {
+    return { slice: rows.slice(0, pageSize), hasMore: true };
+  }
+  return { slice: rows, hasMore: false };
+}
+
+type TimelineFlatItem =
+  | { kind: 'section'; id: string; titleKey: string }
+  | { kind: 'ideaBankRow'; id: string; count: number }
+  | {
+      kind: 'card';
+      id: string;
+      row: TrankilV2TimelineItemRow;
+      listKey: string;
+      rowVariant: 'default' | 'noPressure';
+    };
+
+function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
+  const out: TimelineFlatItem[] = [];
+  for (const e of entries) {
+    if (e.kind === 'ideaBank') {
+      out.push({ kind: 'ideaBankRow', id: 'ideaBank', count: e.count });
+      continue;
+    }
+    out.push({ kind: 'section', id: `sec-${e.listKey}-${e.titleKey}`, titleKey: e.titleKey });
+    for (const r of e.rows) {
+      out.push({
+        kind: 'card',
+        id: r.id,
+        row: r,
+        listKey: e.listKey,
+        rowVariant: e.rowVariant ?? 'default',
+      });
+    }
+  }
+  return out;
+}
+
+function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offset: number }[] {
+  let off = 0;
+  return items.map((it) => {
+    const len =
+      it.kind === 'section' ? SECTION_HEADER_H : it.kind === 'ideaBankRow' ? IDEA_BANK_H : CARD_ROW_H;
+    const cur = { length: len, offset: off };
+    off += len;
+    return cur;
+  });
+}
+
+type TimelineCardRowProps = {
+  row: TrankilV2TimelineItemRow;
+  listKey: string;
+  rowVariant: 'default' | 'noPressure';
+  dimmed?: boolean;
+  theme: MD3Theme;
+  spectrumIsPro: boolean;
+  anchorDate: Date;
+  titleText: string;
+  badgeLabel: string;
+  projectSuffix: string | null;
+  createdCaption: string;
+  progressLookupId: string | null;
+  showCompleteOrb: boolean;
+  pendingLocalDone: boolean;
+  childStats: Map<string, TrankilV2ChildTaskStats>;
+  onToggleComplete: () => void;
+  onMutationReload: () => void;
+};
+
+const TimelineCardRow = memo(function TimelineCardRow({
+  row,
+  listKey,
+  rowVariant,
+  dimmed,
+  theme,
+  spectrumIsPro,
+  anchorDate,
+  titleText,
+  badgeLabel,
+  projectSuffix,
+  createdCaption,
+  progressLookupId,
+  showCompleteOrb,
+  pendingLocalDone,
+  childStats,
+  onToggleComplete,
+  onMutationReload,
+}: TimelineCardRowProps) {
+  const card = (
+    <TimelineListItemRow
+      row={row}
+      listKey={listKey}
+      dimmed={dimmed}
+      theme={theme}
+      titleText={titleText}
+      badgeLabel={badgeLabel}
+      projectSuffix={projectSuffix}
+      createdCaption={createdCaption}
+      isPro={spectrumIsPro}
+      showCompleteOrb={showCompleteOrb}
+      progressLookupId={progressLookupId}
+      childStats={childStats}
+      pendingLocalDone={pendingLocalDone}
+      onToggleComplete={onToggleComplete}
+    />
+  );
+  return (
+    <IntentInteractionWrapper
+      intentionId={row.id}
+      anchorDate={anchorDate}
+      enabled={!dimmed}
+      onMutation={onMutationReload}
+    >
+      {rowVariant === 'noPressure' ? (
+        <View
+          style={{
+            borderRadius: 14,
+            borderWidth: 1,
+            borderStyle: 'dashed',
+            borderColor: theme.colors.primary,
+            backgroundColor: 'rgba(0, 128, 128, 0.06)',
+          }}
+        >
+          {card}
+        </View>
+      ) : (
+        card
+      )}
+    </IntentInteractionWrapper>
+  );
+});
+
 function formatCreatedLine(createdAt: number, locale?: string): string {
   try {
     const d = new Date(createdAt);
@@ -204,46 +365,36 @@ type IdeaBankEntry = {
 
 type ListEntry = RowSection | IdeaBankEntry;
 
-type DataPack = {
-  todoTimeline: TrankilV2TimelineItemRow[];
-  doneTimeline: TrankilV2TimelineItemRow[];
-  /** Vrac Timeline : `is_organized = 0`, sans catégorie ni date (tâches, notes, habitudes). */
-  unorganizedTodo: TrankilV2TimelineItemRow[];
-  unorganizedCount: number;
-  doneUndated: TrankilV2TimelineItemRow[];
-  todoLowPressure: TrankilV2TimelineItemRow[];
-  doneLowPressure: TrankilV2TimelineItemRow[];
-  archivedIntentions: TrankilV2IntentionRow[];
-};
-
-const EMPTY_PACK: DataPack = {
-  todoTimeline: [],
-  doneTimeline: [],
-  unorganizedTodo: [],
-  unorganizedCount: 0,
-  doneUndated: [],
-  todoLowPressure: [],
-  doneLowPressure: [],
-  archivedIntentions: [],
-};
-
 export function TimelineScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [timeNav, setTimeNav] = useState<TimeNav>('TODAY');
+  const [customPickedDate, setCustomPickedDate] = useState<Date | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const timelineBlurredRef = useRef(false);
   const [contextBubble, setContextBubble] = useState<ContextBubble>('ALL');
   const [statusFilter, setStatusFilter] = useState<TrankilIntentStatus>('TODO');
-  const [pack, setPack] = useState<DataPack>(EMPTY_PACK);
+  /** Liste principale (pilotage, tirelire) ou archives mappées en lignes Timeline. */
+  const [primaryRows, setPrimaryRows] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [archivedRows, setArchivedRows] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [unorganizedTodo, setUnorganizedTodo] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [unorganizedCount, setUnorganizedCount] = useState(0);
+  const [primaryHasMore, setPrimaryHasMore] = useState(false);
+  const [archivedHasMore, setArchivedHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
   const pendingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  const anchorDate = useMemo(() => resolveAnchor(timeNav).anchor, [timeNav]);
+  const anchorDate = useMemo(
+    () => resolveAnchor(timeNav, customPickedDate).anchor,
+    [timeNav, customPickedDate],
+  );
 
   const syncPendingSet = useCallback((next: Set<string>) => {
     pendingLocalDoneRef.current = next;
@@ -265,63 +416,190 @@ export function TimelineScreen() {
     }
   }, [syncPendingSet]);
 
+  const fetchTimelineSlice = useCallback(
+    async (
+      nav: TimeNav,
+      custom: Date | null,
+      bubble: ContextBubble,
+      status: TrankilIntentStatus,
+      offset: number,
+    ): Promise<{
+      unorganizedCount: number;
+      unorganizedTodo: TrankilV2TimelineItemRow[];
+      primary: TrankilV2TimelineItemRow[];
+      primaryHasMore: boolean;
+      archived: TrankilV2TimelineItemRow[];
+      archivedHasMore: boolean;
+    }> => {
+      const pageLimit = TIMELINE_PAGE_SIZE + 1;
+      const ctx = sqlContextFromBubble(bubble);
+      const { anchor, mode } = resolveAnchor(nav, custom);
+      const ymd = toYmd(anchor);
+      const [count, unorganizedRaw] = await Promise.all([
+        getTrankilV2UnorganizedCount(),
+        listTrankilV2UnorganizedIntentions({
+          paging: { limit: 400, offset: 0 },
+          context: 'ALL',
+        }).then((rows) => rows.map(mapTrankilIntentionToTimelineItemRow)),
+      ]);
+
+      if (bubble === 'PIGGY') {
+        const raw = await listTrankilV2UndatedRootTasks(status, {
+          paging: { limit: pageLimit, offset },
+          context: ctx,
+        });
+        const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
+        return {
+          unorganizedCount: count,
+          unorganizedTodo: unorganizedRaw,
+          primary: slice,
+          primaryHasMore: hasMore,
+          archived: [],
+          archivedHasMore: false,
+        };
+      }
+      if (bubble === 'ARCHIVES') {
+        const raw = await listTrankilV2IsArchivedIntentions({
+          paging: { limit: pageLimit, offset },
+          statusFilter: status === 'TODO' ? 'TODO' : 'DONE',
+          context: ctx,
+        });
+        const mapped = raw.map(mapTrankilIntentionToTimelineItemRow);
+        const { slice, hasMore } = takePage(mapped, TIMELINE_PAGE_SIZE);
+        return {
+          unorganizedCount: count,
+          unorganizedTodo: unorganizedRaw,
+          primary: [],
+          primaryHasMore: false,
+          archived: slice,
+          archivedHasMore: hasMore,
+        };
+      }
+
+      const mergeToday = nav === 'TODAY';
+      let raw: TrankilV2TimelineItemRow[];
+      if (mergeToday) {
+        raw = await listTrankilV2MergedTodayTimelineWithLowPressure(ymd, status, ctx, {
+          limit: pageLimit,
+          offset,
+        });
+      } else {
+        raw = await listTrankilV2TimelineItemsByDate(ymd, status, mode, {
+          paging: { limit: pageLimit, offset },
+          context: ctx,
+        });
+      }
+      const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
+      return {
+        unorganizedCount: count,
+        unorganizedTodo: unorganizedRaw,
+        primary: slice,
+        primaryHasMore: hasMore,
+        archived: [],
+        archivedHasMore: false,
+      };
+    },
+    [],
+  );
+
   const loadPack = useCallback(async () => {
     await flushPendingCommits();
-    const { anchor, mode } = resolveAnchor(timeNav);
-    const ymd = toYmd(anchor);
     setLoading(true);
     try {
-      const [
-        todoTimeline,
-        doneTimeline,
-        unorganizedTodo,
-        unorganizedCount,
-        doneUndated,
-        todoLowPressure,
-        doneLowPressure,
-        archivedIntentions,
-      ] = await Promise.all([
-        listTrankilV2TimelineItemsByDate(ymd, 'TODO', mode),
-        listTrankilV2TimelineItemsByDate(ymd, 'DONE', mode),
-        listTrankilV2UnorganizedIntentions().then((rows) => rows.map(mapTrankilIntentionToTimelineItemRow)),
-        getTrankilV2UnorganizedCount(),
-        listTrankilV2UndatedRootTasks('DONE'),
-        listTrankilV2LowPressureRootTasks('TODO'),
-        listTrankilV2LowPressureRootTasks('DONE'),
-        listTrankilV2IsArchivedIntentions(),
-      ]);
-      setPack({
-        todoTimeline,
-        doneTimeline,
-        unorganizedTodo,
-        unorganizedCount,
-        doneUndated,
-        todoLowPressure,
-        doneLowPressure,
-        archivedIntentions,
-      });
+      const b = await fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0);
+      setUnorganizedCount(b.unorganizedCount);
+      setUnorganizedTodo(b.unorganizedTodo);
+      setPrimaryRows(b.primary);
+      setPrimaryHasMore(b.primaryHasMore);
+      setArchivedRows(b.archived);
+      setArchivedHasMore(b.archivedHasMore);
     } finally {
       setLoading(false);
     }
-  }, [flushPendingCommits, timeNav]);
+  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, statusFilter, timeNav]);
 
   const reload = useCallback(() => {
     void loadPack();
   }, [loadPack]);
 
+  const loadMoreRows = useCallback(async () => {
+    if (loading || loadingMore) return;
+    const pageLimit = TIMELINE_PAGE_SIZE + 1;
+    const ctx = sqlContextFromBubble(contextBubble);
+    const { anchor, mode } = resolveAnchor(timeNav, customPickedDate);
+    const ymd = toYmd(anchor);
+
+    if (contextBubble === 'ARCHIVES') {
+      if (!archivedHasMore) return;
+      setLoadingMore(true);
+      try {
+        const raw = await listTrankilV2IsArchivedIntentions({
+          paging: { limit: pageLimit, offset: archivedRows.length },
+          statusFilter: statusFilter === 'TODO' ? 'TODO' : 'DONE',
+          context: ctx,
+        });
+        const mapped = raw.map(mapTrankilIntentionToTimelineItemRow);
+        const { slice, hasMore } = takePage(mapped, TIMELINE_PAGE_SIZE);
+        setArchivedRows((prev) => [...prev, ...slice]);
+        setArchivedHasMore(hasMore);
+      } finally {
+        setLoadingMore(false);
+      }
+      return;
+    }
+
+    if (!primaryHasMore) return;
+    setLoadingMore(true);
+    try {
+      let raw: TrankilV2TimelineItemRow[];
+      if (contextBubble === 'PIGGY') {
+        raw = await listTrankilV2UndatedRootTasks(statusFilter, {
+          paging: { limit: pageLimit, offset: primaryRows.length },
+          context: ctx,
+        });
+      } else {
+        const mergeToday = timeNav === 'TODAY';
+        if (mergeToday) {
+          raw = await listTrankilV2MergedTodayTimelineWithLowPressure(ymd, statusFilter, ctx, {
+            limit: pageLimit,
+            offset: primaryRows.length,
+          });
+        } else {
+          raw = await listTrankilV2TimelineItemsByDate(ymd, statusFilter, mode, {
+            paging: { limit: pageLimit, offset: primaryRows.length },
+            context: ctx,
+          });
+        }
+      }
+      const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
+      setPrimaryRows((prev) => [...prev, ...slice]);
+      setPrimaryHasMore(hasMore);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [
+    archivedHasMore,
+    archivedRows.length,
+    contextBubble,
+    customPickedDate,
+    loading,
+    loadingMore,
+    primaryHasMore,
+    primaryRows.length,
+    statusFilter,
+    timeNav,
+  ]);
+
   const removeRowFromPack = useCallback((rowId: string) => {
-    setPack((prev) => {
-      const wasInUnorganized = prev.unorganizedTodo.some((r) => r.id === rowId);
-      return {
-        todoTimeline: prev.todoTimeline.filter((r) => r.id !== rowId),
-        doneTimeline: prev.doneTimeline.filter((r) => r.id !== rowId),
-        unorganizedTodo: prev.unorganizedTodo.filter((r) => r.id !== rowId),
-        unorganizedCount: wasInUnorganized ? Math.max(0, prev.unorganizedCount - 1) : prev.unorganizedCount,
-        doneUndated: prev.doneUndated.filter((r) => r.id !== rowId),
-        todoLowPressure: prev.todoLowPressure.filter((r) => r.id !== rowId),
-        doneLowPressure: prev.doneLowPressure.filter((r) => r.id !== rowId),
-        archivedIntentions: prev.archivedIntentions.filter((r) => r.id !== rowId),
-      };
+    setPrimaryRows((prev) => prev.filter((r) => r.id !== rowId));
+    setArchivedRows((prev) => prev.filter((r) => r.id !== rowId));
+    setUnorganizedTodo((prev) => {
+      const next = prev.filter((r) => r.id !== rowId);
+      const removed = next.length < prev.length;
+      if (removed) {
+        setUnorganizedCount((c) => Math.max(0, c - 1));
+      }
+      return next;
     });
   }, []);
 
@@ -382,42 +660,61 @@ export function TimelineScreen() {
     [cancelPendingCommit, schedulePendingCommit],
   );
 
-  const filteredPool = useMemo((): TrankilV2TimelineItemRow[] => {
-    const timelineSlice = statusFilter === 'TODO' ? pack.todoTimeline : pack.doneTimeline;
-    const piggySlice = statusFilter === 'TODO' ? pack.unorganizedTodo : pack.doneUndated;
-    const lowPressureSlice = statusFilter === 'TODO' ? pack.todoLowPressure : pack.doneLowPressure;
+  const navigateToAddTask = useCallback(() => {
+    if (!rootNavigationRef.isReady()) return;
+    rootNavigationRef.dispatch(
+      CommonActions.navigate({
+        name: 'App',
+        params: { screen: 'Tabs', params: { screen: 'TalkHome' } },
+      } as never),
+    );
+  }, []);
 
+  const handleTimeNavChange = useCallback((v: string) => {
+    if (v === 'CUSTOM') {
+      if (RPlatform.OS === 'web') return;
+      setTimeNav('CUSTOM');
+      setCustomPickedDate((prev) => dateAtNoon(prev ?? startOfToday()));
+      setDatePickerOpen(true);
+      return;
+    }
+    setTimeNav(v as 'TODAY' | 'TOMORROW' | 'WEEK');
+    setCustomPickedDate(null);
+  }, []);
+
+  const onDatePicked = useCallback(
+    (_event: { type?: string }, selected?: Date) => {
+      if (RPlatform.OS === 'android') {
+        setDatePickerOpen(false);
+      }
+      if (RPlatform.OS === 'android' && _event.type === 'dismissed') {
+        return;
+      }
+      if (selected) {
+        setCustomPickedDate(dateAtNoon(selected));
+        setTimeNav('CUSTOM');
+      }
+      if (RPlatform.OS === 'ios') {
+        setDatePickerOpen(false);
+      }
+    },
+    [],
+  );
+
+  const filteredPool = useMemo((): TrankilV2TimelineItemRow[] => {
     if (contextBubble === 'PIGGY') {
-      return filterRowsByContext(piggySlice, contextBubble);
+      return filterRowsByContext(primaryRows, contextBubble);
     }
     if (contextBubble === 'ARCHIVES') {
-      const mapped = pack.archivedIntentions
-        .filter((it) => (it.is_archived ?? 0) === 1)
-        .map(mapTrankilIntentionToTimelineItemRow);
-      const statusFiltered =
-        statusFilter === 'TODO'
-          ? mapped.filter((r) => r.status === 'TODO' || r.status === 'ARCHIVED')
-          : mapped.filter((r) => r.status === 'DONE');
-      return filterRowsByContext(statusFiltered, 'ALL');
+      return filterRowsByContext(archivedRows, 'ALL');
     }
-    let base = filterRowsByContext(timelineSlice, contextBubble);
-    if (timeNav === 'TODAY') {
-      const extra = filterRowsByContext(lowPressureSlice, contextBubble);
-      const seen = new Set(base.map((r) => r.id));
-      for (const r of extra) {
-        if (!seen.has(r.id)) {
-          base = [...base, r];
-          seen.add(r.id);
-        }
-      }
-    }
-    return base;
-  }, [contextBubble, pack, statusFilter, timeNav]);
+    return filterRowsByContext(primaryRows, contextBubble);
+  }, [archivedRows, contextBubble, primaryRows]);
 
   const hiddenUnorganizedForIdeaBank = useMemo(() => {
     const visible = new Set(filteredPool.map((r) => r.id));
-    return pack.unorganizedTodo.filter((r) => !visible.has(r.id));
-  }, [filteredPool, pack.unorganizedTodo]);
+    return unorganizedTodo.filter((r) => !visible.has(r.id));
+  }, [filteredPool, unorganizedTodo]);
 
   const listEntries = useMemo((): ListEntry[] => {
     const taskHabit = filteredPool.filter((item) => item.section === 'TASK_HABIT');
@@ -519,6 +816,18 @@ export function TimelineScreen() {
     return [...ids];
   }, [listEntries]);
 
+  const flatListItems = useMemo(() => flattenForVirtualList(listEntries), [listEntries]);
+
+  const flatListLayouts = useMemo(() => buildFlatListLayouts(flatListItems), [flatListItems]);
+
+  const getItemLayout = useCallback(
+    (_: unknown, index: number) => {
+      const L = flatListLayouts[index];
+      return { length: L.length, offset: L.offset, index };
+    },
+    [flatListLayouts],
+  );
+
   useEffect(() => {
     let cancelled = false;
     if (flatRowIds.length === 0) {
@@ -537,12 +846,37 @@ export function TimelineScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void loadPack();
+      if (timelineBlurredRef.current) {
+        timelineBlurredRef.current = false;
+        void (async () => {
+          await flushPendingCommits();
+          setLoading(true);
+          try {
+            const b = await fetchTimelineSlice('TODAY', null, contextBubble, statusFilter, 0);
+            setUnorganizedCount(b.unorganizedCount);
+            setUnorganizedTodo(b.unorganizedTodo);
+            setPrimaryRows(b.primary);
+            setPrimaryHasMore(b.primaryHasMore);
+            setArchivedRows(b.archived);
+            setArchivedHasMore(b.archivedHasMore);
+          } finally {
+            setLoading(false);
+          }
+          setTimeNav('TODAY');
+          setCustomPickedDate(null);
+          setDatePickerOpen(false);
+        })();
+      }
       return () => {
+        timelineBlurredRef.current = true;
         void flushPendingCommits();
       };
-    }, [flushPendingCommits, loadPack]),
+    }, [contextBubble, fetchTimelineSlice, flushPendingCommits, statusFilter]),
   );
+
+  useEffect(() => {
+    void loadPack();
+  }, [loadPack]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
@@ -551,92 +885,119 @@ export function TimelineScreen() {
     return () => sub.remove();
   }, [loadPack]);
 
-  const timeNavButtons = useMemo(
-    () => [
+  const timeNavButtons = useMemo(() => {
+    const base: {
+      value: 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM';
+      label: string;
+      style: typeof styles.segmentBtnCompact;
+      labelStyle: typeof styles.segmentLabelCompact;
+    }[] = [
       {
-        value: 'TODAY' as const,
+        value: 'TODAY',
         label: t('horizons.today'),
         style: styles.segmentBtnCompact,
         labelStyle: styles.segmentLabelCompact,
       },
       {
-        value: 'TOMORROW' as const,
+        value: 'TOMORROW',
         label: t('horizons.tomorrow'),
         style: styles.segmentBtnCompact,
         labelStyle: styles.segmentLabelCompact,
       },
       {
-        value: 'WEEK' as const,
+        value: 'WEEK',
         label: t('horizons.thisWeek'),
         style: styles.segmentBtnCompact,
         labelStyle: styles.segmentLabelCompact,
       },
-    ],
-    [t],
-  );
+    ];
+    if (RPlatform.OS === 'web') return base;
+    base.push({
+      value: 'CUSTOM',
+      label:
+        timeNav === 'CUSTOM' && customPickedDate
+          ? t('timeline.pilot.pickedDateShort', { date: formatPilotDayChip(customPickedDate) })
+          : t('timeline.pilot.specificDate'),
+      style: styles.segmentBtnCompact,
+      labelStyle: styles.segmentLabelCompact,
+    });
+    return base;
+  }, [t, timeNav, customPickedDate]);
 
-  const renderRowCard = (
-    row: TrankilV2TimelineItemRow,
-    listKey: string,
-    dimmed?: boolean,
-    rowVariant?: 'default' | 'noPressure',
-  ) => {
-    const resolved = resolveDisplayTitle(row);
-    const headingKey = displayHeading(resolved);
-    const titleText = headingKey ? t(headingKey) : resolved;
-    const createdLine = formatCreatedLine(row.created_at, i18n.language);
-    const showOrb = canShowCompleteOrb(listKey, statusFilter, dimmed);
-    const progressKey = progressLookupIdForRow(row);
-    const projectSuffix =
-      row.section === 'PROJECT_SUBTASK' && row.project_title
-        ? `${t('timeline.projectPrefix')}: ${row.project_title}`
-        : null;
-
-    const card = (
-      <TimelineListItemRow
-        row={row}
-        listKey={listKey}
-        dimmed={dimmed}
-        theme={theme}
-        titleText={titleText}
-        badgeLabel={t(typeBadge(row.type))}
-        projectSuffix={projectSuffix}
-        createdCaption={t('timeline.createdOn', { date: createdLine })}
-        isPro={spectrum.isProUser}
-        showCompleteOrb={showOrb}
-        progressLookupId={progressKey}
-        childStats={childStats}
-        pendingLocalDone={pendingLocalDone.has(row.id)}
-        onToggleComplete={() => void handleToggleRowComplete(row)}
-      />
-    );
-
-    return (
-      <IntentInteractionWrapper
-        key={row.id}
-        intentionId={row.id}
-        anchorDate={anchorDate}
-        enabled={!dimmed}
-        onMutation={reload}
-      >
-        {rowVariant === 'noPressure' ? (
-          <View
-            style={[
-              styles.noPressureRowWrap,
-              {
-                borderColor: theme.colors.primary,
-                backgroundColor: 'rgba(0, 128, 128, 0.06)',
-              },
-            ]}
-          >
-            {card}
+  const renderTimelineFlatItem = useCallback(
+    ({ item }: { item: TimelineFlatItem }) => {
+      if (item.kind === 'section') {
+        return (
+          <View style={[styles.sectionHeaderOnly, { paddingHorizontal: 16 }]}>
+            <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>{t(item.titleKey)}</Text>
           </View>
-        ) : (
-          card
-        )}
-      </IntentInteractionWrapper>
-    );
-  };
+        );
+      }
+      if (item.kind === 'ideaBankRow') {
+        return (
+          <View style={[styles.section, { paddingHorizontal: 16 }]}>
+            <Pressable
+              onPress={() => setIdeaBankOpen(true)}
+              style={[
+                neumorphicRaised(theme),
+                styles.ideaBankPressable,
+                { borderWidth: 1, borderColor: theme.colors.outlineVariant },
+              ]}
+            >
+              <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
+                {item.count} {t('timeline.ideaBank.button')}
+              </Text>
+            </Pressable>
+          </View>
+        );
+      }
+      const row = item.row;
+      const resolved = resolveDisplayTitle(row);
+      const headingKey = displayHeading(resolved);
+      const titleText = headingKey ? t(headingKey) : resolved;
+      const createdLine = formatCreatedLine(row.created_at, i18n.language);
+      const showCompleteOrb = canShowCompleteOrb(item.listKey, statusFilter);
+      const progressLookupId = progressLookupIdForRow(row);
+      const projectSuffix =
+        row.section === 'PROJECT_SUBTASK' && row.project_title
+          ? `${t('timeline.projectPrefix')}: ${row.project_title}`
+          : null;
+      return (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 2 }}>
+          <TimelineCardRow
+            row={row}
+            listKey={item.listKey}
+            rowVariant={item.rowVariant}
+            theme={theme}
+            spectrumIsPro={spectrum.isProUser}
+            anchorDate={anchorDate}
+            titleText={titleText}
+            badgeLabel={t(typeBadge(row.type))}
+            projectSuffix={projectSuffix}
+            createdCaption={t('timeline.createdOn', { date: createdLine })}
+            progressLookupId={progressLookupId}
+            showCompleteOrb={showCompleteOrb}
+            pendingLocalDone={pendingLocalDone.has(row.id)}
+            childStats={childStats}
+            onToggleComplete={() => void handleToggleRowComplete(row)}
+            onMutationReload={reload}
+          />
+        </View>
+      );
+    },
+    [
+      anchorDate,
+      childStats,
+      handleToggleRowComplete,
+      i18n.language,
+      pendingLocalDone,
+      reload,
+      spectrum.isProUser,
+      statusFilter,
+      t,
+      theme,
+    ],
+  );
 
   const contextDefs: { id: ContextBubble; label: string; emoji?: string }[] = [
     { id: 'ALL', label: t('timeline.pilot.contextAll') },
@@ -650,12 +1011,31 @@ export function TimelineScreen() {
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
       <FlatList
         style={styles.listFlex}
-        data={listEntries}
-        keyExtractor={(item) =>
-          item.kind === 'rows' ? `${item.listKey}-${item.titleKey}` : item.listKey
-        }
-        extraData={{ contextBubble, statusFilter, timeNav, pack }}
+        data={flatListItems}
+        keyExtractor={(item) => item.id}
+        extraData={{
+          contextBubble,
+          statusFilter,
+          timeNav,
+          customPickedDate,
+          childStats,
+          pendingLocalDone,
+        }}
+        getItemLayout={getItemLayout}
+        removeClippedSubviews={RPlatform.OS === 'android'}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        onEndReached={() => void loadMoreRows()}
+        onEndReachedThreshold={0.35}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.listFooterLoading}>
+              <ActivityIndicator color={theme.colors.primary} />
+            </View>
+          ) : null
+        }
         ListHeaderComponent={
           <View style={styles.headerStack}>
             <View style={styles.headTitleRow}>
@@ -674,11 +1054,21 @@ export function TimelineScreen() {
               </View>
               <SegmentedButtons
                 value={timeNav}
-                onValueChange={(v) => setTimeNav(v as TimeNav)}
+                onValueChange={(v) => handleTimeNavChange(v)}
                 buttons={timeNavButtons}
                 density="small"
                 style={styles.segment}
               />
+              {timeNav === 'CUSTOM' && RPlatform.OS !== 'web' ? (
+                <Pressable
+                  onPress={() => setDatePickerOpen(true)}
+                  style={[styles.changeDateLink, { borderColor: theme.colors.outlineVariant }]}
+                >
+                  <Text style={[styles.changeDateLinkText, { color: theme.colors.primary }]}>
+                    {t('timeline.pilot.changeDate')}
+                  </Text>
+                </Pressable>
+              ) : null}
             </NeumorphicCard>
 
             <NeumorphicCard style={styles.cardBlock}>
@@ -686,7 +1076,7 @@ export function TimelineScreen() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bubbleRow}>
                 {contextDefs.map((c) => {
                   const selected = contextBubble === c.id;
-                  const countPiggy = c.id === 'PIGGY' ? pack.unorganizedCount : 0;
+                  const countPiggy = c.id === 'PIGGY' ? unorganizedCount : 0;
                   return (
                     <Pressable
                       key={c.id}
@@ -747,42 +1137,55 @@ export function TimelineScreen() {
             </NeumorphicCard>
           </View>
         }
-        renderItem={({ item }) => {
-          if (item.kind === 'ideaBank') {
-            return (
-              <View style={[styles.section, { paddingHorizontal: 16 }]}>
-                <Pressable
-                  onPress={() => setIdeaBankOpen(true)}
-                  style={[
-                    neumorphicRaised(theme),
-                    styles.ideaBankPressable,
-                    { borderWidth: 1, borderColor: theme.colors.outlineVariant },
-                  ]}
-                >
-                  <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
-                    {item.count} {t('timeline.ideaBank.button')}
-                  </Text>
-                </Pressable>
-              </View>
-            );
-          }
-          return (
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>{t(item.titleKey)}</Text>
-              {item.rows.map((row) => renderRowCard(row, item.listKey, item.dimmed, item.rowVariant))}
-            </View>
-          );
-        }}
+        renderItem={renderTimelineFlatItem}
         ListEmptyComponent={
-          listEntries.length === 0 ? (
+          flatListItems.length === 0 ? (
             <View style={styles.emptyWrap}>
-              <Text style={[styles.skyClearText, { color: theme.colors.onSurfaceVariant }]}>
-                {loading ? t('stats.loading') : t('timeline.skyClear')}
-              </Text>
+              {loading ? (
+                <View style={styles.skeletonStack}>
+                  {[0, 1, 2, 3].map((k) => (
+                    <View
+                      key={`sk-${k}`}
+                      style={[styles.skeletonBar, { backgroundColor: theme.colors.surfaceVariant }]}
+                    />
+                  ))}
+                </View>
+              ) : timeNav === 'CUSTOM' && customPickedDate ? (
+                <View style={styles.customEmptyBlock}>
+                  <Text style={[styles.skyClearText, { color: theme.colors.onSurfaceVariant }]}>
+                    {t('timeline.customDayEmpty')}
+                  </Text>
+                  <Pressable
+                    onPress={navigateToAddTask}
+                    style={[
+                      neumorphicRaised(theme),
+                      styles.customEmptyCta,
+                      { borderWidth: 1, borderColor: theme.colors.primary },
+                    ]}
+                  >
+                    <Text style={[styles.customEmptyCtaText, { color: theme.colors.primary }]}>
+                      {t('timeline.customDayAddTask')}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Text style={[styles.skyClearText, { color: theme.colors.onSurfaceVariant }]}>
+                  {t('timeline.skyClear')}
+                </Text>
+              )}
             </View>
           ) : null
         }
       />
+
+      {RPlatform.OS !== 'web' && datePickerOpen ? (
+        <DateTimePicker
+          value={customPickedDate ?? startOfToday()}
+          mode="date"
+          display="default"
+          onChange={onDatePicked}
+        />
+      ) : null}
 
       <View
         pointerEvents="box-none"
@@ -866,7 +1269,11 @@ const styles = StyleSheet.create({
   },
   statusBtnText: { fontSize: 13, fontWeight: '600' },
   section: { paddingHorizontal: 16, paddingVertical: 10 },
+  sectionHeaderOnly: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+  skeletonStack: { paddingHorizontal: 24, paddingTop: 24, gap: 12, width: '100%' },
+  skeletonBar: { height: 96, borderRadius: 14, width: '100%' },
+  listFooterLoading: { paddingVertical: 20, alignItems: 'center', justifyContent: 'center' },
   noPressureRowWrap: {
     borderRadius: 14,
     borderWidth: 1,
@@ -876,6 +1283,22 @@ const styles = StyleSheet.create({
   },
   emptyWrap: { flex: 1, paddingHorizontal: 24, paddingVertical: 48, alignItems: 'center', justifyContent: 'center' },
   skyClearText: { fontSize: 16, fontWeight: '600', textAlign: 'center', lineHeight: 24 },
+  changeDateLink: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  changeDateLinkText: { fontSize: 12, fontWeight: '600' },
+  customEmptyBlock: { alignItems: 'center', gap: 16, maxWidth: 320 },
+  customEmptyCta: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+  },
+  customEmptyCtaText: { fontSize: 15, fontWeight: '700', textAlign: 'center' },
   ideaBankPressable: {
     flexDirection: 'row',
     alignItems: 'center',
