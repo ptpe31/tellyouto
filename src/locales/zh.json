@@ -256,13 +256,29 @@
     "hardRoutineLockA11y": "结构性例行 — 时段已锁定",
     "microFragment": "片段 {{current}} / {{total}}",
     "microDuration": "约 2 分钟 · 微习惯",
+    "skyClear": "万里无云，思绪轻盈。",
+    "pilot": {
+      "title": "驾驶舱",
+      "timeNav": "时间",
+      "contextNav": "场景",
+      "statusNav": "状态",
+      "contextAll": "全部",
+      "contextHome": "居家",
+      "contextWork": "工作",
+      "contextPiggy": "存钱罐",
+      "contextArchives": "归档",
+      "todo": "待办",
+      "done": "已完成"
+    },
     "todoFilter": "待办",
     "doneFilter": "已完成",
     "noItems": "暂无项目",
     "noContentForDate": "该日期暂无内容",
     "createdOn": "创建于 {{date}}",
     "tasks": {
-      "title": "我的任务"
+      "title": "我的任务",
+      "scheduledToday": "今日到期",
+      "noPressure": "不急"
     },
     "habits": {
       "title": "习惯"

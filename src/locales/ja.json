@@ -256,13 +256,29 @@
     "hardRoutineLockA11y": "構造的ルーティン — 固定枠",
     "microFragment": "フラグメント {{current}} / {{total}}",
     "microDuration": "約2分 · マイクロ習慣",
+    "skyClear": "晴れ渡った空のように、心に余白があります。",
+    "pilot": {
+      "title": "パイロット",
+      "timeNav": "時間",
+      "contextNav": "コンテキスト",
+      "statusNav": "状態",
+      "contextAll": "すべて",
+      "contextHome": "ホーム",
+      "contextWork": "仕事",
+      "contextPiggy": "貯金箱",
+      "contextArchives": "アーカイブ",
+      "todo": "未完了",
+      "done": "完了"
+    },
     "todoFilter": "未完了",
     "doneFilter": "完了",
     "noItems": "項目なし",
     "noContentForDate": "この日付の内容はありません",
     "createdOn": "{{date}} に作成",
     "tasks": {
-      "title": "マイタスク"
+      "title": "マイタスク",
+      "scheduledToday": "今日の予定",
+      "noPressure": "急がなくて大丈夫"
     },
     "habits": {
       "title": "習慣"

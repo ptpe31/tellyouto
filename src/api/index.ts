@@ -26,6 +26,7 @@ export {
   listTrankilV2Intentions,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
+  listTrankilV2LowPressureRootTasks,
   bulkTrankilV2TaskChildStatsByParentIds,
   listArchivedIntentions,
   listTrankilV2MeliArchivesIntentions,

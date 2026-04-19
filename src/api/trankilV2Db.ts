@@ -51,6 +51,8 @@ export type TrankilV2TimelineItemRow = {
   is_synced_calendar: number;
   /** Présent lorsque la requête Timeline le joint (filtres contexte). */
   category_id?: string | null;
+  /** JSON tableau de tags suggérés (ex. `a_trier`). */
+  suggested_tags?: string | null;
 };
 
 export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
@@ -526,7 +528,7 @@ export async function listTrankilV2TimelineItemsByDate(
   const db = await getDb();
   return db.getAllAsync<TrankilV2TimelineItemRow>(
     `
-    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id
+    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags
     FROM (
       SELECT
         i.id AS id,
@@ -541,6 +543,7 @@ export async function listTrankilV2TimelineItemsByDate(
         'TASK_HABIT' AS section,
         COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
         i.category_id AS category_id,
+        i.suggested_tags AS suggested_tags,
         i.due_date AS effective_date,
         1 AS section_order
       FROM intentions i
@@ -564,6 +567,7 @@ export async function listTrankilV2TimelineItemsByDate(
         'PROJECT_SUBTASK' AS section,
         COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
         i.category_id AS category_id,
+        i.suggested_tags AS suggested_tags,
         i.due_date AS effective_date,
         2 AS section_order
       FROM intentions i
@@ -589,6 +593,7 @@ export async function listTrankilV2TimelineItemsByDate(
         'NOTE_AUDIO' AS section,
         COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
         i.category_id AS category_id,
+        i.suggested_tags AS suggested_tags,
         COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
         3 AS section_order
       FROM intentions i
@@ -630,13 +635,51 @@ export async function listTrankilV2UndatedRootTasks(
        i.title AS display_title,
        'TASK_HABIT' AS section,
        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
-       i.category_id AS category_id
+       i.category_id AS category_id,
+       i.suggested_tags AS suggested_tags
      FROM intentions i
      WHERE i.status = ?
        AND COALESCE(i.is_archived, 0) = 0
        AND i.type = 'TASK'
        AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
        AND (i.due_date IS NULL OR trim(i.due_date) = '')
+     ORDER BY i.created_at DESC`,
+    [status],
+  );
+}
+
+/**
+ * Tâches racine « sans pression » : sans échéance ou portant le tag `a_trier` (pilotage « Aujourd’hui »).
+ */
+export async function listTrankilV2LowPressureRootTasks(
+  status: TrankilIntentStatus,
+): Promise<TrankilV2TimelineItemRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2TimelineItemRow>(
+    `SELECT
+       i.id AS id,
+       i.type AS type,
+       i.status AS status,
+       i.due_date AS due_date,
+       i.created_at AS created_at,
+       i.content_raw AS content_raw,
+       i.parent_id AS parent_id,
+       NULL AS project_title,
+       i.title AS display_title,
+       'TASK_HABIT' AS section,
+       COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+       i.category_id AS category_id,
+       i.suggested_tags AS suggested_tags
+     FROM intentions i
+     WHERE i.status = ?
+       AND COALESCE(i.is_archived, 0) = 0
+       AND i.type = 'TASK'
+       AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+       AND (
+         (i.due_date IS NULL OR trim(i.due_date) = '')
+         OR (instr(i.suggested_tags, '"a_trier"') > 0)
+       )
      ORDER BY i.created_at DESC`,
     [status],
   );
@@ -837,6 +880,7 @@ export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow)
     section,
     is_synced_calendar: row.is_synced_calendar ?? 0,
     category_id: row.category_id ?? null,
+    suggested_tags: row.suggested_tags ?? '[]',
   };
 }
 

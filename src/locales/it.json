@@ -256,13 +256,29 @@
     "hardRoutineLockA11y": "Routine strutturale — slot bloccato",
     "microFragment": "Frammento {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-abitudine",
+    "skyClear": "Cielo sereno — la mente ha spazio.",
+    "pilot": {
+      "title": "Pilotaggio",
+      "timeNav": "Tempo",
+      "contextNav": "Contesti",
+      "statusNav": "Stato",
+      "contextAll": "Tutti",
+      "contextHome": "Casa",
+      "contextWork": "Lavoro",
+      "contextPiggy": "Salvadanaio",
+      "contextArchives": "Archivi",
+      "todo": "Da fare",
+      "done": "Fatto"
+    },
     "todoFilter": "Da fare",
     "doneFilter": "Fatto",
     "noItems": "Nessun elemento",
     "noContentForDate": "Nessun contenuto per questa data",
     "createdOn": "Creato il {{date}}",
     "tasks": {
-      "title": "Le mie attività"
+      "title": "Le mie attività",
+      "scheduledToday": "In scadenza oggi",
+      "noPressure": "Senza fretta"
     },
     "habits": {
       "title": "Abitudini"

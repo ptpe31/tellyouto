@@ -16,8 +16,24 @@
   },
   "timeline": {
     "createdOn": "Gemaakt op {{date}}",
+    "skyClear": "Strak blauw — je hoofd heeft ruimte.",
+    "pilot": {
+      "title": "Stuurpost",
+      "timeNav": "Tijd",
+      "contextNav": "Contexten",
+      "statusNav": "Status",
+      "contextAll": "Alles",
+      "contextHome": "Thuis",
+      "contextWork": "Werk",
+      "contextPiggy": "Spaarvarken",
+      "contextArchives": "Archief",
+      "todo": "Te doen",
+      "done": "Klaar"
+    },
     "tasks": {
-      "title": "Mijn taken"
+      "title": "Mijn taken",
+      "scheduledToday": "Vandaag gepland",
+      "noPressure": "Geen haast"
     },
     "habits": {
       "title": "Gewoontes"

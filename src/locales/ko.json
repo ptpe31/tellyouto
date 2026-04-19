@@ -16,8 +16,24 @@
   },
   "timeline": {
     "createdOn": "{{date}}에 생성됨",
+    "skyClear": "맑은 하늘처럼, 마음에 여유가 있어요.",
+    "pilot": {
+      "title": "조종석",
+      "timeNav": "시간",
+      "contextNav": "맥락",
+      "statusNav": "상태",
+      "contextAll": "전체",
+      "contextHome": "집",
+      "contextWork": "일",
+      "contextPiggy": "저금통",
+      "contextArchives": "보관함",
+      "todo": "할 일",
+      "done": "완료"
+    },
     "tasks": {
-      "title": "내 작업"
+      "title": "내 작업",
+      "scheduledToday": "오늘 마감",
+      "noPressure": "여유 있게"
     },
     "habits": {
       "title": "습관"

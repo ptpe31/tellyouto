@@ -16,8 +16,24 @@
   },
   "timeline": {
     "createdOn": "Skapad {{date}}",
+    "skyClear": "Klar himmel — sinnet har utrymme.",
+    "pilot": {
+      "title": "Pilot",
+      "timeNav": "Tid",
+      "contextNav": "Kontexter",
+      "statusNav": "Status",
+      "contextAll": "Alla",
+      "contextHome": "Hem",
+      "contextWork": "Arbete",
+      "contextPiggy": "Spargris",
+      "contextArchives": "Arkiv",
+      "todo": "Att göra",
+      "done": "Klar"
+    },
     "tasks": {
-      "title": "Mina uppgifter"
+      "title": "Mina uppgifter",
+      "scheduledToday": "Idag",
+      "noPressure": "Utan stress"
     },
     "habits": {
       "title": "Vanor"

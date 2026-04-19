@@ -256,13 +256,29 @@
     "hardRoutineLockA11y": "Strukturroutine — gesperrter Slot",
     "microFragment": "Fragment {{current}} / {{total}}",
     "microDuration": "~ 2 Min · Mikro-Gewohnheit",
+    "skyClear": "Freie Sicht — dein Kopf hat Luft.",
+    "pilot": {
+      "title": "Steuerung",
+      "timeNav": "Zeit",
+      "contextNav": "Kontexte",
+      "statusNav": "Status",
+      "contextAll": "Alle",
+      "contextHome": "Zuhause",
+      "contextWork": "Arbeit",
+      "contextPiggy": "Sparschwein",
+      "contextArchives": "Archiv",
+      "todo": "Offen",
+      "done": "Erledigt"
+    },
     "todoFilter": "Offen",
     "doneFilter": "Erledigt",
     "noItems": "Keine Eintraege",
     "noContentForDate": "Keine Inhalte fuer dieses Datum",
     "createdOn": "Erstellt am {{date}}",
     "tasks": {
-      "title": "Meine Aufgaben"
+      "title": "Meine Aufgaben",
+      "scheduledToday": "Heute fällig",
+      "noPressure": "Ohne Druck"
     },
     "habits": {
       "title": "Gewohnheiten"

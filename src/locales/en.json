@@ -337,10 +337,11 @@
     "hardRoutineLockA11y": "Structural routine — locked slot",
     "microFragment": "Fragment {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-habit",
+    "skyClear": "Clear skies — your mind has room to breathe.",
     "pilot": {
       "title": "Pilot",
       "timeNav": "Time",
-      "contextNav": "Context",
+      "contextNav": "Contexts",
       "statusNav": "Status",
       "contextAll": "All",
       "contextHome": "Home",
@@ -374,7 +375,9 @@
     "a11yTaskComplete": "Mark as done or cancel pending completion",
     "createdOn": "Created on {{date}}",
     "tasks": {
-      "title": "My tasks"
+      "title": "My tasks",
+      "scheduledToday": "Due today",
+      "noPressure": "No rush"
     },
     "habits": {
       "title": "Habits"

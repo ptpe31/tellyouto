@@ -256,13 +256,29 @@
     "hardRoutineLockA11y": "Rutina estructural — franja bloqueada",
     "microFragment": "Fragmento {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-hábito",
+    "skyClear": "Cielo despejado — tu mente respira tranquila.",
+    "pilot": {
+      "title": "Pilotaje",
+      "timeNav": "Tiempo",
+      "contextNav": "Contextos",
+      "statusNav": "Estado",
+      "contextAll": "Todos",
+      "contextHome": "Casa",
+      "contextWork": "Trabajo",
+      "contextPiggy": "Hucha",
+      "contextArchives": "Archivos",
+      "todo": "Por hacer",
+      "done": "Hecho"
+    },
     "todoFilter": "Por hacer",
     "doneFilter": "Hecho",
     "noItems": "Sin elementos",
     "noContentForDate": "Sin contenido para esta fecha",
     "createdOn": "Creado el {{date}}",
     "tasks": {
-      "title": "Mis tareas"
+      "title": "Mis tareas",
+      "scheduledToday": "Para hoy",
+      "noPressure": "Sin prisa"
     },
     "habits": {
       "title": "Hábitos"

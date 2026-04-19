@@ -337,10 +337,11 @@
     "hardRoutineLockA11y": "Routine structurelle — créneau verrouillé",
     "microFragment": "Fragment {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-habitude",
+    "skyClear": "Ciel dégagé, ton esprit est libre.",
     "pilot": {
       "title": "Pilotage",
       "timeNav": "Temps",
-      "contextNav": "Contexte",
+      "contextNav": "Contextes",
       "statusNav": "Statut",
       "contextAll": "Tous",
       "contextHome": "Maison",
@@ -374,7 +375,9 @@
     "a11yTaskComplete": "Marquer comme fait ou annuler la validation en cours",
     "createdOn": "Créé le {{date}}",
     "tasks": {
-      "title": "Mes Tâches"
+      "title": "Mes Tâches",
+      "scheduledToday": "Prévu aujourd’hui",
+      "noPressure": "Sans pression"
     },
     "habits": {
       "title": "Habitudes"

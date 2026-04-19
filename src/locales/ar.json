@@ -16,8 +16,24 @@
   },
   "timeline": {
     "createdOn": "أُنشئ في {{date}}",
+    "skyClear": "سماء صافية — ذهنك أخف.",
+    "pilot": {
+      "title": "قيادة",
+      "timeNav": "الوقت",
+      "contextNav": "السياقات",
+      "statusNav": "الحالة",
+      "contextAll": "الكل",
+      "contextHome": "المنزل",
+      "contextWork": "العمل",
+      "contextPiggy": "الحصالة",
+      "contextArchives": "الأرشيف",
+      "todo": "للتنفيذ",
+      "done": "تم"
+    },
     "tasks": {
-      "title": "مهامي"
+      "title": "مهامي",
+      "scheduledToday": "مستحق اليوم",
+      "noPressure": "دون ضغط"
     },
     "habits": {
       "title": "عادات"
