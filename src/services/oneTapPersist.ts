@@ -13,12 +13,14 @@ import type { CaptureStrategyDeps } from './captureStrategies/types';
 import { executeQuickNoteCapture } from './captureStrategies/NoteStrategy';
 import { executeHabitCapture } from './captureStrategies/HabitStrategy';
 import {
+  buildListInventoryJsonStringFromDraftBlock,
   geminiJsonToStoredPayload,
   mergeListPayloadIntoMetadataJson,
   parseGeminiListInventoryJson,
 } from './listIntentionModel';
 import { createLocalTemporalIntention } from './localTemporalIntention';
 import type { OneTapUniversalResult } from './oneTapUniversalCapture';
+import { scheduleOneTapUniversalReminders } from './oneTapUniversalReminders';
 
 export type PersistOneTapSuccess =
   | {
@@ -45,7 +47,7 @@ export type PersistOneTapSuccess =
 
 export type PersistOneTapResult =
   | { ok: true; outcome: PersistOneTapSuccess }
-  | { ok: false; error: unknown; code?: 'LIST_QUOTA' };
+  | { ok: false; error: unknown; code?: 'LIST_QUOTA' | 'LIST_SELECTION' };
 
 function str(d: Record<string, unknown>, key: string): string | null {
   const v = d[key];
@@ -86,6 +88,14 @@ export async function persistOneTapDraft(params: {
           fallbackNoteTitle: deps.translate('timeline.note'),
         });
         if (!res.ok) return { ok: false, error: res.error };
+        if (res.outcome.kind === 'simple_note_or_audio' && res.outcome.intentionId) {
+          void scheduleOneTapUniversalReminders({
+            intentionId: res.outcome.intentionId,
+            title,
+            data: draft.data,
+            translate: deps.translate,
+          });
+        }
         return {
           ok: true,
           outcome: {
@@ -119,6 +129,12 @@ export async function persistOneTapDraft(params: {
           source: 'one_tap_task',
           metadataExtra: metaExtra,
         });
+        void scheduleOneTapUniversalReminders({
+          intentionId,
+          title,
+          data: draft.data,
+          translate: deps.translate,
+        });
         return {
           ok: true,
           outcome: {
@@ -149,6 +165,12 @@ export async function persistOneTapDraft(params: {
           return { ok: false, error: new Error('unexpected_habit_outcome') };
         }
         const o = res.outcome;
+        void scheduleOneTapUniversalReminders({
+          intentionId: o.intentionId,
+          title,
+          data: draft.data,
+          translate: deps.translate,
+        });
         return {
           ok: true,
           outcome: {
@@ -176,8 +198,15 @@ export async function persistOneTapDraft(params: {
         }
         let parsedList;
         try {
-          parsedList = parseGeminiListInventoryJson(JSON.stringify(listBlock));
+          const jsonStr = buildListInventoryJsonStringFromDraftBlock(
+            listBlock as Record<string, unknown>,
+            title,
+          );
+          parsedList = parseGeminiListInventoryJson(jsonStr);
         } catch (e) {
+          if (e instanceof Error && e.message === 'LIST_NO_ITEMS_SELECTED') {
+            return { ok: false, error: e, code: 'LIST_SELECTION' };
+          }
           return { ok: false, error: e };
         }
         const payload = geminiJsonToStoredPayload(parsedList);
@@ -205,6 +234,12 @@ export async function persistOneTapDraft(params: {
         if (!deps.spectrum.isProUser) {
           await consumeListFreeSuccessOnce();
         }
+        void scheduleOneTapUniversalReminders({
+          intentionId: id,
+          title: mergedTitle,
+          data: draft.data,
+          translate: deps.translate,
+        });
         return {
           ok: true,
           outcome: {

@@ -45,6 +45,8 @@ export interface TemporalPersistedOutcome {
 export interface SimpleCaptureOutcome {
   kind: 'simple_note_or_audio';
   successFeedbackI18nKey: string;
+  /** Présent quand une ligne SQLite a été créée (rappels / suivi). */
+  intentionId?: string;
 }
 
 export interface OpenProjectModalOutcome {

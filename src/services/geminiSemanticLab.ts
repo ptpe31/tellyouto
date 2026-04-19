@@ -3,7 +3,12 @@
  * Clé : EXPO_PUBLIC_GEMINI_API_KEY — réservée aux builds de test (exposée client).
  * Modèle : EXPO_PUBLIC_GEMINI_MODEL (défaut gemini-1.5-flash-latest).
  *
- * Résolution : `expo.extra` (injecté par app.config.js depuis .env / env) puis process.env.
+ * Résolution : `expo.extra` (injecté par app.config.js depuis `.env`) puis process.env.
+ *
+ * **Streaming / audio** : ce module utilise `generateContent` **non streamé** (réponse complète).
+ * Le flux Talk Debug **One-Tap** envoie le **texte** déjà transcrit (expo-speech-recognition), pas l’audio :
+ * pas d’attente de fichier audio pour Gemini sur ce chemin. Pour du streaming token-par-token, il faudrait
+ * brancher l’API `streamGenerateContent` + parse incrémental du JSON (hors scope actuel).
  */
 
 import Constants from 'expo-constants';
@@ -36,6 +41,31 @@ function labLog(stage: string, detail?: Record<string, unknown>): void {
     return;
   }
   console.log(`[GeminiLab] ${stage}`);
+}
+
+/** Taille en octets du binaire représenté par une chaîne base64 (sans espaces). */
+function base64DecodedByteLength(b64: string): number {
+  const s = b64.replace(/\s/g, '');
+  if (s.length === 0) return 0;
+  const pad = s.endsWith('==') ? 2 : s.endsWith('=') ? 1 : 0;
+  return Math.floor((s.length * 3) / 4) - pad;
+}
+
+/** Somme des tailles décodées (KB) des parties `inlineData` audio du corps `generateContent`. */
+function sumAudioPayloadKbFromGenerateBody(body: unknown): number {
+  let bytes = 0;
+  const root = body as { contents?: { parts?: unknown[] }[] };
+  for (const c of root.contents ?? []) {
+    for (const p of c?.parts ?? []) {
+      const part = p as { inlineData?: { mimeType?: string; data?: string } };
+      const mt = part.inlineData?.mimeType?.toLowerCase() ?? '';
+      const data = part.inlineData?.data;
+      if (mt.startsWith('audio/') && typeof data === 'string' && data.length > 0) {
+        bytes += base64DecodedByteLength(data);
+      }
+    }
+  }
+  return bytes / 1024;
 }
 
 export function getGeminiApiKey(): string | undefined {
@@ -93,7 +123,7 @@ function buildGenerateUrl(modelOverride?: string): string {
   const key = getGeminiApiKey();
   if (!key) {
     throw new Error(
-      'Gemini: clé absente. Définis EXPO_PUBLIC_GEMINI_API_KEY dans .env ou env à la racine, puis `npx expo prebuild` ou relance Metro avec cache vidé.',
+      'Gemini: clé absente. Définis EXPO_PUBLIC_GEMINI_API_KEY dans `.env` à la racine, puis `npx expo prebuild` ou relance Metro avec cache vidé.',
     );
   }
   const model = modelOverride || getGeminiModelId();
@@ -159,6 +189,9 @@ async function computeModelCandidates(modelOverride?: string): Promise<string[]>
 }
 
 async function postGenerateContent(body: object, modelOverride?: string): Promise<unknown> {
+  const audioKb = sumAudioPayloadKbFromGenerateBody(body);
+  console.log(`[GeminiLab] Audio Payload Size: ${audioKb.toFixed(2)} KB`);
+
   const candidates = await computeModelCandidates(modelOverride);
   let lastError: Error | null = null;
 

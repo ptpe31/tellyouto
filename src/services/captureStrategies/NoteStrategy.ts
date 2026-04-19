@@ -2,12 +2,12 @@ import { insertTrankilV2Intention } from '../../api/trankilV2Db';
 import type { CaptureChooseActionResult, CaptureStrategyDeps } from './types';
 
 async function insertQuickNote(params: {
-  newId: () => string;
+  id: string;
   title: string;
   transcript: string;
 }): Promise<void> {
   await insertTrankilV2Intention({
-    id: params.newId(),
+    id: params.id,
     type: 'NOTE',
     title: params.title.trim() || 'Note',
     due_date: null,
@@ -39,14 +39,19 @@ export async function executeQuickNoteCapture(params: {
 }): Promise<CaptureChooseActionResult> {
   const { deps, title, finalTranscript, fallbackNoteTitle } = params;
   try {
+    const id = deps.newId();
     await insertQuickNote({
-      newId: deps.newId,
+      id,
       title: title || fallbackNoteTitle,
       transcript: finalTranscript,
     });
     return {
       ok: true,
-      outcome: { kind: 'simple_note_or_audio' as const, successFeedbackI18nKey: 'talkDebug.noteSaved' },
+      outcome: {
+        kind: 'simple_note_or_audio' as const,
+        successFeedbackI18nKey: 'talkDebug.noteSaved',
+        intentionId: id,
+      },
     };
   } catch (error) {
     return { ok: false, error };
@@ -70,8 +75,9 @@ export async function executeAudioMemoCapture(params: {
   }
   try {
     const storedUri = await deps.persistAudioMemoFile(audioUri);
+    const id = deps.newId();
     await insertTrankilV2Intention({
-      id: deps.newId(),
+      id,
       type: 'AUDIO',
       title: title || fallbackAudioTitle,
       due_date: null,
@@ -96,7 +102,11 @@ export async function executeAudioMemoCapture(params: {
     });
     return {
       ok: true,
-      outcome: { kind: 'simple_note_or_audio' as const, successFeedbackI18nKey: 'talkDebug.audioSaved' },
+      outcome: {
+        kind: 'simple_note_or_audio' as const,
+        successFeedbackI18nKey: 'talkDebug.audioSaved',
+        intentionId: id,
+      },
     };
   } catch (error) {
     return { ok: false, error };

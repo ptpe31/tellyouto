@@ -27,6 +27,69 @@ export type OneTapUniversalResult = {
   data: Record<string, unknown>;
 };
 
+function universalTemporalDefaults(): Record<string, unknown> {
+  return { dueDateTime: null, recurrence: null };
+}
+
+function normalizeUniversalTemporalInData(data: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...data };
+  const due = next.dueDateTime;
+  if (due === undefined || due === null || due === '') {
+    next.dueDateTime = null;
+  } else if (typeof due === 'string') {
+    const trimmed = due.trim();
+    if (!trimmed) {
+      next.dueDateTime = null;
+    } else {
+      const dt = new Date(trimmed);
+      next.dueDateTime = Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+    }
+  } else {
+    next.dueDateTime = null;
+  }
+
+  const rec = next.recurrence;
+  if (rec === undefined || rec === null) {
+    next.recurrence = null;
+  } else if (typeof rec === 'object' && !Array.isArray(rec)) {
+    const ro = rec as Record<string, unknown>;
+    const summary = String(ro.summary ?? ro.description ?? ro.naturalLanguage ?? '').trim();
+    const frequency = String(ro.frequency ?? ro.cadence ?? '').trim().toLowerCase() || null;
+    const byWeekday = ro.byWeekday;
+    const hasBy =
+      byWeekday !== undefined && byWeekday !== null && String(byWeekday).trim() !== '';
+    const hasSignal = Boolean(summary) || Boolean(frequency) || hasBy;
+    if (!hasSignal) {
+      next.recurrence = null;
+    } else {
+      next.recurrence = {
+        ...(summary ? { summary } : {}),
+        ...(frequency ? { frequency } : {}),
+        ...(hasBy ? { byWeekday: Number(byWeekday) } : {}),
+      };
+    }
+  } else {
+    next.recurrence = null;
+  }
+  return next;
+}
+
+function universalTailFromPrev(prevData: Record<string, unknown>): Record<string, unknown> {
+  const dueDateTime =
+    prevData.dueDateTime === undefined || prevData.dueDateTime === null
+      ? null
+      : typeof prevData.dueDateTime === 'string'
+        ? prevData.dueDateTime.trim() || null
+        : null;
+  const recurrence =
+    prevData.recurrence === undefined || prevData.recurrence === null
+      ? null
+      : typeof prevData.recurrence === 'object' && !Array.isArray(prevData.recurrence)
+        ? (prevData.recurrence as Record<string, unknown>)
+        : null;
+  return { dueDateTime, recurrence };
+}
+
 function stripJsonFences(raw: string): string {
   return raw
     .trim()
@@ -54,7 +117,9 @@ export function parseOneTapUniversalJson(raw: string): OneTapUniversalResult {
     throw new Error('ONE_TAP_MISSING_TITLE');
   }
   const categoryTag = String(obj.categoryTag || 'Perso').trim() || 'Perso';
-  const data = obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data) ? (obj.data as Record<string, unknown>) : {};
+  const rawData =
+    obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data) ? (obj.data as Record<string, unknown>) : {};
+  const data = normalizeUniversalTemporalInData(rawData);
   return {
     predictedType: predictedType as OneTapPredictedType,
     categoryTag,
@@ -84,7 +149,21 @@ Réponse **obligatoire** — forme exacte :
   "data": { ... }
 }
 
-Règles par type pour **data** :
+${loc.startsWith('en')
+    ? `For **ALL** intention types, **data** MUST ALSO include:
+- **dueDateTime**: a single **ISO-8601** datetime string (e.g. \`2026-04-21T14:00:00+02:00\`) when the user states one clear one-off moment — otherwise **null** (never an empty string).
+- **recurrence**: **null**, or an object when a repeating cadence is clearly stated, e.g. \`{ "summary": "short label", "frequency": "daily" | "weekly" | "monthly", "byWeekday": 0-6 optional for weekly (0 = Sunday in JS) }\` — otherwise **null**. Do not invent vague patterns.
+
+**Silence rule**: if no clear time or cadence is present, set **both** fields to **null**.`
+    : `Pour **tous** les types, **data** contient en plus (règle de silence stricte) :
+- **dueDateTime** : string **ISO 8601** (ex. \`2026-04-20T14:00:00+02:00\`) si l’utilisateur exprime une échéance **ponctuelle** claire — sinon **null** (pas de chaîne vide).
+- **recurrence** : objet **ou null**. Si une **fréquence** est clairement audible (ex. « tous les matins », « chaque mardi »), objet du type :
+  \`{ "summary": "court libellé", "frequency": "daily" | "weekly" | "monthly", "byWeekday": 0-6 optionnel pour weekly (0=dimanche JS) }\`
+  — sinon **null**. Ne pas inventer ; si flou, **null**.
+
+Si **aucune** notion temporelle n’est détectée : **dueDateTime** et **recurrence** doivent être explicitement **null**.`}
+
+Règles par type pour **data** (en complément des champs universels ci-dessus) :
 - **TASK** : { "dueDateYmd": "YYYY-MM-DD" | null, "dueTimeHm": "HH:mm" | null, "reminderMinutesBefore": number | null, "notes": string }
   - Si aucune date/heure exploitable : mets **dueDateYmd** à **null** (intention « sans date » / tirelire).
 - **RECURRING_TASK** : { "cadenceDescription": string, "nextDueYmd": "YYYY-MM-DD" | null, "anchorNotes": string }
@@ -126,15 +205,17 @@ export async function geminiOneTapUniversalFromTranscript(
  * @returns Objet **data** par défaut (non null).
  */
 export function defaultOneTapDataForType(type: OneTapPredictedType): Record<string, unknown> {
+  const u = universalTemporalDefaults();
   switch (type) {
     case 'TASK':
-      return { dueDateYmd: null, dueTimeHm: null, reminderMinutesBefore: null, notes: '' };
+      return { ...u, dueDateYmd: null, dueTimeHm: null, reminderMinutesBefore: null, notes: '' };
     case 'RECURRING_TASK':
-      return { cadenceDescription: '', nextDueYmd: null, anchorNotes: '' };
+      return { ...u, cadenceDescription: '', nextDueYmd: null, anchorNotes: '' };
     case 'HABIT':
-      return { cadenceDescription: '', preferredTimeHm: null, notes: '' };
+      return { ...u, cadenceDescription: '', preferredTimeHm: null, notes: '' };
     case 'LIST':
       return {
+        ...u,
         list: {
           title: '',
           baseCount: 1,
@@ -143,10 +224,10 @@ export function defaultOneTapDataForType(type: OneTapPredictedType): Record<stri
         },
       };
     case 'ANNIVERSARY':
-      return { personName: '', monthDay: '', reminderDaysBefore: 7 };
+      return { ...u, personName: '', monthDay: '', reminderDaysBefore: 7 };
     case 'NOTE':
     default:
-      return { memo: '' };
+      return { ...u, memo: '' };
   }
 }
 
@@ -166,23 +247,25 @@ export function mergeOneTapDataOnTypeChange(
 ): Record<string, unknown> {
   if (prevType === nextType) return { ...prevData };
   const base = defaultOneTapDataForType(nextType);
+  const tail = universalTailFromPrev(prevData);
   if (nextType === 'LIST') {
     const list = prevData.list && typeof prevData.list === 'object' ? (prevData.list as Record<string, unknown>) : null;
     if (list && Array.isArray(list.categories)) {
-      return { list };
+      return { list, ...tail };
     }
     const b = base.list as Record<string, unknown>;
-    return { list: { ...b, title: title || String(b.title || '') } };
+    return { list: { ...b, title: title || String(b.title || '') }, ...tail };
   }
   if (nextType === 'TASK') {
     return {
       ...base,
       dueDateYmd: typeof prevData.dueDateYmd === 'string' ? prevData.dueDateYmd : prevData.nextDueYmd ?? null,
       notes: String(prevData.notes || prevData.memo || prevData.anchorNotes || ''),
+      ...tail,
     };
   }
   if (nextType === 'NOTE') {
-    return { memo: String(prevData.memo || prevData.notes || '') };
+    return { memo: String(prevData.memo || prevData.notes || ''), ...tail };
   }
-  return { ...base, ...prevData };
+  return { ...base, ...prevData, ...tail };
 }
