@@ -613,3 +613,29 @@ Rules:
   const parsed = parseGeminiListInventoryJson(rawResponseText);
   return { parsed, rawResponseText };
 }
+
+/**
+ * Appel **generateContent** avec un seul message utilisateur (prompt texte).
+ * Utile pour les flux JSON structurés (ex. one-tap capture).
+ *
+ * @param prompt — Texte complet du prompt (consignes + contexte).
+ * @returns Texte brut du premier candidat (souvent du JSON).
+ */
+export async function geminiGenerateTextUserPrompt(prompt: string): Promise<string> {
+  const trimmed = String(prompt || '').trim();
+  if (!trimmed) {
+    throw new Error('Gemini: prompt vide');
+  }
+  const data = await postGenerateContent({
+    contents: [{ parts: [{ text: trimmed }] }],
+    generationConfig: {
+      temperature: 0.22,
+      maxOutputTokens: 4096,
+    },
+  });
+  const raw = extractTextFromGenerateResponse(data);
+  if (!raw) {
+    throw new Error('Gemini: réponse texte vide');
+  }
+  return raw;
+}

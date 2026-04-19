@@ -24,4 +24,5 @@ export { SafeExternalLink } from './SafeExternalLink';
 export { TimeIndicator } from './TimeIndicator';
 export { StartupPerfBanner } from './StartupPerfBanner';
 export { RewardToast } from './RewardToast';
-export { AdCompanionBanner } from './AdCompanionBanner';
+export { IntentionSuggestionsBanner } from './IntentionSuggestionsBanner';
+export { OneTapConfirmModal } from './OneTapConfirmModal';

@@ -11,10 +11,12 @@ import {
 } from 'expo-speech-recognition';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   DeviceEventEmitter,
   Dimensions,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,18 +24,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import {
-  Bell,
-  Calendar as CalendarIcon,
-  Check,
-  ListChecks,
-  Lock,
-  Mic,
-  Pause,
-  Play,
-  SendHorizontal,
-  Trash2,
-} from 'lucide-react-native';
+import { Bell, Check, Lock, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -55,6 +46,8 @@ import {
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
+import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
+import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import type { GeminiExpertIntention } from '../services/GeminiExpert';
 import {
@@ -89,6 +82,8 @@ import {
   type CaptureStrategyDeps,
   type PostCaptureEffectsConfig,
 } from '../services/captureStrategies';
+import { geminiOneTapUniversalFromTranscript, type OneTapUniversalResult } from '../services/oneTapUniversalCapture';
+import { persistOneTapDraft } from '../services/oneTapPersist';
 
 function newId(): string {
   try {
@@ -114,7 +109,9 @@ export function TalkDebugScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const windowH = Dimensions.get('window').height;
-  const [captureStep, setCaptureStep] = useState<'idle' | 'recording' | 'deciding'>('idle');
+  const [captureStep, setCaptureStep] = useState<'idle' | 'recording' | 'analyzing'>('idle');
+  const [oneTapDraft, setOneTapDraft] = useState<OneTapUniversalResult | null>(null);
+  const [oneTapModalVisible, setOneTapModalVisible] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
@@ -288,6 +285,8 @@ export function TalkDebugScreen() {
     setDeadlineError('');
     setIsGeneratingPlan(false);
     setProjectPlanPreview(null);
+    setOneTapDraft(null);
+    setOneTapModalVisible(false);
   }, []);
 
   const pushSuccessFeedback = useCallback((message: string) => {
@@ -494,7 +493,7 @@ export function TalkDebugScreen() {
   }, [t]);
 
   const startCapture = useCallback(async () => {
-    if (isRecording || busy) return;
+    if (isRecording || busy || captureStep === 'analyzing') return;
     if (!spectrum.isProUser) {
       const snap = await getFreeCaptureQuotaSnapshot();
       if (snap.remaining <= 0) {
@@ -534,7 +533,7 @@ export function TalkDebugScreen() {
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
     }
-  }, [busy, ensureMicrophoneReady, i18n.language, isRecording, navigation, spectrum.isProUser, t]);
+  }, [busy, captureStep, ensureMicrophoneReady, i18n.language, isRecording, navigation, spectrum.isProUser, t]);
 
   const stopCapture = useCallback(async () => {
     if (captureStep !== 'recording' || !isRecording) return;
@@ -558,13 +557,37 @@ export function TalkDebugScreen() {
       const nextTranscript = rawTranscript;
       setTranscriptDraft(nextTranscript);
       const cleanedTranscript = cleanTranscriptText(nextTranscript);
+      if (!cleanedTranscript.trim()) {
+        setCaptureStep('idle');
+        Alert.alert(t('talkDebug.captureTitle'), t('talkDebug.oneTapEmptyTranscript'));
+        return;
+      }
       const fallbackTitle =
         (isTitleLocked ? lockedTitle : '') ||
         generateSmartTitle(cleanedTranscript, spectrum.locale) ||
         cleanedTranscript.trim();
       setTitleDraft(fallbackTitle);
       setHasManualTitleEdit(false);
-      setCaptureStep('deciding');
+      setCaptureStep('analyzing');
+      void (async () => {
+        try {
+          const { parsed, rawModelText } = await geminiOneTapUniversalFromTranscript(cleanedTranscript, {
+            uiLocale: spectrum.locale || 'fr',
+          });
+          setOneTapDraft(parsed);
+          setOneTapModalVisible(true);
+          emitTalkDebug({
+            mode: 'quick',
+            at: Date.now(),
+            rawTranscript: cleanedTranscript,
+            geminiFullJson: JSON.stringify({ oneTap: parsed, rawModelText }, null, 2),
+          });
+        } catch (e) {
+          Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
+        } finally {
+          setCaptureStep('idle');
+        }
+      })();
     }
   }, [
     captureStep,
@@ -574,6 +597,7 @@ export function TalkDebugScreen() {
     lockedTitle,
     rawTranscript,
     spectrum.locale,
+    t,
   ]);
 
   const cancelCapture = useCallback(async () => {
@@ -790,6 +814,84 @@ export function TalkDebugScreen() {
       transcriptDraft,
     ],
   );
+
+  const confirmOneTap = useCallback(async () => {
+    if (!oneTapDraft) return;
+    setBusy(true);
+    try {
+      const finalTranscript = buildFinalTranscriptForCapture(transcriptDraft, rawTranscript);
+      const res = await persistOneTapDraft({
+        deps: captureStrategyDeps,
+        draft: oneTapDraft,
+        transcript: finalTranscript,
+        habitsDefaultTitle: t('common.habits'),
+        birthdayLabel: t('talkDebug.birthdayLabel'),
+      });
+      if (!res.ok) {
+        if (res.code === 'LIST_QUOTA') {
+          showAppToast(t('talkDebug.listQuotaExhaustedToast'));
+          navigation.navigate('Recharge');
+          return;
+        }
+        throw res.error;
+      }
+      const o = res.outcome;
+      if ('consumedClassicFreeSlot' in o && o.consumedClassicFreeSlot) {
+        await maybeConsumeFreeCaptureSuccess();
+      }
+      const postEffectsConfigFor = (mirrorType: 'TASK' | 'HABIT'): PostCaptureEffectsConfig => ({
+        isProUser: spectrum.isProUser,
+        calendarSyncEnabled: mirrorType === 'TASK' ? calendarSyncByType.task : calendarSyncByType.habit,
+        alarmSyncEnabled: mirrorType === 'TASK' ? alarmSyncByType.task : alarmSyncByType.habit,
+        autoArchiveAfterCalendarSync,
+        selectedCalendarId,
+      });
+      if (o.kind === 'persisted_temporal') {
+        const cfg = postEffectsConfigFor(o.mirrorType);
+        void (async () => {
+          const fx = await applyPostCaptureEffects(
+            o.intentionId,
+            o.mirrorType,
+            {
+              title: o.title,
+              dueDateYmd: o.dueDateYmd,
+              metadataJson: o.metadataJson,
+            },
+            cfg,
+          );
+          pushSuccessFeedback(buildTemporalCaptureRecap(o.recapIntroI18nKey, fx, t));
+        })();
+      } else if (o.kind === 'simple_note_or_audio') {
+        pushSuccessFeedback(t(o.successFeedbackI18nKey));
+      } else if (o.kind === 'list_inventory_persisted') {
+        pushSuccessFeedback(t(o.successFeedbackI18nKey));
+      }
+      setOneTapModalVisible(false);
+      setOneTapDraft(null);
+      hardResetToIdle();
+    } catch (e) {
+      await handleCaptureFlowError(e, { translate: t });
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    alarmSyncByType.habit,
+    alarmSyncByType.task,
+    autoArchiveAfterCalendarSync,
+    calendarSyncByType.habit,
+    calendarSyncByType.task,
+    captureStrategyDeps,
+    hardResetToIdle,
+    maybeConsumeFreeCaptureSuccess,
+    navigation,
+    oneTapDraft,
+    pushSuccessFeedback,
+    rawTranscript,
+    selectedCalendarId,
+    spectrum.isProUser,
+    t,
+    transcriptDraft,
+  ]);
 
   const toggleDeadlineDictation = useCallback(async () => {
     if (isDeadlineListening) {
@@ -1031,124 +1133,51 @@ export function TalkDebugScreen() {
         />
       </View>
 
-      {captureStep === 'deciding' ? (
-        <ScrollView
-          style={styles.middleScroll}
-          contentContainerStyle={styles.middleScrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.titleDraftWrap}>
-            <Text style={styles.titleDraftLabel}>{t('talkDebug.crystallizedTitleEditable')}</Text>
-            <TextInput
-              value={titleDraft}
-              onChangeText={(value) => {
-                setTitleDraft(value);
-                setHasManualTitleEdit(true);
-              }}
-              placeholder={t('radar.fieldTitle')}
-              placeholderTextColor="#94a3b8"
-              style={styles.titleDraftInput}
-            />
-          </View>
-          <TextInput
-            value={transcriptDraft}
-            onChangeText={setTranscriptDraft}
-            multiline
-            placeholder={t('talkDebug.emptyTranscription')}
-            placeholderTextColor="#94a3b8"
-            style={styles.decisionInput}
-          />
+      {captureStep === 'idle' && transcriptDraft.trim().length > 0 && !oneTapModalVisible ? (
+        <View style={styles.projectCtaWrap}>
           <Pressable
-            style={[styles.quickNoteBtn, busy ? styles.disabled : null]}
-            onPress={() => void onChooseAction('note')}
+            style={styles.projectCtaBtn}
+            onPress={() => {
+              setTitleDraft('');
+              setLockedTitle('');
+              setIsTitleLocked(false);
+              setDeadlineError('');
+              setDeadlineModalVisible(true);
+            }}
             disabled={busy}
           >
-            <Text style={styles.quickNoteBtnText}>{t('talkDebug.validateNoteFree')}</Text>
+            <Text style={styles.projectCtaText}>{t('talkDebug.oneTapOpenProjectPlan')}</Text>
           </Pressable>
-          <Pressable
-            style={[styles.quickAudioBtn, busy ? styles.disabled : null]}
-            onPress={() => void onChooseAction('audio')}
-            disabled={busy}
-          >
-            <Text style={styles.quickAudioBtnText}>{t('talkDebug.validateAudioFree')}</Text>
-          </Pressable>
-          <View style={styles.fanMenu}>
-            <View style={styles.actionRow}>
-              <Pressable style={[styles.fanBtn, styles.actionMainBtn]} onPress={() => void onChooseAction('project')} disabled={busy}>
-                <Text style={styles.fanBtnText}>{t('talkDebug.actionProject')}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, alarmSyncByType.project ? styles.calendarToggleOn : null]}
-                onPress={() => toggleAlarmSyncFor('project')}
-              >
-                <Bell size={16} color={alarmSyncByType.project ? '#ecfeff' : '#0f172a'} />
-                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
-              </Pressable>
-              <Pressable
-                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.project ? styles.calendarToggleOn : null]}
-                onPress={() => toggleCalendarSyncFor('project')}
-              >
-                <CalendarIcon size={16} color={calendarSyncByType.project ? '#ecfeff' : '#0f172a'} />
-                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
-              </Pressable>
-            </View>
-            <View style={styles.actionRow}>
-              <Pressable style={[styles.fanBtn, styles.actionMainBtn]} onPress={() => void onChooseAction('task')} disabled={busy}>
-                <Text style={styles.fanBtnText}>{t('talkDebug.actionTask')}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, alarmSyncByType.task ? styles.calendarToggleOn : null]}
-                onPress={() => toggleAlarmSyncFor('task')}
-              >
-                <Bell size={16} color={alarmSyncByType.task ? '#ecfeff' : '#0f172a'} />
-                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
-              </Pressable>
-              <Pressable
-                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.task ? styles.calendarToggleOn : null]}
-                onPress={() => toggleCalendarSyncFor('task')}
-              >
-                <CalendarIcon size={16} color={calendarSyncByType.task ? '#ecfeff' : '#0f172a'} />
-                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
-              </Pressable>
-            </View>
-            <View style={styles.actionRow}>
-              <Pressable style={[styles.fanBtn, styles.actionMainBtn]} onPress={() => void onChooseAction('habit')} disabled={busy}>
-                <Text style={styles.fanBtnText}>{t('talkDebug.actionHabit')}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, alarmSyncByType.habit ? styles.calendarToggleOn : null]}
-                onPress={() => toggleAlarmSyncFor('habit')}
-              >
-                <Bell size={16} color={alarmSyncByType.habit ? '#ecfeff' : '#0f172a'} />
-                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
-              </Pressable>
-              <Pressable
-                style={[styles.calendarToggleBtn, !spectrum.isProUser ? styles.calendarToggleLocked : null, calendarSyncByType.habit ? styles.calendarToggleOn : null]}
-                onPress={() => toggleCalendarSyncFor('habit')}
-              >
-                <CalendarIcon size={16} color={calendarSyncByType.habit ? '#ecfeff' : '#0f172a'} />
-                {!spectrum.isProUser ? <Lock size={12} color="#0f172a" /> : null}
-              </Pressable>
-            </View>
-            <View style={styles.actionRow}>
-              <Pressable
-                style={[styles.fanBtn, styles.actionMainBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }]}
-                onPress={() => void onChooseAction('list')}
-                disabled={busy}
-              >
-                <ListChecks size={18} color="#0f172a" />
-                <Text style={styles.fanBtnText}>{t('talkDebug.actionList')}</Text>
-              </Pressable>
-            </View>
-            <Pressable style={[styles.fanBtn, styles.cancelBtn]} onPress={() => void onChooseAction('cancel')} disabled={busy}>
-              <Text style={styles.fanBtnText}>{t('common.later')}</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-      ) : (
-        <View style={styles.middleSpacer} />
-      )}
+        </View>
+      ) : null}
+
+      <View style={styles.middleSpacer} />
+
+      <Modal visible={captureStep === 'analyzing'} transparent animationType="fade">
+        <View style={styles.analyzingBackdrop}>
+          <ActivityIndicator size="large" color="#008080" />
+          <Text style={styles.analyzingLabel}>{t('talkDebug.analyzingOneTap')}</Text>
+        </View>
+      </Modal>
+
+      <OneTapConfirmModal
+        visible={oneTapModalVisible}
+        draft={oneTapDraft}
+        transcript={transcriptDraft}
+        busy={busy}
+        onChangeDraft={setOneTapDraft}
+        onChangeTranscript={setTranscriptDraft}
+        onConfirm={() => void confirmOneTap()}
+        onDismiss={() => {
+          setOneTapModalVisible(false);
+          setOneTapDraft(null);
+        }}
+      />
+
+      <IntentionSuggestionsBanner
+        visible={captureStep === 'idle' && !oneTapModalVisible && !deadlineModalVisible}
+        bottomOffset={112}
+      />
 
       <View
         style={[
@@ -1773,4 +1802,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  analyzingBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+  },
+  analyzingLabel: { color: '#ecfeff', fontSize: 15, fontWeight: '700' },
+  projectCtaWrap: { paddingHorizontal: 20, paddingVertical: 6, alignItems: 'center' },
+  projectCtaBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,128,128,0.45)',
+    backgroundColor: 'rgba(236,254,255,0.9)',
+  },
+  projectCtaText: { color: '#0f766e', fontWeight: '800', fontSize: 13 },
 });
