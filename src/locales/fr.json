@@ -9,6 +9,9 @@
     "pickDate": "Choisir une date",
     "cancel": "Annuler"
   },
+  "talkCapture": {
+    "hintTap": "Appuie pour capturer une piste vocale"
+  },
   "quota": {
     "format": "{{current}}/{{total}}"
   },
@@ -334,6 +337,19 @@
     "hardRoutineLockA11y": "Routine structurelle — créneau verrouillé",
     "microFragment": "Fragment {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-habitude",
+    "pilot": {
+      "title": "Pilotage",
+      "timeNav": "Temps",
+      "contextNav": "Contexte",
+      "statusNav": "Statut",
+      "contextAll": "Tous",
+      "contextHome": "Maison",
+      "contextWork": "Travail",
+      "contextPiggy": "Tirelire",
+      "contextArchives": "Archives",
+      "todo": "A faire",
+      "done": "Fait"
+    },
     "todoFilter": "A faire",
     "doneFilter": "Fait",
     "noItems": "Aucun element",

@@ -49,6 +49,8 @@ export type TrankilV2TimelineItemRow = {
   display_title: string;
   section: 'TASK_HABIT' | 'PROJECT_SUBTASK' | 'NOTE_AUDIO';
   is_synced_calendar: number;
+  /** Présent lorsque la requête Timeline le joint (filtres contexte). */
+  category_id?: string | null;
 };
 
 export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
@@ -524,7 +526,7 @@ export async function listTrankilV2TimelineItemsByDate(
   const db = await getDb();
   return db.getAllAsync<TrankilV2TimelineItemRow>(
     `
-    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar
+    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id
     FROM (
       SELECT
         i.id AS id,
@@ -538,6 +540,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.title AS display_title,
         'TASK_HABIT' AS section,
         COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+        i.category_id AS category_id,
         i.due_date AS effective_date,
         1 AS section_order
       FROM intentions i
@@ -560,6 +563,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.title AS display_title,
         'PROJECT_SUBTASK' AS section,
         COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+        i.category_id AS category_id,
         i.due_date AS effective_date,
         2 AS section_order
       FROM intentions i
@@ -584,6 +588,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.title AS display_title,
         'NOTE_AUDIO' AS section,
         COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+        i.category_id AS category_id,
         COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
         3 AS section_order
       FROM intentions i
@@ -624,7 +629,8 @@ export async function listTrankilV2UndatedRootTasks(
        NULL AS project_title,
        i.title AS display_title,
        'TASK_HABIT' AS section,
-       COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar
+       COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+       i.category_id AS category_id
      FROM intentions i
      WHERE i.status = ?
        AND COALESCE(i.is_archived, 0) = 0
@@ -796,6 +802,42 @@ export async function listTrankilV2MeliArchivesIntentions(): Promise<TrankilV2In
         OR COALESCE(is_archived, 0) = 1
      ORDER BY COALESCE(archived_at, done_at, created_at) DESC`,
   );
+}
+
+/** Intentions avec drapeau `is_archived` (pilotage Timeline « Archives »). */
+export async function listTrankilV2IsArchivedIntentions(): Promise<TrankilV2IntentionRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions
+     WHERE COALESCE(is_archived, 0) = 1
+     ORDER BY COALESCE(archived_at, created_at) DESC`,
+  );
+}
+
+/** Projection légère d’une ligne `intentions` vers le modèle liste Timeline. */
+export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow): TrankilV2TimelineItemRow {
+  const pid = String(row.parent_id ?? '').trim();
+  const section: TrankilV2TimelineItemRow['section'] =
+    row.type === 'NOTE' || row.type === 'AUDIO'
+      ? 'NOTE_AUDIO'
+      : row.type === 'TASK' && pid
+        ? 'PROJECT_SUBTASK'
+        : 'TASK_HABIT';
+  return {
+    id: row.id,
+    type: row.type,
+    status: row.status,
+    due_date: row.due_date ?? null,
+    created_at: row.created_at,
+    content_raw: row.content_raw,
+    parent_id: row.parent_id,
+    project_title: null,
+    display_title: row.title,
+    section,
+    is_synced_calendar: row.is_synced_calendar ?? 0,
+    category_id: row.category_id ?? null,
+  };
 }
 
 /**

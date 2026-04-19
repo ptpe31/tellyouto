@@ -29,6 +29,8 @@ export {
   bulkTrankilV2TaskChildStatsByParentIds,
   listArchivedIntentions,
   listTrankilV2MeliArchivesIntentions,
+  listTrankilV2IsArchivedIntentions,
+  mapTrankilIntentionToTimelineItemRow,
   cleanOldArchives,
   listTrankilV2UnorganizedIntentions,
   markTrankilV2IntentionDone,

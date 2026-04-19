@@ -9,6 +9,9 @@
     "pickDate": "Pick a date",
     "cancel": "Cancel"
   },
+  "talkCapture": {
+    "hintTap": "Tap to capture a voice thread"
+  },
   "quota": {
     "format": "{{current}}/{{total}}"
   },
@@ -334,6 +337,19 @@
     "hardRoutineLockA11y": "Structural routine — locked slot",
     "microFragment": "Fragment {{current}} / {{total}}",
     "microDuration": "~ 2 min · micro-habit",
+    "pilot": {
+      "title": "Pilot",
+      "timeNav": "Time",
+      "contextNav": "Context",
+      "statusNav": "Status",
+      "contextAll": "All",
+      "contextHome": "Home",
+      "contextWork": "Work",
+      "contextPiggy": "Piggy bank",
+      "contextArchives": "Archives",
+      "todo": "To do",
+      "done": "Done"
+    },
     "todoFilter": "To do",
     "doneFilter": "Done",
     "noItems": "No items",

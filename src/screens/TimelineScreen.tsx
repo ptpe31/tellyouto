@@ -1,39 +1,46 @@
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { CalendarDays, PiggyBank } from 'lucide-react-native';
+import { CalendarDays } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import {
   DeviceEventEmitter,
   FlatList,
   LayoutAnimation,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   UIManager,
   View,
 } from 'react-native';
-import { useTheme } from 'react-native-paper';
+import { SegmentedButtons, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   bulkTrankilV2TaskChildStatsByParentIds,
+  listTrankilV2IsArchivedIntentions,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
+  mapTrankilIntentionToTimelineItemRow,
   syncNativeRailAlarmsAfterIntentionWrite,
   toggleIntentionDone,
   type TrankilIntentStatus,
   type TrankilV2ChildTaskStats,
+  type TrankilV2IntentionRow,
   type TrankilV2TimelineDateMode,
   type TrankilV2TimelineItemRow,
 } from '../api';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
+import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import { IdeaBankModal } from '../components/IdeaBankModal';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
+import { NeumorphicCard } from '../components/NeumorphicCard';
+import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
 import { TimelineListItemRow } from '../components/TimelineListItemRow';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
-import { neumorphicRaised } from '../theme/neumorphism';
+import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 
 if (RPlatform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -75,7 +82,8 @@ function canShowCompleteOrb(listKey: string, status: TrankilIntentStatus, dimmed
   return listKey === 'tasks' || listKey === 'habits' || listKey === 'projects';
 }
 
-type QuickRange = 'TODAY' | 'TOMORROW' | 'WEEK';
+type TimeNav = 'TODAY' | 'TOMORROW' | 'WEEK';
+type ContextBubble = 'ALL' | 'HOME' | 'WORK' | 'PIGGY' | 'ARCHIVES';
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -91,21 +99,37 @@ function addDays(date: Date, days: number): Date {
   return next;
 }
 
-function labelShort(date: Date): string {
-  try {
-    const locale = Intl.DateTimeFormat().resolvedOptions().locale || undefined;
-    return new Intl.DateTimeFormat(locale, { weekday: 'short', day: '2-digit' }).format(date);
-  } catch {
-    return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}`;
-  }
+function startOfToday(): Date {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
 }
 
-function buildDateStrip(center: Date, total: number = 15): Date[] {
-  const half = Math.floor(total / 2);
-  return Array.from({ length: total }, (_, idx) => addDays(center, idx - half));
+function resolveAnchor(timeNav: TimeNav): { anchor: Date; mode: TrankilV2TimelineDateMode } {
+  const now = startOfToday();
+  if (timeNav === 'TODAY') return { anchor: now, mode: 'DAY' };
+  if (timeNav === 'TOMORROW') return { anchor: addDays(now, 1), mode: 'DAY' };
+  return { anchor: now, mode: 'WEEK' };
 }
 
-/** Texte affichable (contenu utilisateur ou clé i18n pour les titres dérivés). */
+function normalizeCat(c: string | null | undefined): string {
+  return (c || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function matchesHomeCategory(c: string | null | undefined): boolean {
+  return /maison|home|famille/.test(normalizeCat(c));
+}
+
+function matchesWorkCategory(c: string | null | undefined): boolean {
+  return /travail|work|pro/.test(normalizeCat(c));
+}
+
+function filterRowsByContext(rows: TrankilV2TimelineItemRow[], ctx: ContextBubble): TrankilV2TimelineItemRow[] {
+  if (ctx === 'ALL' || ctx === 'PIGGY' || ctx === 'ARCHIVES') return rows;
+  if (ctx === 'HOME') return rows.filter((r) => matchesHomeCategory(r.category_id));
+  if (ctx === 'WORK') return rows.filter((r) => matchesWorkCategory(r.category_id));
+  return rows;
+}
+
 function resolveDisplayTitle(row: TrankilV2TimelineItemRow): string {
   const base = String(row.display_title || '').trim();
   if (base) return base;
@@ -164,16 +188,31 @@ type IdeaBankEntry = {
 
 type ListEntry = RowSection | IdeaBankEntry;
 
+type DataPack = {
+  todoTimeline: TrankilV2TimelineItemRow[];
+  doneTimeline: TrankilV2TimelineItemRow[];
+  todoUndated: TrankilV2TimelineItemRow[];
+  doneUndated: TrankilV2TimelineItemRow[];
+  archivedIntentions: TrankilV2IntentionRow[];
+};
+
+const EMPTY_PACK: DataPack = {
+  todoTimeline: [],
+  doneTimeline: [],
+  todoUndated: [],
+  doneUndated: [],
+  archivedIntentions: [],
+};
+
 export function TimelineScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [timeNav, setTimeNav] = useState<TimeNav>('TODAY');
+  const [contextBubble, setContextBubble] = useState<ContextBubble>('ALL');
   const [statusFilter, setStatusFilter] = useState<TrankilIntentStatus>('TODO');
-  const [dateMode, setDateMode] = useState<TrankilV2TimelineDateMode>('DAY');
-  const [items, setItems] = useState<TrankilV2TimelineItemRow[]>([]);
-  const [undatedTasks, setUndatedTasks] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [pack, setPack] = useState<DataPack>(EMPTY_PACK);
   const [loading, setLoading] = useState(false);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
@@ -181,7 +220,7 @@ export function TimelineScreen() {
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
   const pendingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  const selectedYmd = useMemo(() => toYmd(selectedDate), [selectedDate]);
+  const anchorDate = useMemo(() => resolveAnchor(timeNav).anchor, [timeNav]);
 
   const syncPendingSet = useCallback((next: Set<string>) => {
     pendingLocalDoneRef.current = next;
@@ -203,29 +242,44 @@ export function TimelineScreen() {
     }
   }, [syncPendingSet]);
 
-  const load = useCallback(
-    async (date: Date, status: TrankilIntentStatus, mode: TrankilV2TimelineDateMode) => {
-      await flushPendingCommits();
-      setLoading(true);
-      try {
-        const [rows, undated, archived] = await Promise.all([
-          listTrankilV2TimelineItemsByDate(toYmd(date), status, mode),
-          listTrankilV2UndatedRootTasks(status),
-          listArchivedIntentions(120),
-        ]);
-        setItems(rows);
-        setUndatedTasks(undated);
-        setArchivedItems(archived);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [flushPendingCommits],
-  );
+  const loadPack = useCallback(async () => {
+    await flushPendingCommits();
+    const { anchor, mode } = resolveAnchor(timeNav);
+    const ymd = toYmd(anchor);
+    setLoading(true);
+    try {
+      const [todoTimeline, doneTimeline, todoUndated, doneUndated, archivedIntentions] = await Promise.all([
+        listTrankilV2TimelineItemsByDate(ymd, 'TODO', mode),
+        listTrankilV2TimelineItemsByDate(ymd, 'DONE', mode),
+        listTrankilV2UndatedRootTasks('TODO'),
+        listTrankilV2UndatedRootTasks('DONE'),
+        listTrankilV2IsArchivedIntentions(),
+      ]);
+      setPack({
+        todoTimeline,
+        doneTimeline,
+        todoUndated,
+        doneUndated,
+        archivedIntentions,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [flushPendingCommits, timeNav]);
 
   const reload = useCallback(() => {
-    void load(selectedDate, statusFilter, dateMode);
-  }, [dateMode, load, selectedDate, statusFilter]);
+    void loadPack();
+  }, [loadPack]);
+
+  const removeRowFromPack = useCallback((rowId: string) => {
+    setPack((prev) => ({
+      todoTimeline: prev.todoTimeline.filter((r) => r.id !== rowId),
+      doneTimeline: prev.doneTimeline.filter((r) => r.id !== rowId),
+      todoUndated: prev.todoUndated.filter((r) => r.id !== rowId),
+      doneUndated: prev.doneUndated.filter((r) => r.id !== rowId),
+      archivedIntentions: prev.archivedIntentions.filter((r) => r.id !== rowId),
+    }));
+  }, []);
 
   const finalizeSingleDone = useCallback(
     async (rowId: string) => {
@@ -239,10 +293,9 @@ export function TimelineScreen() {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       await toggleIntentionDone(rowId);
       await syncNativeRailAlarmsAfterIntentionWrite('timelineTaskDone');
-      setItems((prev) => prev.filter((i) => i.id !== rowId));
-      setUndatedTasks((prev) => prev.filter((i) => i.id !== rowId));
+      removeRowFromPack(rowId);
     },
-    [syncPendingSet],
+    [removeRowFromPack, syncPendingSet],
   );
 
   const cancelPendingCommit = useCallback(
@@ -251,18 +304,18 @@ export function TimelineScreen() {
       if (tm) clearTimeout(tm);
       pendingTimersRef.current.delete(rowId);
       if (!pendingLocalDoneRef.current.has(rowId)) return;
-      const next = new Set(pendingLocalDoneRef.current);
-      next.delete(rowId);
-      syncPendingSet(next);
+      const n = new Set(pendingLocalDoneRef.current);
+      n.delete(rowId);
+      syncPendingSet(n);
     },
     [syncPendingSet],
   );
 
   const schedulePendingCommit = useCallback(
     (rowId: string) => {
-      const next = new Set(pendingLocalDoneRef.current);
-      next.add(rowId);
-      syncPendingSet(next);
+      const n = new Set(pendingLocalDoneRef.current);
+      n.add(rowId);
+      syncPendingSet(n);
       const tm = setTimeout(() => {
         pendingTimersRef.current.delete(rowId);
         void finalizeSingleDone(rowId);
@@ -285,57 +338,32 @@ export function TimelineScreen() {
     [cancelPendingCommit, schedulePendingCommit],
   );
 
-  useEffect(() => {
-    const ids = new Set<string>();
-    for (const r of items) {
-      if (r.section === 'TASK_HABIT' && (r.type === 'TASK' || r.type === 'HABIT')) {
-        ids.add(r.id);
-      }
-      const pid = String(r.parent_id ?? '').trim();
-      if (r.section === 'PROJECT_SUBTASK' && pid.length > 0) {
-        ids.add(pid);
-      }
+  const filteredPool = useMemo((): TrankilV2TimelineItemRow[] => {
+    const timelineSlice = statusFilter === 'TODO' ? pack.todoTimeline : pack.doneTimeline;
+    const undatedSlice = statusFilter === 'TODO' ? pack.todoUndated : pack.doneUndated;
+
+    if (contextBubble === 'PIGGY') {
+      return filterRowsByContext(undatedSlice, contextBubble);
     }
-    const arr = [...ids];
-    let cancelled = false;
-    if (arr.length === 0) {
-      setChildStats(new Map());
-      return () => {
-        cancelled = true;
-      };
+    if (contextBubble === 'ARCHIVES') {
+      const mapped = pack.archivedIntentions
+        .filter((it) => (it.is_archived ?? 0) === 1)
+        .map(mapTrankilIntentionToTimelineItemRow);
+      const statusFiltered =
+        statusFilter === 'TODO'
+          ? mapped.filter((r) => r.status === 'TODO' || r.status === 'ARCHIVED')
+          : mapped.filter((r) => r.status === 'DONE');
+      return filterRowsByContext(statusFiltered, 'ALL');
     }
-    void bulkTrankilV2TaskChildStatsByParentIds(arr).then((m) => {
-      if (!cancelled) setChildStats(m);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [items]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void load(selectedDate, statusFilter, dateMode);
-      return () => {
-        void flushPendingCommits();
-      };
-    }, [dateMode, flushPendingCommits, load, selectedDate, statusFilter]),
-  );
-
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
-      void load(selectedDate, statusFilter, dateMode);
-    });
-    return () => sub.remove();
-  }, [dateMode, load, selectedDate, statusFilter]);
-
-  const stripDates = useMemo(() => buildDateStrip(selectedDate), [selectedDate]);
+    return filterRowsByContext(timelineSlice, contextBubble);
+  }, [contextBubble, pack, statusFilter]);
 
   const listEntries = useMemo((): ListEntry[] => {
-    const taskHabit = items.filter((item) => item.section === 'TASK_HABIT');
+    const taskHabit = filteredPool.filter((item) => item.section === 'TASK_HABIT');
     const mesTaches = taskHabit.filter((r) => r.type === 'TASK');
     const habitsDue = taskHabit.filter((r) => r.type === 'HABIT');
-    const projectSubtasks = items.filter((item) => item.section === 'PROJECT_SUBTASK');
-    const noteAudio = items.filter((item) => item.section === 'NOTE_AUDIO');
+    const projectSubtasks = filteredPool.filter((item) => item.section === 'PROJECT_SUBTASK');
+    const noteAudio = filteredPool.filter((item) => item.section === 'NOTE_AUDIO');
 
     const out: ListEntry[] = [];
     if (mesTaches.length > 0) {
@@ -344,8 +372,8 @@ export function TimelineScreen() {
     if (habitsDue.length > 0) {
       out.push({ kind: 'rows', listKey: 'habits', titleKey: 'timeline.habits.title', rows: habitsDue });
     }
-    if (undatedTasks.length > 0) {
-      out.push({ kind: 'ideaBank', listKey: 'ideaBank', count: undatedTasks.length });
+    if (contextBubble === 'ALL' && pack.todoUndated.length > 0 && statusFilter === 'TODO') {
+      out.push({ kind: 'ideaBank', listKey: 'ideaBank', count: pack.todoUndated.length });
     }
     if (projectSubtasks.length > 0) {
       out.push({
@@ -364,23 +392,70 @@ export function TimelineScreen() {
       });
     }
     return out;
-  }, [items, undatedTasks]);
+  }, [contextBubble, filteredPool, pack.todoUndated.length, statusFilter]);
 
-  const onQuickSelect = (range: QuickRange) => {
-    const now = new Date();
-    if (range === 'TODAY') {
-      setSelectedDate(now);
-      setDateMode('DAY');
-      return;
+  const todayTodoCount = useMemo(() => {
+    if (timeNav !== 'TODAY') return 0;
+    return pack.todoTimeline.filter((r) => r.type === 'TASK' || r.type === 'HABIT' || r.type === 'PROJECT').length;
+  }, [pack.todoTimeline, timeNav]);
+
+  const flatRowIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of listEntries) {
+      if (e.kind !== 'rows') continue;
+      for (const r of e.rows) {
+        if (r.section === 'TASK_HABIT' && (r.type === 'TASK' || r.type === 'HABIT')) {
+          ids.add(r.id);
+        }
+        const pid = String(r.parent_id ?? '').trim();
+        if (r.section === 'PROJECT_SUBTASK' && pid.length > 0) {
+          ids.add(pid);
+        }
+      }
     }
-    if (range === 'TOMORROW') {
-      setSelectedDate(addDays(now, 1));
-      setDateMode('DAY');
-      return;
+    return [...ids];
+  }, [listEntries]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (flatRowIds.length === 0) {
+      setChildStats(new Map());
+      return () => {
+        cancelled = true;
+      };
     }
-    setSelectedDate(now);
-    setDateMode('WEEK');
-  };
+    void bulkTrankilV2TaskChildStatsByParentIds(flatRowIds).then((m) => {
+      if (!cancelled) setChildStats(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [flatRowIds]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadPack();
+      return () => {
+        void flushPendingCommits();
+      };
+    }, [flushPendingCommits, loadPack]),
+  );
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
+      void loadPack();
+    });
+    return () => sub.remove();
+  }, [loadPack]);
+
+  const timeNavButtons = useMemo(
+    () => [
+      { value: 'TODAY' as const, label: t('horizons.today') },
+      { value: 'TOMORROW' as const, label: t('horizons.tomorrow') },
+      { value: 'WEEK' as const, label: t('horizons.thisWeek') },
+    ],
+    [t],
+  );
 
   const renderRowCard = (row: TrankilV2TimelineItemRow, listKey: string, dimmed?: boolean) => {
     const resolved = resolveDisplayTitle(row);
@@ -394,14 +469,12 @@ export function TimelineScreen() {
         ? `${t('timeline.projectPrefix')}: ${row.project_title}`
         : null;
 
-    const longPressEnabled = !dimmed;
-
     return (
       <IntentInteractionWrapper
         key={row.id}
         intentionId={row.id}
-        anchorDate={selectedDate}
-        enabled={longPressEnabled}
+        anchorDate={anchorDate}
+        enabled={!dimmed}
         onMutation={reload}
       >
         <TimelineListItemRow
@@ -424,115 +497,105 @@ export function TimelineScreen() {
     );
   };
 
+  const contextDefs: { id: ContextBubble; label: string; emoji?: string }[] = [
+    { id: 'ALL', label: t('timeline.pilot.contextAll') },
+    { id: 'HOME', label: t('timeline.pilot.contextHome'), emoji: '🏠' },
+    { id: 'WORK', label: t('timeline.pilot.contextWork'), emoji: '💼' },
+    { id: 'PIGGY', label: t('timeline.pilot.contextPiggy'), emoji: '🐷' },
+    { id: 'ARCHIVES', label: t('timeline.pilot.contextArchives'), emoji: '📦' },
+  ];
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
       <FlatList
+        style={styles.listFlex}
         data={listEntries}
         keyExtractor={(item) => item.listKey}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        extraData={{ contextBubble, statusFilter, timeNav, pack }}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}
         ListHeaderComponent={
-          <View style={styles.header}>
+          <View style={styles.headerStack}>
             <View style={styles.headTitleRow}>
               <CalendarDays color={theme.colors.primary} size={20} />
-              <Text style={[styles.title, { color: theme.colors.onBackground }]}>{t('tabs.timeline')}</Text>
+              <Text style={[styles.screenTitle, { color: theme.colors.onBackground }]}>{t('timeline.pilot.title')}</Text>
             </View>
 
-            <FlatList
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              data={stripDates}
-              keyExtractor={(d) => toYmd(d)}
-              contentContainerStyle={styles.dateStrip}
-              renderItem={({ item }) => {
-                const ymd = toYmd(item);
-                const selected = ymd === selectedYmd;
-                return (
-                  <Pressable
-                    onPress={() => {
-                      setSelectedDate(item);
-                      setDateMode('DAY');
-                    }}
-                    style={[
-                      styles.dateChip,
-                      {
-                        backgroundColor: selected ? theme.colors.primary : theme.colors.surfaceVariant,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        color: selected ? theme.colors.onPrimary : theme.colors.onSurfaceVariant,
-                        fontWeight: selected ? '700' : '500',
-                      }}
+            <NeumorphicCard style={styles.cardBlock}>
+              <View style={styles.segmentLabelRow}>
+                <Text style={[styles.cardLabel, { color: theme.colors.primary }]}>{t('timeline.pilot.timeNav')}</Text>
+                {timeNav === 'TODAY' && todayTodoCount > 0 ? (
+                  <View style={styles.timeBadge}>
+                    <Text style={styles.timeBadgeText}>{todayTodoCount}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <SegmentedButtons
+                value={timeNav}
+                onValueChange={(v) => setTimeNav(v as TimeNav)}
+                buttons={timeNavButtons}
+                style={styles.segment}
+              />
+            </NeumorphicCard>
+
+            <NeumorphicCard style={styles.cardBlock}>
+              <Text style={[styles.cardLabel, { color: theme.colors.primary }]}>{t('timeline.pilot.contextNav')}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bubbleRow}>
+                {contextDefs.map((c) => {
+                  const selected = contextBubble === c.id;
+                  const countPiggy = c.id === 'PIGGY' ? pack.todoUndated.length : 0;
+                  return (
+                    <Pressable
+                      key={c.id}
+                      onPress={() => setContextBubble(c.id)}
+                      style={[
+                        selected ? neumorphicRaised(theme) : neumorphicInset(theme),
+                        styles.contextBubble,
+                        {
+                          borderWidth: 1,
+                          borderColor: selected ? theme.colors.primary : theme.colors.outlineVariant,
+                        },
+                      ]}
                     >
-                      {labelShort(item)}
-                    </Text>
-                  </Pressable>
-                );
-              }}
-            />
+                      <Text style={[styles.bubbleLabel, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                        {c.emoji ? `${c.emoji} ` : ''}
+                        {c.label}
+                      </Text>
+                      {c.id === 'PIGGY' && countPiggy > 0 ? (
+                        <View style={styles.piggyBadge}>
+                          <Text style={styles.piggyBadgeText}>{countPiggy}</Text>
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </NeumorphicCard>
 
-            <View style={styles.quickRow}>
-              <Pressable
-                style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
-                onPress={() => onQuickSelect('TODAY')}
-              >
-                <Text style={{ color: theme.colors.onSurface }}>{t('horizons.today')}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
-                onPress={() => onQuickSelect('TOMORROW')}
-              >
-                <Text style={{ color: theme.colors.onSurface }}>{t('horizons.tomorrow')}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.quickBtn, { borderColor: theme.colors.outline }]}
-                onPress={() => onQuickSelect('WEEK')}
-              >
-                <Text style={{ color: theme.colors.onSurface }}>{t('horizons.thisWeek')}</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.filterRow}>
-              <Pressable
-                onPress={() => setStatusFilter('TODO')}
-                style={[
-                  styles.filterToggle,
-                  {
-                    backgroundColor:
-                      statusFilter === 'TODO' ? theme.colors.primary : theme.colors.surfaceVariant,
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: statusFilter === 'TODO' ? theme.colors.onPrimary : theme.colors.onSurface,
-                    fontWeight: '600',
-                  }}
+            <NeumorphicCard style={styles.cardBlock}>
+              <Text style={[styles.cardLabel, { color: theme.colors.primary }]}>{t('timeline.pilot.statusNav')}</Text>
+              <View style={styles.statusRow}>
+                <Pressable
+                  onPress={() => setStatusFilter('TODO')}
+                  style={[
+                    neumorphicInset(theme),
+                    styles.statusBtn,
+                    statusFilter === 'TODO' && { borderColor: theme.colors.primary, borderWidth: 2 },
+                  ]}
                 >
-                  {t('timeline.todoFilter')}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setStatusFilter('DONE')}
-                style={[
-                  styles.filterToggle,
-                  {
-                    backgroundColor:
-                      statusFilter === 'DONE' ? theme.colors.primary : theme.colors.surfaceVariant,
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: statusFilter === 'DONE' ? theme.colors.onPrimary : theme.colors.onSurface,
-                    fontWeight: '600',
-                  }}
+                  <Text style={[styles.statusBtnText, { color: theme.colors.onSurface }]}>{t('timeline.pilot.todo')}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setStatusFilter('DONE')}
+                  style={[
+                    neumorphicInset(theme),
+                    styles.statusBtn,
+                    statusFilter === 'DONE' && { borderColor: theme.colors.primary, borderWidth: 2 },
+                  ]}
                 >
-                  {t('timeline.doneFilter')}
-                </Text>
-              </Pressable>
-            </View>
+                  <Text style={[styles.statusBtnText, { color: theme.colors.onSurface }]}>{t('timeline.pilot.done')}</Text>
+                </Pressable>
+              </View>
+            </NeumorphicCard>
           </View>
         }
         renderItem={({ item }) => {
@@ -547,12 +610,9 @@ export function TimelineScreen() {
                     { borderWidth: 1, borderColor: theme.colors.outlineVariant },
                   ]}
                 >
-                  <PiggyBank size={28} color="#FF8C00" />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
-                      {item.count} {t('timeline.ideaBank.button')}
-                    </Text>
-                  </View>
+                  <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
+                    {item.count} {t('timeline.ideaBank.button')}
+                  </Text>
                 </Pressable>
               </View>
             );
@@ -575,12 +635,28 @@ export function TimelineScreen() {
         }
       />
 
+      <View
+        pointerEvents="box-none"
+        style={[styles.micDock, { paddingBottom: Math.max(insets.bottom, 12) }]}
+      >
+        <TalkCaptureMicButton
+          compact
+          onCaptureEnd={({ transcript }) => {
+            DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, {
+              mode: 'quick',
+              at: Date.now(),
+              rawTranscript: transcript,
+            });
+          }}
+        />
+      </View>
+
       <IdeaBankModal
         visible={ideaBankOpen}
         onClose={() => setIdeaBankOpen(false)}
-        items={undatedTasks}
+        items={pack.todoUndated}
         status={statusFilter}
-        anchorDate={selectedDate}
+        anchorDate={anchorDate}
         onChanged={reload}
       />
     </View>
@@ -588,21 +664,56 @@ export function TimelineScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
-  headTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  title: { fontSize: 22, fontWeight: '700' },
-  dateStrip: { paddingBottom: 8, gap: 8 },
-  dateChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
-  quickRow: { flexDirection: 'row', gap: 8, marginVertical: 8 },
-  quickBtn: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+  root: { flex: 1 },
+  listFlex: { flex: 1 },
+  listContent: { flexGrow: 1 },
+  headerStack: { paddingHorizontal: 12, paddingTop: 8, gap: 10 },
+  headTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
+  screenTitle: { fontSize: 22, fontWeight: '700' },
+  cardBlock: { marginBottom: 0 },
+  cardLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 0.4, marginBottom: 8 },
+  segment: { marginTop: 0 },
+  segmentLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  timeBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: 'rgba(255,140,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  filterRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  filterToggle: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 },
+  timeBadgeText: { fontSize: 11, fontWeight: '800', color: '#7c2d12' },
+  bubbleRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
+  contextBubble: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginRight: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  bubbleLabel: { fontSize: 13, fontWeight: '700' },
+  piggyBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,140,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  piggyBadgeText: { fontSize: 11, fontWeight: '800', color: '#7c2d12' },
+  statusRow: { flexDirection: 'row', gap: 10 },
+  statusBtn: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  statusBtnText: { fontSize: 15, fontWeight: '700' },
   section: { paddingHorizontal: 16, paddingVertical: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
   emptyWrap: { paddingHorizontal: 16, paddingVertical: 20 },
@@ -615,4 +726,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
   },
   ideaBankLabel: { fontSize: 16, fontWeight: '700' },
+  micDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    paddingTop: 8,
+    backgroundColor: 'transparent',
+  },
 });
