@@ -34,3 +34,20 @@ export {
   getSuggestedAdRewardType,
   showRewardedAd,
 } from './AdManager';
+export {
+  calculateNextJump,
+  computeDurationTargetSec,
+  evaluateTrafficStatus,
+  executeTrafficScan,
+  executeWatch4MeInternalScan,
+  SURVEILLANCE_NOTIF_MIN_INTERVAL_MS,
+} from './traffic/TrafficEngine';
+export type {
+  ExecuteTrafficScanInput,
+  ExecuteTrafficScanOutput,
+  EvaluateTrafficStatusInput,
+  TrafficEvaluation,
+  TrafficScanEvent,
+  TrafficScanSession,
+  TrafficStatus,
+} from './traffic/TrafficEngine';
