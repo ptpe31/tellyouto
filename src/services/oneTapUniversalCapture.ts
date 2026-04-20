@@ -40,7 +40,33 @@
 
 import * as chrono from 'chrono-node';
 
-import { geminiGenerateOneTapCompressedLine, geminiStreamOneTapCompressedLine } from './geminiSemanticLab';
+import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
+import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
+import {
+  geminiGenerateOneTapCompressedLine,
+  geminiStreamOneTapCompressedLine,
+  logGeminiApiPathBResolvedSuccess,
+  type GeminiHttpSettledMeta,
+  type GeminiPathBLogAnchor,
+} from './geminiSemanticLab';
+
+/** Continuation des blocs multi-lignes — alignement vertical dans Metro (`[OneTap]`, `[OneTapPerf]`). */
+export const ONE_TAP_DEBUG_LOG_CONT = '\n  | ';
+const OT_LOG = ONE_TAP_DEBUG_LOG_CONT;
+
+/**
+ * Séparateur visuel au **début de cycle** (T0 — fin capture). Appeler depuis l’écran qui déclenche le dual-path
+ * (ex. Talk après `perfNowMs` T0) ou en tête de {@link geminiOneTapUniversalFromTranscript}.
+ */
+export function logOneTapCaptureCycleStartBanner(): void {
+  const when = new Date().toLocaleString(undefined, {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  });
+  console.log(
+    `************************************************************\n🚀 NOUVELLE CAPTURE : ${when}\n************************************************************`,
+  );
+}
 import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
 
 export const ONE_TAP_PREDICTED_TYPES = [
@@ -114,6 +140,20 @@ function normalizeUniversalTemporalInData(data: Record<string, unknown>): Record
   } else {
     next.recurrence = null;
   }
+
+  const destName = next.destination_name;
+  next.destination_name =
+    typeof destName === 'string' ? destName.trim().slice(0, 400) : '';
+  next.remind_to_leave = Boolean(next.remind_to_leave);
+  const locAddr = next.location_address;
+  next.location_address =
+    typeof locAddr === 'string' ? locAddr.trim().slice(0, 500) : '';
+
+  next.logisticsPotential = Boolean(next.logisticsPotential);
+  if (!next.logisticsPotential && (next.destination_name || next.location_address)) {
+    next.logisticsPotential = true;
+  }
+
   return next;
 }
 
@@ -130,7 +170,20 @@ function universalTailFromPrev(prevData: Record<string, unknown>): Record<string
       : typeof prevData.recurrence === 'object' && !Array.isArray(prevData.recurrence)
         ? (prevData.recurrence as Record<string, unknown>)
         : null;
-  return { dueDateTime, recurrence };
+  const tail: Record<string, unknown> = { dueDateTime, recurrence };
+  if (typeof prevData.logisticsPotential === 'boolean') {
+    tail.logisticsPotential = prevData.logisticsPotential;
+  }
+  if (typeof prevData.destination_name === 'string' && prevData.destination_name.trim()) {
+    tail.destination_name = prevData.destination_name.trim();
+  }
+  if (typeof prevData.remind_to_leave === 'boolean' || prevData.remind_to_leave === 1) {
+    tail.remind_to_leave = Boolean(prevData.remind_to_leave);
+  }
+  if (typeof prevData.location_address === 'string') {
+    tail.location_address = prevData.location_address;
+  }
+  return tail;
 }
 
 function stripJsonFences(raw: string): string {
@@ -164,6 +217,8 @@ function wireLineFromSkeleton(s: OneTapUniversalResult): string {
     if (h) parts.push(`H:${h}`);
     const notes = typeof d.notes === 'string' ? d.notes.trim().slice(0, 120) : '';
     if (notes) parts.push(`N:${notes.replace(/\|/g, ' ')}`);
+    const dest = typeof d.destination_name === 'string' ? d.destination_name.trim().slice(0, 120) : '';
+    if (dest) parts.push(`V:${dest.replace(/\|/g, ' ')}`);
   }
   if (s.predictedType === 'ANNIVERSARY') {
     const pn = typeof d.personName === 'string' ? d.personName.trim() : '';
@@ -175,6 +230,9 @@ function wireLineFromSkeleton(s: OneTapUniversalResult): string {
     const c =
       typeof d.cadenceDescription === 'string' ? d.cadenceDescription.trim().slice(0, 120) : '';
     if (c) parts.push(`C:${c.replace(/\|/g, ' ')}`);
+    const destH =
+      typeof d.destination_name === 'string' ? d.destination_name.trim().slice(0, 120) : '';
+    if (destH) parts.push(`V:${destH.replace(/\|/g, ' ')}`);
   }
   if (s.predictedType === 'LIST') {
     const list = d.list && typeof d.list === 'object' ? (d.list as Record<string, unknown>) : null;
@@ -320,6 +378,36 @@ function patchDataFromWire(predictedType: OneTapPredictedType, wire: OneTapWireF
   return {};
 }
 
+function mergeLogisticsFromWire(
+  predictedType: OneTapPredictedType,
+  wire: OneTapWireFields,
+  mergedBase: Record<string, unknown>,
+): Record<string, unknown> {
+  const v = wire.V?.replace(/\|/g, ' ').trim().slice(0, 400) ?? '';
+  if (!v) return {};
+  if (predictedType !== 'TASK' && predictedType !== 'RECURRING_TASK' && predictedType !== 'HABIT') {
+    return {};
+  }
+  const out: Record<string, unknown> = {
+    logisticsPotential: true,
+    destination_name: v,
+  };
+  const existingLoc =
+    typeof mergedBase.location_address === 'string' ? mergedBase.location_address.trim() : '';
+  if (!existingLoc) {
+    out.location_address = v;
+  }
+  return out;
+}
+
+/** Log terminal : lieu reconnu (IA ou mémoire SQLite). */
+export function logOneTapLogisticsRecognized(place: string, source: 'IA' | 'Mémoire'): void {
+  const label = String(place || '').trim().slice(0, 400);
+  if (!label) return;
+  const safe = label.replace(/'/g, "’");
+  console.log(`[OneTapLogistics] 📍 Lieu reconnu: '${safe}' | Source: ${source}`);
+}
+
 export function mergeWireIntoOneTapSkeleton(
   skeleton: OneTapUniversalResult,
   wire: OneTapWireFields,
@@ -332,7 +420,8 @@ export function mergeWireIntoOneTapSkeleton(
   const title = (wire.T?.trim() || skeleton.title || 'Note').trim().slice(0, 200);
   const mergedBase = mergeOneTapDataOnTypeChange(skeleton.predictedType, predictedType, skeleton.data, title);
   const wirePatch = patchDataFromWire(predictedType, wire);
-  const data = normalizeUniversalTemporalInData({ ...mergedBase, ...wirePatch });
+  const logisticsPatch = mergeLogisticsFromWire(predictedType, wire, { ...mergedBase, ...wirePatch });
+  const data = normalizeUniversalTemporalInData({ ...mergedBase, ...wirePatch, ...logisticsPatch });
   return { predictedType, categoryTag, title, data };
 }
 
@@ -347,6 +436,8 @@ ${seedLine}
 
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
+
+If the user must go somewhere (appointment, sport, fishing, dentist, travel, "chez…", "à la…"), add segment V with a short destination label (place or area name, no pipe). If unsure, omit V.
 
 Reply ONLY one KEY:value|KEY:value line (same key vocabulary as the guess).`;
 }
@@ -440,6 +531,19 @@ export function inferOneTapSkeletonFromTranscript(
     base = { ...base, memo: cleaned.slice(0, 4000) };
   }
 
+  const travelHint =
+    /\b(aller|rendez-vous|rdv|chez|déplacement|déplacer|à la|a la|au |à l'|a l'|en train|avion|gare|aéroport|hôpital|hopital|dentiste|kiné|kine|piscine|tennis|foot|gym|salle de sport|séance|salle)\b/i.test(
+      cleaned,
+    ) ||
+    /\b(pêche|peche|étang|cabane)\b/i.test(lower);
+
+  if (
+    travelHint &&
+    (predictedType === 'TASK' || predictedType === 'RECURRING_TASK' || predictedType === 'HABIT')
+  ) {
+    base = { ...base, logisticsPotential: true };
+  }
+
   return {
     predictedType,
     categoryTag,
@@ -485,10 +589,21 @@ export async function refineOneTapWithGeminiCompressed(
   skeleton: OneTapUniversalResult,
   options: OneTapRefineOptions,
 ): Promise<{ parsed: OneTapUniversalResult; rawModelText: string }> {
+  if (getDebugUserTierOverrideCached() === 'force_free') {
+    console.log('[OneTap] Mode FREE actif : Limitation simulée');
+  }
+  console.log(`[OneTap] 🎤 TRANSCRIPTION: ${JSON.stringify(transcript)}`);
+
   const seed = wireLineFromSkeleton(skeleton);
   const prompt = buildCompressedGeminiPrompt(transcript, seed, options.uiLocale);
   const useStream = options.useStream !== false;
   const pathBGeminiStart = perfNowMs();
+
+  const pathBLog: GeminiPathBLogAnchor = {
+    pathACategoryTag: skeleton.categoryTag,
+    pathAPredictedType: skeleton.predictedType,
+    pathAData: { ...skeleton.data },
+  };
 
   const applyBuffer = (buf: string) => {
     const wire = useStream ? parsePartialWireLine(buf) : parseOneTapWireLine(buf);
@@ -498,10 +613,15 @@ export async function refineOneTapWithGeminiCompressed(
   };
 
   let rawModelText: string;
+  let httpMeta: GeminiHttpSettledMeta | undefined;
   if (useStream) {
-    rawModelText = await geminiStreamOneTapCompressedLine(prompt, (acc) => applyBuffer(acc));
+    const r = await geminiStreamOneTapCompressedLine(prompt, (acc) => applyBuffer(acc), pathBLog);
+    rawModelText = r.raw;
+    httpMeta = r.httpMeta;
   } else {
-    rawModelText = await geminiGenerateOneTapCompressedLine(prompt);
+    const r = await geminiGenerateOneTapCompressedLine(prompt, pathBLog);
+    rawModelText = r.raw;
+    httpMeta = r.httpMeta;
     applyBuffer(rawModelText);
   }
 
@@ -518,14 +638,34 @@ export async function refineOneTapWithGeminiCompressed(
     parsed = { ...parsed, title: skeleton.title };
   }
 
+  const skLabel = `${String(skeleton.data.destination_name ?? '').trim()}|${String(skeleton.data.location_address ?? '').trim()}`;
+  const pdDest = typeof parsed.data.destination_name === 'string' ? parsed.data.destination_name.trim() : '';
+  const pdLoc = typeof parsed.data.location_address === 'string' ? parsed.data.location_address.trim() : '';
+  const pdLabel = `${pdDest}|${pdLoc}`;
+  if (pdLabel !== '|' && pdLabel !== skLabel) {
+    logOneTapLogisticsRecognized(pdDest || pdLoc, 'IA');
+  }
+
   const pathBGeminiEnd = perfNowMs();
   const geminiRefineMs = Math.round(pathBGeminiEnd - pathBGeminiStart);
+  const metaForLog: GeminiHttpSettledMeta =
+    httpMeta ?? {
+      modelId: getActiveGeminiModelId(),
+      latencyMs: geminiRefineMs,
+      fallbackUsed: false,
+      operation: useStream ? 'oneTap.wire.stream' : 'oneTap.wire.nonstream',
+    };
+  logGeminiApiPathBResolvedSuccess(metaForLog, {
+    categoryTag: parsed.categoryTag,
+    data: parsed.data,
+  });
+
   const cp = options.chainPerf;
   if (cp) {
     const t0ToT1 = Math.round(cp.t1 - cp.t0);
     const totalFromT0 = Math.round(pathBGeminiEnd - cp.t0);
     console.log(
-      `[OneTapPerf] 🏁 END_TO_END_CHAIN\n| T0 (End Capture) -> T1 (Local Skeleton): ${t0ToT1}ms\n| T1 -> T3 (Gemini Refinement): ${geminiRefineMs}ms\n| TOTAL_LATENCY: ${totalFromT0}ms\n| RESULT_CAT: ${parsed.categoryTag}`,
+      `[OneTapPerf] 🏁 END_TO_END_CHAIN${OT_LOG}T0 (End Capture) -> T1 (Local Skeleton): ${t0ToT1}ms${OT_LOG}T1 -> T3 (Gemini Refinement): ${geminiRefineMs}ms${OT_LOG}TOTAL_LATENCY: ${totalFromT0}ms${OT_LOG}RESULT_CAT: ${parsed.categoryTag}`,
     );
   }
 
@@ -553,7 +693,8 @@ export function parseOneTapUniversalJson(raw: string): OneTapUniversalResult {
   const categoryTag = String(obj.categoryTag || 'Perso').trim() || 'Perso';
   const rawData =
     obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data) ? (obj.data as Record<string, unknown>) : {};
-  const data = normalizeUniversalTemporalInData(rawData);
+  const defaults = defaultOneTapDataForType(predictedType as OneTapPredictedType);
+  const data = normalizeUniversalTemporalInData({ ...defaults, ...rawData });
   return {
     predictedType: predictedType as OneTapPredictedType,
     categoryTag,
@@ -580,6 +721,7 @@ export async function geminiOneTapUniversalFromTranscript(
   rawModelText: string;
   timings: { promptChars: number; geminiStartMs: number; geminiEndMs: number; parseEndMs: number };
 }> {
+  logOneTapCaptureCycleStartBanner();
   const skeleton = inferOneTapSkeletonFromTranscript(transcript, { uiLocale: options.uiLocale });
   const geminiStartMs = perfNowMs();
   const { parsed, rawModelText } = await refineOneTapWithGeminiCompressed(transcript, skeleton, {
@@ -589,11 +731,9 @@ export async function geminiOneTapUniversalFromTranscript(
   const geminiEndMs = perfNowMs();
   const parseEndMs = perfNowMs();
   const promptLen = buildCompressedGeminiPrompt(transcript, wireLineFromSkeleton(skeleton), options.uiLocale).length;
-  console.log('[OneTapPerf] prompt.metrics', {
-    promptChars: promptLen,
-    geminiMs: Math.round(geminiEndMs - geminiStartMs),
-    parseMs: Math.round(parseEndMs - geminiEndMs),
-  });
+  console.log(
+    `[OneTapPerf] prompt.metrics${OT_LOG}promptChars: ${promptLen}${OT_LOG}geminiMs: ${Math.round(geminiEndMs - geminiStartMs)}${OT_LOG}parseMs: ${Math.round(parseEndMs - geminiEndMs)}`,
+  );
   return { parsed, rawModelText, timings: { promptChars: promptLen, geminiStartMs, geminiEndMs, parseEndMs } };
 }
 
@@ -607,11 +747,39 @@ export function defaultOneTapDataForType(type: OneTapPredictedType): Record<stri
   const u = universalTemporalDefaults();
   switch (type) {
     case 'TASK':
-      return { ...u, dueDateYmd: null, dueTimeHm: null, reminderMinutesBefore: null, notes: '' };
+      return {
+        ...u,
+        dueDateYmd: null,
+        dueTimeHm: null,
+        reminderMinutesBefore: null,
+        notes: '',
+        logisticsPotential: false,
+        destination_name: '',
+        remind_to_leave: false,
+        location_address: '',
+      };
     case 'RECURRING_TASK':
-      return { ...u, cadenceDescription: '', nextDueYmd: null, anchorNotes: '' };
+      return {
+        ...u,
+        cadenceDescription: '',
+        nextDueYmd: null,
+        anchorNotes: '',
+        logisticsPotential: false,
+        destination_name: '',
+        remind_to_leave: false,
+        location_address: '',
+      };
     case 'HABIT':
-      return { ...u, cadenceDescription: '', preferredTimeHm: null, notes: '' };
+      return {
+        ...u,
+        cadenceDescription: '',
+        preferredTimeHm: null,
+        notes: '',
+        logisticsPotential: false,
+        destination_name: '',
+        remind_to_leave: false,
+        location_address: '',
+      };
     case 'LIST':
       return {
         ...u,

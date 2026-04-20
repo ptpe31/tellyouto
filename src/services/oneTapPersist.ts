@@ -59,6 +59,14 @@ function str(d: Record<string, unknown>, key: string): string | null {
   return s.length ? s : null;
 }
 
+function logisticsFieldsFromDraft(
+  data: Record<string, unknown>,
+): Pick<TrankilV2IntentionInsert, 'remind_to_leave' | 'location_address'> {
+  const remind = Boolean(data.remind_to_leave) ? 1 : 0;
+  const loc = str(data, 'location_address');
+  return { remind_to_leave: remind, location_address: loc };
+}
+
 function nextAnniversaryDueYmd(monthDay: string | null): string | null {
   if (!monthDay) return null;
   const s = monthDay.trim();
@@ -178,6 +186,9 @@ async function materializeOneTapIntentionRow(params: {
             cadenceDescription: str(draft.data, 'cadenceDescription'),
             preferredTimeHm: str(draft.data, 'preferredTimeHm'),
             notes: str(draft.data, 'notes'),
+            destination_name: str(draft.data, 'destination_name') ?? undefined,
+            location_address: str(draft.data, 'location_address') ?? undefined,
+            remind_to_leave: Boolean(draft.data.remind_to_leave) ? true : undefined,
           },
           null,
           2,
@@ -191,6 +202,7 @@ async function materializeOneTapIntentionRow(params: {
         complexity_level: 1,
         created_at,
         is_pending_ai: isPendingAi,
+        ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>),
       };
     }
     case 'ANNIVERSARY': {

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,12 +13,17 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
-import { Checkbox, Menu, Button as PaperButton } from 'react-native-paper';
+import { Checkbox, Menu, Button as PaperButton, Switch } from 'react-native-paper';
 import { Bell, ChevronDown } from 'lucide-react-native';
 
 import { TimelineDatePickerLazy } from './TimelineDatePickerLazy';
+import { fetchLatestOneTapLogisticsMemory } from '../api/trankilV2Db';
 import type { OneTapPredictedType, OneTapUniversalResult } from '../services/oneTapUniversalCapture';
-import { ONE_TAP_PREDICTED_TYPES, mergeOneTapDataOnTypeChange } from '../services/oneTapUniversalCapture';
+import {
+  ONE_TAP_PREDICTED_TYPES,
+  logOneTapLogisticsRecognized,
+  mergeOneTapDataOnTypeChange,
+} from '../services/oneTapUniversalCapture';
 import { printOneTapListDraft } from '../services/oneTapListPdf';
 import { listItemDisplayQuantity } from '../utils/listQuantityDisplay';
 
@@ -280,6 +285,36 @@ export function OneTapConfirmModal({
 
   const renderTypeBody = () => {
     const d = draft.data;
+    const logisticsBlock = () => {
+      if (d.logisticsPotential !== true) return null;
+      const remind = d.remind_to_leave === true || d.remind_to_leave === 1;
+      const addr = strData(d, 'location_address');
+      const hint = strData(d, 'destination_name');
+      return (
+        <View style={styles.logisticsWrap}>
+          <View style={styles.logisticsRow}>
+            <Text style={styles.logisticsLabel}>{t('talkDebug.oneTapLogisticsRemind')}</Text>
+            <Switch
+              value={remind}
+              onValueChange={(v: boolean) => onChangeDraft(patchData(draft, { remind_to_leave: v }))}
+              disabled={busy}
+            />
+          </View>
+          {remind ? (
+            <>
+              <Text style={styles.label}>{t('talkDebug.oneTapLogisticsWhere')}</Text>
+              <TextInput
+                value={addr}
+                onChangeText={(text) => onChangeDraft(patchData(draft, { location_address: text }))}
+                style={styles.input}
+                editable={!busy}
+                placeholder={hint ? hint : t('talkDebug.oneTapLogisticsWherePlaceholder')}
+              />
+            </>
+          ) : null}
+        </View>
+      );
+    };
     switch (draft.predictedType) {
       case 'LIST': {
         const list = (d.list && typeof d.list === 'object' ? d.list : {}) as Record<string, unknown>;
@@ -424,6 +459,7 @@ export function OneTapConfirmModal({
               multiline
               editable={!busy}
             />
+            {logisticsBlock()}
           </View>
         );
       }
@@ -493,6 +529,7 @@ export function OneTapConfirmModal({
               multiline
               editable={!busy}
             />
+            {logisticsBlock()}
           </View>
         );
       }
@@ -527,6 +564,7 @@ export function OneTapConfirmModal({
               multiline
               editable={!busy}
             />
+            {logisticsBlock()}
           </View>
         );
       }
@@ -789,6 +827,20 @@ const styles = StyleSheet.create({
   checkLabelCol: { flex: 1 },
   checkLabel: { fontSize: 15, fontWeight: '600', color: '#0f172a' },
   checkSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  logisticsWrap: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  logisticsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  logisticsLabel: { flex: 1, fontSize: 13, fontWeight: '600', color: '#64748b' },
   dateCta: {
     marginTop: 6,
     paddingVertical: 12,

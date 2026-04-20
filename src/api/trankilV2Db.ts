@@ -37,6 +37,10 @@ export type TrankilV2IntentionRow = {
   archived_at?: number | null;
   /** 1 = coquille locale avant fin du tri IA (offline-first). */
   is_pending_ai?: number;
+  /** 1 = rappel « quand partir » (logistique déplacement). */
+  remind_to_leave?: number;
+  /** Lieu / adresse texte libre (nullable). */
+  location_address?: string | null;
 };
 
 export type TrankilV2TimelineItemRow = {
@@ -648,6 +652,18 @@ export async function initTrankilV2Schema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);
       CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);
     `);
+  }
+
+  const colsIntentionsLogistics = await db.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(intentions)`,
+  );
+  if (!colsIntentionsLogistics.some((c) => c.name === 'remind_to_leave')) {
+    await db.execAsync(
+      `ALTER TABLE intentions ADD COLUMN remind_to_leave INTEGER NOT NULL DEFAULT 0 CHECK (remind_to_leave IN (0, 1));`,
+    );
+  }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'location_address')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN location_address TEXT;`);
   }
 }
 
@@ -1561,19 +1577,63 @@ export type TrankilV2IntentionInsert = {
   local_notification_id?: string | null;
   recurrence_rrule?: string | null;
   is_pending_ai?: number;
+  remind_to_leave?: number;
+  location_address?: string | null;
 };
+
+function normalizeTitleForLogisticsMatch(title: string): string {
+  /** Aligné sur le `WHERE` SQL : trim + lower + tab/sauts → espace (sans fusion des espaces multiples). */
+  return String(title || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\t/g, ' ')
+    .replace(/\n/g, ' ')
+    .replace(/\r/g, ' ');
+}
+
+/**
+ * Dernière intention enregistrée avec le même titre (normalisé) et une adresse — mémoire logistique one-tap.
+ */
+export async function fetchLatestOneTapLogisticsMemory(
+  title: string,
+): Promise<{ location_address: string; remind_to_leave: number } | null> {
+  await initTrankilV2Schema();
+  const key = normalizeTitleForLogisticsMatch(title);
+  if (!key) return null;
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    location_address: string | null;
+    remind_to_leave: number | null;
+  }>(
+    `SELECT location_address, remind_to_leave FROM intentions
+     WHERE trim(lower(replace(replace(title, char(9), ' '), char(10), ' '))) = ?
+       AND location_address IS NOT NULL
+       AND trim(location_address) != ''
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [key],
+  );
+  if (!row?.location_address?.trim()) return null;
+  return {
+    location_address: row.location_address.trim(),
+    remind_to_leave: row.remind_to_leave ? 1 : 0,
+  };
+}
 
 export async function insertTrankilV2Intention(
   row: TrankilV2IntentionInsert,
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
+  const remindLeave = row.remind_to_leave ?? 0;
+  const locAddr = row.location_address?.trim() ? row.location_address.trim() : null;
   await db.runAsync(
     `INSERT INTO intentions (
       id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
       is_pending_ai,
+      remind_to_leave, location_address,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`,
     [
       row.id,
       row.type,
@@ -1598,6 +1658,8 @@ export async function insertTrankilV2Intention(
       row.local_notification_id ?? null,
       row.recurrence_rrule ?? null,
       row.is_pending_ai ?? 0,
+      remindLeave ? 1 : 0,
+      locAddr,
     ],
   );
   const stats = await getTrankilV2UserStats();
@@ -1616,6 +1678,11 @@ export async function replaceTrankilV2IntentionOneTap(
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
+  const remindLeave = patch.remind_to_leave ?? 0;
+  const locAddr =
+    patch.location_address !== undefined && patch.location_address !== null
+      ? String(patch.location_address).trim() || null
+      : null;
   await db.runAsync(
     `UPDATE intentions SET
       type = ?,
@@ -1631,7 +1698,9 @@ export async function replaceTrankilV2IntentionOneTap(
       is_organized = ?,
       is_local_processed = ?,
       complexity_level = ?,
-      is_pending_ai = ?
+      is_pending_ai = ?,
+      remind_to_leave = ?,
+      location_address = ?
     WHERE id = ?`,
     [
       patch.type,
@@ -1648,6 +1717,8 @@ export async function replaceTrankilV2IntentionOneTap(
       patch.is_local_processed ?? 1,
       patch.complexity_level ?? 1,
       patch.is_pending_ai ?? 0,
+      remindLeave ? 1 : 0,
+      locAddr,
       id,
     ],
   );
