@@ -20,6 +20,13 @@ export function buildIntentionDraftsFromGemini(
       time: safeTimeString(parsed.data.time, '08:00'),
       frequency: lower.includes('semaine') || lower.includes('hebdo') ? 'weekly' : 'daily',
     });
+  } else if (parsed.predictedType === 'TASK') {
+    drafts.push({
+      kind: 'TASK',
+      title: parsed.title,
+      time: safeTimeString(parsed.data.dueDateTime, ''),
+      notes: transcript.trim(),
+    });
   } else if (parsed.predictedType === 'ANNIVERSARY') {
     const personName = String(parsed.data.personName ?? parsed.title).trim();
     const age = Number(parsed.data.age);
@@ -52,6 +59,7 @@ export function buildIntentionDraftsFromGemini(
       destination: parsed.title || 'Destination',
       arrivalTime: safeTimeString(parsed.data.dueDateTime, new Date(Date.now() + 3600_000).toISOString()),
       safetyBuffer: 300,
+      elasticJumpEnabled: true,
     });
   }
 

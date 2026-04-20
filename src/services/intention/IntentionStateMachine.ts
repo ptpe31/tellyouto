@@ -1,10 +1,18 @@
-export type IntentionKind = 'TRIP' | 'HABIT' | 'TIMER' | 'BIRTHDAY' | 'NOTE';
+export type IntentionKind = 'TRIP' | 'TASK' | 'HABIT' | 'TIMER' | 'BIRTHDAY' | 'NOTE';
 
 export type IntentionDraftTrip = {
   kind: 'TRIP';
   destination: string;
   arrivalTime: string;
   safetyBuffer: number;
+  elasticJumpEnabled?: boolean;
+};
+
+export type IntentionDraftTask = {
+  kind: 'TASK';
+  title: string;
+  time: string;
+  notes: string;
 };
 
 export type IntentionDraftHabit = {
@@ -35,6 +43,7 @@ export type IntentionDraftNote = {
 
 export type IntentionDraft =
   | IntentionDraftTrip
+  | IntentionDraftTask
   | IntentionDraftHabit
   | IntentionDraftTimer
   | IntentionDraftBirthday

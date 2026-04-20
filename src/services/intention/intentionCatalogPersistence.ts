@@ -24,6 +24,13 @@ async function ensureCatalogTables(): Promise<void> {
         frequency TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        time TEXT NOT NULL,
+        notes TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS birthdays (
         id TEXT PRIMARY KEY NOT NULL,
         person_name TEXT NOT NULL,
@@ -68,6 +75,13 @@ export async function persistIntentionDrafts(drafts: IntentionDraft[]): Promise<
         await db.runAsync(
           `INSERT INTO habits (id, title, time, frequency, created_at) VALUES (?, ?, ?, ?, ?)`,
           [newRowId('habit'), draft.title, draft.time, draft.frequency, now],
+        );
+        continue;
+      }
+      if (draft.kind === 'TASK') {
+        await db.runAsync(
+          `INSERT INTO tasks (id, title, time, notes, created_at) VALUES (?, ?, ?, ?, ?)`,
+          [newRowId('task'), draft.title, draft.time, draft.notes, now],
         );
         continue;
       }
