@@ -4,14 +4,14 @@
  * Modèle : Firebase Remote Config `active_gemini_model` (voir {@link geminiRemoteModelSteering}),
  * défaut `gemini-1.5-flash-latest` tant que RC n’est pas chargé ou en erreur.
  *
- * **Fail-fast** : un seul modèle, aucune cascade / liste de secours (latence prévisible).
+ * **Self-healing** : sur HTTP 404/503, `listModels` + modèle de secours (AsyncStorage 24h, voir steering).
  *
  * **Streaming / audio** : `generateContent` non streamé par défaut ; one-tap filaire utilise `streamGenerateContent`.
  */
 
 import Constants from 'expo-constants';
 
-import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
+import { getActiveGeminiModelId, recoverGeminiModelViaListModels } from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -136,35 +136,50 @@ async function postGenerateContent(body: object, modelOverride?: string): Promis
     console.log(`[GeminiLab] Text Payload Size: ${textChars} chars`);
   }
 
-  const model = modelOverride || getActiveGeminiModelId();
-  const url = buildGenerateUrl(model);
-  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
-  const tNet0 = perfNowMs();
-  labLog('request.start', {
-    model,
-    hasOverride: Boolean(modelOverride),
-    endpoint: safeUrl,
-    tNet0: Math.round(tNet0),
-  });
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(effectiveBody),
-  });
-  const text = await res.text();
-  const tNet1 = perfNowMs();
-  labLog('request.timing', {
-    model,
-    ms: Math.round(tNet1 - tNet0),
-    status: res.status,
-    ok: res.ok,
-  });
-  labLog('request.response', {
-    model,
-    status: res.status,
-    ok: res.ok,
-    preview: text.slice(0, 220),
-  });
+  const runOnce = async (modelId: string) => {
+    const url = buildGenerateUrl(modelId);
+    const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+    const tNet0 = perfNowMs();
+    labLog('request.start', {
+      model: modelId,
+      hasOverride: Boolean(modelOverride),
+      endpoint: safeUrl,
+      tNet0: Math.round(tNet0),
+    });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(effectiveBody),
+    });
+    const text = await res.text();
+    const tNet1 = perfNowMs();
+    labLog('request.timing', {
+      model: modelId,
+      ms: Math.round(tNet1 - tNet0),
+      status: res.status,
+      ok: res.ok,
+    });
+    labLog('request.response', {
+      model: modelId,
+      status: res.status,
+      ok: res.ok,
+      preview: text.slice(0, 220),
+    });
+    return { res, text, modelId };
+  };
+
+  let model = modelOverride || getActiveGeminiModelId();
+  let { res, text, modelId } = await runOnce(model);
+  if (
+    !res.ok &&
+    (res.status === 404 || res.status === 503) &&
+    !modelOverride
+  ) {
+    const recovered = await recoverGeminiModelViaListModels();
+    if (recovered) {
+      ({ res, text, modelId } = await runOnce(recovered));
+    }
+  }
 
   if (res.ok) {
     try {
@@ -655,21 +670,48 @@ async function postStreamGenerateContent(
   modelOverride?: string,
 ): Promise<string> {
   const effectiveBody = withLightGenerationConfig(body);
-  const model = modelOverride || getActiveGeminiModelId();
-  const url = buildStreamGenerateUrl(model);
-  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+  const openStream = async (modelId: string) => {
+    const url = buildStreamGenerateUrl(modelId);
+    const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+    labLog('stream.request.start', { model: modelId, endpoint: safeUrl });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(effectiveBody),
+    });
+    return { res, modelId };
+  };
+
   const tNet0 = perfNowMs();
-  labLog('stream.request.start', { model, endpoint: safeUrl });
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(effectiveBody),
-  });
+  let model = modelOverride || getActiveGeminiModelId();
+  let { res, modelId } = await openStream(model);
+  let lastErrBody = '';
   if (!res.ok) {
-    const errText = await res.text();
-    labLog('stream.request.error', { model, status: res.status, preview: errText.slice(0, 220) });
-    throw new Error(`Gemini stream: HTTP ${res.status}: ${errText.slice(0, 800)}`);
+    lastErrBody = await res.text();
+    labLog('stream.request.error', {
+      model: modelId,
+      status: res.status,
+      preview: lastErrBody.slice(0, 220),
+    });
+    if ((res.status === 404 || res.status === 503) && !modelOverride) {
+      const recovered = await recoverGeminiModelViaListModels();
+      if (recovered) {
+        ({ res, modelId } = await openStream(recovered));
+        if (!res.ok) {
+          lastErrBody = await res.text();
+          labLog('stream.request.error', {
+            model: modelId,
+            status: res.status,
+            preview: lastErrBody.slice(0, 220),
+          });
+        }
+      }
+    }
   }
+  if (!res.ok) {
+    throw new Error(`Gemini stream: HTTP ${res.status}: ${lastErrBody.slice(0, 800)}`);
+  }
+  model = modelId;
   const reader = res.body?.getReader?.();
   if (!reader) {
     throw new Error('Gemini stream: pas de flux lisible (body)');
@@ -719,7 +761,7 @@ async function postStreamGenerateContent(
     }
   }
   const tNet1 = perfNowMs();
-  labLog('stream.request.timing', { model, ms: Math.round(tNet1 - tNet0), chars: assembled.length });
+  labLog('stream.request.timing', { model: modelId, ms: Math.round(tNet1 - tNet0), chars: assembled.length });
   const out = assembled.trim();
   if (!out) throw new Error('Gemini stream: réponse vide');
   return out;

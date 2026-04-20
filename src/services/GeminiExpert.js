@@ -3,7 +3,7 @@
  * Clé : process.env.EXPO_PUBLIC_GEMINI_API_KEY
  */
 
-import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
+import { getActiveGeminiModelId, recoverGeminiModelViaListModels } from './geminiRemoteModelSteering';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -62,28 +62,41 @@ async function generateContentWithFallback(prompt, generationConfig) {
   const apiKey = getApiKey();
   const model = getModelId();
   const effectiveGenerationConfig = withLightGenerationConfig(generationConfig);
-  const url = `${BASE}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
-  log('request.start', { model, endpoint: safeUrl });
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: effectiveGenerationConfig,
-    }),
+  const body = JSON.stringify({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: effectiveGenerationConfig,
   });
-  const text = await res.text();
-  log('request.response', {
-    model,
-    status: res.status,
-    ok: res.ok,
-    preview: text.slice(0, 220),
-  });
+
+  const doFetch = async (modelId) => {
+    const url = `${BASE}/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+    log('request.start', { model: modelId, endpoint: safeUrl });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    const text = await res.text();
+    log('request.response', {
+      model: modelId,
+      status: res.status,
+      ok: res.ok,
+      preview: text.slice(0, 220),
+    });
+    return { res, text, modelId };
+  };
+
+  let { res, text, modelId } = await doFetch(model);
+  if (!res.ok && (res.status === 404 || res.status === 503)) {
+    const recovered = await recoverGeminiModelViaListModels();
+    if (recovered) {
+      ({ res, text, modelId } = await doFetch(recovered));
+    }
+  }
   if (res.ok) {
     const parsed = JSON.parse(text);
     return {
-      model,
+      model: modelId,
       rawText: extractTextFromGenerateResponse(parsed),
     };
   }

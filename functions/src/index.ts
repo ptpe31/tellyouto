@@ -1,4 +1,5 @@
 import * as admin from 'firebase-admin';
+import { defineSecret } from 'firebase-functions/params';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -7,10 +8,13 @@ import { handleDisconnectMessenger } from './disconnectMessenger';
 import { handleBotWebhook } from './webhookHandler';
 import { handleTelegramWebhook } from './telegramWebhook';
 import { purgeStaleTransitDocuments } from './purgeTransitData';
+import { runGeminiModelSentinel } from './geminiModelSentinel';
 import { runProactiveReminders } from './scheduleProactiveReminders';
 
 /** Région Gen2 imposée (Paris / europe-west9) — alignée sur Firestore Western Europe. */
 const REGION = 'europe-west9' as const;
+
+const geminiApiKeySecret = defineSecret('GEMINI_API_KEY');
 
 setGlobalOptions({ region: REGION });
 
@@ -74,6 +78,21 @@ export const purgeStaleTransitData = onSchedule(
   },
   async () => {
     await purgeStaleTransitDocuments(db);
+  },
+);
+
+/** Sentinelle : listModels → meilleur modèle flash → Remote Config `active_gemini_model` (tous les jours 4h Europe/Paris). */
+export const geminiModelSentinel = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 4 * * *',
+    timeZone: 'Europe/Paris',
+    memory: '256MiB',
+    timeoutSeconds: 120,
+    secrets: [geminiApiKeySecret],
+  },
+  async () => {
+    await runGeminiModelSentinel(geminiApiKeySecret.value());
   },
 );
 
