@@ -38,6 +38,7 @@ export type ExecuteTrafficScanInput = {
   session: TrafficScanSession;
   currentTrafficDurationSec: number;
   departureGapMin: number;
+  previousTrafficDurationSec?: number | null;
   nowMs?: number;
 };
 
@@ -46,6 +47,8 @@ export type ExecuteTrafficScanOutput = {
   event: TrafficScanEvent;
   evaluation: TrafficEvaluation;
   shouldNotify: boolean;
+  stabilizedTrafficDurationSec: number;
+  tripComplexityScore: number;
 };
 
 /**
@@ -76,20 +79,65 @@ export function calculateNextJump(departureGapMin: number): number {
 }
 
 /**
- * Seuil cible: max(base * ratio, base + 120s, 120s)
+ * Interpole lineairement un ratio de tolerance selon la duree du trajet:
+ * - < 15 min: 1.3 (plus tolerant aux aleas urbains)
+ * - > 45 min: 1.1 (plus strict pour fiabiliser les longs trajets)
+ * - entre les deux: interpolation lineaire
+ *
+ * Benefice metier:
+ * - Confort utilisateur sur trajets courts (moins d'alertes nerveuses)
+ * - Precision sur trajets longs (declenchement plus pertinent)
  */
-export function computeDurationTargetSec(
-  staticDurationSec: number,
-  thresholdRatio: number
-): number {
+export function computeDynamicToleranceRatio(staticDurationSec: number): number {
   const base = Math.max(0, Number(staticDurationSec) || 0);
-  const ratio =
-    Number.isFinite(Number(thresholdRatio)) && Number(thresholdRatio) > 0
-      ? Number(thresholdRatio)
-      : 1;
+  const shortTripSec = 15 * 60;
+  const longTripSec = 45 * 60;
+  const maxRatio = 1.3;
+  const minRatio = 1.1;
+
+  if (base <= shortTripSec) return maxRatio;
+  if (base >= longTripSec) return minRatio;
+
+  const alpha = (base - shortTripSec) / (longTripSec - shortTripSec);
+  return maxRatio + (minRatio - maxRatio) * alpha;
+}
+
+/**
+ * Seuil cible dynamique:
+ * target = max(base * dynamicRatio, base + 120s, 120s)
+ *
+ * Benefice metier:
+ * - Stabilise le compromis precision/confort automatiquement selon la longueur du trajet.
+ */
+export function computeDurationTargetSec(staticDurationSec: number): number {
+  const base = Math.max(0, Number(staticDurationSec) || 0);
+  const ratio = computeDynamicToleranceRatio(base);
   const raw = Math.round(base * ratio);
   const minPlus = base + 120;
   return Math.max(raw, minPlus, 120);
+}
+
+/**
+ * Exponential Moving Average simplifiee (EMA 1 step):
+ * stabilized = current * currentWeight + previous * previousWeight
+ *
+ * Par defaut: 70/30.
+ * Benefice metier:
+ * - Evite les faux "Top Depart" sur pic de trafic ponctuel
+ * - Conserve une reaction rapide a la tendance recente
+ */
+export function stabilizeTrafficDurationSec(
+  currentTrafficSec: number,
+  previousTrafficSec: number,
+  currentWeight = 0.7
+): number {
+  const current = Math.max(0, Number(currentTrafficSec) || 0);
+  const previous = Math.max(0, Number(previousTrafficSec) || 0);
+  const cw = Number.isFinite(Number(currentWeight))
+    ? Math.min(1, Math.max(0, Number(currentWeight)))
+    : 0.7;
+  const pw = 1 - cw;
+  return Math.round(current * cw + previous * pw);
 }
 
 /**
@@ -119,6 +167,40 @@ export function evaluateTrafficStatus(
 }
 
 /**
+ * Score de "poids de surveillance" pour estimer le cout API d'un trajet.
+ *
+ * Approche:
+ * - Simule les sauts elastiques successifs jusqu'au depart (gap -> gap - jump)
+ * - Combine nombre de scans + duree de fenetre de surveillance
+ *
+ * Formule:
+ * complexity = scansEstimated * 10 + surveillanceWindowMin
+ *
+ * Benefice metier:
+ * - Permet un pilotage budgetaire (quota API) sans couplage a un backend
+ * - Offre une base pour un cout au prorata par trajet
+ */
+export function calculateTripComplexity(
+  departureGapMin: number,
+  surveillanceWindowMin: number
+): number {
+  const minGap = Math.max(0, Number(departureGapMin) || 0);
+  const windowMin = Math.max(0, Number(surveillanceWindowMin) || 0);
+
+  let scansEstimated = 0;
+  let remaining = minGap;
+  const hardLimit = 200;
+  while (remaining > 0 && scansEstimated < hardLimit) {
+    const jumpMs = calculateNextJump(remaining);
+    const jumpMin = Math.max(0.01, jumpMs / 60_000);
+    scansEstimated += 1;
+    remaining -= jumpMin;
+  }
+
+  return Math.round(scansEstimated * 10 + windowMin);
+}
+
+/**
  * Version pure de la logique executeWatch4MeInternalScan:
  * - ne fait aucun appel reseau
  * - ne lit/ecrit aucune base
@@ -133,8 +215,17 @@ export function executeTrafficScan(
   const current = Math.max(0, Number(input.currentTrafficDurationSec) || 0);
   const target = Math.max(0, Number(input.session.durationTargetSec) || 0);
   const previous = Math.max(0, Number(input.session.lastTrafficDurationSec) || 0);
+  const previousForEma = Math.max(
+    0,
+    Number(input.previousTrafficDurationSec ?? previous) || 0
+  );
+  const stabilizedCurrent = stabilizeTrafficDurationSec(current, previousForEma);
   const scanCount = Math.max(0, Math.floor(Number(input.session.internalScanCount) || 0));
   const status = input.session.status;
+  const tripComplexityScore = calculateTripComplexity(
+    input.departureGapMin,
+    input.departureGapMin
+  );
 
   if (status !== "active") {
     return {
@@ -142,16 +233,18 @@ export function executeTrafficScan(
       event: "NONE",
       evaluation: evaluateTrafficStatus({
         targetDurationSec: target,
-        currentDurationSec: current,
+        currentDurationSec: stabilizedCurrent,
         lastDurationSec: previous,
         departureGapMin: input.departureGapMin,
       }),
       shouldNotify: false,
+      stabilizedTrafficDurationSec: stabilizedCurrent,
+      tripComplexityScore,
     };
   }
 
-  const fluidNow = target > 0 && current <= target;
-  const overNow = target > 0 && current > target;
+  const fluidNow = target > 0 && stabilizedCurrent <= target;
+  const overNow = target > 0 && stabilizedCurrent > target;
   const wasOver = target > 0 && previous > target;
 
   let event: TrafficScanEvent = "NONE";
@@ -159,7 +252,7 @@ export function executeTrafficScan(
 
   const nextSession: TrafficScanSession = {
     ...input.session,
-    lastTrafficDurationSec: current,
+    lastTrafficDurationSec: stabilizedCurrent,
     internalScanCount: scanCount + 1,
   };
 
@@ -192,11 +285,13 @@ export function executeTrafficScan(
     event,
     evaluation: evaluateTrafficStatus({
       targetDurationSec: target,
-      currentDurationSec: current,
+        currentDurationSec: stabilizedCurrent,
       lastDurationSec: previous,
       departureGapMin: input.departureGapMin,
     }),
     shouldNotify,
+      stabilizedTrafficDurationSec: stabilizedCurrent,
+      tripComplexityScore,
   };
 }
 

@@ -36,10 +36,13 @@ export {
 } from './AdManager';
 export {
   calculateNextJump,
+  calculateTripComplexity,
+  computeDynamicToleranceRatio,
   computeDurationTargetSec,
   evaluateTrafficStatus,
   executeTrafficScan,
   executeWatch4MeInternalScan,
+  stabilizeTrafficDurationSec,
   SURVEILLANCE_NOTIF_MIN_INTERVAL_MS,
 } from './traffic/TrafficEngine';
 export type {
@@ -51,3 +54,16 @@ export type {
   TrafficScanSession,
   TrafficStatus,
 } from './traffic/TrafficEngine';
+export {
+  CONFIRMATION_GATE_HOURS,
+  INNER_SAFETY_MARGIN_SEC,
+  SAFETY_JUMP_MS,
+  TrafficScheduler,
+} from './traffic/TrafficScheduler';
+export type {
+  MapsService,
+  TrafficNotificationService,
+  TrafficSample,
+  TrafficTaskStatus,
+  TripTaskRow,
+} from './traffic/TrafficScheduler';
