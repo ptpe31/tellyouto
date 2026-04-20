@@ -1,3 +1,4 @@
+import './src/api/firebaseIndexedDbGuard';
 import 'react-native-gesture-handler';
 import 'react-native-worklets';
 import 'react-native-reanimated';

@@ -18,7 +18,6 @@ export type TimelineTabParams = {
 
 export type AppTabParamList = {
   TalkHome: undefined;
-  TalkDebug: undefined;
   Radar: undefined;
   Timeline: TimelineTabParams | undefined;
   AgentIA: NavigatorScreenParams<AgentStackParamList> | undefined;
@@ -32,5 +31,4 @@ export type MainStackParamList = {
   FocusCapsule: { intentionId: string; mode?: FocusCapsuleMode };
   /** Lab test : audio .m4a → Gemini + comparaison IA locale (aucune persistance DB). */
   SemanticBrainLab: undefined;
-  TalkDebug: undefined;
 };

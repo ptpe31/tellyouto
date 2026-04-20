@@ -1,6 +1,9 @@
 /**
  * Sentinelle : listModels → meilleur modèle flash stable → Remote Config `active_gemini_model`.
  * Cron quotidien (4h Europe/Paris) — voir `index.ts`.
+ *
+ * **SYNC** : la logique `pickPreferredGeminiModelId` / tri flash doit rester alignée avec
+ * `src/services/geminiModelCatalog.ts` (même heuristique : flash, 8b|lite, récence API + ID).
  */
 
 import * as admin from 'firebase-admin';
@@ -11,12 +14,78 @@ const REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL = 'active_gemini_model';
 type GeminiListedModel = {
   name: string;
   supportedGenerationMethods?: string[];
+  version?: string;
+  baseModelId?: string;
 };
-
-const PREFERRED_MODEL_IDS = ['gemini-1.5-flash-8b-latest', 'gemini-1.5-flash-latest'] as const;
 
 function shortGeminiModelId(fullName: string): string {
   return String(fullName || '').trim().replace(/^models\//, '');
+}
+
+function isFlashModelId(id: string): boolean {
+  return /flash/i.test(id);
+}
+
+function is8bOrLiteModelId(id: string): boolean {
+  return /\b8b\b/i.test(id) || /\blite\b/i.test(id);
+}
+
+function isLatestModelId(id: string): boolean {
+  return /-latest$/i.test(id);
+}
+
+function parseApiVersionRank(version: string | undefined): number {
+  if (!version) return 0;
+  const t = version.trim();
+  if (!t) return 0;
+  const n = Number.parseFloat(t.replace(/[^\d.+-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseSemverFromGeminiId(id: string): [number, number] | null {
+  const m = id.match(/gemini-(\d+)\.(\d+)/i);
+  if (!m) return null;
+  const major = Number.parseInt(m[1], 10);
+  const minor = Number.parseInt(m[2], 10);
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) return null;
+  return [major, minor];
+}
+
+function parseTrailingNumericSuffix(id: string): number {
+  const m = id.match(/-(\d{3})(?:\b|[-_]|$)/);
+  if (!m) return 0;
+  const n = Number.parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function compareFlashGeminiModels(a: GeminiListedModel, b: GeminiListedModel): number {
+  const idA = shortGeminiModelId(a.name);
+  const idB = shortGeminiModelId(b.name);
+
+  const la = is8bOrLiteModelId(idA) ? 1 : 0;
+  const lb = is8bOrLiteModelId(idB) ? 1 : 0;
+  if (la !== lb) return lb - la;
+
+  const vRank = parseApiVersionRank(b.version) - parseApiVersionRank(a.version);
+  if (vRank !== 0) return vRank;
+
+  const latestA = isLatestModelId(idA) ? 1 : 0;
+  const latestB = isLatestModelId(idB) ? 1 : 0;
+  if (latestA !== latestB) return latestB - latestA;
+
+  const sa = parseSemverFromGeminiId(idA);
+  const sb = parseSemverFromGeminiId(idB);
+  if (sa && sb) {
+    if (sa[0] !== sb[0]) return sb[0] - sa[0];
+    if (sa[1] !== sb[1]) return sb[1] - sa[1];
+  } else if (sa && !sb) return -1;
+  else if (!sa && sb) return 1;
+
+  const ta = parseTrailingNumericSuffix(idA);
+  const tb = parseTrailingNumericSuffix(idB);
+  if (ta !== tb) return tb - ta;
+
+  return idB.localeCompare(idA);
 }
 
 function pickPreferredGeminiModelId(models: GeminiListedModel[]): string | null {
@@ -24,18 +93,11 @@ function pickPreferredGeminiModelId(models: GeminiListedModel[]): string | null 
     (m.supportedGenerationMethods ?? []).includes('generateContent'),
   );
   if (withGen.length === 0) return null;
-  const ids = new Set(withGen.map((m) => shortGeminiModelId(m.name)));
-  for (const p of PREFERRED_MODEL_IDS) {
-    if (ids.has(p)) return p;
-  }
-  const idList = [...ids];
-  const flashLatest = idList
-    .filter((id) => /flash/i.test(id) && /-latest$/i.test(id))
-    .sort();
-  if (flashLatest.length > 0) return flashLatest[flashLatest.length - 1];
-  const anyFlash = idList.find((id) => /flash/i.test(id));
-  if (anyFlash) return anyFlash;
-  return shortGeminiModelId(withGen[0].name);
+
+  const flashOnly = withGen.filter((m) => isFlashModelId(shortGeminiModelId(m.name)));
+  const pool = flashOnly.length > 0 ? flashOnly : withGen;
+  const sorted = [...pool].sort(compareFlashGeminiModels);
+  return shortGeminiModelId(sorted[0].name);
 }
 
 async function fetchAllGeminiModelsList(apiKey: string): Promise<GeminiListedModel[]> {
@@ -77,6 +139,11 @@ export async function runGeminiModelSentinel(apiKey: string): Promise<{
   const template = await rc.getTemplate();
   template.parameters = template.parameters ?? {};
   const existing = template.parameters[REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL];
+  const previousDefault = existing?.defaultValue;
+  const ancienModele =
+    previousDefault && typeof previousDefault === 'object' && 'value' in previousDefault
+      ? String((previousDefault as { value: string }).value ?? '').trim()
+      : '';
   template.parameters[REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL] = {
     ...existing,
     defaultValue: { value: chosen },
@@ -87,8 +154,19 @@ export async function runGeminiModelSentinel(apiKey: string): Promise<{
   };
 
   await rc.publishTemplate(template);
+  const nouveauModele = chosen;
+  const transitionLabel = `${ancienModele || '(aucun)'} -> ${nouveauModele}`;
   console.log(
-    `[geminiModelSentinel] published ${REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL}=${chosen} (from ${models.length} listed)`,
+    JSON.stringify({
+      source: 'geminiModelSentinel',
+      event: 'RC_MODEL_TRANSITION',
+      ANCIEN_MODELE: ancienModele || null,
+      NOUVEAU_MODELE: nouveauModele,
+      transition: transitionLabel,
+      rc_key: REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL,
+      did_change: ancienModele !== nouveauModele,
+      list_models_count: models.length,
+    }),
   );
   return { chosenModelId: chosen, listCount: models.length };
 }

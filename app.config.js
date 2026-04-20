@@ -1,12 +1,11 @@
 /**
- * Charge `.env` puis `env` (sans point) pour que la clé Gemini soit disponible
- * au prébuild / Gradle même si seul le fichier `env` est présent.
- * Les valeurs sont aussi exposées dans `expo.extra` pour le runtime (expo-constants).
+ * Charge `.env` à la racine (Expo / EAS). Les valeurs sont aussi exposées dans
+ * `expo.extra` pour le runtime (expo-constants).
  */
 const fs = require('fs');
 const path = require('path');
 
-/** @param {string} mode fill = si absent ou vide ; override = écrase (fichier env après .env). */
+/** @param {string} mode fill = si absent ou vide ; override = écrase les clés déjà vides. */
 function loadEnvFile(relPath, mode = 'fill') {
   const p = path.join(__dirname, relPath);
   if (!fs.existsSync(p)) return;
@@ -39,7 +38,6 @@ function loadEnvFile(relPath, mode = 'fill') {
 }
 
 loadEnvFile('.env', 'fill');
-loadEnvFile('env', 'override');
 
 const appJson = require('./app.json');
 

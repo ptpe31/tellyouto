@@ -1060,7 +1060,7 @@ export function TimelineScreen() {
           <View style={[styles.section, { paddingHorizontal: 16 }]}>
             <Pressable
               onPress={() => setIdeaBankOpen(true)}
-              style={[
+            style={[
                 neumorphicRaised(theme),
                 styles.ideaBankPressable,
                 { borderWidth: 1, borderColor: theme.colors.outlineVariant },
@@ -1068,7 +1068,7 @@ export function TimelineScreen() {
             >
               <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
                 {item.count} {t('timeline.ideaBank.button')}
-              </Text>
+            </Text>
             </Pressable>
           </View>
         );
@@ -1118,8 +1118,8 @@ export function TimelineScreen() {
             offlineAiChipLabel={offlineChip}
             onRetryAiSort={showRetry ? () => void handleRetryOfflineAi(row.id) : undefined}
             retryAiSortBusy={retryAiBusyId === row.id}
-          />
-        </View>
+        />
+      </View>
       );
     },
     [
@@ -1150,7 +1150,7 @@ export function TimelineScreen() {
     navigation.navigate('Recharge');
   }, [navigation]);
 
-  return (
+      return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
       <View style={{ paddingTop: insets.top, paddingHorizontal: 16, paddingBottom: 6 }}>
         <PilotStatusHeader
@@ -1244,7 +1244,7 @@ export function TimelineScreen() {
                 {contextDefs.map((c) => {
                   const selected = contextBubble === c.id;
                   const countPiggy = c.id === 'PIGGY' ? unorganizedCount : 0;
-                  return (
+  return (
                     <Pressable
                       key={c.id}
                       onPress={() => setContextBubble(c.id)}
@@ -1321,7 +1321,7 @@ export function TimelineScreen() {
                 <View style={styles.customEmptyBlock}>
                   <Text style={[styles.skyClearText, { color: theme.colors.onSurfaceVariant }]}>
                     {t('timeline.customDayEmpty')}
-                  </Text>
+            </Text>
                   <Pressable
                     onPress={navigateToAddTask}
                     style={[
@@ -1332,7 +1332,7 @@ export function TimelineScreen() {
                   >
                     <Text style={[styles.customEmptyCtaText, { color: theme.colors.primary }]}>
                       {t('timeline.customDayAddTask')}
-                    </Text>
+            </Text>
                   </Pressable>
                 </View>
               ) : (

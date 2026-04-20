@@ -1,7 +1,41 @@
 /**
- * Analyse **one-tap** : dictée → inférence locale instantanée + affinage Gemini (ligne compacte / flux).
+ * Analyse **one-tap** : dictée → **Dual-Path** (intention rapide + affinage cloud).
+ *
+ * ## Dual-Path
+ *
+ * - **Path A — squelette local** ({@link inferOneTapSkeletonFromTranscript}) : heuristiques sur le texte (mots-clés type
+ *   LIST/TASK/…) + **chrono-node** pour dates/heures. Exécution **synchrone**, sans réseau : la modale peut s’ouvrir
+ *   tout de suite avec un brouillon cohérent.
+ * - **Path B — affinage Gemini** ({@link refineOneTapWithGeminiCompressed}) : le squelette est sérialisé en une **ligne
+ *   compacte** (`wireLineFromSkeleton`), injectée dans un prompt court avec la dictée ; le modèle renvoie la même
+ *   « grammaire » KEY:value|… que l’UI fusionne via {@link mergeWireIntoOneTapSkeleton}. Option **streaming** :
+ *   {@link parsePartialWireLine} alimente des mises à jour partielles tant que le buffer n’est pas complet.
+ *
+ * {@link geminiOneTapUniversalFromTranscript} enchaîne A puis B en **non-streaming** (ex. flux machine à intentions
+ * sans UI Talk) et journalise des métriques prompt/Gemini dans la console.
+ *
+ * ## Repères de performance (Talk / Debug)
+ *
+ * Les horodatages suivants correspondent à {@link OneTapPerfMsSnapshot} et aux logs `[OneTapPerf]` dans
+ * `TalkDebugScreen` (`stopCapture`). Ce ne sont **pas** des durées cumulées : ce sont des instantanés `performance.now()`
+ * (ms depuis l’origine de la navigation), sauf `geminiMs` et `totalFromT1Ms` qui sont des **delta**.
+ *
+ * | Champ / log | Signification |
+ * |-------------|----------------|
+ * | **T0** (`t0`) | Instant où la capture vocale est terminée (micro/recognition stoppés). Début du funnel « utilisateur voit quelque chose ». |
+ * | **T1** (`t1`) | Début du traitement **async** Dual-Path en arrière-plan (après squelette local + ouverture modale). |
+ * | **T3** (`t3`) | Fin du pipeline async (pre-save optimiste + refine Gemini + remplacement draft). **Il n’y a pas de T2** dans le payload — l’intervalle réseau Gemini est isolé dans `geminiMs`. |
+ * | **geminiMs** | Durée approximative de l’appel Gemini (stream) : fin streaming − début streaming. |
+ * | **totalFromT1Ms** | `t3 - t1` : tout ce qui suit l’entrée en arrière-plan (Firestore + réseau + parsing). |
+ *
+ * ## Self-healing (modèle Gemini)
+ *
+ * Ce fichier ne choisit pas l’ID de modèle : les appels passent par {@link geminiSemanticLab} →
+ * {@link geminiRemoteModelSteering}. En cas d’échec (Remote Config, modèle déprécié, 404), la couche steering applique
+ * **listModels**, file priorisée courte, persistance de secours 24h — voir la doc du module steering.
  *
  * @module oneTapUniversalCapture
+ * @see `src/constants/talkCaptureDebug.ts` — type `OneTapPerfMsSnapshot` (t0, t1, t3, geminiMs, totalFromT1Ms).
  */
 
 import * as chrono from 'chrono-node';
@@ -110,6 +144,15 @@ function stripJsonFences(raw: string): string {
 /** Segments KEY:value d’une ligne compacte (Path B). */
 export type OneTapWireFields = Record<string, string>;
 
+/**
+ * Sérialise le squelette Path A en une **seule ligne** `KEY:value|KEY:value` consommée par Gemini Path B.
+ *
+ * Clés usuelles : `P` (type), `K` (catégorie), `T` (titre), et selon le type `D`/`H`/`N` (tâche), `L` (liste), `A`/`G`
+ * (anniversaire), `C` (récurrence/habitude). Les `|` dans le texte sont neutralisés pour éviter de casser le découpage.
+ *
+ * @param s — Résultat {@link inferOneTapSkeletonFromTranscript} ou fusion précédente.
+ * @returns Ligne compacte passée à {@link buildCompressedGeminiPrompt} comme « seed ».
+ */
 function wireLineFromSkeleton(s: OneTapUniversalResult): string {
   const safeTitle = s.title.replace(/\|/g, ' ').trim().slice(0, 90);
   const parts = [`P:${s.predictedType}`, `K:${s.categoryTag}`, `T:${safeTitle}`];
@@ -309,7 +352,18 @@ Reply ONLY one KEY:value|KEY:value line (same key vocabulary as the guess).`;
 }
 
 /**
- * Path A — inférence locale ultra-rapide pour ouvrir la modale sans attendre le réseau.
+ * **Path A** — inférence locale **synchrone** (aucun appel réseau).
+ *
+ * Enchaîne : nettoyage texte → classification grossière par regex (LIST, ANNIVERSARY, HABIT, RECURRING_TASK, TASK, NOTE)
+ * → tag catégorie → titre ({@link generateSmartTitle} ou `titleHint`) → données par défaut + **chrono-node** pour
+ * extraire date/heure quand pertinent → cas spéciaux LIST (split items), ANNIVERSARY (nom), NOTE (mémo).
+ *
+ * Utilisé dans Talk juste avant l’ouverture de la modale ; Path B ({@link refineOneTapWithGeminiCompressed}) reprend ce
+ * résultat sans le jeter.
+ *
+ * @param transcript — Texte brut de dictée (sera nettoyé).
+ * @param options.uiLocale — Locale pour titre et hints.
+ * @param options.titleHint — Titre imposé (ex. verrouillé ou smart title déjà calculé par l’écran).
  */
 export function inferOneTapSkeletonFromTranscript(
   transcript: string,
@@ -400,10 +454,31 @@ export type OneTapRefineOptions = {
   onPartial?: (draft: OneTapUniversalResult) => void;
   /** false = un seul aller-retour HTTP (ex. machine à intentions). */
   useStream?: boolean;
+  /**
+   * Repères `performance.now()` (Talk) pour le log terminal `[OneTapPerf] 🏁 END_TO_END_CHAIN`.
+   * `t0` = fin capture, `t1` = entrée lot async (après squelette local).
+   */
+  chainPerf?: { t0: number; t1: number };
 };
 
 /**
- * Path B — affinage Gemini (ligne compacte), avec option streaming pour l’UI optimiste.
+ * **Path B** — affinage **Gemini** sur la base du squelette Path A.
+ *
+ * 1. Construit `seed` + prompt via {@link buildCompressedGeminiPrompt}.
+ * 2. Appelle {@link geminiStreamOneTapCompressedLine} ou {@link geminiGenerateOneTapCompressedLine} selon `useStream`.
+ * 3. À chaque chunk (stream) ou à la fin (non-stream), parse la ligne avec {@link parsePartialWireLine} /
+ *    {@link parseOneTapWireLine} et fusionne avec {@link mergeWireIntoOneTapSkeleton} ; `onPartial` permet de mettre à
+ *    jour la modale en temps réel.
+ * 4. Si le brut ressemble à du JSON, tente {@link parseOneTapUniversalJson} en secours (certains modèles renvoient un
+ *    objet au lieu de la ligne filaire).
+ * 5. Garantit un titre non vide (repli sur `skeleton.title`).
+ *
+ * Le **choix de modèle** et le **self-healing** 404/listModels sont gérés dans {@link geminiSemanticLab}, pas ici.
+ *
+ * @param transcript — Même dictée que pour Path A (cohérence du prompt).
+ * @param skeleton — Sortie de {@link inferOneTapSkeletonFromTranscript} (ancrage fort pour le modèle).
+ * @param options.useStream — `true` par défaut : une requête streaming ; `false` pour un seul aller-retour HTTP.
+ * @param options.onPartial — Reçoit un brouillon fusionné à chaque parse partiel utile (streaming).
  */
 export async function refineOneTapWithGeminiCompressed(
   transcript: string,
@@ -413,6 +488,7 @@ export async function refineOneTapWithGeminiCompressed(
   const seed = wireLineFromSkeleton(skeleton);
   const prompt = buildCompressedGeminiPrompt(transcript, seed, options.uiLocale);
   const useStream = options.useStream !== false;
+  const pathBGeminiStart = perfNowMs();
 
   const applyBuffer = (buf: string) => {
     const wire = useStream ? parsePartialWireLine(buf) : parseOneTapWireLine(buf);
@@ -441,6 +517,18 @@ export async function refineOneTapWithGeminiCompressed(
   if (!parsed.title.trim()) {
     parsed = { ...parsed, title: skeleton.title };
   }
+
+  const pathBGeminiEnd = perfNowMs();
+  const geminiRefineMs = Math.round(pathBGeminiEnd - pathBGeminiStart);
+  const cp = options.chainPerf;
+  if (cp) {
+    const t0ToT1 = Math.round(cp.t1 - cp.t0);
+    const totalFromT0 = Math.round(pathBGeminiEnd - cp.t0);
+    console.log(
+      `[OneTapPerf] 🏁 END_TO_END_CHAIN\n| T0 (End Capture) -> T1 (Local Skeleton): ${t0ToT1}ms\n| T1 -> T3 (Gemini Refinement): ${geminiRefineMs}ms\n| TOTAL_LATENCY: ${totalFromT0}ms\n| RESULT_CAT: ${parsed.categoryTag}`,
+    );
+  }
+
   return { parsed, rawModelText };
 }
 
@@ -475,11 +563,14 @@ export function parseOneTapUniversalJson(raw: string): OneTapUniversalResult {
 }
 
 /**
- * Appelle Gemini Flash pour classifier et structurer la dictée en un coup.
+ * Enchaînement **A + B non-streaming** : même pipeline que Talk (squelette local puis refine), pour les écrans qui
+ * n’ont pas besoin de streaming (ex. flux sans modale progressive).
  *
- * @param transcript — Texte final de la capture.
- * @param options.uiLocale — Locale UI pour orienter la langue des libellés.
- * @returns Résultat parsé + texte brut modèle (debug).
+ * Journalise `[OneTapPerf] prompt.metrics` avec taille du prompt, durée Gemini et parse (approximatif).
+ *
+ * @param transcript — Texte final de la dictée.
+ * @param options.uiLocale — Locale pour le prompt Path B.
+ * @returns Résultat parsé, brut modèle (debug), et timings internes pour analyse.
  */
 export async function geminiOneTapUniversalFromTranscript(
   transcript: string,

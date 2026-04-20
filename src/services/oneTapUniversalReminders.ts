@@ -9,6 +9,26 @@ import { ensureNotificationPermissions, getNotifications } from './notifications
 
 type Translate = (key: string, options?: Record<string, string | number>) => string;
 
+const ONE_TAP_NOTIF_IDS = (intentionId: string) =>
+  [
+    `one_tap_due_${intentionId}`,
+    `one_tap_rec_daily_${intentionId}`,
+    `one_tap_rec_weekly_${intentionId}`,
+  ] as const;
+
+/** Annule les rappels one-tap liés à une intention (avant reprogrammation ou suppression brouillon). */
+export async function cancelOneTapUniversalReminders(intentionId: string): Promise<void> {
+  const n = getNotifications();
+  if (!n) return;
+  for (const ident of ONE_TAP_NOTIF_IDS(intentionId)) {
+    try {
+      await n.cancelScheduledNotificationAsync(ident);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function recurrenceFrequency(rec: Record<string, unknown>): string {
   return String(rec.frequency ?? rec.cadence ?? '').toLowerCase().trim();
 }

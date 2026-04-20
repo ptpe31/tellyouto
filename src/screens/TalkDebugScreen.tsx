@@ -630,6 +630,7 @@ export function TalkHomeScreen() {
             uiLocale: spectrum.locale || 'fr',
             useStream: true,
             onPartial: (d) => setOneTapDraft(d),
+            chainPerf: { t0, t1 },
           });
           const gemEnd = perfNowMs();
           setOneTapDraft(parsed);
@@ -648,16 +649,25 @@ export function TalkHomeScreen() {
             }
           }
           const t3 = perfNowMs();
+          const geminiMs = Math.round(gemEnd - gemStart);
+          const totalFromT1Ms = Math.round(t3 - t1);
           console.log('[OneTapPerf] T3_REFINE_DONE', {
             t3: Math.round(t3),
-            geminiMs: Math.round(gemEnd - gemStart),
-            totalFromT1Ms: Math.round(t3 - t1),
+            geminiMs,
+            totalFromT1Ms,
           });
           emitTalkDebug({
             mode: 'quick',
             at: Date.now(),
             rawTranscript: cleanedTranscript,
             geminiFullJson: JSON.stringify({ oneTap: parsed, rawModelText }, null, 2),
+            oneTapPerfMs: {
+              t0: Math.round(t0),
+              t1: Math.round(t1),
+              t3: Math.round(t3),
+              geminiMs,
+              totalFromT1Ms,
+            },
           });
         } catch (e) {
           setOneTapRefinePhase('error');

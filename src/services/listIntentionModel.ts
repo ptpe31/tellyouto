@@ -44,7 +44,8 @@ function normalizeUnit(u: unknown): string {
     .trim()
     .toLowerCase();
   if (ALLOWED_UNITS.has(s)) return s;
-  if (s === 'pcs' || s === 'pc' || s === 'pièce' || s === 'pieces') return 'piece';
+  if (s === 'pcs' || s === 'pc' || s === 'pièce' || s === 'pieces' || s === 'unité' || s === 'unite')
+    return 'piece';
   if (s === 'ml') return 'cl';
   return 'piece';
 }
@@ -117,6 +118,54 @@ export type GeminiListInventoryJson = {
 };
 
 /**
+ * Construit une chaîne JSON liste pour {@link parseGeminiListInventoryJson},
+ * en excluant les lignes dont `includeInSave === false` (cases à cocher modale one-tap).
+ *
+ * @throws {Error} `LIST_NO_ITEMS_SELECTED` si plus aucune ligne après filtre.
+ */
+export function buildListInventoryJsonStringFromDraftBlock(
+  list: Record<string, unknown>,
+  fallbackTitle: string,
+): string {
+  const listTitle = String(list.title ?? '').trim() || String(fallbackTitle ?? '').trim();
+  if (!listTitle) throw new Error('LIST_JSON_MISSING_TITLE');
+  const baseCount = Math.max(1, Math.round(Number(list.baseCount ?? 1)));
+  const unitLabel = String(list.unitLabel ?? 'personne').trim() || 'personne';
+  const catsRaw = list.categories;
+  const categories: GeminiListCategory[] = (Array.isArray(catsRaw) ? catsRaw : []).map((c) => {
+    const cr = c as Record<string, unknown>;
+    const name = String(cr.name ?? '').trim() || '—';
+    const itemsRaw = cr.items;
+    const items =
+      Array.isArray(itemsRaw) && itemsRaw.length > 0
+        ? itemsRaw
+            .filter((it) => (it as Record<string, unknown>).includeInSave !== false)
+            .map((it) => {
+              const ir = it as Record<string, unknown>;
+              const perPerson =
+                ir.baseQuantity !== undefined && ir.baseQuantity !== null
+                  ? Number(ir.baseQuantity)
+                  : Number(ir.qty ?? 0);
+              return {
+                name: String(ir.name ?? '').trim() || '—',
+                qty: Math.max(0, perPerson),
+                unit: normalizeUnit(ir.unit),
+                scalable: Boolean(ir.scalable),
+              };
+            })
+        : [];
+    return { name, items };
+  }).filter((cat) => cat.items.length > 0);
+  if (categories.length === 0) throw new Error('LIST_NO_ITEMS_SELECTED');
+  return JSON.stringify({
+    title: listTitle,
+    baseCount,
+    unitLabel,
+    categories,
+  });
+}
+
+/**
  * Parse la réponse texte Gemini (JSON pur ou entouré de fences ```).
  *
  * @param raw — Texte renvoyé par le modèle.
@@ -140,9 +189,13 @@ export function parseGeminiListInventoryJson(raw: string): GeminiListInventoryJs
       Array.isArray(itemsRaw) && itemsRaw.length > 0
         ? itemsRaw.map((it) => {
             const ir = it as Record<string, unknown>;
+            const perPerson =
+              ir.baseQuantity !== undefined && ir.baseQuantity !== null
+                ? Number(ir.baseQuantity)
+                : Number(ir.qty ?? 0);
             return {
               name: String(ir.name ?? '').trim() || '—',
-              qty: Math.max(0, Number(ir.qty ?? 0)),
+              qty: Math.max(0, perPerson),
               unit: normalizeUnit(ir.unit),
               scalable: Boolean(ir.scalable),
             };
@@ -155,12 +208,13 @@ export function parseGeminiListInventoryJson(raw: string): GeminiListInventoryJs
 }
 
 /**
- * Convertit la sortie Gemini en charge persistée (multiplicateur initial = 1, cases décochées).
+ * Convertit la sortie Gemini en charge persistée (qty = quantité par personne, multiplicateur = baseCount).
  *
  * @param g — JSON validé côté Gemini.
  * @returns {@link ListScalablePayload} prêt pour SQLite / UI.
  */
 export function geminiJsonToStoredPayload(g: GeminiListInventoryJson): ListScalablePayload {
+  const headcount = Math.max(1, Math.round(Number(g.baseCount ?? 1)));
   const categories: ListCategoryStored[] = g.categories.map((cat) => ({
     name: cat.name,
     items: cat.items.map((it) => ({
@@ -174,9 +228,9 @@ export function geminiJsonToStoredPayload(g: GeminiListInventoryJson): ListScala
   }));
   return assignUids({
     title: g.title,
-    baseCount: g.baseCount,
+    baseCount: headcount,
     unitLabel: g.unitLabel,
-    multiplier: 1,
+    multiplier: headcount,
     categories,
   });
 }

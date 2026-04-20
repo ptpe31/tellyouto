@@ -62,8 +62,15 @@ export {
 } from './traffic/TrafficScheduler';
 export type {
   MapsService,
+  TrafficMonitoringSnapshot,
   TrafficNotificationService,
   TrafficSample,
   TrafficTaskStatus,
   TripTaskRow,
 } from './traffic/TrafficScheduler';
+export {
+  SIM_INNER_SAFETY_MARGIN_SEC,
+  SIM_TIME_WARP_FACTOR,
+  TrafficSimulator,
+} from './traffic/TrafficSimulator';
+export type { TrafficSimulationLogRow } from './traffic/TrafficSimulator';

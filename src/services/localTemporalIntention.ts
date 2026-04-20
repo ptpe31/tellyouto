@@ -1,3 +1,4 @@
+import type { TrankilV2IntentionInsert } from '../api/trankilV2Db';
 import { insertTrankilV2Intention } from '../api/trankilV2Db';
 import { computeDueDateForHorizon, computeTimeHorizonFromDueDate } from './TimeSorter';
 
@@ -26,13 +27,12 @@ export function mapHorizonToCategoryId(
   return 'sans_pression';
 }
 
-export async function createLocalTemporalIntention(
-  params: CreateLocalTemporalIntentionParams,
-): Promise<{
-  type: 'TASK' | 'HABIT' | 'NOTE';
-  categoryId: string;
-  dueDateYmd: string | null;
-}> {
+/**
+ * Construit la ligne SQLite **sans** insertion (flux one-tap optimiste : pré-save puis UPDATE).
+ */
+export function buildLocalTemporalIntentionInsertRow(
+  params: CreateLocalTemporalIntentionParams & { is_pending_ai?: number; created_at?: number },
+): { row: TrankilV2IntentionInsert; categoryId: string; dueDateYmd: string | null } {
   let dueDateYmd = params.dueDateYmd;
   const floatingCategory = 'sans_pression';
   const suggested = (params.suggestedTags ?? []).map((tag) => String(tag || '').trim()).filter(Boolean);
@@ -48,7 +48,7 @@ export async function createLocalTemporalIntention(
   }
   const hasAlarm = Boolean(dueDateYmd);
 
-  await insertTrankilV2Intention({
+  const row: TrankilV2IntentionInsert = {
     id: params.id,
     type: params.localType,
     title: params.title,
@@ -72,8 +72,22 @@ export async function createLocalTemporalIntention(
     is_organized: 0,
     is_local_processed: params.isLocalProcessed ?? 1,
     complexity_level: params.complexityLevel ?? 1,
-    created_at: Date.now(),
-  });
+    created_at: params.created_at ?? Date.now(),
+    is_pending_ai: params.is_pending_ai ?? 0,
+  };
+
+  return { row, categoryId, dueDateYmd };
+}
+
+export async function createLocalTemporalIntention(
+  params: CreateLocalTemporalIntentionParams,
+): Promise<{
+  type: 'TASK' | 'HABIT' | 'NOTE';
+  categoryId: string;
+  dueDateYmd: string | null;
+}> {
+  const { row, categoryId, dueDateYmd } = buildLocalTemporalIntentionInsertRow(params);
+  await insertTrankilV2Intention(row);
 
   return {
     type: params.localType,

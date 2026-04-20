@@ -1,20 +1,8 @@
-# Nom du Projet : TellYouTo
-# Identité : Co-pilote d'action par IA (High-Performance & Lifestyle)
 
-# --- DIRECTIVES DE DESIGN ---
-- Style : Soft Neumorphism (calme, épuré, zéro distraction).
-- Couleurs : Teal (#008080) pour l'action, Orange (#FF8C00) pour l'énergie, Fond Off-white (#F5F5F0).
-- Vocabulaire : NE JAMAIS utiliser de termes médicaux (santé mentale, trouble, prothèse, TDAH).
-- Utiliser : "Co-pilote", "Clarté", "Navigation", "Intentions", "Focus", "Performance".
+AUCUN texte ne doit être écrit en dur dans les composants TSX. Utilise systématiquement le système d'internationalisation existant (ex: i18n.t('key')).
 
-# --- ARCHITECTURE TECHNIQUE ---
-- Framework : React Native (Expo) + TypeScript.
-- Base de données : Hybride (SQLite local pour l'instantanéité + Firebase Firestore pour la synchro).
-- Localisation : i18next (7 langues : FR, EN, ES, DE, IT, JA, ZH).
-- Modèle de Profil : "Spectre de Performance" dynamique (Structure, Momentum, Zen, Stats) au lieu de profils fixes.
-- Multi-Platform : Prise en charge de 'platform_type' (WhatsApp, LINE, Slack) pour l'envoi des messages IA.
-
-# --- COMPORTEMENT DE L'AGENT ---
-- L'IA agit comme un "Dispatcher" (Répartiteur). Elle analyse le Spectre de l'utilisateur pour prioriser les intentions.
-- Offline-First : L'application doit fonctionner sans réseau (SQLite), la synchro Firebase se fait en arrière-plan.
-- Compliance : Respecter les politiques Play Store (Explications de permissions, pas de clics forcés pour la recharge).
+Pour les appels Gemini (GeminiLab, GeminiExpert), appliquer systématiquement une stratégie "ListModels + fallback":
+- Lister les modèles supportant `generateContent` via l'endpoint models.
+- Construire une shortlist priorisée et courte (max 3-4 modèles) pour éviter les cascades de requêtes.
+- Sur erreur 404/NOT_FOUND d'un modèle, tenter automatiquement le modèle suivant.
+- Garder `generationConfig.candidateCount = 1` et des paramètres de génération légers (`topP`/`topK`) pour réduire la charge.

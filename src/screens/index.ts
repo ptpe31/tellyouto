@@ -10,4 +10,4 @@ export { OnboardingScreen } from './OnboardingScreen';
 export { LanguageSelectionScreen } from './LanguageSelectionScreen';
 export { DebugScreen } from './DebugScreen';
 export { SemanticBrainLabScreen } from './SemanticBrainLabScreen';
-export { TalkDebugScreen } from './TalkDebugScreen';
+export { TalkHomeScreen } from './TalkDebugScreen';

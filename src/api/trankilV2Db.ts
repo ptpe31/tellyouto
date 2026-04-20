@@ -1606,6 +1606,55 @@ export async function insertTrankilV2Intention(
   notifyIntentionsChanged({ id: row.id, reason: 'insert' });
 }
 
+/**
+ * Remplace le contenu d’une intention existante (flux one-tap optimiste : UPDATE final).
+ * Ne modifie pas `created_at`.
+ */
+export async function replaceTrankilV2IntentionOneTap(
+  id: string,
+  patch: Omit<TrankilV2IntentionInsert, 'id' | 'created_at'>,
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE intentions SET
+      type = ?,
+      title = ?,
+      due_date = ?,
+      content_raw = ?,
+      metadata_json = ?,
+      suggested_tags = ?,
+      category_id = ?,
+      category = ?,
+      parent_id = ?,
+      status = ?,
+      is_organized = ?,
+      is_local_processed = ?,
+      complexity_level = ?,
+      is_pending_ai = ?
+    WHERE id = ?`,
+    [
+      patch.type,
+      patch.title,
+      normalizeDueDate(patch.due_date ?? null),
+      patch.content_raw,
+      patch.metadata_json ?? '{}',
+      patch.suggested_tags ?? '[]',
+      patch.category_id ?? null,
+      patch.category_id ?? null,
+      patch.parent_id ?? null,
+      patch.status ?? 'TODO',
+      patch.is_organized ?? 0,
+      patch.is_local_processed ?? 1,
+      patch.complexity_level ?? 1,
+      patch.is_pending_ai ?? 0,
+      id,
+    ],
+  );
+  await syncAfterIntentionWrite('replaceTrankilV2IntentionOneTap');
+  notifyIntentionsChanged({ id, reason: 'one_tap_replace' });
+}
+
 export async function updateTrankilV2IntentionQuick(
   id: string,
   patch: { title?: string; category_id?: string | null },

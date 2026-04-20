@@ -1,6 +1,6 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions } from '@react-navigation/native';
-import { BarChart3, Bug, CalendarDays, House, Mic } from 'lucide-react-native';
+import { BarChart3, BatteryCharging, Bug, CalendarDays, House } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -17,7 +17,13 @@ import {
   LOCAL_DB_RESET_EVENT,
 } from '../api/localDb';
 import { DATA_CHANGED_EVENT } from '../constants/appEvents';
-import { DebugScreen, StatsScreen, TimelineScreen, TalkDebugScreen } from '../screens';
+import {
+  DebugScreen,
+  RechargeScreen,
+  StatsScreen,
+  TimelineScreen,
+  TalkHomeScreen,
+} from '../screens';
 import { canShowStats } from '../services/userProfilingService';
 import { rootNavigationRef } from './rootNavigationRef';
 import type { AppTabParamList } from './types';
@@ -92,7 +98,7 @@ export function AppNavigator() {
     rootNavigationRef.dispatch(
       CommonActions.navigate({
         name: 'App',
-        params: { screen: 'Tabs', params: { screen: 'TalkDebug' } },
+        params: { screen: 'Tabs', params: { screen: 'TalkHome' } },
       } as never),
     );
   }, [isStatsVisible]);
@@ -112,23 +118,12 @@ export function AppNavigator() {
     >
       <Tab.Screen
         name="TalkHome"
-        component={TalkDebugScreen}
+        component={TalkHomeScreen}
         options={{
           headerShown: false,
           title: t('tabs.talkHome'),
           tabBarIcon: ({ color, size }) => (
             <House color={color} size={size} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="TalkDebug"
-        component={TalkDebugScreen}
-        options={{
-          headerShown: false,
-          title: t('tabs.talkDebug'),
-          tabBarIcon: ({ color, size }) => (
-            <Mic color={color} size={size} />
           ),
         }}
       />
@@ -139,6 +134,17 @@ export function AppNavigator() {
           title: 'Timeline',
           tabBarIcon: ({ color, size }) => (
             <CalendarDays color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Recharge"
+        component={RechargeScreen}
+        options={{
+          headerShown: false,
+          title: t('tabs.recharge'),
+          tabBarIcon: ({ color, size }) => (
+            <BatteryCharging color={color} size={size} />
           ),
         }}
       />

@@ -1,335 +1,73 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { randomUUID } from 'expo-crypto';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   DeviceEventEmitter,
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { Button, SegmentedButtons, Switch, useTheme } from 'react-native-paper';
-import { collection, getDocs, limit, query } from 'firebase/firestore';
-import { Bell } from 'lucide-react-native';
+import { Button, useTheme } from 'react-native-paper';
 
-import { CalendarGranularSection } from '../components';
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
-import {
-  addIaCredits,
-  consumeTrankilV2IntentCredit,
-  getLastTrankilV2IntentionRaw,
-  getTrankilV2IntentionTaskCounts,
-  getTrankilV2UserStats,
-  insertTrankilV2Intention,
-  listTrankilV2Intentions,
-  purgeTrankilV2IntentionsCascade,
-  setAdState,
-  setDebugSpawnFlies,
-  type TrankilV2IntentionRow,
-} from '../api/trankilV2Db';
-import {
-  deleteAllIntentions,
-  insertIntention,
-  intentionRowToDebugSnapshot,
-  listIntentionsDescending,
-  INTENTIONS_CHANGED_EVENT_NAME,
-  LOCAL_DB_RESET_EVENT,
-} from '../api/localDb';
-import { ensureFirebaseAnonymousAuth, getFirestoreDb } from '../api/firebase';
-import { getOrCreateDeviceId, syncPendingIntentions } from '../api/syncService';
-import {
-  DEBUG_LAST_RAIL_INBOX_PURGE_MS,
-  DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS,
-} from '../config/transitPurgeKeys';
+import { getTrankilV2IntentionTaskCounts } from '../api/trankilV2Db';
+import { INTENTIONS_CHANGED_EVENT_NAME, LOCAL_DB_RESET_EVENT } from '../api/localDb';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { usePower } from '../context/PowerContext';
-import { useLanguage, type AppLanguage } from '../context/LanguageContext';
-import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { seedDemoTypicalDay } from '../services/demoTypicalDay';
-import { scheduleDebugAgentDirectAlarmIn10Minutes } from '../services/alarmManager';
-import type { RailAlarmSoundId } from '../services/railAlarmSound';
-import { palette } from '../theme/colors';
-import { STRINGS } from '../constants/Strings';
-import { atomizeProject, type GeminiExpertIntention } from '../services/GeminiExpert';
 import {
-  getKindnessBones,
-  getUserProfile,
-  type KindnessBones,
-  type UserProfile,
-} from '../services/userProfilingService';
-
-type ProjectPlanPreviewState = {
-  projectTitle: string;
-  rawInput: string;
-  rows: GeminiExpertIntention[];
-  taskAlarmIndexes: number[];
-};
-
-function toSafeNumber(value: unknown, fallback: number = 0): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function formatDueDateLocal(dueDate: string | null | undefined): string {
-  const raw = String(dueDate || '').trim();
-  if (!/^\d{8}$/.test(raw)) return '--';
-  const yyyy = Number(raw.slice(0, 4));
-  const mm = Number(raw.slice(4, 6));
-  const dd = Number(raw.slice(6, 8));
-  const date = new Date(yyyy, mm - 1, dd);
-  if (Number.isNaN(date.getTime())) return '--';
-  try {
-    const locale = Intl.DateTimeFormat().resolvedOptions().locale || undefined;
-    return new Intl.DateTimeFormat(locale, {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    }).format(date);
-  } catch {
-    return `${dd}/${mm}/${yyyy}`;
-  }
-}
-
-async function persistGeminiExpertRowsForDebug(
-  rawInput: string,
-  rows: GeminiExpertIntention[],
-  taskAlarmIndexes: number[],
-): Promise<{ projectId: string | null; insertedCount: number }> {
-  let currentParentId: string | null = null;
-  let projectId: string | null = null;
-  let taskCursor = 0;
-  let insertedCount = 0;
-  const alarmSet = new Set(taskAlarmIndexes);
-  for (const row of rows) {
-    const id = randomUUID();
-    if (row.type === 'PROJECT') {
-      currentParentId = id;
-      projectId = id;
-    }
-    const shouldSetAlarm = row.type === 'TASK' && alarmSet.has(taskCursor);
-    const metadata = {
-      ...(row.metadata ?? {}),
-      ...(shouldSetAlarm ? { has_alarm: true } : {}),
-      source: 'debug_project_simulation',
-    };
-    if (row.type === 'TASK') {
-      taskCursor += 1;
-    }
-    await insertTrankilV2Intention({
-      id,
-      type: row.type,
-      title: row.title,
-      content_raw: rawInput,
-      metadata_json: JSON.stringify(metadata, null, 2),
-      suggested_tags: JSON.stringify(
-        row.suggested_category ? [row.suggested_category.trim()] : [STRINGS.TAG_KEYS.A_TRIER],
-      ),
-      category_id: row.suggested_category || null,
-      parent_id: row.type === 'PROJECT' ? null : currentParentId,
-      status: 'TODO',
-      is_organized: 0,
-      is_local_processed: 0,
-      complexity_level: 2,
-      created_at: Date.now(),
-    });
-    insertedCount += 1;
-  }
-  return { projectId, insertedCount };
-}
+  applyGeminiLocalModelOverride,
+  ensureGeminiRemoteModelInitialized,
+  forceRefreshGeminiRemoteConfig,
+  getActiveGeminiModelId,
+  getLastRemoteConfigResolvedModelId,
+} from '../services/geminiRemoteModelSteering';
+import { runGeminiModelHealthCheck } from '../services/geminiModelHealthCheck';
+import { TrafficScheduler, type TrafficMonitoringSnapshot } from '../services/traffic/TrafficScheduler';
+import { TrafficSimulator } from '../services/traffic/TrafficSimulator';
+import { computeDurationTargetSec } from '../services/traffic/TrafficEngine';
 
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { language, setLanguage, interactionLanguage, setInteractionLanguage } =
-    useLanguage();
-  const { spectrum, setProUser, setPreferredAlarmSound } = useUserSpectrum();
   const power = usePower();
   const [busy, setBusy] = useState<
-    | 'profile'
-    | 'db'
-    | 'sim'
-    | 'demoDay'
-    | 'simWaIntent'
-    | 'simProject'
-    | 'purgeIntentions'
-    | 'purgeTrankilIntentions'
-    | 'forceAgentAlarm'
-    | null
+    'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [rawIntentionsJson, setRawIntentionsJson] = useState<string>('[]');
-  const [syncPurgeRailCloud, setSyncPurgeRailCloud] = useState<number | null>(
-    null,
-  );
-  const [syncPurgeTransitCloud, setSyncPurgeTransitCloud] = useState<
-    number | null
-  >(null);
-  const [lastRailPurgeMs, setLastRailPurgeMs] = useState<number | null>(null);
-  const [lastTransitPurgeMs, setLastTransitPurgeMs] = useState<number | null>(
-    null,
-  );
-  const [syncPurgeBusy, setSyncPurgeBusy] = useState(false);
-  const [talkCaptureLog, setTalkCaptureLog] = useState<TalkCaptureDebugPayload | null>(
-    null,
-  );
-  const [kpis, setKpis] = useState({
-    marginRatio: 0,
-    geminiCalls: 0,
-    adEfficiency: 0,
-    bioScore: 0,
-  });
-  const [debugProjectText, setDebugProjectText] = useState('');
-  const [projectPlanPreview, setProjectPlanPreview] = useState<ProjectPlanPreviewState | null>(null);
-  const [simLatencyMs, setSimLatencyMs] = useState<number | null>(null);
-  const [trankilRows, setTrankilRows] = useState<TrankilV2IntentionRow[]>([]);
-  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const [rcModelDisplay, setRcModelDisplay] = useState<string | null>(null);
+  const [localModelDisplay, setLocalModelDisplay] = useState(() => getActiveGeminiModelId());
+  const [talkCaptureLog, setTalkCaptureLog] = useState<TalkCaptureDebugPayload | null>(null);
   const [dbCounts, setDbCounts] = useState({ intentionsCount: 0, tasksCount: 0 });
-  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
-  const [languagePickerTarget, setLanguagePickerTarget] = useState<'ui' | 'ai'>('ui');
-  const [profilePreview, setProfilePreview] = useState<UserProfile | null>(null);
-  const [kindnessPreview, setKindnessPreview] = useState<KindnessBones | null>(null);
+  const [trafficSnapshot, setTrafficSnapshot] = useState<TrafficMonitoringSnapshot | null>(null);
+  const simulatorRef = useRef<TrafficSimulator | null>(null);
+  const schedulerRef = useRef<TrafficScheduler | null>(null);
+  const criticalAlertShownRef = useRef(false);
+  const simulatedArrivalAtMsRef = useRef<number>(0);
 
-  const uiLanguageOptions: Array<{ id: AppLanguage; label: string }> = [
-    { id: 'fr', label: t('ally.lang.fr') },
-    { id: 'en', label: t('ally.lang.en') },
-    { id: 'es', label: t('ally.lang.es') },
-    { id: 'de', label: t('ally.lang.de') },
-    { id: 'it', label: t('ally.lang.it') },
-    { id: 'ja', label: t('ally.lang.ja') },
-    { id: 'zh', label: t('ally.lang.zh') },
-    { id: 'ar', label: t('ally.lang.ar') },
-    { id: 'ko', label: t('ally.lang.ko') },
-    { id: 'nl', label: t('ally.lang.nl') },
-    { id: 'sv', label: t('ally.lang.sv') },
-  ];
-
-  const inspectorRows = React.useMemo(
-    () =>
-      [...trankilRows]
-        .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
-        .slice(0, 10),
-    [trankilRows],
-  );
-
-  const inspectorDate = React.useCallback((row: TrankilV2IntentionRow): string => {
-    const due = String(row.due_date || '').trim();
-    if (due) return formatDueDateLocal(due);
-    try {
-      const locale = Intl.DateTimeFormat().resolvedOptions().locale || undefined;
-      return new Intl.DateTimeFormat(locale, {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      }).format(new Date(row.created_at));
-    } catch {
-      return String(row.created_at);
-    }
+  const syncModelLabels = useCallback(() => {
+    setRcModelDisplay(getLastRemoteConfigResolvedModelId());
+    setLocalModelDisplay(getActiveGeminiModelId());
   }, []);
 
-  const inspectorExcerpt = React.useCallback((raw: string): string => {
-    const compact = String(raw || '').replace(/\s+/g, ' ').trim();
-    if (!compact) return '-';
-    return compact.length > 90 ? `${compact.slice(0, 87)}...` : compact;
-  }, []);
-
-  const refreshKpis = useCallback(async () => {
-    const stats = await getTrankilV2UserStats();
-    const marginRatio = toSafeNumber(stats.local_action_streak);
-    const adEfficiency = toSafeNumber(stats.ad_videos_watched);
-    const bioScore = toSafeNumber(stats.zen_points);
-    setKpis({
-      marginRatio,
-      geminiCalls: 0,
-      adEfficiency,
-      bioScore,
-    });
-  }, []);
-
-  const refreshSyncPurge = useCallback(async () => {
-    setSyncPurgeBusy(true);
-    try {
-      const db = getFirestoreDb();
-      if (!db) {
-        setSyncPurgeRailCloud(null);
-        setSyncPurgeTransitCloud(null);
-        return;
-      }
-      await ensureFirebaseAnonymousAuth();
-      const deviceId = await getOrCreateDeviceId();
-      const railQ = query(
-        collection(db, 'devices', deviceId, 'rail_inbox'),
-        limit(50),
-      );
-      const transitQ = query(
-        collection(db, 'devices', deviceId, 'intentions'),
-        limit(50),
-      );
-      const [railSnap, transitSnap] = await Promise.all([
-        getDocs(railQ),
-        getDocs(transitQ),
-      ]);
-      setSyncPurgeRailCloud(railSnap.size);
-      setSyncPurgeTransitCloud(transitSnap.size);
-      const lr = await AsyncStorage.getItem(DEBUG_LAST_RAIL_INBOX_PURGE_MS);
-      const lt = await AsyncStorage.getItem(DEBUG_LAST_TRANSIT_INTENTION_PURGE_MS);
-      setLastRailPurgeMs(lr ? parseInt(lr, 10) : null);
-      setLastTransitPurgeMs(lt ? parseInt(lt, 10) : null);
-    } finally {
-      setSyncPurgeBusy(false);
-    }
-  }, []);
-
-  const refreshRawIntentions = useCallback(async () => {
-    try {
-      const rows = await listIntentionsDescending();
-      const snap = rows.map(intentionRowToDebugSnapshot);
-      setRawIntentionsJson(JSON.stringify(snap, null, 2));
-    } catch (e) {
-      setRawIntentionsJson(
-        JSON.stringify(
-          { error: e instanceof Error ? e.message : String(e) },
-          null,
-          2,
-        ),
-      );
-    }
-  }, []);
-
-  const refreshTrankilIntentions = useCallback(async () => {
-    const [rows, counts] = await Promise.all([
-      listTrankilV2Intentions(),
-      getTrankilV2IntentionTaskCounts(),
-    ]);
-    setTrankilRows(rows);
+  const refreshDbCounts = useCallback(async () => {
+    const counts = await getTrankilV2IntentionTaskCounts();
     setDbCounts(counts);
   }, []);
 
   useEffect(() => {
-    void refreshRawIntentions();
-    void refreshTrankilIntentions();
-    void refreshSyncPurge();
-    void refreshKpis();
+    void refreshDbCounts();
     const subIntentions = DeviceEventEmitter.addListener(
       INTENTIONS_CHANGED_EVENT_NAME,
       () => {
-        void refreshRawIntentions();
-        void refreshTrankilIntentions();
-        void refreshSyncPurge();
+        void refreshDbCounts();
       },
     );
-    const subReset = DeviceEventEmitter.addListener(
-      LOCAL_DB_RESET_EVENT,
-      () => void refreshRawIntentions(),
-    );
+    const subReset = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => void refreshDbCounts());
     const subTalkCapture = DeviceEventEmitter.addListener(
       TALK_CAPTURE_DEBUG_EVENT,
       (payload: TalkCaptureDebugPayload) => {
@@ -341,47 +79,23 @@ export function DebugScreen() {
       subReset.remove();
       subTalkCapture.remove();
     };
-  }, [refreshKpis, refreshRawIntentions, refreshSyncPurge, refreshTrankilIntentions]);
+  }, [refreshDbCounts]);
 
-  const onForceMorning = useCallback(() => {
-    DeviceEventEmitter.emit('DEBUG_FORCE_MORNING');
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        await ensureGeminiRemoteModelInitialized();
+        syncModelLabels();
+      })();
+    }, [syncModelLabels]),
+  );
+
+  useEffect(() => {
+    return () => {
+      schedulerRef.current?.stop();
+      schedulerRef.current = null;
+    };
   }, []);
-
-  const onForceEvening = useCallback(() => {
-    DeviceEventEmitter.emit('DEBUG_FORCE_EVENING');
-  }, []);
-
-  const onSpawnFlies = useCallback(async () => {
-    await setDebugSpawnFlies(10);
-    Alert.alert(STRINGS.admin.title, STRINGS.admin.spawnDone);
-  }, []);
-
-  const onResetCredits = useCallback(async () => {
-    await setAdState({ ia_credits: 0 });
-    Alert.alert(STRINGS.admin.title, STRINGS.admin.resetDone);
-  }, []);
-
-  const onAdd99IaCredits = useCallback(async () => {
-    try {
-      const next = await addIaCredits(99);
-      Alert.alert(t('debug.pilotTitle'), t('debug.add99AiCreditsDone', { count: next.ia_credits }));
-    } catch (e) {
-      Alert.alert(t('debug.pilotTitle'), e instanceof Error ? e.message : String(e));
-    }
-  }, [t]);
-
-  const onResetProfile = useCallback(async () => {
-    setLastError(null);
-    setBusy('profile');
-    try {
-      power.setEnergyScore(1);
-      power.setLowPower(false);
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }, [power]);
 
   const runFactoryReset = useCallback(async () => {
     setLastError(null);
@@ -394,10 +108,7 @@ export function DebugScreen() {
         setLastError(t('debug.factoryResetHealthWarn'));
       }
       setTimeout(() => {
-        Alert.alert(
-          t('debug.factoryResetSuccessTitle'),
-          t('debug.factoryResetSuccessBody'),
-        );
+        Alert.alert(t('debug.factoryResetSuccessTitle'), t('debug.factoryResetSuccessBody'));
       }, 500);
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
@@ -407,382 +118,141 @@ export function DebugScreen() {
   }, [power, t]);
 
   const onRebuildDb = useCallback(() => {
-    Alert.alert(
-      t('debug.factoryResetConfirmTitle'),
-      t('debug.factoryResetConfirmBody'),
-      [
-        { text: t('debug.factoryResetCancel'), style: 'cancel' },
-        {
-          text: t('debug.factoryResetContinue'),
-          style: 'destructive',
-          onPress: () => {
-            Alert.alert(
-              t('debug.factoryResetSecondTitle'),
-              t('debug.factoryResetSecondBody'),
-              [
-                { text: t('debug.factoryResetCancel'), style: 'cancel' },
-                {
-                  text: t('debug.factoryResetDestructive'),
-                  style: 'destructive',
-                  onPress: () => {
-                    void runFactoryReset();
-                  },
-                },
-              ],
-            );
-          },
+    Alert.alert(t('debug.factoryResetConfirmTitle'), t('debug.factoryResetConfirmBody'), [
+      { text: t('debug.factoryResetCancel'), style: 'cancel' },
+      {
+        text: t('debug.factoryResetContinue'),
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert(t('debug.factoryResetSecondTitle'), t('debug.factoryResetSecondBody'), [
+            { text: t('debug.factoryResetCancel'), style: 'cancel' },
+            {
+              text: t('debug.factoryResetDestructive'),
+              style: 'destructive',
+              onPress: () => {
+                void runFactoryReset();
+              },
+            },
+          ]);
         },
-      ],
-    );
+      },
+    ]);
   }, [runFactoryReset, t]);
 
-  const externalSenderId =
-    spectrum.platform_user_id?.trim() || 'talkndone_local_sim';
-
-  const onSimMessage = useCallback(async () => {
+  const onRefreshRemoteGeminiModel = useCallback(async () => {
     setLastError(null);
-    setBusy('sim');
+    setBusy('remoteModel');
     try {
-      await insertIntention({
-        id: randomUUID(),
-        title: t('debug.simWhatsApp'),
-        description: t('debug.simSampleRaw'),
-        status: 'pending',
-        priority: 70,
-        weights: {
-          structure: spectrum.structure,
-          momentum: spectrum.momentum,
-          zen: spectrum.zen,
-          stats: spectrum.stats,
-        },
-        platform_type: 'none',
-        platform_user_id: externalSenderId,
-        created_at: Date.now(),
-        estimated_duration: 25,
-        user_forced_urgent: false,
-        is_late_night: false,
-        alarm_enabled: false,
-        is_flexible: true,
-        is_micro_habit: false,
-        is_hard_constraint: false,
-      });
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      await forceRefreshGeminiRemoteConfig();
+      syncModelLabels();
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
-  }, [externalSenderId, spectrum, t]);
+  }, [syncModelLabels]);
 
-  const onSeedDemoDay = useCallback(async () => {
-    setLastError(null);
-    setBusy('demoDay');
-    try {
-      await seedDemoTypicalDay(
-        spectrum.platform_type,
-        spectrum.platform_user_id,
-        [
-          {
-            title: t('debug.demoIntent1Title'),
-            description: t('debug.demoIntent1Desc'),
-            weights: {
-              structure: 0.58,
-              momentum: 0.18,
-              zen: 0.14,
-              stats: 0.1,
-            },
-            priority: 92,
-            estimated_duration: 45,
-            actual_duration: 42,
-            completedHour: 9,
-            completedMinute: 15,
-          },
-          {
-            title: t('debug.demoIntent2Title'),
-            description: t('debug.demoIntent2Desc'),
-            weights: {
-              structure: 0.12,
-              momentum: 0.58,
-              zen: 0.18,
-              stats: 0.12,
-            },
-            priority: 88,
-            estimated_duration: 30,
-            actual_duration: 33,
-            completedHour: 10,
-            completedMinute: 45,
-          },
-          {
-            title: t('debug.demoIntent3Title'),
-            description: t('debug.demoIntent3Desc'),
-            weights: {
-              structure: 0.14,
-              momentum: 0.12,
-              zen: 0.56,
-              stats: 0.18,
-            },
-            priority: 84,
-            estimated_duration: 25,
-            actual_duration: 24,
-            completedHour: 12,
-            completedMinute: 30,
-          },
-          {
-            title: t('debug.demoIntent4Title'),
-            description: t('debug.demoIntent4Desc'),
-            weights: {
-              structure: 0.32,
-              momentum: 0.28,
-              zen: 0.22,
-              stats: 0.18,
-            },
-            priority: 80,
-            estimated_duration: 50,
-            actual_duration: 48,
-            completedHour: 15,
-            completedMinute: 20,
-          },
-          {
-            title: t('debug.demoIntent5Title'),
-            description: t('debug.demoIntent5Desc'),
-            weights: {
-              structure: 0.18,
-              momentum: 0.18,
-              zen: 0.18,
-              stats: 0.46,
-            },
-            priority: 76,
-            estimated_duration: 40,
-            actual_duration: 38,
-            completedHour: 17,
-            completedMinute: 5,
-          },
-        ],
-      );
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }, [spectrum.platform_type, spectrum.platform_user_id, t]);
-
-  const onSimWhatsAppIntention = useCallback(async () => {
-    setLastError(null);
-    setBusy('simWaIntent');
-    try {
-      await insertIntention({
-        id: randomUUID(),
-        title: t('debug.testWhatsAppTitle'),
-        description: '',
-        status: 'pending',
-        priority: 72,
-        weights: {
-          structure: spectrum.structure,
-          momentum: spectrum.momentum,
-          zen: spectrum.zen,
-          stats: spectrum.stats,
-        },
-        platform_type: 'whatsapp',
-        platform_user_id: spectrum.platform_user_id?.trim() || 'debug_wa',
-        created_at: Date.now(),
-        estimated_duration: 25,
-        user_forced_urgent: false,
-        is_late_night: false,
-        alarm_enabled: false,
-        is_micro_habit: false,
-        is_hard_constraint: false,
-        is_flexible: true,
-        raw_transcript: t('debug.testWhatsAppRaw'),
-        energy_score: 0.72,
-      });
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-      void syncPendingIntentions();
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }, [spectrum, t]);
-
-  const onPurgeIntentions = useCallback(() => {
-    Alert.alert(
-      t('debug.purgeIntentionsConfirmTitle'),
-      t('debug.purgeIntentionsConfirmBody'),
-      [
-        { text: t('debug.purgeIntentionsCancel'), style: 'cancel' },
-        {
-          text: t('debug.purgeIntentionsConfirm'),
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setLastError(null);
-              setBusy('purgeIntentions');
-              try {
-                await deleteAllIntentions();
-                setRawIntentionsJson('[]');
-              } catch (e) {
-                setLastError(e instanceof Error ? e.message : String(e));
-              } finally {
-                await refreshRawIntentions();
-                setBusy(null);
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [refreshRawIntentions, t]);
-
-  const togglePlanTaskAlarm = useCallback((taskIndex: number) => {
-    setProjectPlanPreview((prev) => {
-      if (!prev) return prev;
-      const has = prev.taskAlarmIndexes.includes(taskIndex);
-      return {
-        ...prev,
-        taskAlarmIndexes: has
-          ? prev.taskAlarmIndexes.filter((idx) => idx !== taskIndex)
-          : [...prev.taskAlarmIndexes, taskIndex],
-      };
-    });
-  }, []);
-
-  const onSimulateDebugProject = useCallback(async () => {
-    const text = debugProjectText.trim();
-    if (!text) {
-      Alert.alert('Debug Projet', 'Ajoute un texte dans le champ de simulation.');
+  const onIaHealthCheck = useCallback(async () => {
+    const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
+    if (!key) {
+      Alert.alert(t('debug.pilotTitle'), t('debug.iaHealthNoApiKey'));
       return;
     }
     setLastError(null);
-    setBusy('simProject');
-    const startedAt = Date.now();
+    setBusy('iaHealth');
     try {
-      const rows = await atomizeProject(text);
-      const projectTitle = rows.find((row) => row.type === 'PROJECT')?.title?.trim() || text.slice(0, 80);
-      const latency = Date.now() - startedAt;
-      setSimLatencyMs(latency);
-      console.log(`[DebugProjet] latency_to_preview_ms=${latency}`);
-      setProjectPlanPreview({
-        projectTitle,
-        rawInput: text,
-        rows,
-        taskAlarmIndexes: [],
-      });
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }, [debugProjectText]);
-
-  const onValidateDebugProjectPlan = useCallback(async () => {
-    if (!projectPlanPreview) return;
-    setLastError(null);
-    setBusy('simProject');
-    try {
-      const afterConsume = await consumeTrankilV2IntentCredit();
-      const saved = await persistGeminiExpertRowsForDebug(
-        projectPlanPreview.rawInput,
-        projectPlanPreview.rows,
-        projectPlanPreview.taskAlarmIndexes,
-      );
-      setProjectPlanPreview(null);
+      const result = await runGeminiModelHealthCheck(key);
+      await applyGeminiLocalModelOverride(result.winnerId);
+      syncModelLabels();
       Alert.alert(
-        'Plan valide',
-        `✅ SQLite OK\nID projet: ${saved.projectId ?? 'n/a'}\nLignes insérées: ${saved.insertedCount}\nCrédits restants: ${afterConsume.ia_credits}`,
-      );
-      await refreshRawIntentions();
-      await refreshTrankilIntentions();
-      await refreshKpis();
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }, [projectPlanPreview, refreshKpis, refreshRawIntentions, refreshTrankilIntentions]);
-
-  const onPurgeTrankilIntentions = useCallback(() => {
-    Alert.alert(
-      'Vider Intentions + Taches (Debug)',
-      'Es-tu sur de vouloir tout effacer ? Cette action est irreversible.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Vider',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setLastError(null);
-              setBusy('purgeTrankilIntentions');
-              try {
-                const deleted = await purgeTrankilV2IntentionsCascade();
-                Alert.alert(
-                  'Debug',
-                  `Suppression cascade OK\nIntentions: ${deleted.intentionsDeleted}\nTaches: ${deleted.tasksDeleted}`,
-                );
-                await refreshKpis();
-                await refreshTrankilIntentions();
-              } catch (e) {
-                setLastError(e instanceof Error ? e.message : String(e));
-              } finally {
-                setBusy(null);
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [refreshKpis, refreshTrankilIntentions]);
-
-  const onTestLogLastRaw = useCallback(async () => {
-    try {
-      const last = await getLastTrankilV2IntentionRaw();
-      if (!last) {
-        console.log('[Debug][TEST LOG] aucune ligne en base');
-        Alert.alert('TEST LOG', 'Aucune ligne en base.');
-        return;
-      }
-      console.log('[Debug][TEST LOG][LAST_ROW]', JSON.stringify(last, null, 2));
-      Alert.alert('TEST LOG', `Derniere ligne loggee: ${last.id}`);
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
-
-  const toggleProjectExpanded = useCallback((projectId: string) => {
-    setExpandedProjects((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
-  }, []);
-
-  const onForceAgentDirectAlarm = useCallback(async () => {
-    setLastError(null);
-    setBusy('forceAgentAlarm');
-    try {
-      const id = await scheduleDebugAgentDirectAlarmIn10Minutes();
-      Alert.alert(
-        t('debug.forceAgentAlarmSuccessTitle'),
-        t('debug.forceAgentAlarmSuccessBody', { id }),
+        t('debug.iaHealthTitle'),
+        t('debug.iaHealthBody', {
+          winner: result.winnerId,
+          tested: result.testedCount,
+          skipped: result.skippedCount,
+          total: result.candidateCount,
+        }),
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert(t('debug.forceAgentAlarmErrorTitle'), msg);
+      setLastError(msg);
+      Alert.alert(t('debug.iaHealthErrorTitle'), msg);
+    } finally {
+      setBusy(null);
+    }
+  }, [syncModelLabels, t]);
+
+  const onLaunchElasticSimulation = useCallback(async () => {
+    setLastError(null);
+    setBusy('simElastic');
+    try {
+      schedulerRef.current?.stop();
+      const simulator = new TrafficSimulator();
+      simulator.start();
+      simulatorRef.current = simulator;
+      criticalAlertShownRef.current = false;
+      setTrafficSnapshot(null);
+
+      const scheduler = new TrafficScheduler(
+        {
+          fetchTrafficSample: (task) => simulator.getNextMockTraffic(task),
+        },
+        {
+          askSurveillanceActivation: async () => undefined,
+          notifySurveillanceReminder: async () => undefined,
+          triggerTopDepart: async () => undefined,
+        },
+        {
+          simulationMode: true,
+          onMonitoringSnapshot: (snapshot) => {
+            setTrafficSnapshot(snapshot);
+            simulator.recordLog({
+              simulatedNowMs: snapshot.simulatedNowMs,
+              realDurationSec: snapshot.rawTrafficDurationSec,
+              stabilizedDurationSec: snapshot.stabilizedTrafficDurationSec,
+              nextJumpMs: snapshot.nextJumpMs,
+              arrivalAtMs: simulatedArrivalAtMsRef.current,
+            });
+            if (snapshot.status === 'TOP_DEPART' && !criticalAlertShownRef.current) {
+              criticalAlertShownRef.current = true;
+              Alert.alert(t('debug.trafficCriticalTopDepartTitle'));
+              simulator.dumpSimulationLogs();
+            }
+          },
+        },
+      );
+      scheduler.setSimulationMode(true);
+      schedulerRef.current = scheduler;
+      await scheduler.start();
+
+      const nowSimMs = simulator.getCurrentSimulatedNowMs();
+      const arrivalAtMs = nowSimMs + 60 * 60 * 1000;
+      simulatedArrivalAtMsRef.current = arrivalAtMs;
+      const targetDurationSec = computeDurationTargetSec(25 * 60);
+
+      await scheduler.upsertTripTask({
+        id: 'debug_trip_muret_toulouse',
+        destination: t('debug.trafficDebugTripDestination'),
+        arrivalAtMs,
+        status: 'ACTIVE',
+        targetDurationSec,
+        lastTrafficDuration: 25 * 60,
+        internalScanCount: 0,
+      });
+      await scheduler.performTrafficCheck('debug_trip_muret_toulouse');
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
   }, [t]);
 
-  const refreshProfilingPreview = useCallback(async () => {
-    try {
-      const profile = await getUserProfile();
-      const bones = getKindnessBones(profile.id, language, spectrum.first_name || undefined);
-      setProfilePreview(profile);
-      setKindnessPreview(bones);
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    }
-  }, [language, spectrum.first_name]);
-
-  useEffect(() => {
-    void refreshProfilingPreview();
-  }, [refreshProfilingPreview]);
+  const rcLabel =
+    rcModelDisplay === null
+      ? t('debug.rcModelUnavailable')
+      : t('debug.rcModelValue', { modelId: rcModelDisplay });
+  const localOverrides =
+    rcModelDisplay !== null && localModelDisplay !== rcModelDisplay;
 
   return (
     <ScrollView
@@ -792,427 +262,136 @@ export function DebugScreen() {
       <Text style={[styles.heroTitle, { color: theme.colors.onBackground }]}>
         {t('debug.pilotTitle')}
       </Text>
-      <Text style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>
-        {t('debug.note')}
-      </Text>
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>{STRINGS.admin.title}</Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {STRINGS.admin.kpiMargin}: {toSafeNumber(kpis.marginRatio).toFixed(2)}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {STRINGS.admin.kpiTokens}: {kpis.geminiCalls}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {STRINGS.admin.kpiAds}: {toSafeNumber(kpis.adEfficiency).toFixed(2)}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {STRINGS.admin.kpiBio}: {toSafeNumber(kpis.bioScore).toFixed(2)}
-        </Text>
-        <View style={styles.godRow}>
-          <Button mode="contained-tonal" onPress={onForceMorning} style={styles.btnCompact}>
-            {STRINGS.admin.forceMorning}
-          </Button>
-          <Button mode="contained-tonal" onPress={onForceEvening} style={styles.btnCompact}>
-            {STRINGS.admin.forceEvening}
-          </Button>
-        </View>
-        <View style={styles.godRow}>
-          <Button mode="contained-tonal" onPress={() => void onSpawnFlies()} style={styles.btnCompact}>
-            {STRINGS.admin.spawnFlies}
-          </Button>
-          <Button mode="contained-tonal" onPress={() => void onResetCredits()} style={styles.btnCompact}>
-            {STRINGS.admin.resetCredits}
-          </Button>
-        </View>
-        <View style={styles.godRow}>
-          <Button mode="contained" onPress={() => void onAdd99IaCredits()} style={styles.btnCompact}>
-            {t('debug.add99AiCreditsButton')}
-          </Button>
-        </View>
-      </View>
-      <Button
-        mode="outlined"
-        onPress={showFirebaseProjectIdDebugAlert}
-        style={styles.btn}
-      >
-        {t('debug.firebaseProjectIdButton')}
-      </Button>
+      <Text style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>{t('debug.note')}</Text>
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          {t('debug.talkCaptureSectionTitle')}
+          {t('debug.dashboardSectionPilotageIa')}
         </Text>
-        {!talkCaptureLog ? (
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          {t('debug.rcModelCaption')}
+        </Text>
+        <Text style={[styles.mono, { color: theme.colors.onSurface }]}>{rcLabel}</Text>
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          {t('debug.localModelCaption')}
+        </Text>
+        <Text style={[styles.mono, { color: theme.colors.onSurface }]}>
+          {t('debug.localModelValue', { modelId: localModelDisplay })}
+        </Text>
+        {localOverrides ? (
+          <Text style={[styles.help, { color: theme.colors.secondary }]}>
+            {t('debug.localOverridesRcHint')}
+          </Text>
+        ) : null}
+        <View style={styles.godRow}>
+          <Button
+            mode="contained-tonal"
+            onPress={() => void onRefreshRemoteGeminiModel()}
+            disabled={busy !== null}
+            style={styles.btnCompact}
+          >
+            {t('debug.geminiRemoteModelRefresh')}
+          </Button>
+          <Button
+            mode="contained"
+            onPress={() => void onIaHealthCheck()}
+            disabled={busy !== null}
+            style={styles.btnCompact}
+          >
+            {t('debug.iaHealthButton')}
+          </Button>
+        </View>
+        <Button
+          mode="outlined"
+          onPress={showFirebaseProjectIdDebugAlert}
+          style={[styles.btn, styles.btnSecond]}
+        >
+          {t('debug.firebaseProjectIdButton')}
+        </Button>
+
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          {t('debug.oneTapPerfTitle')}
+        </Text>
+        {!talkCaptureLog?.oneTapPerfMs ? (
           <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-            {t('debug.talkCaptureEmpty')}
+            {t('debug.oneTapPerfEmpty')}
           </Text>
         ) : (
           <>
-            <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-              {talkCaptureLog.mode === 'quick'
-                ? t('debug.talkCaptureModeQuick')
-                : t('debug.talkCaptureModeDeep')}
+            <Text style={[styles.mono, { color: theme.colors.onSurfaceVariant }]}>
+              {t('debug.oneTapPerfT0', { ms: talkCaptureLog.oneTapPerfMs.t0 })}
             </Text>
-            <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
-              {t('debug.talkCaptureRawLabel')}
+            <Text style={[styles.mono, { color: theme.colors.onSurfaceVariant }]}>
+              {t('debug.oneTapPerfT1', { ms: talkCaptureLog.oneTapPerfMs.t1 })}
             </Text>
-            <Text
-              selectable
-              style={[styles.mono, { color: theme.colors.onSurfaceVariant }]}
-            >
-              {talkCaptureLog.rawTranscript}
+            <Text style={[styles.mono, { color: theme.colors.onSurfaceVariant }]}>
+              {t('debug.oneTapPerfT3', { ms: talkCaptureLog.oneTapPerfMs.t3 })}
             </Text>
-            {talkCaptureLog.localStructuredJson ? (
-              <>
-                <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
-                  {t('debug.talkCaptureLocalLabel')}
-                </Text>
-                <Text
-                  selectable
-                  style={[styles.mono, styles.rawJson, { color: theme.colors.onSurfaceVariant }]}
-                >
-                  {talkCaptureLog.localStructuredJson}
-                </Text>
-              </>
-            ) : null}
-            {talkCaptureLog.geminiFullJson ? (
-              <>
-                <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
-                  {t('debug.talkCaptureGeminiLabel')}
-                </Text>
-                <Text
-                  selectable
-                  style={[styles.mono, styles.rawJson, { color: theme.colors.onSurfaceVariant }]}
-                >
-                  {talkCaptureLog.geminiFullJson}
-                </Text>
-              </>
-            ) : null}
+            <Text style={[styles.mono, { color: theme.colors.onSurfaceVariant }]}>
+              {t('debug.oneTapPerfGemini', { ms: talkCaptureLog.oneTapPerfMs.geminiMs })}
+            </Text>
+            <Text style={[styles.mono, { color: theme.colors.onSurfaceVariant }]}>
+              {t('debug.oneTapPerfTotal', { ms: talkCaptureLog.oneTapPerfMs.totalFromT1Ms })}
+            </Text>
           </>
         )}
       </View>
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          {t('debug.calendarSection')}
-        </Text>
-        <CalendarGranularSection />
-      </View>
-
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          {t('debug.soundSectionTitle')}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.soundHelp')}
-        </Text>
-        <SegmentedButtons
-          value={spectrum.preferred_alarm_sound}
-          onValueChange={(v) => void setPreferredAlarmSound(v as RailAlarmSoundId)}
-          buttons={[
-            { value: 'default', label: t('debug.soundDefault') },
-            { value: 'zen', label: t('debug.soundZen') },
-            { value: 'digital', label: t('debug.soundDigital') },
-          ]}
-          style={styles.segment}
-        />
-      </View>
-
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          {t('debug.demoDaySectionTitle')}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.demoDayHelp')}
+          {t('debug.dashboardSectionFluxTraffic')}
         </Text>
         <Button
           mode="contained"
-          onPress={onSeedDemoDay}
+          onPress={() => void onLaunchElasticSimulation()}
           disabled={busy !== null}
           style={styles.btn}
-          buttonColor={palette.orange}
+          buttonColor="#7c3aed"
         >
-          {t('debug.demoDayButton')}
+          {t('debug.trafficLaunchElastic')}
         </Button>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          {t('debug.simSectionTitle')}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.simSectionHelp')}
-        </Text>
-        <Button
-          mode="contained"
-          onPress={onSimMessage}
-          disabled={busy !== null}
-          style={styles.btn}
-          buttonColor={palette.teal}
-        >
-          {t('debug.simWhatsApp')}
-        </Button>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.simWhatsAppHelp')}
-        </Text>
-        <Button
-          mode="contained-tonal"
-          onPress={onSimWhatsAppIntention}
-          disabled={busy !== null}
-          style={styles.btn}
-        >
-          {t('debug.simWhatsAppIntentionButton')}
-        </Button>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.simWhatsAppIntentionHelp')}
-        </Text>
-
-        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
-          Simuler Debug Projet
-        </Text>
-        <TextInput
-          value={debugProjectText}
-          onChangeText={setDebugProjectText}
-          multiline
-          placeholder="Ex: Lancer la nouvelle version mobile avec checklist..."
-          placeholderTextColor="#839096"
-          style={styles.debugProjectInput}
-        />
-        <Button
-          mode="contained"
-          onPress={() => void onSimulateDebugProject()}
-          disabled={busy !== null}
-          style={styles.btn}
-          buttonColor={palette.orange}
-        >
-          Simuler Debug Projet
-        </Button>
-        {simLatencyMs !== null ? (
-          <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-            Latence IA vers modale: {simLatencyMs} ms
-          </Text>
+        {trafficSnapshot ? (
+          <View style={styles.trafficMonitorPanel}>
+            <Text style={styles.trafficMonitorTitle}>{t('debug.trafficMonitorTitle')}</Text>
+            <Text style={styles.trafficMonitorLine}>
+              {t('debug.trafficSimulatedTime', {
+                time: new Date(trafficSnapshot.simulatedNowMs).toLocaleTimeString(),
+              })}
+            </Text>
+            <Text style={styles.trafficMonitorLine}>
+              {t('debug.trafficNextJump', { sec: (trafficSnapshot.nextJumpMs / 1000).toFixed(1) })}
+            </Text>
+            <Text style={styles.trafficMonitorLine}>
+              {t('debug.trafficEmaMin', {
+                min: Math.round(trafficSnapshot.stabilizedTrafficDurationSec / 60),
+              })}
+            </Text>
+            <Text style={styles.trafficMonitorLine}>
+              {t('debug.trafficStatusLabel')}{' '}
+              {trafficSnapshot.status === 'TOP_DEPART'
+                ? t('debug.trafficStatusTopDepart')
+                : trafficSnapshot.status === 'STILL_OVER'
+                  ? t('debug.trafficStatusStillOver')
+                  : t('debug.trafficStatusFluid')}
+            </Text>
+            <Text style={styles.trafficMonitorLine}>
+              {t('debug.trafficBufferSafety', { min: trafficSnapshot.bufferSafetyMin.toFixed(2) })}
+            </Text>
+          </View>
         ) : null}
-        <Button
-          mode="outlined"
-          onPress={() => void onPurgeTrankilIntentions()}
-          disabled={busy !== null}
-          style={[styles.btn, styles.btnSecond]}
-        >
-          Vider la table Intentions (Debug)
-        </Button>
-        <Button
-          mode="outlined"
-          onPress={() => void onTestLogLastRaw()}
-          disabled={busy !== null}
-          style={[styles.btn, styles.btnSecond]}
-        >
-          TEST LOG
-        </Button>
       </View>
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          Base SQLite Projets / Dates
+          {t('debug.dashboardSectionSysteme')}
         </Text>
         <Text style={[styles.mono, styles.countLine, { color: theme.colors.onSurfaceVariant }]}>
-          intentions={dbCounts.intentionsCount} | tasks={dbCounts.tasksCount}
+          {t('debug.sqliteCountsLine', {
+            intentions: dbCounts.intentionsCount,
+            tasks: dbCounts.tasksCount,
+          })}
         </Text>
-        {trankilRows.map((row) => {
-          const isProject = row.type === 'PROJECT';
-          const isNote = row.type === 'NOTE';
-          const projectTasks = isProject
-            ? trankilRows.filter((r) => r.parent_id === row.id && r.type === 'TASK')
-            : [];
-          const expanded = Boolean(expandedProjects[row.id]);
-          return (
-            <View
-              key={row.id}
-              style={[
-                styles.dbRow,
-                isProject ? styles.dbRowProject : null,
-                isNote ? styles.dbRowNote : null,
-              ]}
-            >
-              <View style={styles.dbRowHead}>
-                <Text style={[styles.dbTypeBadge, isProject ? styles.badgeProject : styles.badgeNote]}>
-                  {row.type}
-                </Text>
-                <Text style={styles.dbTitle} numberOfLines={2}>
-                  {row.title}
-                </Text>
-              </View>
-              <Text style={styles.mono}>id: {row.id}</Text>
-              <Text style={styles.mono}>due_date: {formatDueDateLocal(row.due_date)}</Text>
-              {isProject ? (
-                <>
-                  <Pressable onPress={() => toggleProjectExpanded(row.id)} style={styles.accordionBtn}>
-                    <Text style={styles.accordionText}>
-                      [{projectTasks.length}] taches {expanded ? '▲' : '▼'}
-                    </Text>
-                  </Pressable>
-                  {expanded ? (
-                    <View style={styles.subTaskWrap}>
-                      {projectTasks.map((task) => {
-                        const meta = (() => {
-                          try {
-                            return JSON.parse(task.metadata_json || '{}') as { has_alarm?: boolean };
-                          } catch {
-                            return {};
-                          }
-                        })();
-                        return (
-                          <View key={task.id} style={styles.subTaskRow}>
-                            <Text style={styles.subTaskTitle} numberOfLines={2}>
-                              {task.title}
-                            </Text>
-                            <Text style={styles.mono}>a: {meta.has_alarm ? 'true' : 'false'}</Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  ) : null}
-                </>
-              ) : null}
-            </View>
-          );
-        })}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          {t('debug.languageConfigTitle')}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.languageConfigHelp')}
-        </Text>
-        <Pressable
-          style={styles.accordionBtn}
-          onPress={() => {
-            setLanguagePickerTarget('ui');
-            setLanguagePickerOpen(true);
-          }}
-        >
-          <Text style={styles.accordionText}>
-            {t('debug.uiLanguageLabel')}: {t(`ally.lang.${language}`)}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={styles.accordionBtn}
-          onPress={() => {
-            setLanguagePickerTarget('ai');
-            setLanguagePickerOpen(true);
-          }}
-        >
-          <Text style={styles.accordionText}>
-            {t('debug.aiLanguageLabel')}: {t(`ally.lang.${interactionLanguage}`)}
-          </Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          Profiling Test
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          Verifie le profil et la variation des messages de bienveillance.
-        </Text>
-        <Button
-          mode="outlined"
-          onPress={() => void refreshProfilingPreview()}
-          style={[styles.btn, styles.btnSecond]}
-        >
-          Rafraichir le message
-        </Button>
-        <Text style={[styles.help, { color: theme.colors.onSurface }]}>
-          Profil: {profilePreview ? `${profilePreview.id} - ${profilePreview.label}` : '-'}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {profilePreview?.description || '-'}
-        </Text>
-        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
-          Insight
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurface }]}>
-          {kindnessPreview?.insight || '-'}
-        </Text>
-        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
-          Action Tip
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurface }]}>
-          {kindnessPreview?.action_tip || '-'}
-        </Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          Data Inspector
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          10 dernières intentions (triées par created_at décroissant)
-        </Text>
-        <Button
-          mode="outlined"
-          onPress={() => void onPurgeTrankilIntentions()}
-          disabled={busy !== null}
-          style={[styles.btn, styles.btnSecond]}
-        >
-          Vider la base {'{DEBUG}'}
-        </Button>
-        {inspectorRows.map((row) => (
-          <View key={`inspector-${row.id}`} style={styles.inspectorRow}>
-            <Text style={styles.inspectorType}>{row.type}</Text>
-            <Text style={styles.inspectorLine}>Titre: {row.title || '-'}</Text>
-            <Text style={styles.inspectorLine}>
-              Creation Date:{' '}
-              {new Date(row.created_at).toLocaleString()}
-            </Text>
-            <Text style={styles.inspectorLine}>Horizon: {row.category_id || '-'}</Text>
-            <Text style={styles.inspectorLine}>Date: {inspectorDate(row)}</Text>
-            <Text style={styles.inspectorLine}>Contenu: {inspectorExcerpt(row.content_raw)}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
-          {t('debug.sectionAgentNativeTitle')}
-        </Text>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.forceAgentAlarmHelp')}
-        </Text>
-        <Button
-          mode="contained"
-          onPress={() => void onForceAgentDirectAlarm()}
-          disabled={busy !== null}
-          style={styles.btn}
-          buttonColor={palette.teal}
-        >
-          {t('debug.forceAgentAlarmButton')}
-        </Button>
-      </View>
-
-      <View style={styles.section}>
-        <Button
-          mode="contained"
-          onPress={onResetProfile}
-          disabled={busy !== null}
-          style={styles.btn}
-        >
-          {t('debug.resetProfile')}
-        </Button>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.resetProfileHelp')}
-        </Text>
-      </View>
-
-      <View style={styles.section}>
-        <Button
-          mode="outlined"
-          onPress={onRebuildDb}
-          disabled={busy !== null}
-          style={styles.btn}
-        >
+        <Button mode="outlined" onPress={onRebuildDb} disabled={busy !== null} style={styles.btn}>
           {t('debug.rebuildDb')}
         </Button>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
@@ -1224,19 +403,15 @@ export function DebugScreen() {
         <View style={styles.row}>
           <ActivityIndicator color={theme.colors.primary} />
           <Text style={{ color: theme.colors.onSurface, marginLeft: 8 }}>
-            {busy === 'profile'
-              ? t('debug.busyProfile')
-              : busy === 'db'
-                ? t('debug.busySqlite')
-                : busy === 'demoDay'
-                  ? t('debug.demoDayBusy')
-                  : busy === 'simWaIntent'
-                    ? t('debug.simWhatsAppIntentionBusy')
-                    : busy === 'purgeIntentions'
-                      ? t('debug.purgeIntentionsBusy')
-                      : busy === 'forceAgentAlarm'
-                        ? t('debug.forceAgentAlarmBusy')
-                        : t('debug.simBusy')}
+            {busy === 'db'
+              ? t('debug.busySqlite')
+              : busy === 'simElastic'
+                ? t('debug.busySimElastic')
+                : busy === 'remoteModel'
+                  ? t('debug.busyRemoteModel')
+                  : busy === 'iaHealth'
+                    ? t('debug.busyIaHealth')
+                    : ''}
           </Text>
         </View>
       )}
@@ -1246,190 +421,6 @@ export function DebugScreen() {
           {lastError}
         </Text>
       )}
-
-      <Text style={[styles.blockTitle, { color: theme.colors.primary }]}>
-        {t('debug.sectionSpectrum')}
-      </Text>
-      <View style={[styles.switchRow, styles.switchRowSecond]}>
-        <View style={styles.switchLabelCol}>
-          <Text style={[styles.switchTitle, { color: theme.colors.onSurface }]}>
-            {t('debug.proUserToggle')}
-          </Text>
-        </View>
-        <Switch
-          value={spectrum.isProUser === true}
-          onValueChange={(v) => void setProUser(v)}
-        />
-      </View>
-      <Text
-        style={[styles.mono, { color: theme.colors.onSurface }]}
-        selectable
-      >
-        {JSON.stringify(spectrum, null, 2)}
-      </Text>
-
-      <Text style={[styles.blockTitle, { color: theme.colors.primary }]}>
-        {t('debug.sectionPower')}
-      </Text>
-      <Text
-        style={[styles.mono, { color: theme.colors.onSurface }]}
-        selectable
-      >
-        {JSON.stringify(
-          {
-            energyScore: power.energyScore,
-            agentEnergySeconds: power.agentEnergySeconds,
-            isLowPower: power.isLowPower,
-          },
-          null,
-          2,
-        )}
-      </Text>
-
-      <Text style={[styles.blockTitle, { color: theme.colors.primary }]}>
-        {t('debug.sectionRawIntentions')}
-      </Text>
-      <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-        {t('debug.rawIntentionsHelp')}
-      </Text>
-      <Button
-        mode="outlined"
-        onPress={onPurgeIntentions}
-        disabled={busy !== null}
-        style={[styles.btn, styles.btnSecond]}
-      >
-        {t('debug.purgeIntentions')}
-      </Button>
-      <Text
-        style={[styles.mono, styles.rawJson, { color: theme.colors.onSurface }]}
-        selectable
-      >
-        {rawIntentionsJson}
-      </Text>
-
-      <Text style={[styles.blockTitle, { color: theme.colors.primary }]}>
-        {t('debug.sectionSyncPurge')}
-      </Text>
-      <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-        {t('debug.syncPurgeHelp')}
-      </Text>
-      <Button
-        mode="outlined"
-        onPress={() => void refreshSyncPurge()}
-        disabled={syncPurgeBusy}
-        loading={syncPurgeBusy}
-        style={[styles.btn, styles.btnSecond]}
-      >
-        {t('debug.syncPurgeRefresh')}
-      </Button>
-      <Text style={[styles.mono, { color: theme.colors.onSurface, marginTop: 10 }]}>
-        {getFirestoreDb() === null
-          ? t('debug.syncPurgeNoDb')
-          : [
-              `${t('debug.syncPurgeRailInboxCloud')}: ${syncPurgeRailCloud === null ? '—' : syncPurgeRailCloud}`,
-              `${t('debug.syncPurgeTransitCloud')}: ${syncPurgeTransitCloud === null ? '—' : syncPurgeTransitCloud}`,
-              `${t('debug.syncPurgeLastRail')}: ${lastRailPurgeMs != null ? new Date(lastRailPurgeMs).toISOString() : t('debug.syncPurgeNever')}`,
-              `${t('debug.syncPurgeLastTransit')}: ${lastTransitPurgeMs != null ? new Date(lastTransitPurgeMs).toISOString() : t('debug.syncPurgeNever')}`,
-            ].join('\n')}
-      </Text>
-
-      <Modal
-        visible={languagePickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setLanguagePickerOpen(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {languagePickerTarget === 'ui'
-                ? t('debug.uiLanguageLabel')
-                : t('debug.aiLanguageLabel')}
-            </Text>
-            {uiLanguageOptions.map((lang) => (
-              <Pressable
-                key={lang.id}
-                style={[
-                  styles.modalBtn,
-                  lang.id === (languagePickerTarget === 'ui' ? language : interactionLanguage)
-                    ? styles.modalSave
-                    : styles.modalCancel,
-                ]}
-                onPress={() => {
-                  if (languagePickerTarget === 'ui') {
-                    void setLanguage(lang.id);
-                  } else {
-                    void setInteractionLanguage(lang.id);
-                  }
-                  setLanguagePickerOpen(false);
-                }}
-              >
-                <Text
-                  style={
-                    lang.id === (languagePickerTarget === 'ui' ? language : interactionLanguage)
-                      ? styles.modalSaveText
-                      : styles.modalCancelText
-                  }
-                >
-                  {lang.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={Boolean(projectPlanPreview)}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setProjectPlanPreview(null)}
-      >
-        <View style={styles.planPreviewBackdrop}>
-          <View style={styles.planPreviewCard}>
-            <Text style={styles.planPreviewTitle}>Visualiser IA Plan (1 Crédit)</Text>
-            <Text style={styles.planPreviewWarning}>
-              Le crédit est débité au clic sur Valider Plan et non sur la visualisation.
-            </Text>
-            <Text style={styles.planPreviewProjectTitle}>
-              {projectPlanPreview?.projectTitle || 'Projet'}
-            </Text>
-            <ScrollView style={styles.planPreviewScroll} contentContainerStyle={styles.planPreviewScrollContent}>
-              {(() => {
-                let taskIdx = -1;
-                return (projectPlanPreview?.rows ?? [])
-                  .filter((row) => row.type === 'TASK')
-                  .map((row) => {
-                    taskIdx += 1;
-                    const enabled = (projectPlanPreview?.taskAlarmIndexes ?? []).includes(taskIdx);
-                    return (
-                      <View key={`${row.title}-${taskIdx}`} style={styles.planTaskRow}>
-                        <Pressable style={styles.planBellBtn} onPress={() => togglePlanTaskAlarm(taskIdx)}>
-                          <Bell size={20} color={enabled ? '#FF8C00' : 'rgba(44,62,80,0.35)'} />
-                        </Pressable>
-                        <Text style={styles.planTaskText}>{row.title}</Text>
-                      </View>
-                    );
-                  });
-              })()}
-            </ScrollView>
-            <View style={styles.planPreviewActions}>
-              <Pressable style={[styles.planActionBtn, styles.planCancelBtn]} onPress={() => setProjectPlanPreview(null)}>
-                <Text style={styles.planCancelText}>❌ ANNULER</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.planActionBtn, styles.planValidateBtn]}
-                onPress={() => {
-                  void onValidateDebugProjectPlan();
-                }}
-                disabled={busy !== null}
-              >
-                <Text style={styles.planValidateText}>✅ VALIDER LE PLAN</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -1446,19 +437,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   section: { marginBottom: 20 },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  switchRowSecond: { marginTop: 14 },
-  switchLabelCol: { flex: 1, minWidth: 0 },
-  switchTitle: { fontSize: 15, fontWeight: '600', marginBottom: 4 },
   btn: { alignSelf: 'flex-start' },
   btnSecond: { marginTop: 12 },
   help: { fontSize: 12, marginTop: 8, maxWidth: '100%' },
-  segment: { marginTop: 10, alignSelf: 'stretch' },
   godRow: { marginTop: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   btnCompact: { marginTop: 4 },
   row: {
@@ -1470,218 +451,25 @@ const styles = StyleSheet.create({
   blockTitle: { fontSize: 14, fontWeight: '600', marginTop: 16, marginBottom: 8 },
   mono: { fontFamily: 'monospace', fontSize: 11, lineHeight: 16 },
   countLine: { marginTop: 2, marginBottom: 8 },
-  rawJson: { marginTop: 10 },
-  dbRow: {
-    borderWidth: 1,
-    borderColor: 'rgba(44,62,80,0.18)',
+  trafficMonitorPanel: {
+    marginTop: 12,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.35)',
+    backgroundColor: 'rgba(124,58,237,0.08)',
     paddingHorizontal: 10,
-    paddingVertical: 9,
-    marginTop: 8,
-    backgroundColor: 'rgba(255,255,255,0.75)',
+    paddingVertical: 10,
+    gap: 4,
   },
-  dbRowProject: {
-    borderColor: 'rgba(0,128,128,0.45)',
-    backgroundColor: 'rgba(0,128,128,0.06)',
-  },
-  dbRowNote: {
-    borderColor: 'rgba(255,140,0,0.42)',
-    backgroundColor: 'rgba(255,140,0,0.06)',
-  },
-  dbRowHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  dbTypeBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    overflow: 'hidden',
-    fontSize: 10,
+  trafficMonitorTitle: {
+    fontSize: 13,
     fontWeight: '800',
-  },
-  badgeProject: {
-    backgroundColor: 'rgba(0,128,128,0.2)',
-    color: '#005f5f',
-  },
-  badgeNote: {
-    backgroundColor: 'rgba(255,140,0,0.2)',
-    color: '#7c4500',
-  },
-  dbTitle: { flex: 1, fontSize: 13, fontWeight: '700', color: '#2C3E50' },
-  accordionBtn: {
-    marginTop: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(44,62,80,0.22)',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    alignSelf: 'flex-start',
-  },
-  accordionText: { fontSize: 12, fontWeight: '700', color: '#2C3E50' },
-  subTaskWrap: { marginTop: 8, gap: 6 },
-  subTaskRow: {
-    borderWidth: 1,
-    borderColor: 'rgba(44,62,80,0.16)',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(255,255,255,0.65)',
-  },
-  subTaskTitle: { color: '#2C3E50', fontSize: 12, fontWeight: '600', marginBottom: 2 },
-  inspectorRow: {
-    borderWidth: 1,
-    borderColor: 'rgba(44,62,80,0.16)',
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 8,
-    marginTop: 8,
-    backgroundColor: 'rgba(255,255,255,0.68)',
-  },
-  inspectorType: {
-    color: '#0f766e',
-    fontSize: 11,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  inspectorLine: {
-    color: '#2C3E50',
-    fontSize: 12,
+    color: '#5b21b6',
     marginBottom: 2,
   },
-  debugProjectInput: {
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(44,62,80,0.2)',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    minHeight: 88,
-    color: '#2C3E50',
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    textAlignVertical: 'top',
-  },
-  planPreviewBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(16, 20, 18, 0.36)',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 26,
-  },
-  planPreviewCard: {
-    flex: 1,
-    borderRadius: 20,
-    backgroundColor: '#F6F2E8',
-    borderWidth: 1,
-    borderColor: 'rgba(122, 104, 78, 0.15)',
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 12,
-  },
-  planPreviewTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#2C3E50',
-  },
-  planPreviewWarning: {
-    marginTop: 8,
+  trafficMonitorLine: {
     fontSize: 12,
-    color: '#7a5a2f',
-    fontWeight: '600',
-  },
-  planPreviewProjectTitle: {
-    marginTop: 14,
-    fontSize: 18,
-    fontWeight: '700',
     color: '#2C3E50',
+    fontFamily: 'monospace',
   },
-  planPreviewScroll: {
-    marginTop: 10,
-    flex: 1,
-  },
-  planPreviewScrollContent: {
-    paddingBottom: 14,
-    gap: 8,
-  },
-  planTaskRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.68)',
-    borderWidth: 1,
-    borderColor: 'rgba(44,62,80,0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    gap: 10,
-  },
-  planBellBtn: {
-    width: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 2,
-  },
-  planTaskText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#2C3E50',
-    lineHeight: 20,
-    fontWeight: '600',
-  },
-  planPreviewActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-  },
-  planActionBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  planCancelBtn: {
-    backgroundColor: 'rgba(245, 247, 246, 0.75)',
-    borderColor: 'rgba(161, 178, 175, 0.38)',
-  },
-  planValidateBtn: {
-    backgroundColor: 'rgba(34, 126, 128, 0.86)',
-    borderColor: 'rgba(202, 245, 239, 0.42)',
-  },
-  planCancelText: {
-    color: '#2C3E50',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  planValidateText: {
-    color: '#f2fefd',
-    fontWeight: '800',
-    fontSize: 13,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  modalCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 14,
-  },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1f2937', marginBottom: 10 },
-  modalBtn: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  modalSave: { backgroundColor: '#0f766e', borderColor: '#0f766e' },
-  modalCancel: { backgroundColor: '#e5e7eb' },
-  modalCancelText: { color: '#111827', fontWeight: '700' },
-  modalSaveText: { color: '#fff', fontWeight: '700' },
 });

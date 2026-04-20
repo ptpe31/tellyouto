@@ -2314,7 +2314,7 @@ export function TalkHomeScreen() {
         {__DEV__ ? (
           <Pressable
             accessibilityRole="button"
-            onPress={() => navigation.navigate('TalkDebug')}
+            onPress={() => navigation.navigate('Tabs', { screen: 'TalkHome' })}
             style={styles.debugLinkBtn}
           >
             <Text style={styles.debugLinkText}>Debug</Text>

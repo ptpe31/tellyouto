@@ -1,20 +1,63 @@
 /**
- * Appels directs Google AI (Gemini) pour le lab sémantique.
- * Clé : EXPO_PUBLIC_GEMINI_API_KEY — réservée aux builds de test (exposée client).
- * Modèle : Firebase Remote Config `active_gemini_model` (voir {@link geminiRemoteModelSteering}),
- * défaut `gemini-1.5-flash-latest` tant que RC n’est pas chargé ou en erreur.
+ * **Gemini Lab** — appels HTTP directs vers `generativelanguage.googleapis.com/v1beta` (REST).
  *
- * **Self-healing** : sur HTTP 404/503, `listModels` + modèle de secours (AsyncStorage 24h, voir steering).
+ * ## Résolution du modèle
+ * Tous les chemins passent par {@link getActiveGeminiModelId} sauf **override** explicite (`modelOverride` sur certains appels).
+ * Le modèle actif est piloté par {@link geminiRemoteModelSteering} (Remote Config + secours 24h).
  *
- * **Streaming / audio** : `generateContent` non streamé par défaut ; one-tap filaire utilise `streamGenerateContent`.
+ * ## Self-healing réseau
+ * Sur **404** ou **503** sur `generateContent` ou sur l’ouverture du stream, le module appelle
+ * {@link recoverGeminiModelViaListModels} puis **réessaie une fois** avec le nouvel id (sans `modelOverride`).
+ *
+ * ## Génération « légère »
+ * {@link withLightGenerationConfig} force `temperature` / `topP` / `topK` / `candidateCount` bas pour limiter la charge
+ * (aligné avec les règles produit Gemini).
+ *
+ * ## One-tap (dual-path côté orchestration)
+ * Les entrées **filaire** (`geminiGenerateOneTapCompressedLine`) et **streaming** (`geminiStreamOneTapCompressedLine`)
+ * alimentent le **Path B** décrit dans {@link oneTapUniversalCapture} (`refineOneTapWithGeminiCompressed`).
+ *
+ * ## Logs terminal (Metro)
+ * Chaque réponse HTTP aboutie : **`[GeminiAPI] 🚀 CALL_SUCCESS`** ou **`❌ CALL_ERROR`** (modèle, latence, FallbackUsed, v1beta, operation).
+ *
+ * @module geminiSemanticLab
  */
 
 import Constants from 'expo-constants';
 
-import { getActiveGeminiModelId, recoverGeminiModelViaListModels } from './geminiRemoteModelSteering';
+import { getActiveGeminiModelId, getLastRemoteConfigResolvedModelId, recoverGeminiModelViaListModels } from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_API_VERSION_LABEL = 'v1beta';
+
+function logGeminiApiCallSuccess(params: {
+  modelId: string;
+  latencyMs: number;
+  fallbackUsed: boolean;
+  operation: string;
+}): void {
+  const fb = params.fallbackUsed ? 'YES' : 'NO';
+  console.log(
+    `[GeminiAPI] 🚀 CALL_SUCCESS\n| Model: ${params.modelId}\n| Latency: ${params.latencyMs}ms\n| FallbackUsed: ${fb}\n| Version: ${GEMINI_API_VERSION_LABEL}\n| Operation: ${params.operation}`,
+  );
+}
+
+function logGeminiApiCallError(params: {
+  modelId: string;
+  latencyMs: number;
+  fallbackUsed: boolean;
+  operation: string;
+  httpStatus?: number;
+  reason?: string;
+}): void {
+  const fb = params.fallbackUsed ? 'YES' : 'NO';
+  const http = params.httpStatus != null ? `\n| HTTP: ${params.httpStatus}` : '';
+  const reason = params.reason ? `\n| Reason: ${params.reason.slice(0, 200)}` : '';
+  console.log(
+    `[GeminiAPI] ❌ CALL_ERROR\n| Model: ${params.modelId}\n| Latency: ${params.latencyMs}ms\n| FallbackUsed: ${fb}\n| Version: ${GEMINI_API_VERSION_LABEL}\n| Operation: ${params.operation}${http}${reason}`,
+  );
+}
 
 function perfNowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -63,6 +106,9 @@ function sumAudioPayloadKbFromGenerateBody(body: unknown): number {
   return bytes / 1024;
 }
 
+/**
+ * Résout la clé API : `expo.extra.geminiApiKey` (EAS / app.config) puis `process.env.EXPO_PUBLIC_GEMINI_API_KEY`.
+ */
 export function getGeminiApiKey(): string | undefined {
   const fromExtra = readGeminiExtra().geminiApiKey?.trim();
   const fromEnv = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
@@ -97,6 +143,9 @@ function buildGenerateUrl(modelId: string): string {
   return `${BASE}/models/${modelId}:generateContent?key=${encodeURIComponent(key)}`;
 }
 
+/**
+ * Fusionne une config de génération « légère » (latence / coût) dans le corps `generateContent` / stream.
+ */
 function withLightGenerationConfig(body: object): object {
   const raw = body as { generationConfig?: Record<string, unknown> };
   const generationConfig = raw.generationConfig ?? {};
@@ -113,6 +162,13 @@ function withLightGenerationConfig(body: object): object {
   };
 }
 
+function computeGeminiIsFallback(finalModelId: string, usedRecoverRetry: boolean): boolean {
+  if (usedRecoverRetry) return true;
+  const rc = getLastRemoteConfigResolvedModelId();
+  if (rc == null || rc === '') return false;
+  return finalModelId !== rc;
+}
+
 function sumTextPayloadCharsFromGenerateBody(body: object): number {
   const contents = (body as { contents?: { parts?: { text?: string }[] }[] }).contents;
   if (!Array.isArray(contents)) return 0;
@@ -127,7 +183,18 @@ function sumTextPayloadCharsFromGenerateBody(body: object): number {
   return n;
 }
 
-async function postGenerateContent(body: object, modelOverride?: string): Promise<unknown> {
+/**
+ * POST `generateContent` avec une passe de **self-healing** si 404/503 et pas d’override forcé.
+ *
+ * @param body — Corps JSON Gemini (contents + generationConfig optionnel).
+ * @param modelOverride — Si défini, contourne le cache steering (tests ciblés) ; le self-heal ne s’applique pas.
+ * @param traceOperation — Libellé pour les logs terminal `[GeminiAPI]`.
+ */
+async function postGenerateContent(
+  body: object,
+  modelOverride?: string,
+  traceOperation = 'generateContent.generic',
+): Promise<unknown> {
   const effectiveBody = withLightGenerationConfig(body);
   const audioKb = sumAudioPayloadKbFromGenerateBody(effectiveBody);
   console.log(`[GeminiLab] Audio Payload Size: ${audioKb.toFixed(2)} KB`);
@@ -153,9 +220,10 @@ async function postGenerateContent(body: object, modelOverride?: string): Promis
     });
     const text = await res.text();
     const tNet1 = perfNowMs();
+    const latencyMs = Math.round(tNet1 - tNet0);
     labLog('request.timing', {
       model: modelId,
-      ms: Math.round(tNet1 - tNet0),
+      ms: latencyMs,
       status: res.status,
       ok: res.ok,
     });
@@ -165,11 +233,12 @@ async function postGenerateContent(body: object, modelOverride?: string): Promis
       ok: res.ok,
       preview: text.slice(0, 220),
     });
-    return { res, text, modelId };
+    return { res, text, modelId, latencyMs };
   };
 
   let model = modelOverride || getActiveGeminiModelId();
-  let { res, text, modelId } = await runOnce(model);
+  let usedRecoverRetry = false;
+  let { res, text, modelId, latencyMs } = await runOnce(model);
   if (
     !res.ok &&
     (res.status === 404 || res.status === 503) &&
@@ -177,18 +246,41 @@ async function postGenerateContent(body: object, modelOverride?: string): Promis
   ) {
     const recovered = await recoverGeminiModelViaListModels();
     if (recovered) {
-      ({ res, text, modelId } = await runOnce(recovered));
+      usedRecoverRetry = true;
+      ({ res, text, modelId, latencyMs } = await runOnce(recovered));
     }
   }
 
   if (res.ok) {
     try {
-      return JSON.parse(text) as unknown;
+      const data = JSON.parse(text) as unknown;
+      logGeminiApiCallSuccess({
+        modelId,
+        latencyMs,
+        fallbackUsed: computeGeminiIsFallback(modelId, usedRecoverRetry),
+        operation: traceOperation,
+      });
+      return data;
     } catch {
+      logGeminiApiCallError({
+        modelId,
+        latencyMs,
+        fallbackUsed: computeGeminiIsFallback(modelId, usedRecoverRetry),
+        operation: traceOperation,
+        reason: 'non-JSON response body',
+      });
       throw new Error(`Gemini: réponse non-JSON (${text.slice(0, 200)})`);
     }
   }
 
+  logGeminiApiCallError({
+    modelId,
+    latencyMs,
+    fallbackUsed: usedRecoverRetry,
+    operation: traceOperation,
+    httpStatus: res.status,
+    reason: text.slice(0, 300),
+  });
   throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
 }
 
@@ -210,24 +302,28 @@ export async function geminiTranscribeAudioBase64(
   if (!base64Audio?.length) {
     throw new Error('Audio base64 vide');
   }
-  const data = await postGenerateContent({
-    contents: [
-      {
-        parts: [
-          {
-            inlineData: {
-              mimeType,
-              data: base64Audio,
+  const data = await postGenerateContent(
+    {
+      contents: [
+        {
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Audio,
+              },
             },
-          },
-          {
-            text:
-              'Transcribe this audio into plain text only. Output ONLY the words spoken, in the original language. No preamble, no quotes, no markdown.',
-          },
-        ],
-      },
-    ],
-  });
+            {
+              text:
+                'Transcribe this audio into plain text only. Output ONLY the words spoken, in the original language. No preamble, no quotes, no markdown.',
+            },
+          ],
+        },
+      ],
+    },
+    undefined,
+    'lab.transcribe_audio',
+  );
   const out = extractTextFromGenerateResponse(data);
   if (!out) {
     throw new Error('Gemini: transcription vide (vérifie le modèle et le format audio)');
@@ -307,13 +403,17 @@ export async function geminiAnalyzeIntentTranscript(
     options?.promptLanguage === 'en' ? 'en' : 'fr';
   const prompt = buildIntentAnalysisPrompt(safe, promptLang);
 
-  const data = await postGenerateContent({
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.15,
-      maxOutputTokens: 512,
+  const data = await postGenerateContent(
+    {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.15,
+        maxOutputTokens: 512,
+      },
     },
-  });
+    undefined,
+    'lab.analyze_intent',
+  );
   const rawResponseText = extractTextFromGenerateResponse(data);
   if (!rawResponseText) {
     throw new Error('Gemini: réponse analyse vide');
@@ -389,13 +489,17 @@ export async function geminiDeepIntentionFromTranscript(
     options?.promptLanguage === 'en' ? 'en' : 'fr';
   const prompt = buildDeepIntentionPrompt(safe, promptLang);
 
-  const data = await postGenerateContent({
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.12,
-      maxOutputTokens: 512,
+  const data = await postGenerateContent(
+    {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.12,
+        maxOutputTokens: 512,
+      },
     },
-  });
+    undefined,
+    'lab.deep_intention',
+  );
   const rawResponseText = extractTextFromGenerateResponse(data);
   if (!rawResponseText) {
     throw new Error('Gemini: réponse deep vide');
@@ -575,13 +679,17 @@ Rules:
 - items: name clear; **baseQuantity** is always the amount for **exactly one** person (or one base unit), never the total for the whole group; unit must be one of: g, kg, piece, cl, l.
 - scalable: true if the amount should scale with headcount (ingredients, portions); false for fixed one-off items (e.g. one toothpaste tube for the household).`;
 
-  const data = await postGenerateContent({
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.18,
-      maxOutputTokens: 2048,
+  const data = await postGenerateContent(
+    {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.18,
+        maxOutputTokens: 2048,
+      },
     },
-  });
+    undefined,
+    'lab.list_inventory',
+  );
   const rawResponseText = extractTextFromGenerateResponse(data);
   if (!rawResponseText) {
     throw new Error('Gemini: empty list inventory response');
@@ -600,19 +708,26 @@ Rules:
 const JSON_EXTRACTOR_PREFIX =
   'You are a JSON extractor. Output ONLY raw JSON. No chat, no markdown.\n\n';
 
+/**
+ * JSON structuré via `responseMimeType: application/json` — utilisé par certains flux analyse (hors one-tap filaire).
+ */
 export async function geminiGenerateTextUserPrompt(prompt: string): Promise<string> {
   const trimmed = String(prompt || '').trim();
   if (!trimmed) {
     throw new Error('Gemini: prompt vide');
   }
   const t0 = perfNowMs();
-  const data = await postGenerateContent({
-    contents: [{ parts: [{ text: `${JSON_EXTRACTOR_PREFIX}${trimmed}` }] }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      maxOutputTokens: 2048,
+  const data = await postGenerateContent(
+    {
+      contents: [{ parts: [{ text: `${JSON_EXTRACTOR_PREFIX}${trimmed}` }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        maxOutputTokens: 2048,
+      },
     },
-  });
+    undefined,
+    'lab.generate_text_user_prompt',
+  );
   const raw = extractTextFromGenerateResponse(data);
   const t1 = perfNowMs();
   labLog('geminiGenerateTextUserPrompt.timing', {
@@ -664,10 +779,18 @@ function mergeGeminiStreamTextChunk(accumulated: string, nextPart: string): stri
   return accumulated + n;
 }
 
+/**
+ * POST `streamGenerateContent` (SSE). Lit le corps d’erreur une seule fois avant retry après self-heal.
+ *
+ * @param onAccumulatedText — Callback à chaque fragment de texte utile (UI optimiste).
+ * @param modelOverride — Comportement identique à {@link postGenerateContent}.
+ * @param traceOperation — Libellé pour les logs `[GeminiAPI]`.
+ */
 async function postStreamGenerateContent(
   body: object,
   onAccumulatedText: (full: string) => void,
   modelOverride?: string,
+  traceOperation = 'streamGenerateContent.generic',
 ): Promise<string> {
   const effectiveBody = withLightGenerationConfig(body);
   const openStream = async (modelId: string) => {
@@ -682,10 +805,10 @@ async function postStreamGenerateContent(
     return { res, modelId };
   };
 
-  const tNet0 = perfNowMs();
   let model = modelOverride || getActiveGeminiModelId();
   let { res, modelId } = await openStream(model);
   let lastErrBody = '';
+  let usedRecoverRetry = false;
   if (!res.ok) {
     lastErrBody = await res.text();
     labLog('stream.request.error', {
@@ -696,6 +819,7 @@ async function postStreamGenerateContent(
     if ((res.status === 404 || res.status === 503) && !modelOverride) {
       const recovered = await recoverGeminiModelViaListModels();
       if (recovered) {
+        usedRecoverRetry = true;
         ({ res, modelId } = await openStream(recovered));
         if (!res.ok) {
           lastErrBody = await res.text();
@@ -709,13 +833,29 @@ async function postStreamGenerateContent(
     }
   }
   if (!res.ok) {
+    logGeminiApiCallError({
+      modelId,
+      latencyMs: 0,
+      fallbackUsed: usedRecoverRetry,
+      operation: traceOperation,
+      httpStatus: res.status,
+      reason: lastErrBody.slice(0, 300),
+    });
     throw new Error(`Gemini stream: HTTP ${res.status}: ${lastErrBody.slice(0, 800)}`);
   }
   model = modelId;
   const reader = res.body?.getReader?.();
   if (!reader) {
+    logGeminiApiCallError({
+      modelId,
+      latencyMs: 0,
+      fallbackUsed: usedRecoverRetry,
+      operation: traceOperation,
+      reason: 'no readable stream body',
+    });
     throw new Error('Gemini stream: pas de flux lisible (body)');
   }
+  const streamBodyStart = perfNowMs();
   const decoder = new TextDecoder();
   let lineBuf = '';
   let assembled = '';
@@ -760,26 +900,47 @@ async function postStreamGenerateContent(
       }
     }
   }
-  const tNet1 = perfNowMs();
-  labLog('stream.request.timing', { model: modelId, ms: Math.round(tNet1 - tNet0), chars: assembled.length });
+  const streamBodyEnd = perfNowMs();
+  const streamLatencyMs = Math.round(streamBodyEnd - streamBodyStart);
+  labLog('stream.request.timing', { model: modelId, ms: streamLatencyMs, chars: assembled.length });
   const out = assembled.trim();
-  if (!out) throw new Error('Gemini stream: réponse vide');
+  if (!out) {
+    logGeminiApiCallError({
+      modelId,
+      latencyMs: streamLatencyMs,
+      fallbackUsed: computeGeminiIsFallback(modelId, usedRecoverRetry),
+      operation: traceOperation,
+      reason: 'empty stream text',
+    });
+    throw new Error('Gemini stream: réponse vide');
+  }
+  logGeminiApiCallSuccess({
+    modelId,
+    latencyMs: streamLatencyMs,
+    fallbackUsed: computeGeminiIsFallback(modelId, usedRecoverRetry),
+    operation: traceOperation,
+  });
   return out;
 }
 
 /**
- * One-tap « filaire » : une ligne compacte (pas de JSON) — latence et parsing réduits.
+ * **Path B (non stream)** — une ligne `KEY:value|…` pour l’affinage one-tap (voir préfixe système dans le fichier).
+ * Utilisé quand `useStream: false` dans {@link refineOneTapWithGeminiCompressed}.
  */
 export async function geminiGenerateOneTapCompressedLine(prompt: string): Promise<string> {
   const trimmed = String(prompt || '').trim();
   if (!trimmed) throw new Error('Gemini: prompt vide');
   const t0 = perfNowMs();
-  const data = await postGenerateContent({
-    contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
-    generationConfig: {
-      maxOutputTokens: 256,
+  const data = await postGenerateContent(
+    {
+      contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
+      generationConfig: {
+        maxOutputTokens: 256,
+      },
     },
-  });
+    undefined,
+    'oneTap.wire.nonstream',
+  );
   const raw = extractTextFromGenerateResponse(data).replace(/\s+/g, ' ').trim();
   const t1 = perfNowMs();
   labLog('geminiGenerateOneTapCompressedLine.timing', {
@@ -792,7 +953,8 @@ export async function geminiGenerateOneTapCompressedLine(prompt: string): Promis
 }
 
 /**
- * Même contrat que {@link geminiGenerateOneTapCompressedLine} avec tokens incrémentaux (UI optimiste).
+ * **Path B (stream)** — même contrat que {@link geminiGenerateOneTapCompressedLine} avec tokens incrémentaux
+ * (`onAccumulatedText`) pour mettre à jour la modale one-tap avant la fin du flux réseau.
  */
 export async function geminiStreamOneTapCompressedLine(
   prompt: string,
@@ -809,6 +971,8 @@ export async function geminiStreamOneTapCompressedLine(
       },
     },
     onAccumulatedText,
+    undefined,
+    'oneTap.wire.stream',
   );
   const t1 = perfNowMs();
   labLog('geminiStreamOneTapCompressedLine.timing', {

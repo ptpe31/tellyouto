@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { FocusCapsuleScreen } from '../components/FocusCapsule';
 import { useSaturation } from '../context/SaturationContext';
 import { SemanticBrainLabScreen } from '../screens/SemanticBrainLabScreen';
-import { TalkDebugScreen } from '../screens/TalkDebugScreen';
 import { AppNavigator } from './AppNavigator';
 import type { MainStackParamList } from './types';
 
@@ -34,15 +33,6 @@ export function MainStack() {
         options={{
           headerShown: true,
           title: t('navigation.semanticBrainLabHeader'),
-          presentation: 'card',
-        }}
-      />
-      <Stack.Screen
-        name="TalkDebug"
-        component={TalkDebugScreen}
-        options={{
-          headerShown: true,
-          title: 'Talk Debug',
           presentation: 'card',
         }}
       />

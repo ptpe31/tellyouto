@@ -75,7 +75,7 @@ function flagForLanguage(lang: AppLanguage): string {
 }
 
 function resolvePostOnboardingTab(): keyof AppTabParamList {
-  return 'TalkDebug';
+  return 'TalkHome';
 }
 
 export function LanguageSelectionScreen({ onComplete }: LanguageSelectionScreenProps) {

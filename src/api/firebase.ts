@@ -1,11 +1,13 @@
+import './firebaseIndexedDbGuard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getApps, initializeApp, type FirebaseApp } from 'firebase/app';
+import { getApps, initializeApp, type FirebaseApp } from '@firebase/app';
 import {
   getAuth,
+  initializeAuth,
   signInAnonymously,
   type Auth,
   type User,
-} from 'firebase/auth';
+} from '@firebase/auth';
 import {
   addDoc,
   collection,
@@ -19,32 +21,26 @@ import {
   readExpoPublicFirebaseConfig,
 } from '../config/firebaseConfig';
 
-/** Entrée RN du SDK — les .d.ts « navigateur » n’exportent pas getReactNativePersistence. */
+/** Entrée RN : persistance disque via AsyncStorage (évite la persistance mémoire seule). */
 function initAuthWithAsyncStoragePersistence(app: FirebaseApp): Auth {
-  const {
-    initializeAuth,
-    getAuth: getAuthMod,
-    getReactNativePersistence,
-  } = require('firebase/auth') as {
-    initializeAuth: (
-      a: FirebaseApp,
-      opts: { persistence: unknown },
-    ) => Auth;
-    getAuth: (a: FirebaseApp) => Auth;
-    getReactNativePersistence: (storage: typeof AsyncStorage) => unknown;
+  const { getReactNativePersistence } = require('@firebase/auth') as {
+    getReactNativePersistence: (storage: typeof AsyncStorage) => import('@firebase/auth').Persistence;
   };
   try {
     return initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage),
+      persistence: getReactNativePersistence(AsyncStorage) as import('@firebase/auth').Persistence,
     });
   } catch {
-    return getAuthMod(app);
+    return getAuth(app);
   }
 }
 
 /**
  * Configuration Firebase — uniquement via `process.env.EXPO_PUBLIC_*` (`.env` / EAS).
  * Projet GCP officiel : `tellmeto-4f3c7` (ne pas confondre avec le slug d’app `talkndone`).
+ *
+ * **Remote Config (Expo / natif)** : le SDK web utilise IndexedDB si disponible ; sur Hermes on importe
+ * `firebaseIndexedDbGuard` en premier pour éviter les crashs et forcer le stockage mémoire RC.
  */
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',
@@ -72,7 +68,7 @@ function logFirebaseMissingEnv(): void {
   firebaseInitLogged = true;
   console.warn(
     '[TalkNDone] Firebase non configuré : variables EXPO_PUBLIC_FIREBASE_* absentes au bundle. ' +
-      'Renomme la racine `env` → `.env` (Expo ne lit que `.env`), puis relance : npx expo start -c',
+      'Copie `env.example` vers `.env` à la racine, renseigne EXPO_PUBLIC_FIREBASE_*, puis relance : npx expo start -c',
   );
 }
 

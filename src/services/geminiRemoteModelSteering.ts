@@ -1,16 +1,52 @@
 /**
- * Pilotage du modèle Gemini via Firebase Remote Config (`active_gemini_model`).
- * Fail-safe : si Firebase / RC est indisponible → {@link GEMINI_SAFE_DEFAULT_MODEL_ID}.
- * Self-healing : sur erreur HTTP Gemini 404/503 ou échec RC avec clé dispo → `listModels` + cache + AsyncStorage 24h.
+ * **Remote steering** du modèle Gemini utilisé par toutes les routes REST (`:generateContent` / `:streamGenerateContent`).
  *
+ * ## Chaîne de résolution (démarrage / refresh RC)
+ * 1. **Remote Config** — clé `active_gemini_model`, lue après `fetchAndActivate`. Toujours **prioritaire** : le cache
+ *    mémoire reprend la valeur RC (ou {@link GEMINI_SAFE_DEFAULT_MODEL_ID} si la clé est vide / invalide).
+ * 2. **Vidage du secours** — dès que le RC est lu avec succès (fetch + lecture param), le stockage
+ *    {@link GEMINI_FALLBACK_STORAGE_KEY} est **effacé** : plus d’override silencieux au boot depuis AsyncStorage.
+ * 3. **Firebase absent ou exception RC** — cache = {@link GEMINI_SAFE_DEFAULT_MODEL_ID}, puis tentative
+ *    {@link tryRecoverFromListModels} si clé API présente (sans relire AsyncStorage en secours silencieux).
+ *
+ * ## Self-healing (après échec **appel modèle** 404 / 503)
+ * Les appelants déclenchent {@link recoverGeminiModelViaListModels} → `listModels` → modèle préféré → persistance
+ * 24h + mise à jour du cache **en mémoire** pour la session. Au prochain **refresh RC réussi**, le secours disque est
+ * vidé et la valeur RC reprend la main.
+ *
+ * **Override manuel Debug** — {@link applyGeminiLocalModelOverride} écrit encore le secours 24h + cache ; un refresh RC
+ * réussi le **remplace** par la valeur RC et vide le disque (comportement aligné sur « RC prioritaire »).
+ *
+ * Le **modèle effectif** pour une requête est {@link getActiveGeminiModelId} (RC au boot, puis self-heal en session si besoin).
+ *
+ * @see {@link forceRefreshGeminiRemoteConfig} — écran Debug : forcer un nouveau fetch RC.
+ * @see {@link applyGeminiLocalModelOverride} — check santé IA : appliquer un gagnant local 24h.
  * @module geminiRemoteModelSteering
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ensureFirebaseAnonymousAuth, getFirebaseApp } from '../api/firebase';
 import { fetchAndActivate, getRemoteConfig, getValue } from 'firebase/remote-config';
 
-import { ensureFirebaseAnonymousAuth, getFirebaseApp } from '../api/firebase';
 import { fetchAllGeminiModelsList, pickPreferredGeminiModelId } from './geminiModelCatalog';
+
+/** Erreurs plateforme RC (IndexedDB / Hermes) — pas d’avertissement console, repli sur valeurs locales ou défaut. */
+function isBenignRemoteConfigPlatformError(e: unknown): boolean {
+  const code =
+    typeof e === 'object' && e !== null && 'code' in e
+      ? String((e as { code?: string }).code ?? '')
+      : '';
+  const msg = e instanceof Error ? e.message : String(e);
+  const bundle = `${code} ${msg}`.toLowerCase();
+  return (
+    bundle.includes('indexeddb') ||
+    bundle.includes('indexed db') ||
+    bundle.includes('storage-open') ||
+    bundle.includes('idb') ||
+    bundle.includes('indexeddb-unavailable') ||
+    (bundle.includes('property') && bundle.includes("doesn't exist") && bundle.includes('indexed'))
+  );
+}
 
 /** Valeur RC attendue côté console Firebase. */
 export const REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL = 'active_gemini_model';
@@ -19,6 +55,8 @@ export const REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL = 'active_gemini_model';
 export const GEMINI_SAFE_DEFAULT_MODEL_ID = 'gemini-1.5-flash-latest';
 
 let cachedActiveGeminiModelId: string = GEMINI_SAFE_DEFAULT_MODEL_ID;
+/** Dernière valeur lue depuis le paramètre RC `active_gemini_model` (fetch réussi). `null` si Firebase absent ou exception hors try RC. */
+let lastRemoteConfigResolvedModelId: string | null = null;
 let steeringInitPromise: Promise<void> | null = null;
 
 /** Secours local après self-heal (24h). */
@@ -32,21 +70,6 @@ function sanitizeRemoteModelId(raw: string): string | null {
   return s;
 }
 
-async function readStoredFallbackModelId(): Promise<string | null> {
-  try {
-    const raw = await AsyncStorage.getItem(GEMINI_FALLBACK_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { modelId?: string; expiresAtMs?: number };
-    if (typeof parsed.expiresAtMs !== 'number' || parsed.expiresAtMs <= Date.now()) {
-      await AsyncStorage.removeItem(GEMINI_FALLBACK_STORAGE_KEY);
-      return null;
-    }
-    return sanitizeRemoteModelId(String(parsed.modelId ?? ''));
-  } catch {
-    return null;
-  }
-}
-
 async function persistFallbackModelFor24h(modelId: string): Promise<void> {
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) return;
@@ -56,19 +79,19 @@ async function persistFallbackModelFor24h(modelId: string): Promise<void> {
   );
 }
 
-/**
- * Si un secours AsyncStorage (< 24h) existe, il remplace le cache (priorité sur RC défaillante).
- */
-async function applyPersistedFallbackIfValid(): Promise<void> {
-  const fb = await readStoredFallbackModelId();
-  if (fb) {
-    cachedActiveGeminiModelId = fb;
-    if (__DEV__) {
-      console.log(`[GeminiSteering] fallback AsyncStorage actif → ${fb}`);
-    }
+/** Efface le secours disque (appelé dès qu’un refresh RC a réussi — RC reprend la priorité). */
+async function clearPersistedFallbackModel(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(GEMINI_FALLBACK_STORAGE_KEY);
+  } catch {
+    /* best effort */
   }
 }
 
+/**
+ * Appelle l’API `listModels`, choisit un id via {@link pickPreferredGeminiModelId}, persiste et met à jour le cache.
+ * @internal
+ */
 async function tryRecoverFromListModels(apiKey: string): Promise<string | null> {
   try {
     const models = await fetchAllGeminiModelsList(apiKey);
@@ -76,9 +99,9 @@ async function tryRecoverFromListModels(apiKey: string): Promise<string | null> 
     if (!picked) return null;
     await persistFallbackModelFor24h(picked);
     cachedActiveGeminiModelId = picked;
-    if (__DEV__) {
-      console.log(`[GeminiSteering] listModels → ${picked} (${models.length} modèles)`);
-    }
+    console.log(
+      `[GeminiSteering] 🛠️ SELF_HEALING_TRIGGERED\n| Found: ${models.length} models\n| New Local Choice: ${picked}`,
+    );
     return picked;
   } catch (e) {
     if (__DEV__) {
@@ -89,7 +112,10 @@ async function tryRecoverFromListModels(apiKey: string): Promise<string | null> 
 }
 
 /**
- * Après HTTP 404 / 503 sur `:generateContent` ou équivalent : détection locale + persistance 24h.
+ * **Self-healing** après HTTP **404** ou **503** sur `:generateContent` / stream : interroge `listModels`,
+ * sélectionne un modèle préféré, enregistre le secours 24h et met à jour le cache.
+ *
+ * @returns L’id du modèle choisi, ou `null` si pas de clé API ou échec réseau.
  */
 export async function recoverGeminiModelViaListModels(): Promise<string | null> {
   const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
@@ -102,20 +128,56 @@ export function getActiveGeminiModelId(): string {
   return cachedActiveGeminiModelId;
 }
 
+/** Modèle issu du dernier fetch RC (sans tenir compte du secours local 24h). */
+export function getLastRemoteConfigResolvedModelId(): string | null {
+  return lastRemoteConfigResolvedModelId;
+}
+
 /**
- * Télécharge / active Remote Config et met à jour le cache du modèle.
- * Sans Firebase configuré : cache = {@link GEMINI_SAFE_DEFAULT_MODEL_ID}.
+ * Force un nouveau fetch RC (ignore la promesse d’init partagée une fois).
+ */
+export async function forceRefreshGeminiRemoteConfig(): Promise<void> {
+  steeringInitPromise = null;
+  const p = refreshGeminiModelFromRemoteConfig();
+  steeringInitPromise = p;
+  await p;
+}
+
+/**
+ * Applique un modèle choisi manuellement (ex. **check santé IA** sur l’écran Debug) : persistance
+ * {@link GEMINI_FALLBACK_STORAGE_KEY} + mise à jour du cache mémoire pour la session en cours.
+ * Un **refresh RC réussi** (`forceRefreshGeminiRemoteConfig` / init) réapplique la valeur RC et **vide** ce secours.
+ *
+ * @throws Si l’id ne passe pas {@link sanitizeRemoteModelId}.
+ */
+export async function applyGeminiLocalModelOverride(modelId: string): Promise<void> {
+  const clean = sanitizeRemoteModelId(modelId);
+  if (!clean) {
+    throw new Error('applyGeminiLocalModelOverride: invalid model id');
+  }
+  await persistFallbackModelFor24h(clean);
+  cachedActiveGeminiModelId = clean;
+}
+
+/**
+ * Pipeline principal : authent anonyme si besoin, `fetchAndActivate` RC, lecture `active_gemini_model`,
+ * mise à jour de {@link lastRemoteConfigResolvedModelId} et du cache, puis **vidage** du secours AsyncStorage
+ * ({@link clearPersistedFallbackModel}) pour que la valeur RC reste prioritaire au prochain cold start.
+ *
+ * En cas d’exception RC : défaut + {@link tryRecoverFromListModels} si clé API (sans relire le secours disque).
+ *
+ * @remarks Intervalle minimal entre fetch RC : 60s en `__DEV__`, 4h en production (paramètre SDK client).
  */
 export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
   const app = getFirebaseApp();
   if (!app) {
+    lastRemoteConfigResolvedModelId = null;
     cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
     if (__DEV__) {
       console.log(
         `[GeminiSteering] Firebase absent — modèle par défaut ${GEMINI_SAFE_DEFAULT_MODEL_ID}`,
       );
     }
-    await applyPersistedFallbackIfValid();
     return;
   }
 
@@ -133,11 +195,13 @@ export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
     const raw = getValue(rc, REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL).asString();
     const clean = sanitizeRemoteModelId(raw);
     if (clean) {
+      lastRemoteConfigResolvedModelId = clean;
       cachedActiveGeminiModelId = clean;
       if (__DEV__) {
         console.log(`[GeminiSteering] ${REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL}=${clean}`);
       }
     } else {
+      lastRemoteConfigResolvedModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
       cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
       if (__DEV__) {
         console.log(
@@ -145,23 +209,23 @@ export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
         );
       }
     }
-    await applyPersistedFallbackIfValid();
+    await clearPersistedFallbackModel();
   } catch (e) {
+    lastRemoteConfigResolvedModelId = null;
     cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-    if (__DEV__) {
+    if (__DEV__ && !isBenignRemoteConfigPlatformError(e)) {
       console.warn('[GeminiSteering] Remote Config indisponible', e);
     }
     const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
-    const recovered = key ? await tryRecoverFromListModels(key) : null;
-    if (!recovered) {
-      await applyPersistedFallbackIfValid();
+    if (key) {
+      await tryRecoverFromListModels(key);
     }
   }
 }
 
 /**
- * Une seule promesse partagée au démarrage : fetch RC + cache.
- * Peut être rappelée sans coût (même promesse).
+ * Initialise une seule fois le steering (promesse partagée). Les appels suivants retournent la même promesse
+ * jusqu’à ce que {@link forceRefreshGeminiRemoteConfig} réinitialise le singleton.
  */
 export function ensureGeminiRemoteModelInitialized(): Promise<void> {
   if (!steeringInitPromise) {

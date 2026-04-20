@@ -5,7 +5,7 @@ import {
   OAuthProvider,
   linkWithCredential,
   type User,
-} from 'firebase/auth';
+} from '@firebase/auth';
 
 import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from './firebase';
 
