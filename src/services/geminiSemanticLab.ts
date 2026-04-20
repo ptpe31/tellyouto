@@ -1,34 +1,29 @@
 /**
- * Appels directs Google AI (Gemini Flash) pour le lab sémantique.
+ * Appels directs Google AI (Gemini) pour le lab sémantique.
  * Clé : EXPO_PUBLIC_GEMINI_API_KEY — réservée aux builds de test (exposée client).
- * Modèle : EXPO_PUBLIC_GEMINI_MODEL (défaut gemini-1.5-flash-latest).
+ * Modèle : Firebase Remote Config `active_gemini_model` (voir {@link geminiRemoteModelSteering}),
+ * défaut `gemini-1.5-flash-latest` tant que RC n’est pas chargé ou en erreur.
  *
- * Résolution : `expo.extra` (injecté par app.config.js depuis `.env`) puis process.env.
+ * **Fail-fast** : un seul modèle, aucune cascade / liste de secours (latence prévisible).
  *
- * **Streaming / audio** : ce module utilise `generateContent` **non streamé** (réponse complète).
- * Le flux Talk Debug **One-Tap** envoie le **texte** déjà transcrit (expo-speech-recognition), pas l’audio :
- * pas d’attente de fichier audio pour Gemini sur ce chemin. Pour du streaming token-par-token, il faudrait
- * brancher l’API `streamGenerateContent` + parse incrémental du JSON (hors scope actuel).
+ * **Streaming / audio** : `generateContent` non streamé par défaut ; one-tap filaire utilise `streamGenerateContent`.
  */
 
 import Constants from 'expo-constants';
 
+import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
 
-const DEFAULT_MODEL = 'gemini-1.5-flash-latest';
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const FALLBACK_MODELS = [
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
-  'gemini-flash-latest',
-  'gemini-2.0-flash-lite',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash',
-] as const;
+
+function perfNowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
 
 type GeminiExtra = {
   geminiApiKey?: string;
-  geminiModel?: string;
 };
 
 function readGeminiExtra(): GeminiExtra {
@@ -80,36 +75,9 @@ export function getGeminiApiKey(): string | undefined {
   return k || undefined;
 }
 
+/** Modèle unique piloté par Remote Config (cache démarrage). */
 export function getGeminiModelId(): string {
-  const fromExtra = readGeminiExtra().geminiModel?.trim();
-  const fromEnv = process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim();
-  const configured = fromExtra || fromEnv;
-  if (!configured) {
-    labLog('model.resolve', {
-      fromExtra: fromExtra || null,
-      fromEnv: fromEnv || null,
-      resolved: DEFAULT_MODEL,
-      reason: 'no_configured_model',
-    });
-    return DEFAULT_MODEL;
-  }
-  // Gemini 2.0 Flash can be unavailable for new/free accounts.
-  if (configured.includes('gemini-2.0-flash')) {
-    labLog('model.resolve', {
-      fromExtra: fromExtra || null,
-      fromEnv: fromEnv || null,
-      resolved: DEFAULT_MODEL,
-      reason: 'configured_model_is_2_0_flash',
-    });
-    return DEFAULT_MODEL;
-  }
-  labLog('model.resolve', {
-    fromExtra: fromExtra || null,
-    fromEnv: fromEnv || null,
-    resolved: configured,
-    reason: 'configured_model',
-  });
-  return configured;
+  return getActiveGeminiModelId();
 }
 
 export type GeminiLabAnalysis = {
@@ -119,134 +87,94 @@ export type GeminiLabAnalysis = {
   reasoning: string;
 };
 
-function buildGenerateUrl(modelOverride?: string): string {
+function buildGenerateUrl(modelId: string): string {
   const key = getGeminiApiKey();
   if (!key) {
     throw new Error(
       'Gemini: clé absente. Définis EXPO_PUBLIC_GEMINI_API_KEY dans `.env` à la racine, puis `npx expo prebuild` ou relance Metro avec cache vidé.',
     );
   }
-  const model = modelOverride || getGeminiModelId();
-  return `${BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+  return `${BASE}/models/${modelId}:generateContent?key=${encodeURIComponent(key)}`;
 }
 
-type GeminiModelsListResponse = {
-  models?: Array<{
-    name?: string;
-    supportedGenerationMethods?: string[];
-  }>;
-};
+function withLightGenerationConfig(body: object): object {
+  const raw = body as { generationConfig?: Record<string, unknown> };
+  const generationConfig = raw.generationConfig ?? {};
+  return {
+    ...raw,
+    generationConfig: {
+      ...generationConfig,
+      // Ultra-low latency (Path B + lab) — les champs explicites l’emportent sur le corps appelant.
+      temperature: 0.1,
+      topP: 0.1,
+      topK: 1,
+      candidateCount: 1,
+    },
+  };
+}
 
-let cachedGenerateContentModels: string[] | null = null;
-
-async function listGenerateContentModels(): Promise<string[]> {
-  if (cachedGenerateContentModels) return cachedGenerateContentModels;
-  const key = getGeminiApiKey();
-  if (!key) return [];
-  const url = `${BASE}/models?key=${encodeURIComponent(key)}`;
-  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
-  try {
-    labLog('models.list.start', { endpoint: safeUrl });
-    const res = await fetch(url);
-    const text = await res.text();
-    if (!res.ok) {
-      labLog('models.list.error', {
-        status: res.status,
-        preview: text.slice(0, 220),
-      });
-      return [];
+function sumTextPayloadCharsFromGenerateBody(body: object): number {
+  const contents = (body as { contents?: { parts?: { text?: string }[] }[] }).contents;
+  if (!Array.isArray(contents)) return 0;
+  let n = 0;
+  for (const c of contents) {
+    const parts = c?.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const p of parts) {
+      if (p && typeof p.text === 'string') n += p.text.length;
     }
-    const parsed = JSON.parse(text) as GeminiModelsListResponse;
-    const models = (parsed.models ?? [])
-      .filter((m) => Array.isArray(m.supportedGenerationMethods))
-      .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
-      .map((m) => String(m.name || '').replace(/^models\//, '').trim())
-      .filter(Boolean);
-    cachedGenerateContentModels = Array.from(new Set(models));
-    labLog('models.list.success', {
-      count: cachedGenerateContentModels.length,
-      sample: cachedGenerateContentModels.slice(0, 10),
-    });
-    return cachedGenerateContentModels;
-  } catch (error) {
-    labLog('models.list.exception', {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return [];
   }
-}
-
-async function computeModelCandidates(modelOverride?: string): Promise<string[]> {
-  const configured = modelOverride || getGeminiModelId();
-  const preferred = [configured, DEFAULT_MODEL, ...FALLBACK_MODELS];
-  const available = await listGenerateContentModels();
-  if (!available.length) {
-    return Array.from(new Set(preferred));
-  }
-  const preferredAvailable = preferred.filter((m) => available.includes(m));
-  const full = [...preferredAvailable, ...available];
-  return Array.from(new Set(full));
+  return n;
 }
 
 async function postGenerateContent(body: object, modelOverride?: string): Promise<unknown> {
-  const audioKb = sumAudioPayloadKbFromGenerateBody(body);
+  const effectiveBody = withLightGenerationConfig(body);
+  const audioKb = sumAudioPayloadKbFromGenerateBody(effectiveBody);
   console.log(`[GeminiLab] Audio Payload Size: ${audioKb.toFixed(2)} KB`);
-
-  const candidates = await computeModelCandidates(modelOverride);
-  let lastError: Error | null = null;
-
-  for (const model of candidates) {
-    const url = buildGenerateUrl(model);
-    const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
-    labLog('request.start', {
-      model,
-      hasOverride: Boolean(modelOverride),
-      endpoint: safeUrl,
-      candidateCount: candidates.length,
-    });
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    labLog('request.response', {
-      model,
-      status: res.status,
-      ok: res.ok,
-      preview: text.slice(0, 220),
-    });
-
-    if (res.ok) {
-      try {
-        return JSON.parse(text) as unknown;
-      } catch {
-        throw new Error(`Gemini: réponse non-JSON (${text.slice(0, 200)})`);
-      }
-    }
-
-    const looksLikeMissingModel =
-      res.status === 404 &&
-      (text.includes('is no longer available to new users') ||
-        text.includes('NOT_FOUND') ||
-        text.includes('models/'));
-    if (looksLikeMissingModel) {
-      labLog('request.retry_fallback', {
-        fromModel: model,
-        status: res.status,
-      });
-      lastError = new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
-      continue;
-    }
-    throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
+  const textChars = sumTextPayloadCharsFromGenerateBody(effectiveBody);
+  if (textChars > 0) {
+    console.log(`[GeminiLab] Text Payload Size: ${textChars} chars`);
   }
 
-  throw (
-    lastError ||
-    new Error(
-      `Gemini: aucun modèle compatible generateContent trouvé (candidats testés: ${candidates.join(', ')})`,
-    )
-  );
+  const model = modelOverride || getActiveGeminiModelId();
+  const url = buildGenerateUrl(model);
+  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+  const tNet0 = perfNowMs();
+  labLog('request.start', {
+    model,
+    hasOverride: Boolean(modelOverride),
+    endpoint: safeUrl,
+    tNet0: Math.round(tNet0),
+  });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(effectiveBody),
+  });
+  const text = await res.text();
+  const tNet1 = perfNowMs();
+  labLog('request.timing', {
+    model,
+    ms: Math.round(tNet1 - tNet0),
+    status: res.status,
+    ok: res.ok,
+  });
+  labLog('request.response', {
+    model,
+    status: res.status,
+    ok: res.ok,
+    preview: text.slice(0, 220),
+  });
+
+  if (res.ok) {
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(`Gemini: réponse non-JSON (${text.slice(0, 200)})`);
+    }
+  }
+
+  throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
 }
 
 function extractTextFromGenerateResponse(data: unknown): string {
@@ -622,15 +550,15 @@ Transcription:
 """${safe.replace(/"/g, '\\"')}"""
 
 Return exactly this shape (keys in English as shown):
-{"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "qty": number, "unit": string, "scalable": boolean}]}]}
+{"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "baseQuantity": number, "unit": string, "scalable": boolean}]}]}
 
 Rules:
 - title: short explicit name (e.g. "Weekly groceries", "Trade show kit").
-- baseCount: usually 1 (reference headcount or base unit for the list).
+- baseCount: number of people or portions implied in the dictation (default 1 if unclear).
 - unitLabel: short label for what the multiplier scales (e.g. "personne", "guest", "day").
 - categories: logical groups (e.g. "Fresh", "Dry goods").
-- items: name clear; qty is quantity for ONE base unit; unit must be one of: g, kg, piece, cl, l.
-- scalable: true if quantity should scale when the user changes the multiplier (e.g. pasta portions); false for fixed items (e.g. toothpaste tube).`;
+- items: name clear; **baseQuantity** is always the amount for **exactly one** person (or one base unit), never the total for the whole group; unit must be one of: g, kg, piece, cl, l.
+- scalable: true if the amount should scale with headcount (ingredients, portions); false for fixed one-off items (e.g. one toothpaste tube for the household).`;
 
   const data = await postGenerateContent({
     contents: [{ parts: [{ text: prompt }] }],
@@ -654,21 +582,197 @@ Rules:
  * @param prompt — Texte complet du prompt (consignes + contexte).
  * @returns Texte brut du premier candidat (souvent du JSON).
  */
+const JSON_EXTRACTOR_PREFIX =
+  'You are a JSON extractor. Output ONLY raw JSON. No chat, no markdown.\n\n';
+
 export async function geminiGenerateTextUserPrompt(prompt: string): Promise<string> {
   const trimmed = String(prompt || '').trim();
   if (!trimmed) {
     throw new Error('Gemini: prompt vide');
   }
+  const t0 = perfNowMs();
   const data = await postGenerateContent({
-    contents: [{ parts: [{ text: trimmed }] }],
+    contents: [{ parts: [{ text: `${JSON_EXTRACTOR_PREFIX}${trimmed}` }] }],
     generationConfig: {
-      temperature: 0.22,
-      maxOutputTokens: 4096,
+      responseMimeType: 'application/json',
+      maxOutputTokens: 2048,
     },
   });
   const raw = extractTextFromGenerateResponse(data);
+  const t1 = perfNowMs();
+  labLog('geminiGenerateTextUserPrompt.timing', {
+    ms: Math.round(t1 - t0),
+    promptChars: trimmed.length,
+  });
   if (!raw) {
     throw new Error('Gemini: réponse texte vide');
   }
   return raw;
+}
+
+const ONETAP_WIRE_SYSTEM_PREFIX =
+  'You compress a voice note into ONE single line. Pipe-separated KEY:value segments. ' +
+  'Allowed keys: P (TASK|RECURRING_TASK|HABIT|LIST|ANNIVERSARY|NOTE), K (short domain tag), T (title max 90 chars, never use the pipe character inside values), ' +
+  'D (due date YYYY-MM-DD or empty), H (time HH:mm 24h or empty), N (short notes, no pipes), L (LIST only: item names separated by semicolons), ' +
+  'A (ANNIVERSARY person name), G (ANNIVERSARY month-day MM-DD or YYYY-MM-DD), C (cadence / habit text), R (recurrence short text). ' +
+  'Output ONLY that line: no markdown, no JSON, no line breaks.\n\n';
+
+function buildStreamGenerateUrl(modelId: string): string {
+  const key = getGeminiApiKey();
+  if (!key) {
+    throw new Error(
+      'Gemini: clé absente. Définis EXPO_PUBLIC_GEMINI_API_KEY dans `.env` à la racine, puis `npx expo prebuild` ou relance Metro avec cache vidé.',
+    );
+  }
+  return `${BASE}/models/${modelId}:streamGenerateContent?key=${encodeURIComponent(key)}`;
+}
+
+function extractStreamedTextDelta(parsed: unknown): string {
+  const d = parsed as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const parts = d?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  let s = '';
+  for (const p of parts) {
+    if (p && typeof p.text === 'string') s += p.text;
+  }
+  return s;
+}
+
+function mergeGeminiStreamTextChunk(accumulated: string, nextPart: string): string {
+  const n = nextPart;
+  if (!n) return accumulated;
+  if (!accumulated) return n;
+  if (n.startsWith(accumulated)) return n;
+  if (accumulated.startsWith(n)) return accumulated;
+  return accumulated + n;
+}
+
+async function postStreamGenerateContent(
+  body: object,
+  onAccumulatedText: (full: string) => void,
+  modelOverride?: string,
+): Promise<string> {
+  const effectiveBody = withLightGenerationConfig(body);
+  const model = modelOverride || getActiveGeminiModelId();
+  const url = buildStreamGenerateUrl(model);
+  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+  const tNet0 = perfNowMs();
+  labLog('stream.request.start', { model, endpoint: safeUrl });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(effectiveBody),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    labLog('stream.request.error', { model, status: res.status, preview: errText.slice(0, 220) });
+    throw new Error(`Gemini stream: HTTP ${res.status}: ${errText.slice(0, 800)}`);
+  }
+  const reader = res.body?.getReader?.();
+  if (!reader) {
+    throw new Error('Gemini stream: pas de flux lisible (body)');
+  }
+  const decoder = new TextDecoder();
+  let lineBuf = '';
+  let assembled = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    lineBuf += decoder.decode(value, { stream: true });
+    const lines = lineBuf.split('\n');
+    lineBuf = lines.pop() ?? '';
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\r$/, '').trim();
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        const chunk = JSON.parse(payload) as unknown;
+        const delta = extractStreamedTextDelta(chunk);
+        if (delta) {
+          assembled = mergeGeminiStreamTextChunk(assembled, delta);
+          onAccumulatedText(assembled);
+        }
+      } catch {
+        // ignore malformed SSE JSON
+      }
+    }
+  }
+  if (lineBuf.trim()) {
+    const line = lineBuf.replace(/\r$/, '').trim();
+    if (line.startsWith('data:')) {
+      const payload = line.slice(5).trim();
+      if (payload && payload !== '[DONE]') {
+        try {
+          const chunk = JSON.parse(payload) as unknown;
+          const delta = extractStreamedTextDelta(chunk);
+          if (delta) {
+            assembled = mergeGeminiStreamTextChunk(assembled, delta);
+            onAccumulatedText(assembled);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+  const tNet1 = perfNowMs();
+  labLog('stream.request.timing', { model, ms: Math.round(tNet1 - tNet0), chars: assembled.length });
+  const out = assembled.trim();
+  if (!out) throw new Error('Gemini stream: réponse vide');
+  return out;
+}
+
+/**
+ * One-tap « filaire » : une ligne compacte (pas de JSON) — latence et parsing réduits.
+ */
+export async function geminiGenerateOneTapCompressedLine(prompt: string): Promise<string> {
+  const trimmed = String(prompt || '').trim();
+  if (!trimmed) throw new Error('Gemini: prompt vide');
+  const t0 = perfNowMs();
+  const data = await postGenerateContent({
+    contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
+    generationConfig: {
+      maxOutputTokens: 256,
+    },
+  });
+  const raw = extractTextFromGenerateResponse(data).replace(/\s+/g, ' ').trim();
+  const t1 = perfNowMs();
+  labLog('geminiGenerateOneTapCompressedLine.timing', {
+    ms: Math.round(t1 - t0),
+    promptChars: trimmed.length,
+    outChars: raw.length,
+  });
+  if (!raw) throw new Error('Gemini: réponse filaire vide');
+  return raw;
+}
+
+/**
+ * Même contrat que {@link geminiGenerateOneTapCompressedLine} avec tokens incrémentaux (UI optimiste).
+ */
+export async function geminiStreamOneTapCompressedLine(
+  prompt: string,
+  onAccumulatedText: (full: string) => void,
+): Promise<string> {
+  const trimmed = String(prompt || '').trim();
+  if (!trimmed) throw new Error('Gemini: prompt vide');
+  const t0 = perfNowMs();
+  const out = await postStreamGenerateContent(
+    {
+      contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
+      generationConfig: {
+        maxOutputTokens: 256,
+      },
+    },
+    onAccumulatedText,
+  );
+  const t1 = perfNowMs();
+  labLog('geminiStreamOneTapCompressedLine.timing', {
+    ms: Math.round(t1 - t0),
+    promptChars: trimmed.length,
+    outChars: out.length,
+  });
+  return out.replace(/\s+/g, ' ').trim();
 }

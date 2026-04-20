@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Modal,
   Platform,
   Pressable,
@@ -17,11 +19,15 @@ import { Bell, ChevronDown } from 'lucide-react-native';
 import { TimelineDatePickerLazy } from './TimelineDatePickerLazy';
 import type { OneTapPredictedType, OneTapUniversalResult } from '../services/oneTapUniversalCapture';
 import { ONE_TAP_PREDICTED_TYPES, mergeOneTapDataOnTypeChange } from '../services/oneTapUniversalCapture';
+import { printOneTapListDraft } from '../services/oneTapListPdf';
+import { listItemDisplayQuantity } from '../utils/listQuantityDisplay';
 
 export type OneTapConfirmModalProps = {
   visible: boolean;
   draft: OneTapUniversalResult | null;
   transcript: string;
+  /** Affinage Gemini en arrière-plan (dual-path). */
+  refinePhase?: 'idle' | 'local' | 'streaming' | 'done' | 'error';
   busy: boolean;
   onChangeDraft: (next: OneTapUniversalResult) => void;
   onChangeTranscript: (text: string) => void;
@@ -101,6 +107,7 @@ export function OneTapConfirmModal({
   visible,
   draft,
   transcript,
+  refinePhase = 'done',
   busy,
   onChangeDraft,
   onChangeTranscript,
@@ -111,6 +118,8 @@ export function OneTapConfirmModal({
   const insets = useSafeAreaInsets();
   const [menuOpen, setMenuOpen] = useState(false);
   const [dateTarget, setDateTarget] = useState<'TASK_DUE' | 'RECUR_NEXT' | 'UNIVERSAL_REMINDER' | null>(null);
+
+  const showRefiningBanner = refinePhase === 'streaming' || refinePhase === 'local';
 
   const typeLabels = useMemo(
     () =>
@@ -123,6 +132,20 @@ export function OneTapConfirmModal({
       ),
     [t],
   );
+
+  const onPrintList = useCallback(async () => {
+    if (!draft || draft.predictedType !== 'LIST') return;
+    try {
+      await printOneTapListDraft(draft);
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      const body =
+        raw === 'PRINT_NATIVE_MODULE_MISSING'
+          ? t('talkDebug.oneTapPrintNeedsNativeBuild')
+          : raw;
+      Alert.alert(t('talkDebug.oneTapPrintErrorTitle'), body);
+    }
+  }, [draft, t]);
 
   const hasUniversalReminder = useMemo(() => {
     if (!draft) return false;
@@ -260,7 +283,7 @@ export function OneTapConfirmModal({
     switch (draft.predictedType) {
       case 'LIST': {
         const list = (d.list && typeof d.list === 'object' ? d.list : {}) as Record<string, unknown>;
-        const baseCount = Math.max(1, Math.round(Number(list.baseCount ?? 1)));
+        const numberOfPeople = Math.max(1, Math.round(Number(list.baseCount ?? 1)));
         const unitLabel = String(list.unitLabel ?? 'personne');
         const cats = Array.isArray(list.categories) ? list.categories : [];
         return (
@@ -274,7 +297,7 @@ export function OneTapConfirmModal({
               >
                 <Text style={styles.stepBtnText}>−</Text>
               </Pressable>
-              <Text style={styles.countText}>{baseCount}</Text>
+              <Text style={styles.countText}>{numberOfPeople}</Text>
               <Pressable
                 style={[styles.stepBtn, busy && styles.disabled]}
                 disabled={busy}
@@ -305,11 +328,11 @@ export function OneTapConfirmModal({
                   {items.map((it, ii) => {
                     const ir = it as Record<string, unknown>;
                     const label = String(ir.name ?? '').trim() || '—';
-                    const qty = Number(ir.qty ?? 0);
+                    const displayQty = listItemDisplayQuantity(ir, numberOfPeople);
                     const unit = String(ir.unit ?? '');
                     const included = ir.includeInSave !== false;
                     const sub =
-                      qty > 0 ? `${qty}${unit ? ` ${unit}` : ''}` : '';
+                      displayQty > 0 ? `${displayQty}${unit ? ` ${unit}` : ''}` : '';
                     return (
                       <Pressable
                         key={`it-${ci}-${ii}`}
@@ -573,6 +596,12 @@ export function OneTapConfirmModal({
       <View style={[styles.backdrop, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>{t('talkDebug.oneTapResultTitle')}</Text>
+          {showRefiningBanner ? (
+            <View style={styles.refineBanner} accessibilityRole="progressbar">
+              <ActivityIndicator size="small" color="#0f766e" />
+              <Text style={styles.refineBannerText}>{t('talkDebug.oneTapRefiningHint')}</Text>
+            </View>
+          ) : null}
 
           <Text style={styles.label}>{t('talkDebug.oneTapTypeField')}</Text>
           <Menu
@@ -640,9 +669,15 @@ export function OneTapConfirmModal({
             />
           </ScrollView>
 
-          <View style={styles.actions}>
+          <View style={[styles.actions, draft.predictedType === 'LIST' ? styles.actionsWithPrint : null]}>
+            {draft.predictedType === 'LIST' ? (
+              <PaperButton mode="outlined" onPress={() => void onPrintList()} disabled={busy}>
+                {t('talkDebug.oneTapPrintList')}
+              </PaperButton>
+            ) : null}
+            <View style={styles.actionsSpacer} />
             <PaperButton mode="text" onPress={onDismiss} disabled={busy}>
-              {t('common.later')}
+              {t('common.cancel')}
             </PaperButton>
             <Pressable style={[styles.btn, styles.btnPrimary]} onPress={onConfirm} disabled={busy}>
               <Text style={styles.btnPrimaryText}>{t('talkDebug.oneTapConfirm')}</Text>
@@ -670,6 +705,18 @@ const styles = StyleSheet.create({
   },
   scroll: { maxHeight: '72%' },
   cardTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  refineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,128,128,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,128,128,0.2)',
+  },
+  refineBannerText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0f766e' },
   section: { marginTop: 8, marginBottom: 4 },
   reminderSection: {
     marginTop: 4,
@@ -755,6 +802,8 @@ const styles = StyleSheet.create({
   linkish: { alignSelf: 'flex-start', marginTop: 6, marginBottom: 4 },
   linkishText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 8 },
+  actionsWithPrint: { justifyContent: 'space-between', flexWrap: 'wrap' },
+  actionsSpacer: { flex: 1, minWidth: 8 },
   btn: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10 },
   btnPrimary: { backgroundColor: '#008080' },
   btnPrimaryText: { fontWeight: '800', color: '#fff' },

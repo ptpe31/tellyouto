@@ -38,6 +38,8 @@ export type TripTaskRow = {
 export type TrafficSample = {
   trafficDurationSec: number;
   staticDurationSec?: number;
+  simulatedNowMs?: number;
+  timeWarpFactor?: number;
 };
 
 /** Service externe: le scheduler ne va pas chercher le trafic lui-meme. */
@@ -50,6 +52,21 @@ export type TrafficNotificationService = {
   askSurveillanceActivation(task: TripTaskRow): Promise<void>;
   notifySurveillanceReminder(task: TripTaskRow): Promise<void>;
   triggerTopDepart(task: TripTaskRow, output: ExecuteTrafficScanOutput): Promise<void>;
+};
+
+export type TrafficMonitoringSnapshot = {
+  tripTaskId: string;
+  simulatedNowMs: number;
+  rawTrafficDurationSec: number;
+  nextJumpMs: number;
+  stabilizedTrafficDurationSec: number;
+  status: 'TOP_DEPART' | 'STILL_OVER' | 'FLUID';
+  bufferSafetyMin: number;
+};
+
+type TrafficSchedulerOptions = {
+  simulationMode?: boolean;
+  onMonitoringSnapshot?: (snapshot: TrafficMonitoringSnapshot) => void;
 };
 
 const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
@@ -117,11 +134,17 @@ function computeCriticalDepartureAtMs(arrivalAtMs: number, stabilizedTrafficSec:
  */
 export class TrafficScheduler {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private simulationMode = false;
+  private readonly onMonitoringSnapshot?: (snapshot: TrafficMonitoringSnapshot) => void;
 
   constructor(
     private readonly mapsService: MapsService,
-    private readonly notificationService: TrafficNotificationService = DEFAULT_NOTIFICATION_SERVICE
-  ) {}
+    private readonly notificationService: TrafficNotificationService = DEFAULT_NOTIFICATION_SERVICE,
+    options?: TrafficSchedulerOptions
+  ) {
+    this.simulationMode = options?.simulationMode === true;
+    this.onMonitoringSnapshot = options?.onMonitoringSnapshot;
+  }
 
   async start(): Promise<void> {
     await this.ensureSchema();
@@ -134,6 +157,41 @@ export class TrafficScheduler {
   stop(): void {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
+  }
+
+  setSimulationMode(enabled: boolean): void {
+    this.simulationMode = enabled;
+  }
+
+  async upsertTripTask(input: {
+    id: string;
+    destination: string;
+    arrivalAtMs: number;
+    status?: TrafficTaskStatus;
+    targetDurationSec: number;
+    lastTrafficDuration?: number;
+    internalScanCount?: number;
+    nextCheckAt?: number | null;
+  }): Promise<void> {
+    await this.ensureSchema();
+    await withLocalDatabase(async (db) => {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO trip_tasks (
+          id, destination, arrival_at_ms, status, target_duration_sec, last_traffic_duration,
+          internal_scan_count, next_check_at, gate_prompted_at, last_error_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        [
+          input.id,
+          input.destination,
+          input.arrivalAtMs,
+          input.status ?? 'ACTIVE',
+          input.targetDurationSec,
+          input.lastTrafficDuration ?? 0,
+          input.internalScanCount ?? 0,
+          input.nextCheckAt ?? null,
+        ]
+      );
+    });
   }
 
   async approveSurveillance(taskId: string): Promise<void> {
@@ -154,12 +212,16 @@ export class TrafficScheduler {
    * - event handling + persistance SQLite
    */
   async performTrafficCheck(taskId: string): Promise<void> {
-    const nowMs = Date.now();
+    const wallNowMs = Date.now();
     const task = await this.getTaskById(taskId);
     if (!task || task.status !== 'ACTIVE') return;
 
     try {
       const sample = await this.mapsService.fetchTrafficSample(task);
+      const nowMs =
+        this.simulationMode && Number.isFinite(Number(sample.simulatedNowMs))
+          ? Number(sample.simulatedNowMs)
+          : wallNowMs;
       const output = executeWatch4MeInternalScan({
         session: sessionFromTask(task),
         currentTrafficDurationSec: sample.trafficDurationSec,
@@ -172,6 +234,7 @@ export class TrafficScheduler {
         task.arrivalAtMs,
         output.stabilizedTrafficDurationSec
       );
+      const bufferSafetyMin = (criticalDepartureAt - nowMs) / 60_000;
 
       if (output.event === 'TOP_DEPART' || nowMs >= criticalDepartureAt) {
         await this.notificationService.triggerTopDepart(task, output);
@@ -180,6 +243,18 @@ export class TrafficScheduler {
       }
 
       const nextJumpMs = output.evaluation.nextJumpMs;
+      this.onMonitoringSnapshot?.({
+        tripTaskId: task.id,
+        simulatedNowMs: nowMs,
+        rawTrafficDurationSec: sample.trafficDurationSec,
+        nextJumpMs,
+        stabilizedTrafficDurationSec: output.stabilizedTrafficDurationSec,
+        status:
+          output.event === 'TOP_DEPART'
+            ? 'TOP_DEPART'
+            : output.evaluation.status,
+        bufferSafetyMin,
+      });
       await this.persistAfterScan(task.id, {
         lastTrafficDuration: output.stabilizedTrafficDurationSec,
         internalScanCount: output.nextSession.internalScanCount,
@@ -190,15 +265,15 @@ export class TrafficScheduler {
 
       const refreshed = await this.getTaskById(task.id);
       if (refreshed && refreshed.status === 'ACTIVE') {
-        await this.planTask(refreshed);
+        await this.planTask(refreshed, sample.timeWarpFactor);
       } else {
         this.clearTaskTimer(task.id);
       }
     } catch {
       await this.persistAfterScan(task.id, {
-        nextCheckAt: nowMs + SAFETY_JUMP_MS,
+        nextCheckAt: wallNowMs + SAFETY_JUMP_MS,
         status: 'ERROR',
-        lastErrorAt: nowMs,
+        lastErrorAt: wallNowMs,
       });
       const refreshed = await this.getTaskById(task.id);
       if (refreshed) {
@@ -208,7 +283,7 @@ export class TrafficScheduler {
     }
   }
 
-  private async planTask(task: TripTaskRow): Promise<void> {
+  private async planTask(task: TripTaskRow, timeWarpFactor?: number): Promise<void> {
     const nowMs = Date.now();
     const gapMin = remainingMinutesUntilArrival(task.arrivalAtMs, nowMs);
     const isFar = gapMin > CONFIRMATION_GATE_HOURS * 60;
@@ -228,7 +303,12 @@ export class TrafficScheduler {
 
     const nextJumpMs = calculateNextJump(gapMin);
     const targetAt = task.nextCheckAt ?? nowMs + nextJumpMs;
-    const delay = Math.max(500, targetAt - nowMs);
+    const rawDelay = Math.max(500, targetAt - nowMs);
+    const warp =
+      this.simulationMode && Number.isFinite(Number(timeWarpFactor))
+        ? Math.max(1, Number(timeWarpFactor))
+        : 1;
+    const delay = Math.max(200, Math.floor(rawDelay / warp));
     this.clearTaskTimer(task.id);
     const timer = setTimeout(() => {
       void this.performTrafficCheck(task.id);

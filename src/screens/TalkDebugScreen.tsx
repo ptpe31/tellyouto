@@ -11,7 +11,6 @@ import {
 } from 'expo-speech-recognition';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   DeviceEventEmitter,
   Dimensions,
@@ -46,8 +45,10 @@ import {
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
+import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
 import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
+import { VoiceMeteringWaveform } from '../components/VoiceMeteringWaveform';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import type { GeminiExpertIntention } from '../services/GeminiExpert';
 import {
@@ -82,8 +83,18 @@ import {
   type CaptureStrategyDeps,
   type PostCaptureEffectsConfig,
 } from '../services/captureStrategies';
-import { geminiOneTapUniversalFromTranscript, type OneTapUniversalResult } from '../services/oneTapUniversalCapture';
-import { persistOneTapDraft } from '../services/oneTapPersist';
+import {
+  inferOneTapSkeletonFromTranscript,
+  refineOneTapWithGeminiCompressed,
+  type OneTapUniversalResult,
+} from '../services/oneTapUniversalCapture';
+import {
+  finalizeOneTapOptimisticDraft,
+  persistOneTapDraft,
+  preSaveOneTapOptimisticDraft,
+  replacePendingOneTapDraft,
+} from '../services/oneTapPersist';
+import { cancelOneTapUniversalReminders } from '../services/oneTapUniversalReminders';
 
 function newId(): string {
   try {
@@ -99,19 +110,27 @@ type WritableDeviceCalendar = {
   color: string;
 };
 
+function perfNowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
 const LAST_CALENDAR_STORAGE_KEY = '@tellyouto/talk_debug_last_calendar_id';
 const CALENDAR_SYNC_PREFS_KEY = '@tellyouto/talk_debug_calendar_sync_prefs';
 const ALARM_SYNC_PREFS_KEY = '@tellyouto/talk_debug_alarm_sync_prefs';
 
-export function TalkDebugScreen() {
+export function TalkHomeScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const windowH = Dimensions.get('window').height;
-  const [captureStep, setCaptureStep] = useState<'idle' | 'recording' | 'analyzing'>('idle');
+  const [captureStep, setCaptureStep] = useState<'idle' | 'recording'>('idle');
   const [oneTapDraft, setOneTapDraft] = useState<OneTapUniversalResult | null>(null);
   const [oneTapModalVisible, setOneTapModalVisible] = useState(false);
+  const [oneTapRefinePhase, setOneTapRefinePhase] = useState<'idle' | 'local' | 'streaming' | 'done' | 'error'>('idle');
+  const [oneTapOptimisticId, setOneTapOptimisticId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
@@ -152,6 +171,7 @@ export function TalkDebugScreen() {
     taskAlarmIndexes: number[];
   }>(null);
   const recRef = useRef<Audio.Recording | null>(null);
+  const [meteringDb, setMeteringDb] = useState(-100);
   const liveScrollRef = useRef<ScrollView | null>(null);
   const deadlineCaptureActiveRef = useRef(false);
   const projectShellIdRef = useRef<string | null>(null);
@@ -287,6 +307,8 @@ export function TalkDebugScreen() {
     setProjectPlanPreview(null);
     setOneTapDraft(null);
     setOneTapModalVisible(false);
+    setOneTapRefinePhase('idle');
+    setMeteringDb(-100);
   }, []);
 
   const pushSuccessFeedback = useCallback((message: string) => {
@@ -493,7 +515,7 @@ export function TalkDebugScreen() {
   }, [t]);
 
   const startCapture = useCallback(async () => {
-    if (isRecording || busy || captureStep === 'analyzing') return;
+    if (isRecording || busy) return;
     if (!spectrum.isProUser) {
       const snap = await getFreeCaptureQuotaSnapshot();
       if (snap.remaining <= 0) {
@@ -507,6 +529,7 @@ export function TalkDebugScreen() {
     setTitleDraft('');
     setHasManualTitleEdit(false);
     setAudioUri(null);
+    setMeteringDb(-100);
     try {
       const ready = await ensureMicrophoneReady();
       if (!ready) return;
@@ -515,7 +538,13 @@ export function TalkDebugScreen() {
         playsInSilentModeIOS: true,
       });
       const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        VOICE_MEMO_LIGHT_RECORDING_OPTIONS,
+        (status) => {
+          if (typeof status.metering === 'number' && Number.isFinite(status.metering)) {
+            setMeteringDb(status.metering);
+          }
+        },
+        80,
       );
       recRef.current = recording;
       await ExpoSpeechRecognitionModule.start({
@@ -552,6 +581,8 @@ export function TalkDebugScreen() {
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
     } finally {
+      const t0 = perfNowMs();
+      console.log('[OneTapPerf] T0_CAPTURE_END', { t0: Math.round(t0) });
       setIsRecording(false);
       setIsPaused(false);
       const nextTranscript = rawTranscript;
@@ -568,14 +599,60 @@ export function TalkDebugScreen() {
         cleanedTranscript.trim();
       setTitleDraft(fallbackTitle);
       setHasManualTitleEdit(false);
-      setCaptureStep('analyzing');
+      const finalTxPre =
+        buildFinalTranscriptForCapture(nextTranscript, rawTranscript).trim() || cleanedTranscript;
+      const skeleton = inferOneTapSkeletonFromTranscript(cleanedTranscript, {
+        uiLocale: spectrum.locale || 'fr',
+        titleHint: fallbackTitle,
+      });
+      setOneTapDraft(skeleton);
+      setOneTapRefinePhase('local');
+      setOneTapModalVisible(true);
+      setCaptureStep('idle');
       void (async () => {
+        const t1 = perfNowMs();
+        console.log('[OneTapPerf] T1_DUAL_PATH_BACKGROUND', { t1: Math.round(t1) });
         try {
-          const { parsed, rawModelText } = await geminiOneTapUniversalFromTranscript(cleanedTranscript, {
-            uiLocale: spectrum.locale || 'fr',
+          const pre = await preSaveOneTapOptimisticDraft({
+            deps: captureStrategyDeps,
+            draft: skeleton,
+            transcript: finalTxPre,
+            habitsDefaultTitle: t('common.habits'),
+            birthdayLabel: t('talkDebug.birthdayLabel'),
           });
+          const intentionId = pre.ok ? pre.intentionId : null;
+          if (pre.ok) setOneTapOptimisticId(pre.intentionId);
+          else setOneTapOptimisticId(null);
+
+          setOneTapRefinePhase('streaming');
+          const gemStart = perfNowMs();
+          const { parsed, rawModelText } = await refineOneTapWithGeminiCompressed(cleanedTranscript, skeleton, {
+            uiLocale: spectrum.locale || 'fr',
+            useStream: true,
+            onPartial: (d) => setOneTapDraft(d),
+          });
+          const gemEnd = perfNowMs();
           setOneTapDraft(parsed);
-          setOneTapModalVisible(true);
+          setOneTapRefinePhase('done');
+          if (intentionId) {
+            const rep = await replacePendingOneTapDraft({
+              deps: captureStrategyDeps,
+              intentionId,
+              draft: parsed,
+              transcript: finalTxPre,
+              habitsDefaultTitle: t('common.habits'),
+              birthdayLabel: t('talkDebug.birthdayLabel'),
+            });
+            if (!rep.ok && __DEV__) {
+              console.warn('[OneTap] replacePendingOneTapDraft failed', rep.error);
+            }
+          }
+          const t3 = perfNowMs();
+          console.log('[OneTapPerf] T3_REFINE_DONE', {
+            t3: Math.round(t3),
+            geminiMs: Math.round(gemEnd - gemStart),
+            totalFromT1Ms: Math.round(t3 - t1),
+          });
           emitTalkDebug({
             mode: 'quick',
             at: Date.now(),
@@ -583,14 +660,15 @@ export function TalkDebugScreen() {
             geminiFullJson: JSON.stringify({ oneTap: parsed, rawModelText }, null, 2),
           });
         } catch (e) {
-          Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
-        } finally {
-          setCaptureStep('idle');
+          setOneTapRefinePhase('error');
+          showAppToast(t('talkDebug.oneTapRefineFailedToast'), 4200);
+          if (__DEV__) console.warn('[OneTap] refine error', e);
         }
       })();
     }
   }, [
     captureStep,
+    captureStrategyDeps,
     emitTalkDebug,
     isRecording,
     isTitleLocked,
@@ -820,17 +898,30 @@ export function TalkDebugScreen() {
     setBusy(true);
     try {
       const finalTranscript = buildFinalTranscriptForCapture(transcriptDraft, rawTranscript);
-      const res = await persistOneTapDraft({
-        deps: captureStrategyDeps,
-        draft: oneTapDraft,
-        transcript: finalTranscript,
-        habitsDefaultTitle: t('common.habits'),
-        birthdayLabel: t('talkDebug.birthdayLabel'),
-      });
+      const res = oneTapOptimisticId
+        ? await finalizeOneTapOptimisticDraft({
+            deps: captureStrategyDeps,
+            intentionId: oneTapOptimisticId,
+            draft: oneTapDraft,
+            transcript: finalTranscript,
+            habitsDefaultTitle: t('common.habits'),
+            birthdayLabel: t('talkDebug.birthdayLabel'),
+          })
+        : await persistOneTapDraft({
+            deps: captureStrategyDeps,
+            draft: oneTapDraft,
+            transcript: finalTranscript,
+            habitsDefaultTitle: t('common.habits'),
+            birthdayLabel: t('talkDebug.birthdayLabel'),
+          });
       if (!res.ok) {
         if (res.code === 'LIST_QUOTA') {
           showAppToast(t('talkDebug.listQuotaExhaustedToast'));
           navigation.navigate('Recharge');
+          return;
+        }
+        if (res.code === 'LIST_SELECTION') {
+          showAppToast(t('talkDebug.oneTapListNeedOneItem'));
           return;
         }
         throw res.error;
@@ -868,7 +959,13 @@ export function TalkDebugScreen() {
       }
       setOneTapModalVisible(false);
       setOneTapDraft(null);
+      setOneTapOptimisticId(null);
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       hardResetToIdle();
+      navigation.navigate('Timeline', {
+        initialTimeNav: 'TODAY',
+        initialContext: 'ALL',
+      });
     } catch (e) {
       await handleCaptureFlowError(e, { translate: t });
     } finally {
@@ -885,6 +982,7 @@ export function TalkDebugScreen() {
     maybeConsumeFreeCaptureSuccess,
     navigation,
     oneTapDraft,
+    oneTapOptimisticId,
     pushSuccessFeedback,
     rawTranscript,
     selectedCalendarId,
@@ -1153,24 +1251,31 @@ export function TalkDebugScreen() {
 
       <View style={styles.middleSpacer} />
 
-      <Modal visible={captureStep === 'analyzing'} transparent animationType="fade">
-        <View style={styles.analyzingBackdrop}>
-          <ActivityIndicator size="large" color="#008080" />
-          <Text style={styles.analyzingLabel}>{t('talkDebug.analyzingOneTap')}</Text>
-        </View>
-      </Modal>
-
       <OneTapConfirmModal
         visible={oneTapModalVisible}
         draft={oneTapDraft}
         transcript={transcriptDraft}
+        refinePhase={oneTapRefinePhase}
         busy={busy}
         onChangeDraft={setOneTapDraft}
         onChangeTranscript={setTranscriptDraft}
         onConfirm={() => void confirmOneTap()}
         onDismiss={() => {
-          setOneTapModalVisible(false);
-          setOneTapDraft(null);
+          void (async () => {
+            if (oneTapOptimisticId) {
+              try {
+                await cancelOneTapUniversalReminders(oneTapOptimisticId);
+                await deleteTrankilV2IntentionById(oneTapOptimisticId);
+              } catch {
+                /* ignore */
+              }
+              setOneTapOptimisticId(null);
+            }
+            setOneTapModalVisible(false);
+            setOneTapDraft(null);
+            setOneTapRefinePhase('idle');
+            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          })();
         }}
       />
 
@@ -1194,7 +1299,7 @@ export function TalkDebugScreen() {
               ref={(ref) => {
                 liveScrollRef.current = ref;
               }}
-              style={[styles.captureTranscriptScroll, { maxHeight: Math.min(280, windowH * 0.34) }]}
+              style={[styles.captureTranscriptScroll, { maxHeight: Math.min(240, windowH * 0.3) }]}
               contentContainerStyle={styles.liveTranscriptContent}
               showsVerticalScrollIndicator={false}
               onContentSizeChange={() => {
@@ -1203,6 +1308,9 @@ export function TalkDebugScreen() {
             >
               <Text style={styles.liveTranscript}>{rawTranscript.trim() ? rawTranscript : ' '}</Text>
             </ScrollView>
+            {!isPaused ? (
+              <VoiceMeteringWaveform meteringDb={meteringDb} accessibilityLabel={t('talkDebug.voiceWaveformA11y')} />
+            ) : null}
             <LinearGradient
               pointerEvents="none"
               colors={['#111827', 'rgba(17,24,39,0)']}
@@ -1407,6 +1515,9 @@ export function TalkDebugScreen() {
     </View>
   );
 }
+
+/** Compat export kept temporarily to avoid import breakage during migration. */
+export const TalkDebugScreen = TalkHomeScreen;
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#111827' },
@@ -1802,14 +1913,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  analyzingBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 14,
-  },
-  analyzingLabel: { color: '#ecfeff', fontSize: 15, fontWeight: '700' },
   projectCtaWrap: { paddingHorizontal: 20, paddingVertical: 6, alignItems: 'center' },
   projectCtaBtn: {
     paddingVertical: 10,

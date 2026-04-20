@@ -1,18 +1,11 @@
 /**
- * Expert Gemini (fallback robuste) via API REST v1beta.
+ * Expert Gemini via API REST v1beta — un seul modèle (Remote Config), fail-fast.
  * Clé : process.env.EXPO_PUBLIC_GEMINI_API_KEY
  */
 
-const DEFAULT_MODEL = 'gemini-1.5-flash-latest';
+import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
+
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const FALLBACK_MODELS = [
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
-  'gemini-flash-latest',
-  'gemini-2.0-flash-lite',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash',
-];
 
 function log(stage, detail) {
   const line = `[GeminiExpert] ${stage}`;
@@ -40,74 +33,20 @@ function getApiKey() {
 }
 
 function getModelId() {
-  const configured = process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim();
-  if (!configured) {
-    log('model.resolve', {
-      fromEnv: null,
-      resolved: DEFAULT_MODEL,
-      reason: 'no_configured_model',
-    });
-    return DEFAULT_MODEL;
-  }
-  // Gemini 2.0 Flash can be unavailable for new/free accounts: force stable fallback.
-  if (configured.includes('gemini-2.0-flash')) {
-    log('model.resolve', {
-      fromEnv: configured,
-      resolved: DEFAULT_MODEL,
-      reason: 'configured_model_is_2_0_flash',
-    });
-    return DEFAULT_MODEL;
-  }
-  log('model.resolve', {
-    fromEnv: configured,
-    resolved: configured,
-    reason: 'configured_model',
-  });
-  return configured;
+  const id = getActiveGeminiModelId();
+  log('model.resolve', { resolved: id, source: 'remote_config_cache' });
+  return id;
 }
 
-let cachedGenerateContentModels = null;
-
-async function listGenerateContentModels(apiKey) {
-  if (cachedGenerateContentModels) return cachedGenerateContentModels;
-  const url = `${BASE}/models?key=${encodeURIComponent(apiKey)}`;
-  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
-  try {
-    log('models.list.start', { endpoint: safeUrl });
-    const res = await fetch(url);
-    const text = await res.text();
-    if (!res.ok) {
-      log('models.list.error', { status: res.status, preview: text.slice(0, 220) });
-      return [];
-    }
-    const parsed = JSON.parse(text);
-    const models = Array.isArray(parsed?.models)
-      ? parsed.models
-          .filter((m) => Array.isArray(m?.supportedGenerationMethods))
-          .filter((m) => m.supportedGenerationMethods.includes('generateContent'))
-          .map((m) => String(m?.name || '').replace(/^models\//, '').trim())
-          .filter(Boolean)
-      : [];
-    cachedGenerateContentModels = Array.from(new Set(models));
-    log('models.list.success', {
-      count: cachedGenerateContentModels.length,
-      sample: cachedGenerateContentModels.slice(0, 10),
-    });
-    return cachedGenerateContentModels;
-  } catch (error) {
-    log('models.list.exception', {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return [];
-  }
-}
-
-async function computeModelCandidates(configuredModel, apiKey) {
-  const preferred = [configuredModel, DEFAULT_MODEL, ...FALLBACK_MODELS];
-  const available = await listGenerateContentModels(apiKey);
-  if (!available.length) return Array.from(new Set(preferred));
-  const preferredAvailable = preferred.filter((m) => available.includes(m));
-  return Array.from(new Set([...preferredAvailable, ...available]));
+function withLightGenerationConfig(generationConfig) {
+  const cfg = generationConfig && typeof generationConfig === 'object' ? generationConfig : {};
+  return {
+    ...cfg,
+    temperature: 0.1,
+    topP: 0.1,
+    topK: 1,
+    candidateCount: 1,
+  };
 }
 
 function extractTextFromGenerateResponse(data) {
@@ -121,59 +60,34 @@ function extractTextFromGenerateResponse(data) {
 
 async function generateContentWithFallback(prompt, generationConfig) {
   const apiKey = getApiKey();
-  const configuredModel = getModelId();
-  const candidates = await computeModelCandidates(configuredModel, apiKey);
-  let lastError = null;
-
-  for (const model of candidates) {
-    const url = `${BASE}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
-    log('request.start', {
+  const model = getModelId();
+  const effectiveGenerationConfig = withLightGenerationConfig(generationConfig);
+  const url = `${BASE}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
+  log('request.start', { model, endpoint: safeUrl });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: effectiveGenerationConfig,
+    }),
+  });
+  const text = await res.text();
+  log('request.response', {
+    model,
+    status: res.status,
+    ok: res.ok,
+    preview: text.slice(0, 220),
+  });
+  if (res.ok) {
+    const parsed = JSON.parse(text);
+    return {
       model,
-      endpoint: safeUrl,
-      candidateCount: candidates.length,
-    });
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig,
-      }),
-    });
-    const text = await res.text();
-    log('request.response', {
-      model,
-      status: res.status,
-      ok: res.ok,
-      preview: text.slice(0, 220),
-    });
-    if (res.ok) {
-      const parsed = JSON.parse(text);
-      return {
-        model,
-        rawText: extractTextFromGenerateResponse(parsed),
-      };
-    }
-    const looksLikeMissingModel =
-      res.status === 404 &&
-      (text.includes('is no longer available to new users') ||
-        text.includes('NOT_FOUND') ||
-        text.includes('models/'));
-    if (looksLikeMissingModel) {
-      log('request.retry_fallback', { fromModel: model, status: res.status });
-      lastError = new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
-      continue;
-    }
-    throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
+      rawText: extractTextFromGenerateResponse(parsed),
+    };
   }
-
-  throw (
-    lastError ||
-    new Error(
-      `Gemini: aucun modèle compatible generateContent trouvé (candidats testés: ${candidates.join(', ')})`,
-    )
-  );
+  throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
 }
 
 function extractJsonBlock(raw) {

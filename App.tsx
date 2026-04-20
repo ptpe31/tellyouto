@@ -19,6 +19,7 @@ import { MorningDewModal } from './src/components/MorningDewModal';
 import { EveningStarModal } from './src/components/EveningStarModal';
 import { AvailabilityNudgeModal } from './src/components/AvailabilityNudgeModal';
 import { cleanOldArchives } from './src/api';
+import { ensureGeminiRemoteModelInitialized } from './src/services/geminiRemoteModelSteering';
 import { recordAppInteraction } from './src/services/AvailabilityTimer';
 import { DebugUnlockProvider } from './src/context/DebugUnlockContext';
 import { CalendarIntegrationProvider } from './src/context/CalendarIntegrationContext';
@@ -53,6 +54,7 @@ function AppNavigation() {
 
 export default function App() {
   useEffect(() => {
+    void ensureGeminiRemoteModelInitialized();
     void configureCaptureBackgroundTask();
     void requestBackgroundExecutionPermissions();
     void cleanOldArchives();

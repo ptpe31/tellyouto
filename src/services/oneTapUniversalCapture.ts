@@ -1,10 +1,13 @@
 /**
- * Analyse **one-tap** : une dictée → un JSON unique Gemini (type prédit, tag, données, titre).
+ * Analyse **one-tap** : dictée → inférence locale instantanée + affinage Gemini (ligne compacte / flux).
  *
  * @module oneTapUniversalCapture
  */
 
-import { geminiGenerateTextUserPrompt } from './geminiSemanticLab';
+import * as chrono from 'chrono-node';
+
+import { geminiGenerateOneTapCompressedLine, geminiStreamOneTapCompressedLine } from './geminiSemanticLab';
+import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
 
 export const ONE_TAP_PREDICTED_TYPES = [
   'TASK',
@@ -26,6 +29,12 @@ export type OneTapUniversalResult = {
   /** Champs spécifiques au type (dates, liste inventaire, récurrence, etc.). */
   data: Record<string, unknown>;
 };
+
+function perfNowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
 
 function universalTemporalDefaults(): Record<string, unknown> {
   return { dueDateTime: null, recurrence: null };
@@ -91,11 +100,348 @@ function universalTailFromPrev(prevData: Record<string, unknown>): Record<string
 }
 
 function stripJsonFences(raw: string): string {
-  return raw
+  return String(raw || '')
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/```\s*$/i, '')
     .trim();
+}
+
+/** Segments KEY:value d’une ligne compacte (Path B). */
+export type OneTapWireFields = Record<string, string>;
+
+function wireLineFromSkeleton(s: OneTapUniversalResult): string {
+  const safeTitle = s.title.replace(/\|/g, ' ').trim().slice(0, 90);
+  const parts = [`P:${s.predictedType}`, `K:${s.categoryTag}`, `T:${safeTitle}`];
+  const d = s.data;
+  if (s.predictedType === 'TASK') {
+    const y = typeof d.dueDateYmd === 'string' ? d.dueDateYmd.trim() : '';
+    const h = typeof d.dueTimeHm === 'string' ? d.dueTimeHm.trim() : '';
+    if (y) parts.push(`D:${y}`);
+    if (h) parts.push(`H:${h}`);
+    const notes = typeof d.notes === 'string' ? d.notes.trim().slice(0, 120) : '';
+    if (notes) parts.push(`N:${notes.replace(/\|/g, ' ')}`);
+  }
+  if (s.predictedType === 'ANNIVERSARY') {
+    const pn = typeof d.personName === 'string' ? d.personName.trim() : '';
+    const g = typeof d.monthDay === 'string' ? d.monthDay.trim() : '';
+    if (pn) parts.push(`A:${pn.replace(/\|/g, ' ')}`);
+    if (g) parts.push(`G:${g}`);
+  }
+  if (s.predictedType === 'HABIT' || s.predictedType === 'RECURRING_TASK') {
+    const c =
+      typeof d.cadenceDescription === 'string' ? d.cadenceDescription.trim().slice(0, 120) : '';
+    if (c) parts.push(`C:${c.replace(/\|/g, ' ')}`);
+  }
+  if (s.predictedType === 'LIST') {
+    const list = d.list && typeof d.list === 'object' ? (d.list as Record<string, unknown>) : null;
+    const cats = list && Array.isArray(list.categories) ? list.categories : [];
+    const names: string[] = [];
+    for (const c of cats) {
+      const items = (c as { items?: unknown[] })?.items;
+      if (!Array.isArray(items)) continue;
+      for (const it of items) {
+        const n = typeof (it as { name?: string })?.name === 'string' ? String((it as { name: string }).name).trim() : '';
+        if (n && n !== '—') names.push(n);
+      }
+    }
+    if (names.length) parts.push(`L:${names.join(';').slice(0, 400)}`);
+  }
+  return parts.join('|');
+}
+
+export function parseOneTapWireLine(line: string): OneTapWireFields {
+  const s = String(line || '')
+    .trim()
+    .replace(/^[`"'«»\s]+/, '')
+    .replace(/[`"'«»\s]+$/, '');
+  const out: OneTapWireFields = {};
+  for (const seg of s.split('|')) {
+    const idx = seg.indexOf(':');
+    if (idx <= 0) continue;
+    const k = seg.slice(0, idx).trim().toUpperCase();
+    const v = seg.slice(idx + 1).trim();
+    if (k) out[k] = v;
+  }
+  return out;
+}
+
+/** Parse incrémental (streaming) : n’utilise que les segments complets KEY:value. */
+export function parsePartialWireLine(buffer: string): OneTapWireFields {
+  const segments = String(buffer || '').split('|');
+  const out: OneTapWireFields = {};
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (i === segments.length - 1 && !seg.includes(':')) break;
+    const idx = seg.indexOf(':');
+    if (idx <= 0) continue;
+    const k = seg.slice(0, idx).trim().toUpperCase();
+    const v = seg.slice(idx + 1).trim();
+    if (k) out[k] = v;
+  }
+  return out;
+}
+
+function tryParseJsonObjectBestEffort(raw: string): Record<string, unknown> | null {
+  const s = stripJsonFences(raw);
+  if (!s || s[0] !== '{') return null;
+  const tryOnce = (t: string) => {
+    try {
+      const o = JSON.parse(t) as unknown;
+      if (o && typeof o === 'object' && !Array.isArray(o)) return o as Record<string, unknown>;
+    } catch {
+      /* */
+    }
+    return null;
+  };
+  let hit = tryOnce(s);
+  if (hit) return hit;
+  let pad = s;
+  for (let i = 0; i < 20 && !hit; i++) {
+    pad += '}';
+    hit = tryOnce(pad);
+  }
+  return hit;
+}
+
+function buildListDataFromWireItems(items: string[], title: string): Record<string, unknown> {
+  const clean = items.map((x) => x.trim()).filter(Boolean).slice(0, 48);
+  if (clean.length === 0) return defaultOneTapDataForType('LIST');
+  return {
+    ...universalTemporalDefaults(),
+    list: {
+      title: title.slice(0, 120) || 'Liste',
+      baseCount: 1,
+      unitLabel: 'personne',
+      categories: [
+        {
+          name: '—',
+          items: clean.map((name) => ({
+            name,
+            baseQuantity: 1,
+            unit: 'piece',
+            scalable: true,
+          })),
+        },
+      ],
+    },
+  };
+}
+
+function normalizeWireHm(h: string): string | null {
+  const m = h.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const mm = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function patchDataFromWire(predictedType: OneTapPredictedType, wire: OneTapWireFields): Record<string, unknown> {
+  if (predictedType === 'TASK') {
+    const notes = wire.N ? wire.N.replace(/\|/g, ' ').slice(0, 2000) : undefined;
+    const hm = wire.H ? normalizeWireHm(wire.H) : null;
+    return {
+      ...(wire.D && /^\d{4}-\d{2}-\d{2}$/.test(wire.D) ? { dueDateYmd: wire.D } : {}),
+      ...(hm ? { dueTimeHm: hm } : {}),
+      ...(notes !== undefined ? { notes } : {}),
+    };
+  }
+  if (predictedType === 'RECURRING_TASK') {
+    return {
+      ...(wire.C ? { cadenceDescription: wire.C.slice(0, 500) } : {}),
+      ...(wire.D && /^\d{4}-\d{2}-\d{2}$/.test(wire.D) ? { nextDueYmd: wire.D } : {}),
+      ...(wire.N ? { anchorNotes: wire.N.slice(0, 2000) } : {}),
+    };
+  }
+  if (predictedType === 'HABIT') {
+    const hmH = wire.H ? normalizeWireHm(wire.H) : null;
+    return {
+      ...(wire.C ? { cadenceDescription: wire.C.slice(0, 500) } : {}),
+      ...(hmH ? { preferredTimeHm: hmH } : {}),
+      ...(wire.N ? { notes: wire.N.slice(0, 2000) } : {}),
+    };
+  }
+  if (predictedType === 'LIST' && wire.L) {
+    const items = wire.L.split(';').map((x) => x.trim()).filter(Boolean);
+    return buildListDataFromWireItems(items, wire.T || '');
+  }
+  if (predictedType === 'ANNIVERSARY') {
+    return {
+      ...(wire.A ? { personName: wire.A.slice(0, 200) } : {}),
+      ...(wire.G ? { monthDay: wire.G.slice(0, 32) } : {}),
+    };
+  }
+  if (predictedType === 'NOTE' && wire.N) {
+    return { memo: wire.N.slice(0, 4000) };
+  }
+  return {};
+}
+
+export function mergeWireIntoOneTapSkeleton(
+  skeleton: OneTapUniversalResult,
+  wire: OneTapWireFields,
+): OneTapUniversalResult {
+  const pRaw = wire.P?.trim().toUpperCase() ?? '';
+  const predictedType = ONE_TAP_PREDICTED_TYPES.includes(pRaw as OneTapPredictedType)
+    ? (pRaw as OneTapPredictedType)
+    : skeleton.predictedType;
+  const categoryTag = (wire.K?.trim() || skeleton.categoryTag || 'Perso').slice(0, 80) || 'Perso';
+  const title = (wire.T?.trim() || skeleton.title || 'Note').trim().slice(0, 200);
+  const mergedBase = mergeOneTapDataOnTypeChange(skeleton.predictedType, predictedType, skeleton.data, title);
+  const wirePatch = patchDataFromWire(predictedType, wire);
+  const data = normalizeUniversalTemporalInData({ ...mergedBase, ...wirePatch });
+  return { predictedType, categoryTag, title, data };
+}
+
+function buildCompressedGeminiPrompt(transcript: string, seedLine: string, uiLocale: string): string {
+  const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
+  const loc = String(uiLocale || 'fr').toLowerCase().startsWith('en')
+    ? 'Prefer English for K, T, N, C, R text when natural.'
+    : 'Préfère le français pour K, T, N, C, R quand c’est naturel.';
+  return `${loc}
+Local heuristic (refine or override if wrong):
+${seedLine}
+
+Dictation:
+"""${safe.replace(/"/g, '\\"')}"""
+
+Reply ONLY one KEY:value|KEY:value line (same key vocabulary as the guess).`;
+}
+
+/**
+ * Path A — inférence locale ultra-rapide pour ouvrir la modale sans attendre le réseau.
+ */
+export function inferOneTapSkeletonFromTranscript(
+  transcript: string,
+  options: { uiLocale: string; titleHint?: string },
+): OneTapUniversalResult {
+  const cleaned = cleanTranscriptText(transcript);
+  const lower = cleaned.toLowerCase();
+  let predictedType: OneTapPredictedType = 'NOTE';
+
+  if (/\b(courses|liste de|liste d'|acheter|ingrédients|ingredients|valise|packing|matériel pour|caddie)\b/i.test(cleaned)) {
+    predictedType = 'LIST';
+  } else if (/\b(anniversaire|fête de|fete de|né le|nee le)\b/i.test(cleaned) || /\b(mamie|papy|grand-mère|grand-père)\b/i.test(lower)) {
+    predictedType = 'ANNIVERSARY';
+  } else if (
+    /\b(chaque jour|tous les jours|chaque matin|tous les matins|habitude|routine|quotidien)\b/i.test(cleaned) &&
+    !/\b(demain|après-demain|à \d{1,2}[:h]\d{2})\b/i.test(cleaned)
+  ) {
+    predictedType = 'HABIT';
+  } else if (/\b(chaque semaine|tous les lundis|toutes les semaines|récurrent|recurrent)\b/i.test(cleaned)) {
+    predictedType = 'RECURRING_TASK';
+  } else if (
+    /\b(rappel|demain|après-demain|dans \d+\s*minutes?|à \d{1,2}[:h]\d{2}|rendez-vous|rdv)\b/i.test(cleaned) ||
+    /\b(tâche|task)\b/i.test(lower)
+  ) {
+    predictedType = 'TASK';
+  }
+
+  let categoryTag = 'Perso';
+  if (/\b(travail|bureau|réunion|client|linkedin|pro)\b/i.test(lower)) categoryTag = 'Travail';
+  else if (/\b(famille|mamie|papa|maman|enfants|couple)\b/i.test(lower)) categoryTag = 'Famille';
+
+  const title =
+    (options.titleHint || generateSmartTitle(cleaned, options.uiLocale) || cleaned).trim().slice(0, 200) || 'Note';
+
+  let base = defaultOneTapDataForType(predictedType);
+  const ref = new Date();
+  const chronoResults = chrono.parse(cleaned, ref, { forwardDate: true });
+  if (chronoResults.length > 0 && (predictedType === 'TASK' || predictedType === 'NOTE' || predictedType === 'HABIT')) {
+    const start = chronoResults[0].start?.date();
+    if (start && !Number.isNaN(start.getTime())) {
+      const y = start.getFullYear();
+      const m = String(start.getMonth() + 1).padStart(2, '0');
+      const day = String(start.getDate()).padStart(2, '0');
+      const ymd = `${y}-${m}-${day}`;
+      const hh = String(start.getHours()).padStart(2, '0');
+      const mm = String(start.getMinutes()).padStart(2, '0');
+      const hm = `${hh}:${mm}`;
+      if (predictedType === 'TASK') {
+        base = { ...base, dueDateYmd: ymd, dueTimeHm: hm, notes: cleaned.slice(0, 2000) };
+      } else if (predictedType === 'HABIT') {
+        base = { ...base, preferredTimeHm: hm, cadenceDescription: base.cadenceDescription || 'Quotidien' };
+      }
+    }
+  }
+
+  if (predictedType === 'LIST') {
+    const items = cleaned
+      .split(/[,;]|(?:\bpuis\b)|(?:\bet\b)/i)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 1 && s.length < 80)
+      .slice(0, 24);
+    if (items.length >= 1) {
+      base = buildListDataFromWireItems(items, title) as Record<string, unknown>;
+    }
+  }
+
+  if (predictedType === 'ANNIVERSARY') {
+    const mPerson = cleaned.match(/(?:anniversaire|fête)\s+(?:de\s+)?(.+?)(?:\.|,|$)/i);
+    const person = mPerson?.[1]?.trim().slice(0, 120) || title;
+    base = { ...base, personName: person, monthDay: typeof base.monthDay === 'string' ? base.monthDay : '' };
+  }
+
+  if (predictedType === 'NOTE') {
+    base = { ...base, memo: cleaned.slice(0, 4000) };
+  }
+
+  return {
+    predictedType,
+    categoryTag,
+    title,
+    data: normalizeUniversalTemporalInData(base),
+  };
+}
+
+export type OneTapRefineOptions = {
+  uiLocale: string;
+  /** Si défini, appelé à chaque chunk utile (streaming). */
+  onPartial?: (draft: OneTapUniversalResult) => void;
+  /** false = un seul aller-retour HTTP (ex. machine à intentions). */
+  useStream?: boolean;
+};
+
+/**
+ * Path B — affinage Gemini (ligne compacte), avec option streaming pour l’UI optimiste.
+ */
+export async function refineOneTapWithGeminiCompressed(
+  transcript: string,
+  skeleton: OneTapUniversalResult,
+  options: OneTapRefineOptions,
+): Promise<{ parsed: OneTapUniversalResult; rawModelText: string }> {
+  const seed = wireLineFromSkeleton(skeleton);
+  const prompt = buildCompressedGeminiPrompt(transcript, seed, options.uiLocale);
+  const useStream = options.useStream !== false;
+
+  const applyBuffer = (buf: string) => {
+    const wire = useStream ? parsePartialWireLine(buf) : parseOneTapWireLine(buf);
+    if (Object.keys(wire).length === 0) return;
+    const merged = mergeWireIntoOneTapSkeleton(skeleton, wire);
+    options.onPartial?.(merged);
+  };
+
+  let rawModelText: string;
+  if (useStream) {
+    rawModelText = await geminiStreamOneTapCompressedLine(prompt, (acc) => applyBuffer(acc));
+  } else {
+    rawModelText = await geminiGenerateOneTapCompressedLine(prompt);
+    applyBuffer(rawModelText);
+  }
+
+  let parsed = mergeWireIntoOneTapSkeleton(skeleton, parseOneTapWireLine(rawModelText));
+  const jsonObj = tryParseJsonObjectBestEffort(rawModelText);
+  if (jsonObj) {
+    try {
+      parsed = parseOneTapUniversalJson(JSON.stringify(jsonObj));
+    } catch {
+      /* keep wire merge */
+    }
+  }
+  if (!parsed.title.trim()) {
+    parsed = { ...parsed, title: skeleton.title };
+  }
+  return { parsed, rawModelText };
 }
 
 /**
@@ -128,59 +474,6 @@ export function parseOneTapUniversalJson(raw: string): OneTapUniversalResult {
   };
 }
 
-function buildOneTapPrompt(transcript: string, uiLocale: string): string {
-  const loc = String(uiLocale || 'fr').toLowerCase();
-  const langLine = loc.startsWith('en')
-    ? 'Use English for title, categoryTag, and human-readable strings inside data when possible.'
-    : 'Utilise le français pour title, categoryTag et les libellés humains dans data lorsque c’est naturel.';
-  const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
-  return `Tu es un expert en organisation et capture d’intentions vocales. Analyse la dictée et renvoie **un seul** objet JSON valide — pas de markdown, pas de commentaire hors JSON.
-
-${langLine}
-
-Dictée (verbatim ou nettoyée) :
-"""${safe.replace(/"/g, '\\"')}"""
-
-Réponse **obligatoire** — forme exacte :
-{
-  "predictedType": "TASK" | "RECURRING_TASK" | "HABIT" | "LIST" | "ANNIVERSARY" | "NOTE",
-  "categoryTag": "string court (ex: Cuisine, Pro, Perso, Logistique, Sport)",
-  "title": "string court et explicite",
-  "data": { ... }
-}
-
-${loc.startsWith('en')
-    ? `For **ALL** intention types, **data** MUST ALSO include:
-- **dueDateTime**: a single **ISO-8601** datetime string (e.g. \`2026-04-21T14:00:00+02:00\`) when the user states one clear one-off moment — otherwise **null** (never an empty string).
-- **recurrence**: **null**, or an object when a repeating cadence is clearly stated, e.g. \`{ "summary": "short label", "frequency": "daily" | "weekly" | "monthly", "byWeekday": 0-6 optional for weekly (0 = Sunday in JS) }\` — otherwise **null**. Do not invent vague patterns.
-
-**Silence rule**: if no clear time or cadence is present, set **both** fields to **null**.`
-    : `Pour **tous** les types, **data** contient en plus (règle de silence stricte) :
-- **dueDateTime** : string **ISO 8601** (ex. \`2026-04-20T14:00:00+02:00\`) si l’utilisateur exprime une échéance **ponctuelle** claire — sinon **null** (pas de chaîne vide).
-- **recurrence** : objet **ou null**. Si une **fréquence** est clairement audible (ex. « tous les matins », « chaque mardi »), objet du type :
-  \`{ "summary": "court libellé", "frequency": "daily" | "weekly" | "monthly", "byWeekday": 0-6 optionnel pour weekly (0=dimanche JS) }\`
-  — sinon **null**. Ne pas inventer ; si flou, **null**.
-
-Si **aucune** notion temporelle n’est détectée : **dueDateTime** et **recurrence** doivent être explicitement **null**.`}
-
-Règles par type pour **data** (en complément des champs universels ci-dessus) :
-- **TASK** : { "dueDateYmd": "YYYY-MM-DD" | null, "dueTimeHm": "HH:mm" | null, "reminderMinutesBefore": number | null, "notes": string }
-  - Si aucune date/heure exploitable : mets **dueDateYmd** à **null** (intention « sans date » / tirelire).
-- **RECURRING_TASK** : { "cadenceDescription": string, "nextDueYmd": "YYYY-MM-DD" | null, "anchorNotes": string }
-- **HABIT** : { "cadenceDescription": string, "preferredTimeHm": "HH:mm" | null, "notes": string }
-- **LIST** : { "list": { "title": string, "baseCount": number, "unitLabel": string, "categories": [ { "name": string, "items": [ { "name": string, "qty": number, "unit": "g"|"kg"|"piece"|"cl"|"l", "scalable": boolean } ] } ] } }
-  - Même schéma logique que les inventaires (courses, matériel, valises).
-- **ANNIVERSARY** : { "personName": string, "monthDay": "MM-DD" ou "YYYY-MM-DD", "reminderDaysBefore": number | null }
-- **NOTE** : { "memo": string } (peut résumer la dictée ; peut être vide).
-
-Choix de **predictedType** :
-- Liste d’achats / matériel / valise → LIST.
-- Événement annuel / fête / « anniversaire » → ANNIVERSARY.
-- Action ponctuelle avec date → TASK ; action répétée sans formalisme d’habitude → RECURRING_TASK.
-- Routine « chaque… », sport, hygiène → HABIT.
-- Simple mémo sans structure → NOTE.`;
-}
-
 /**
  * Appelle Gemini Flash pour classifier et structurer la dictée en un coup.
  *
@@ -191,11 +484,26 @@ Choix de **predictedType** :
 export async function geminiOneTapUniversalFromTranscript(
   transcript: string,
   options: { uiLocale: string },
-): Promise<{ parsed: OneTapUniversalResult; rawModelText: string }> {
-  const prompt = buildOneTapPrompt(transcript, options.uiLocale);
-  const rawModelText = await geminiGenerateTextUserPrompt(prompt);
-  const parsed = parseOneTapUniversalJson(rawModelText);
-  return { parsed, rawModelText };
+): Promise<{
+  parsed: OneTapUniversalResult;
+  rawModelText: string;
+  timings: { promptChars: number; geminiStartMs: number; geminiEndMs: number; parseEndMs: number };
+}> {
+  const skeleton = inferOneTapSkeletonFromTranscript(transcript, { uiLocale: options.uiLocale });
+  const geminiStartMs = perfNowMs();
+  const { parsed, rawModelText } = await refineOneTapWithGeminiCompressed(transcript, skeleton, {
+    uiLocale: options.uiLocale,
+    useStream: false,
+  });
+  const geminiEndMs = perfNowMs();
+  const parseEndMs = perfNowMs();
+  const promptLen = buildCompressedGeminiPrompt(transcript, wireLineFromSkeleton(skeleton), options.uiLocale).length;
+  console.log('[OneTapPerf] prompt.metrics', {
+    promptChars: promptLen,
+    geminiMs: Math.round(geminiEndMs - geminiStartMs),
+    parseMs: Math.round(parseEndMs - geminiEndMs),
+  });
+  return { parsed, rawModelText, timings: { promptChars: promptLen, geminiStartMs, geminiEndMs, parseEndMs } };
 }
 
 /**
@@ -220,7 +528,9 @@ export function defaultOneTapDataForType(type: OneTapPredictedType): Record<stri
           title: '',
           baseCount: 1,
           unitLabel: 'personne',
-          categories: [{ name: '—', items: [{ name: '—', qty: 1, unit: 'piece', scalable: false }] }],
+          categories: [
+            { name: '—', items: [{ name: '—', baseQuantity: 1, unit: 'piece', scalable: true }] },
+          ],
         },
       };
     case 'ANNIVERSARY':
