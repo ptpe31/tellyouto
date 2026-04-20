@@ -8,10 +8,12 @@ import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'r
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from 'react-native-paper';
 
+import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
 import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
 import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../utils/nativeModuleErrorAlert';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import { Platform as RPlatform } from '../utils/rnPlatform';
+import { useOptionalIntentionContext } from '../context/IntentionContext';
 
 export type TalkCaptureEndPayload = {
   transcript: string;
@@ -22,7 +24,7 @@ export type TalkCaptureMicButtonProps = {
   /** Exécuté juste avant de lancer micro + STT ; retour `false` annule le démarrage. */
   beforeStart?: () => Promise<boolean>;
   onCaptureStart?: () => void;
-  onCaptureEnd: (payload: TalkCaptureEndPayload) => void | Promise<void>;
+  onCaptureEnd?: (payload: TalkCaptureEndPayload) => void | Promise<void>;
   onCaptureCancel?: () => void | Promise<void>;
   disabled?: boolean;
   /** Variante compacte pour barre basse (Timeline). */
@@ -37,15 +39,15 @@ export function TalkCaptureMicButton({
   disabled,
   compact,
 }: TalkCaptureMicButtonProps) {
+  const intentionFlow = useOptionalIntentionContext();
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   const [phase, setPhase] = useState<'idle' | 'recording'>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
-  const [waveTick, setWaveTick] = useState(0);
+  const [meteringDb, setMeteringDb] = useState(-100);
   const recRef = useRef<Audio.Recording | null>(null);
-  const waveformTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
 
   useSpeechRecognitionEvent('result', (event) => {
@@ -56,15 +58,15 @@ export function TalkCaptureMicButton({
   });
 
   const waveHeights = useMemo(() => {
+    const norm = Math.max(0, Math.min(1, (meteringDb + 58) / 52));
     return Array.from({ length: 9 }).map((_, i) => {
-      const base = 8 + ((waveTick + i * 7) % 20);
-      return isRecording ? base : 8;
+      const phase = (i / 9) * Math.PI * 2;
+      const w = 0.45 + 0.55 * Math.sin(phase + norm * 3.5);
+      return isRecording ? 8 + norm * w * 22 : 8;
     });
-  }, [isRecording, waveTick]);
+  }, [isRecording, meteringDb]);
 
   const resetInternal = useCallback(() => {
-    if (waveformTimer.current) clearInterval(waveformTimer.current);
-    waveformTimer.current = null;
     recRef.current = null;
     try {
       ExpoSpeechRecognitionModule.stop();
@@ -75,6 +77,7 @@ export function TalkCaptureMicButton({
     setIsRecording(false);
     setPhase('idle');
     setRawTranscript('');
+    setMeteringDb(-100);
   }, []);
 
   const ensureMicrophoneReady = useCallback(async (): Promise<boolean> => {
@@ -119,15 +122,25 @@ export function TalkCaptureMicButton({
       if (!ok) return;
     }
     setRawTranscript('');
+    setMeteringDb(-100);
     try {
       const ready = await ensureMicrophoneReady();
       if (!ready) return;
       onCaptureStart?.();
+      intentionFlow?.startCapture();
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      const { recording } = await Audio.Recording.createAsync(
+        VOICE_MEMO_LIGHT_RECORDING_OPTIONS,
+        (status) => {
+          if (typeof status.metering === 'number' && Number.isFinite(status.metering)) {
+            setMeteringDb(status.metering);
+          }
+        },
+        80,
+      );
       recRef.current = recording;
       await ExpoSpeechRecognitionModule.start({
         lang: resolveSpeechLangForSession(i18n.language),
@@ -137,7 +150,6 @@ export function TalkCaptureMicButton({
       setIsRecording(true);
       setIsPaused(false);
       setPhase('recording');
-      waveformTimer.current = setInterval(() => setWaveTick((v) => v + 1), 180);
       if (RPlatform.OS !== 'web') {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
@@ -155,6 +167,7 @@ export function TalkCaptureMicButton({
     ensureMicrophoneReady,
     i18n.language,
     isRecording,
+    intentionFlow,
     onCaptureStart,
     resetInternal,
     t,
@@ -180,17 +193,18 @@ export function TalkCaptureMicButton({
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
     } finally {
-      if (waveformTimer.current) clearInterval(waveformTimer.current);
-      waveformTimer.current = null;
       setIsRecording(false);
       setIsPaused(false);
       resetInternal();
-      await onCaptureEnd({ transcript, audioUri: uri });
+      if (intentionFlow) {
+        await intentionFlow.submitCapturePayload({ transcript, audioUri: uri });
+      }
+      await onCaptureEnd?.({ transcript, audioUri: uri });
       if (RPlatform.OS !== 'web') {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     }
-  }, [isRecording, onCaptureEnd, rawTranscript, resetInternal, t]);
+  }, [intentionFlow, isRecording, onCaptureEnd, rawTranscript, resetInternal, t]);
 
   const cancelRecording = useCallback(async () => {
     try {
@@ -202,14 +216,13 @@ export function TalkCaptureMicButton({
     } catch {
       /* ignore */
     } finally {
-      if (waveformTimer.current) clearInterval(waveformTimer.current);
-      waveformTimer.current = null;
       setIsRecording(false);
       setIsPaused(false);
       resetInternal();
       await onCaptureCancel?.();
+      intentionFlow?.cancelCapture();
     }
-  }, [onCaptureCancel, resetInternal]);
+  }, [intentionFlow, onCaptureCancel, resetInternal]);
 
   const togglePause = useCallback(async () => {
     if (!isRecording) return;
@@ -240,8 +253,6 @@ export function TalkCaptureMicButton({
 
   useEffect(() => {
     return () => {
-      if (waveformTimer.current) clearInterval(waveformTimer.current);
-      waveformTimer.current = null;
       try {
         ExpoSpeechRecognitionModule.stop();
       } catch {

@@ -23,6 +23,7 @@ import { recordAppInteraction } from './src/services/AvailabilityTimer';
 import { DebugUnlockProvider } from './src/context/DebugUnlockContext';
 import { CalendarIntegrationProvider } from './src/context/CalendarIntegrationContext';
 import { UserSpectrumProvider } from './src/context/UserSpectrumContext';
+import { IntentionProvider } from './src/context/IntentionContext';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { BlurView } from 'expo-blur';
 import { useSaturation, SaturationProvider } from './src/context/SaturationContext';
@@ -82,7 +83,9 @@ export default function App() {
                           <MorningDewModal />
                           <EveningStarModal />
                           <AvailabilityNudgeModal />
-                          <AppNavigation />
+                          <IntentionProvider>
+                            <AppNavigation />
+                          </IntentionProvider>
                           <StartupPerfBanner />
                           <StatusBarRoot />
                       </FocusProtectionProvider>
