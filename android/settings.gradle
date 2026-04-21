@@ -1,0 +1,59 @@
+pluginManagement {
+  def resolveNodeBinary = { ->
+    def nodeBin = System.getenv("NODE_BINARY")
+    if (nodeBin != null && nodeBin.trim().length() > 0) {
+      return nodeBin.trim()
+    }
+    try {
+      def props = new Properties()
+      def localProps = new File(rootDir, "local.properties")
+      if (localProps.exists()) {
+        localProps.withInputStream { props.load(it) }
+        def fromLocal = props.getProperty("NODE_BINARY")
+        if (fromLocal != null && fromLocal.trim().length() > 0) {
+          return fromLocal.trim()
+        }
+      }
+    } catch (ignored) {}
+    return "node"
+  }
+  def nodeBinary = resolveNodeBinary()
+
+  def reactNativeGradlePlugin = new File(
+    providers.exec {
+      workingDir(rootDir)
+      commandLine(nodeBinary, "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
+    }.standardOutput.asText.get().trim()
+  ).getParentFile().absolutePath
+  includeBuild(reactNativeGradlePlugin)
+  
+  def expoPluginsPath = new File(
+    providers.exec {
+      workingDir(rootDir)
+      commandLine(nodeBinary, "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })")
+    }.standardOutput.asText.get().trim(),
+    "../android/expo-gradle-plugin"
+  ).absolutePath
+  includeBuild(expoPluginsPath)
+}
+
+plugins {
+  id("com.facebook.react.settings")
+  id("expo-autolinking-settings")
+}
+
+extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
+  if (System.getenv('EXPO_USE_COMMUNITY_AUTOLINKING') == '1') {
+    ex.autolinkLibrariesFromCommand()
+  } else {
+    ex.autolinkLibrariesFromCommand(expoAutolinking.rnConfigCommand)
+  }
+}
+expoAutolinking.useExpoModules()
+
+rootProject.name = 'Phoenix V2'
+
+expoAutolinking.useExpoVersionCatalog()
+
+include ':app'
+includeBuild(expoAutolinking.reactNativeGradlePlugin)
