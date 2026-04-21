@@ -1,0 +1,54 @@
+{
+  "APP_TITLE": "Phoenix V2",
+  "APP_SUBTITLE": "OneTap + SasModal",
+  "APP_INTENT_PLACEHOLDER": "Say an intention…",
+  "APP_LAUNCH": "Start",
+
+  "COMMON_CANCEL": "Cancel",
+  "COMMON_CONFIRM": "Confirm",
+  "COMMON_SAVE": "Save",
+  "COMMON_YES": "Yes",
+  "COMMON_NO": "No",
+  "COMMON_MINUS": "−",
+  "COMMON_PLUS": "+",
+
+  "TYPE_TASK": "Task",
+  "TYPE_HABIT": "Habit",
+  "TYPE_RECURRING_TASK": "Recurring",
+  "TYPE_LIST": "List",
+  "TYPE_ANNIVERSARY": "Birthday",
+  "TYPE_NOTE": "Note",
+
+  "CATEGORY_COURSES": "Groceries",
+  "CATEGORY_FAMILLE": "Family",
+  "CATEGORY_SANTE": "Health",
+  "CATEGORY_TRAVAIL": "Work",
+  "CATEGORY_SPORT": "Sport",
+  "CATEGORY_SOCIAL": "Social",
+  "CATEGORY_FINANCE": "Finance",
+  "CATEGORY_LEGAL": "Legal",
+  "CATEGORY_APPEL": "Call",
+  "CATEGORY_LOGISTIQUE": "Logistics",
+
+  "PLACEHOLDER_TITLE": "Title",
+  "PLACEHOLDER_CATEGORY": "Category",
+  "PLACEHOLDER_TEXT": "Text",
+  "PLACEHOLDER_LIST": "List",
+  "PLACEHOLDER_DESTINATION": "Destination",
+
+  "MODAL_REFINING": "AI…",
+  "MODAL_CONFIRM_OK": "Looks good",
+
+  "SAS_SUMMARY_DEPART_RECOMMENDED": "Recommended departure: {time}",
+  "SAS_SUMMARY_SCHEDULED": "Planned: {time}",
+  "SAS_SUMMARY_DESTINATION": "Destination: {destination}",
+
+  "LOGISTICS_TRAFFIC_ADJUST": "Adjust departure for traffic",
+  "LOGISTICS_TRAJET_REMAINING_SUFFIX": "({n} left)",
+  "LOGISTICS_BUY_TRAJET_PACK": "Buy Trajet Pack",
+
+  "DEFAULT_INTENTION_TITLE": "Intention",
+  "DEFAULT_LIST_TITLE": "List",
+  "DEFAULT_NOTE_TITLE": "Note",
+  "DEFAULT_BIRTHDAY_TITLE": "Birthday"
+}
