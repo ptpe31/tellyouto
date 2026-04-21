@@ -47,6 +47,11 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
+import {
+  formatOneTapCourtesyLine,
+  OneTapCourtesyInterstitial,
+  ONE_TAP_MODAL_OPEN_SAFETY_MS,
+} from '../components/OneTapCourtesyInterstitial';
 import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
 import { VoiceMeteringWaveform } from '../components/VoiceMeteringWaveform';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
@@ -85,6 +90,8 @@ import {
 } from '../services/captureStrategies';
 import {
   inferOneTapSkeletonFromTranscript,
+  logOneTapCaptureCycleStartBanner,
+  ONE_TAP_DEBUG_LOG_CONT,
   refineOneTapWithGeminiCompressed,
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
@@ -129,6 +136,8 @@ export function TalkHomeScreen() {
   const [captureStep, setCaptureStep] = useState<'idle' | 'recording'>('idle');
   const [oneTapDraft, setOneTapDraft] = useState<OneTapUniversalResult | null>(null);
   const [oneTapModalVisible, setOneTapModalVisible] = useState(false);
+  const [oneTapCourtesyVisible, setOneTapCourtesyVisible] = useState(false);
+  const [oneTapCourtesyText, setOneTapCourtesyText] = useState('');
   const [oneTapRefinePhase, setOneTapRefinePhase] = useState<'idle' | 'local' | 'streaming' | 'done' | 'error'>('idle');
   const [oneTapOptimisticId, setOneTapOptimisticId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -307,6 +316,8 @@ export function TalkHomeScreen() {
     setProjectPlanPreview(null);
     setOneTapDraft(null);
     setOneTapModalVisible(false);
+    setOneTapCourtesyVisible(false);
+    setOneTapCourtesyText('');
     setOneTapRefinePhase('idle');
     setMeteringDb(-100);
   }, []);
@@ -582,7 +593,10 @@ export function TalkHomeScreen() {
       }
     } finally {
       const t0 = perfNowMs();
-      console.log('[OneTapPerf] T0_CAPTURE_END', { t0: Math.round(t0) });
+      logOneTapCaptureCycleStartBanner();
+      console.log(
+        `[OneTapPerf] T0_CAPTURE_END${ONE_TAP_DEBUG_LOG_CONT}t0_ms: ${Math.round(t0)}`,
+      );
       setIsRecording(false);
       setIsPaused(false);
       const nextTranscript = rawTranscript;
@@ -607,11 +621,16 @@ export function TalkHomeScreen() {
       });
       setOneTapDraft(skeleton);
       setOneTapRefinePhase('local');
-      setOneTapModalVisible(true);
+      setOneTapCourtesyText(formatOneTapCourtesyLine(t, spectrum.first_name, i18n.language));
+      setOneTapCourtesyVisible(true);
       setCaptureStep('idle');
       void (async () => {
         const t1 = perfNowMs();
-        console.log('[OneTapPerf] T1_DUAL_PATH_BACKGROUND', { t1: Math.round(t1) });
+        console.log(
+          `[OneTapPerf] T1_DUAL_PATH_BACKGROUND${ONE_TAP_DEBUG_LOG_CONT}t1_ms: ${Math.round(t1)}`,
+        );
+        let safetyTimer: ReturnType<typeof setTimeout> | null = null;
+        let modalOpened = false;
         try {
           const pre = await preSaveOneTapOptimisticDraft({
             deps: captureStrategyDeps,
@@ -626,15 +645,40 @@ export function TalkHomeScreen() {
 
           setOneTapRefinePhase('streaming');
           const gemStart = perfNowMs();
+
+          safetyTimer = setTimeout(() => {
+            if (modalOpened) return;
+            modalOpened = true;
+            setOneTapDraft(skeleton);
+            setOneTapModalVisible(true);
+            setOneTapCourtesyVisible(false);
+            console.log('[OneTapUX] ✨ Modale ouverte via Timeout (Path A)');
+          }, ONE_TAP_MODAL_OPEN_SAFETY_MS);
+
           const { parsed, rawModelText } = await refineOneTapWithGeminiCompressed(cleanedTranscript, skeleton, {
             uiLocale: spectrum.locale || 'fr',
             useStream: true,
             onPartial: (d) => setOneTapDraft(d),
             chainPerf: { t0, t1 },
           });
+          if (safetyTimer) {
+            clearTimeout(safetyTimer);
+            safetyTimer = null;
+          }
           const gemEnd = perfNowMs();
-          setOneTapDraft(parsed);
-          setOneTapRefinePhase('done');
+
+          if (!modalOpened) {
+            modalOpened = true;
+            setOneTapDraft(parsed);
+            setOneTapRefinePhase('done');
+            setOneTapModalVisible(true);
+            setOneTapCourtesyVisible(false);
+            console.log('[OneTapUX] ✨ Modale ouverte via Path B (Success)');
+          } else {
+            setOneTapDraft(parsed);
+            setOneTapRefinePhase('done');
+          }
+
           if (intentionId) {
             const rep = await replacePendingOneTapDraft({
               deps: captureStrategyDeps,
@@ -651,11 +695,9 @@ export function TalkHomeScreen() {
           const t3 = perfNowMs();
           const geminiMs = Math.round(gemEnd - gemStart);
           const totalFromT1Ms = Math.round(t3 - t1);
-          console.log('[OneTapPerf] T3_REFINE_DONE', {
-            t3: Math.round(t3),
-            geminiMs,
-            totalFromT1Ms,
-          });
+          console.log(
+            `[OneTapPerf] T3_REFINE_DONE${ONE_TAP_DEBUG_LOG_CONT}t3_ms: ${Math.round(t3)}${ONE_TAP_DEBUG_LOG_CONT}geminiMs: ${geminiMs}${ONE_TAP_DEBUG_LOG_CONT}totalFromT1Ms: ${totalFromT1Ms}`,
+          );
           emitTalkDebug({
             mode: 'quick',
             at: Date.now(),
@@ -670,6 +712,16 @@ export function TalkHomeScreen() {
             },
           });
         } catch (e) {
+          if (safetyTimer) {
+            clearTimeout(safetyTimer);
+            safetyTimer = null;
+          }
+          if (!modalOpened) {
+            modalOpened = true;
+            setOneTapDraft(skeleton);
+            setOneTapModalVisible(true);
+            setOneTapCourtesyVisible(false);
+          }
           setOneTapRefinePhase('error');
           showAppToast(t('talkDebug.oneTapRefineFailedToast'), 4200);
           if (__DEV__) console.warn('[OneTap] refine error', e);
@@ -680,10 +732,12 @@ export function TalkHomeScreen() {
     captureStep,
     captureStrategyDeps,
     emitTalkDebug,
+    i18n.language,
     isRecording,
     isTitleLocked,
     lockedTitle,
     rawTranscript,
+    spectrum.first_name,
     spectrum.locale,
     t,
   ]);
@@ -1241,7 +1295,10 @@ export function TalkHomeScreen() {
         />
       </View>
 
-      {captureStep === 'idle' && transcriptDraft.trim().length > 0 && !oneTapModalVisible ? (
+      {captureStep === 'idle' &&
+      transcriptDraft.trim().length > 0 &&
+      !oneTapModalVisible &&
+      !oneTapCourtesyVisible ? (
         <View style={styles.projectCtaWrap}>
           <Pressable
             style={styles.projectCtaBtn}
@@ -1260,6 +1317,8 @@ export function TalkHomeScreen() {
       ) : null}
 
       <View style={styles.middleSpacer} />
+
+      <OneTapCourtesyInterstitial visible={oneTapCourtesyVisible} text={oneTapCourtesyText} />
 
       <OneTapConfirmModal
         visible={oneTapModalVisible}
@@ -1283,6 +1342,8 @@ export function TalkHomeScreen() {
             }
             setOneTapModalVisible(false);
             setOneTapDraft(null);
+            setOneTapCourtesyVisible(false);
+            setOneTapCourtesyText('');
             setOneTapRefinePhase('idle');
             DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           })();
@@ -1290,7 +1351,12 @@ export function TalkHomeScreen() {
       />
 
       <IntentionSuggestionsBanner
-        visible={captureStep === 'idle' && !oneTapModalVisible && !deadlineModalVisible}
+        visible={
+          captureStep === 'idle' &&
+          !oneTapModalVisible &&
+          !oneTapCourtesyVisible &&
+          !deadlineModalVisible
+        }
         bottomOffset={112}
       />
 

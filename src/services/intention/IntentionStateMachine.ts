@@ -39,6 +39,10 @@ export type IntentionDraftBirthday = {
 export type IntentionDraftNote = {
   kind: 'NOTE';
   content: string;
+  title?: string;
+  isAudioMemo?: boolean;
+  isPendingAnalysis?: boolean;
+  rawTranscript?: string;
 };
 
 export type IntentionDraft =
@@ -62,6 +66,7 @@ export type IntentionMachineState = {
   transcript: string;
   audioUri: string | null;
   drafts: IntentionDraft[];
+  offlineNotice: boolean;
   error: string | null;
 };
 
@@ -69,6 +74,7 @@ export type IntentionMachineEvent =
   | { type: 'CAPTURE_START' }
   | { type: 'CAPTURE_CANCEL' }
   | { type: 'CAPTURE_RECEIVED'; transcript: string; audioUri: string | null }
+  | { type: 'CAPTURE_OFFLINE_QUEUED'; transcript: string; title: string }
   | { type: 'PARSE_SUCCESS'; drafts: IntentionDraft[] }
   | { type: 'PARSE_ERROR'; error: string }
   | { type: 'UPDATE_DRAFT'; index: number; draft: IntentionDraft }
@@ -83,6 +89,7 @@ export const INITIAL_INTENTION_MACHINE_STATE: IntentionMachineState = {
   transcript: '',
   audioUri: null,
   drafts: [],
+  offlineNotice: false,
   error: null,
 };
 
@@ -101,6 +108,25 @@ export function intentionStateMachineReducer(
         status: 'PARSING_GEMINI',
         transcript: event.transcript,
         audioUri: event.audioUri,
+        offlineNotice: false,
+        error: null,
+      };
+    case 'CAPTURE_OFFLINE_QUEUED':
+      return {
+        ...state,
+        status: 'REVIEWING',
+        transcript: event.transcript,
+        drafts: [
+          {
+            kind: 'NOTE',
+            title: event.title,
+            content: event.transcript,
+            isAudioMemo: true,
+            isPendingAnalysis: true,
+            rawTranscript: event.transcript,
+          },
+        ],
+        offlineNotice: true,
         error: null,
       };
     case 'PARSE_SUCCESS':
@@ -108,6 +134,7 @@ export function intentionStateMachineReducer(
         ...state,
         status: event.drafts.length > 0 ? 'REVIEWING' : 'IDLE',
         drafts: event.drafts,
+        offlineNotice: false,
         error: event.drafts.length > 0 ? null : 'INTENTION_EMPTY',
       };
     case 'PARSE_ERROR':

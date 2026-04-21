@@ -723,6 +723,32 @@ export async function geminiOneTapUniversalFromTranscript(
 }> {
   logOneTapCaptureCycleStartBanner();
   const skeleton = inferOneTapSkeletonFromTranscript(transcript, { uiLocale: options.uiLocale });
+  const clean = transcript.trim();
+  const lower = clean.toLowerCase();
+  const lacksStructuredSignals =
+    !/\b(\d{4}-\d{2}-\d{2}|demain|après-demain|rendez-vous|rdv|à \d{1,2}[:h]\d{2}|chez|au |à la|a la|dentiste|tennis|pêche|peche)\b/i.test(
+      clean,
+    ) &&
+    !/\b(destination|adresse|lieu|where|location)\b/i.test(lower);
+  const hasIntentKeyword = /\b(acheter|aller|faire|rdv|rendez-vous|planifier|prévoir|appeler|envoyer|payer|réserver|book|todo|task)\b/i.test(
+    clean,
+  );
+  const isLongMemoLikely =
+    clean.length >= 260 && skeleton.predictedType === 'NOTE' && lacksStructuredSignals && !hasIntentKeyword;
+  if (isLongMemoLikely) {
+    const parsed = {
+      ...skeleton,
+      data: normalizeUniversalTemporalInData({
+        ...skeleton.data,
+        is_long_memo: true,
+      }),
+    };
+    return {
+      parsed,
+      rawModelText: '',
+      timings: { promptChars: 0, geminiStartMs: 0, geminiEndMs: 0, parseEndMs: 0 },
+    };
+  }
   const geminiStartMs = perfNowMs();
   const { parsed, rawModelText } = await refineOneTapWithGeminiCompressed(transcript, skeleton, {
     uiLocale: options.uiLocale,

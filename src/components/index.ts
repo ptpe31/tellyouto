@@ -26,3 +26,8 @@ export { StartupPerfBanner } from './StartupPerfBanner';
 export { RewardToast } from './RewardToast';
 export { IntentionSuggestionsBanner } from './IntentionSuggestionsBanner';
 export { OneTapConfirmModal } from './OneTapConfirmModal';
+export {
+  formatOneTapCourtesyLine,
+  OneTapCourtesyInterstitial,
+  ONE_TAP_MODAL_OPEN_SAFETY_MS,
+} from './OneTapCourtesyInterstitial';

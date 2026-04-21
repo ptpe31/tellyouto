@@ -34,15 +34,14 @@ export async function requestIgnoreBatteryOptimizationAndroid() {
       [{ key: 'package', value: deepLink }],
     );
     if (opened) return true;
-  } catch (error) {
-    console.warn('[PermissionService] battery optimization intent failed', error);
+  } catch {
+    /* silencieux : OEM / API / absence d’activité — évite le spam Metro */
   }
 
   try {
     await Linking.sendIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS');
     return true;
-  } catch (error) {
-    console.warn('[PermissionService] battery settings fallback failed', error);
+  } catch {
     return false;
   }
 }

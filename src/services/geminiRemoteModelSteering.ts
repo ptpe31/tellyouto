@@ -44,7 +44,11 @@ function isBenignRemoteConfigPlatformError(e: unknown): boolean {
     bundle.includes('storage-open') ||
     bundle.includes('idb') ||
     bundle.includes('indexeddb-unavailable') ||
-    (bundle.includes('property') && bundle.includes("doesn't exist") && bundle.includes('indexed'))
+    (bundle.includes('property') && bundle.includes("doesn't exist") && bundle.includes('indexed')) ||
+    bundle.includes('typeerror') ||
+    bundle.includes('cannot read property') ||
+    (bundle.includes('open') &&
+      (bundle.includes('undefined') || bundle.includes('null') || bundle.includes('indexeddb')))
   );
 }
 
@@ -62,6 +66,10 @@ let steeringInitPromise: Promise<void> | null = null;
 /** Secours local après self-heal (24h). */
 const GEMINI_FALLBACK_STORAGE_KEY = 'tellyouto_gemini_model_fallback_v1';
 const GEMINI_FALLBACK_TTL_MS = 24 * 60 * 60 * 1000;
+const RECOVER_COOLDOWN_MS = 90_000;
+let recoverInFlight: Promise<string | null> | null = null;
+let lastRecoverAttemptAtMs = 0;
+let lastRecoverSucceededAtMs = 0;
 
 function sanitizeRemoteModelId(raw: string): string | null {
   const s = raw.trim().replace(/^models\//, '');
@@ -120,7 +128,25 @@ async function tryRecoverFromListModels(apiKey: string): Promise<string | null> 
 export async function recoverGeminiModelViaListModels(): Promise<string | null> {
   const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
   if (!key) return null;
-  return tryRecoverFromListModels(key);
+  const now = Date.now();
+  if (recoverInFlight) return recoverInFlight;
+  const lastAt = Math.max(lastRecoverAttemptAtMs, lastRecoverSucceededAtMs);
+  if (lastAt > 0 && now - lastAt < RECOVER_COOLDOWN_MS) {
+    return null;
+  }
+  lastRecoverAttemptAtMs = now;
+  recoverInFlight = (async () => {
+    const recovered = await tryRecoverFromListModels(key);
+    if (recovered) {
+      lastRecoverSucceededAtMs = Date.now();
+    }
+    return recovered;
+  })();
+  try {
+    return await recoverInFlight;
+  } finally {
+    recoverInFlight = null;
+  }
 }
 
 /** Modèle effectif pour les appels REST Gemini (mis à jour après `ensureGeminiRemoteModelInitialized`). */
@@ -188,7 +214,7 @@ export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
     try {
       await fetchAndActivate(rc);
     } catch (e) {
-      if (__DEV__) {
+      if (__DEV__ && !isBenignRemoteConfigPlatformError(e)) {
         console.warn('[GeminiSteering] fetchAndActivate (valeurs locales RC)', e);
       }
     }

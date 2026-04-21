@@ -52,6 +52,13 @@ function newRowId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const DEFAULT_MEMO_WEIGHTS = {
+  structure: 0.25,
+  momentum: 0.25,
+  zen: 0.25,
+  stats: 0.25,
+};
+
 export async function persistIntentionDrafts(drafts: IntentionDraft[]): Promise<void> {
   await ensureCatalogTables();
   const now = Date.now();
@@ -99,11 +106,41 @@ export async function persistIntentionDrafts(drafts: IntentionDraft[]): Promise<
         );
         continue;
       }
-      await db.runAsync(`INSERT INTO quick_notes (id, content, created_at) VALUES (?, ?, ?)`, [
-        newRowId('note'),
-        draft.content,
-        now,
-      ]);
+      if (draft.isAudioMemo) {
+        const id = newRowId('audio_memo');
+        await db.runAsync(
+          `INSERT INTO intentions (
+            id, title, description, status, priority, weights,
+            platform_type, platform_user_id, created_at, synced,
+            estimated_duration, actual_duration, completed_at,
+            user_forced_urgent, is_late_night, alarm_enabled, is_flexible, is_micro_habit,
+            is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
+            raw_transcript, energy_score, local_notification_id, recurrence_rrule,
+            type, parent_id, semantic_cluster_id, semantic_tags, sentiment_score, ping_history
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, 0, 0, 0, 1, 0, 0, NULL, NULL, NULL, ?, NULL, NULL, NULL, ?, NULL, NULL, ?, NULL, '[]')`,
+          [
+            id,
+            draft.title?.trim() || draft.content.trim().slice(0, 80) || 'Mémo audio',
+            draft.content,
+            'pending',
+            1,
+            JSON.stringify(DEFAULT_MEMO_WEIGHTS),
+            'mobile',
+            'local',
+            now,
+            5,
+            draft.rawTranscript ?? draft.content,
+            'audio_memo',
+            JSON.stringify(['memo_audio']),
+          ],
+        );
+      } else {
+        await db.runAsync(`INSERT INTO quick_notes (id, content, created_at) VALUES (?, ?, ?)`, [
+          newRowId('note'),
+          draft.content,
+          now,
+        ]);
+      }
     }
   });
 }

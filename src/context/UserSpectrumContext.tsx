@@ -27,6 +27,12 @@ import {
   pushUserEntitlementsToFirestore,
   type DeviceProfileFields,
 } from '../api/userProfile';
+import {
+  DEBUG_USER_TIER_OVERRIDE_CHANGED,
+  readDebugUserTierOverride,
+  writeDebugUserTierOverride,
+  type DebugUserTierOverride,
+} from '../services/debugUserTierOverride';
 
 /** Clé AsyncStorage — partagée avec le reset profil (debug / onboarding). */
 export const USER_SPECTRUM_STORAGE_KEY = '@tellyouto/user_spectrum';
@@ -126,6 +132,9 @@ type UserSpectrumContextValue = {
   resetSpectrum: () => void;
   persist: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
+  /** Surcharge debug Pro/Free (clé AsyncStorage `@tellyouto/is_pro_simulated`). */
+  debugUserTierOverride: DebugUserTierOverride;
+  applyDebugUserTierOverride: (value: DebugUserTierOverride) => Promise<void>;
 };
 
 const UserSpectrumContext = createContext<UserSpectrumContextValue | undefined>(
@@ -138,10 +147,26 @@ export function UserSpectrumProvider({
   children: React.ReactNode;
 }) {
   const [spectrum, setSpectrum] = useState<UserSpectrumState>(defaultSpectrum);
+  const [debugUserTierOverride, setDebugUserTierOverride] =
+    useState<DebugUserTierOverride>('none');
   const spectrumRef = useRef(spectrum);
   useEffect(() => {
     spectrumRef.current = spectrum;
   }, [spectrum]);
+
+  useEffect(() => {
+    void readDebugUserTierOverride().then(setDebugUserTierOverride);
+  }, []);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      DEBUG_USER_TIER_OVERRIDE_CHANGED,
+      (v: DebugUserTierOverride) => {
+        setDebugUserTierOverride(v);
+      },
+    );
+    return () => sub.remove();
+  }, []);
 
   const setWeights = useCallback((w: Partial<SpectrumWeights>) => {
     setSpectrum((prev) => ({
@@ -341,6 +366,10 @@ export function UserSpectrumProvider({
     [persist],
   );
 
+  const applyDebugUserTierOverride = useCallback(async (value: DebugUserTierOverride) => {
+    await writeDebugUserTierOverride(value);
+  }, []);
+
   const loadFromStorage = useCallback(async () => {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return;
@@ -446,9 +475,20 @@ export function UserSpectrumProvider({
     return () => sub.remove();
   }, [persist]);
 
+  const effectiveIsProUser = useMemo(() => {
+    if (debugUserTierOverride === 'force_free') return false;
+    if (debugUserTierOverride === 'force_pro') return true;
+    return spectrum.isProUser;
+  }, [debugUserTierOverride, spectrum.isProUser]);
+
+  const spectrumForConsumer = useMemo(
+    () => ({ ...spectrum, isProUser: effectiveIsProUser }),
+    [spectrum, effectiveIsProUser],
+  );
+
   const value = useMemo(
     () => ({
-      spectrum,
+      spectrum: spectrumForConsumer,
       setWeights,
       applyWeightsAndPersist,
       setPlatformUserId,
@@ -464,9 +504,11 @@ export function UserSpectrumProvider({
       resetSpectrum,
       persist,
       loadFromStorage,
+      debugUserTierOverride,
+      applyDebugUserTierOverride,
     }),
     [
-      spectrum,
+      spectrumForConsumer,
       setWeights,
       applyWeightsAndPersist,
       setPlatformUserId,
@@ -482,6 +524,8 @@ export function UserSpectrumProvider({
       resetSpectrum,
       persist,
       loadFromStorage,
+      debugUserTierOverride,
+      applyDebugUserTierOverride,
     ],
   );
 

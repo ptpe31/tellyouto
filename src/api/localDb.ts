@@ -172,7 +172,8 @@ const SCHEMA = `
     semantic_cluster_id TEXT,
     semantic_tags TEXT NOT NULL DEFAULT '[]',
     sentiment_score REAL,
-    ping_history TEXT NOT NULL DEFAULT '[]'
+    ping_history TEXT NOT NULL DEFAULT '[]',
+    is_pending_analysis INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS routines (
@@ -406,6 +407,11 @@ async function migrateIntentionsColumns(database: SQLite.SQLiteDatabase): Promis
   if (!names.has('ping_history')) {
     await database.execAsync(
       `ALTER TABLE intentions ADD COLUMN ping_history TEXT NOT NULL DEFAULT '[]'`,
+    );
+  }
+  if (!names.has('is_pending_analysis')) {
+    await database.execAsync(
+      `ALTER TABLE intentions ADD COLUMN is_pending_analysis INTEGER NOT NULL DEFAULT 0`,
     );
   }
   await database.execAsync(`
@@ -661,6 +667,8 @@ export type IntentionRow = {
   sentiment_score: number | null;
   /** Historique des relances/pings associés. */
   ping_history: string[];
+  /** Brouillon hors-ligne en attente d'analyse Gemini. */
+  is_pending_analysis?: boolean;
 };
 
 export type RoutineRow = {
@@ -777,6 +785,8 @@ function rowToIntention(row: Record<string, unknown>): IntentionRow {
         ? row.sentiment_score
         : null,
     ping_history: pingHistory,
+    is_pending_analysis:
+      row.is_pending_analysis != null && Number(row.is_pending_analysis) === 1,
   };
 }
 
@@ -843,6 +853,7 @@ export async function insertIntention(input: {
   semantic_tags?: string[];
   sentiment_score?: number | null;
   ping_history?: string[];
+  is_pending_analysis?: boolean;
 }): Promise<void> {
   try {
     const norm = normalizeFlexAlarmForInsert({
@@ -859,6 +870,7 @@ export async function insertIntention(input: {
       const flex = norm.is_flexible ? 1 : 0;
       const micro = input.is_micro_habit ? 1 : 0;
       const hard = norm.is_hard_constraint ? 1 : 0;
+      const pendingAnalysis = input.is_pending_analysis ? 1 : 0;
       await database.runAsync(
         `INSERT INTO intentions (
       id, title, description, status, priority, weights,
@@ -867,8 +879,8 @@ export async function insertIntention(input: {
       user_forced_urgent, is_late_night, alarm_enabled, is_flexible, is_micro_habit,
       is_hard_constraint, routine_id, anchor_date_ymd, fixed_start_minutes,
       raw_transcript, energy_score, local_notification_id, recurrence_rrule,
-      type, parent_id, semantic_cluster_id, semantic_tags, sentiment_score, ping_history
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+      type, parent_id, semantic_cluster_id, semantic_tags, sentiment_score, ping_history, is_pending_analysis
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           input.id,
           input.title,
@@ -898,6 +910,7 @@ export async function insertIntention(input: {
           JSON.stringify(input.semantic_tags ?? []),
           input.sentiment_score ?? null,
           JSON.stringify(input.ping_history ?? []),
+          pendingAnalysis,
         ],
       );
     });

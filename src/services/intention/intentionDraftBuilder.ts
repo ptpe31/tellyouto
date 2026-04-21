@@ -6,6 +6,31 @@ function safeTimeString(value: unknown, fallback: string): string {
   return s || fallback;
 }
 
+function hasStructuredSignals(parsed: OneTapUniversalResult): boolean {
+  const data = parsed.data ?? {};
+  const dueLike = [
+    data.dueDateTime,
+    data.dueDateYmd,
+    data.nextDueYmd,
+    data.arrivalTime,
+    data.date,
+    data.monthDay,
+  ].some((v) => typeof v === 'string' && v.trim().length > 0);
+  const placeLike = [data.location_address, data.destination_name, data.destination, data.personName].some(
+    (v) => typeof v === 'string' && v.trim().length > 0,
+  );
+  return dueLike || placeLike;
+}
+
+function shouldTreatAsLongAudioMemo(parsed: OneTapUniversalResult, transcript: string): boolean {
+  const data = parsed.data ?? {};
+  const aiFlag = data.is_long_memo === true || String(data.is_long_memo ?? '').toLowerCase() === 'true';
+  if (aiFlag) return true;
+  if (hasStructuredSignals(parsed)) return false;
+  if (parsed.predictedType === 'NOTE') return true;
+  return transcript.trim().length >= 160;
+}
+
 export function buildIntentionDraftsFromGemini(
   parsed: OneTapUniversalResult,
   transcript: string,
@@ -13,7 +38,18 @@ export function buildIntentionDraftsFromGemini(
   const drafts: IntentionDraft[] = [];
   const lower = transcript.toLowerCase();
 
-  if (parsed.predictedType === 'HABIT' || parsed.predictedType === 'RECURRING_TASK') {
+  const longAudioMemo = shouldTreatAsLongAudioMemo(parsed, transcript);
+
+  if (longAudioMemo) {
+    const title = parsed.title.trim() || transcript.trim().slice(0, 80) || 'Mémo audio';
+    drafts.push({
+      kind: 'NOTE',
+      title,
+      content: transcript.trim() || title,
+      isAudioMemo: true,
+      rawTranscript: transcript.trim() || undefined,
+    });
+  } else if (parsed.predictedType === 'HABIT' || parsed.predictedType === 'RECURRING_TASK') {
     drafts.push({
       kind: 'HABIT',
       title: parsed.title,
@@ -38,12 +74,12 @@ export function buildIntentionDraftsFromGemini(
       specialTasks: [],
     });
   } else if (parsed.predictedType === 'NOTE') {
-    drafts.push({ kind: 'NOTE', content: transcript.trim() || parsed.title });
+    drafts.push({ kind: 'NOTE', content: transcript.trim() || parsed.title, title: parsed.title.trim() || undefined });
   } else {
-    drafts.push({ kind: 'NOTE', content: transcript.trim() || parsed.title });
+    drafts.push({ kind: 'NOTE', content: transcript.trim() || parsed.title, title: parsed.title.trim() || undefined });
   }
 
-  if (/\b(minuteur|timer|dans \d+\s*(min|minute|second|sec))\b/i.test(lower)) {
+  if (!longAudioMemo && /\b(minuteur|timer|dans \d+\s*(min|minute|second|sec))\b/i.test(lower)) {
     drafts.push({
       kind: 'TIMER',
       label: parsed.title || 'Timer',
@@ -53,7 +89,7 @@ export function buildIntentionDraftsFromGemini(
     });
   }
 
-  if (/\b(trajet|aller|route|départ|arriver)\b/i.test(lower)) {
+  if (!longAudioMemo && /\b(trajet|aller|route|départ|arriver)\b/i.test(lower)) {
     drafts.push({
       kind: 'TRIP',
       destination: parsed.title || 'Destination',

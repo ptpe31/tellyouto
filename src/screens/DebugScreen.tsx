@@ -10,9 +10,11 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { Button, useTheme } from 'react-native-paper';
+import { Button, SegmentedButtons, useTheme } from 'react-native-paper';
 
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
+import type { DebugUserTierOverride } from '../services/debugUserTierOverride';
 import { getTrankilV2IntentionTaskCounts } from '../api/trankilV2Db';
 import { INTENTIONS_CHANGED_EVENT_NAME, LOCAL_DB_RESET_EVENT } from '../api/localDb';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
@@ -35,6 +37,7 @@ export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
   const power = usePower();
+  const { spectrum, debugUserTierOverride, applyDebugUserTierOverride } = useUserSpectrum();
   const [busy, setBusy] = useState<
     'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | null
   >(null);
@@ -385,6 +388,31 @@ export function DebugScreen() {
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
           {t('debug.dashboardSectionSysteme')}
         </Text>
+        <Text style={[styles.blockTitle, { color: theme.colors.onSurface }]}>
+          {t('debug.simUserModeTitle', {
+            tier:
+              debugUserTierOverride === 'force_pro'
+                ? 'PRO'
+                : debugUserTierOverride === 'force_free'
+                  ? 'FREE'
+                  : t('debug.simUserModeTierReal'),
+          })}
+        </Text>
+        <SegmentedButtons
+          value={debugUserTierOverride}
+          onValueChange={(v) => void applyDebugUserTierOverride(v as DebugUserTierOverride)}
+          buttons={[
+            { value: 'none', label: t('debug.simUserModeReal') },
+            { value: 'force_free', label: t('debug.simUserModeFree') },
+            { value: 'force_pro', label: t('debug.simUserModePro') },
+          ]}
+          style={styles.simUserSegment}
+        />
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.simUserModeHelp', {
+            effective: spectrum.isProUser ? 'PRO' : 'FREE',
+          })}
+        </Text>
         <Text style={[styles.mono, styles.countLine, { color: theme.colors.onSurfaceVariant }]}>
           {t('debug.sqliteCountsLine', {
             intentions: dbCounts.intentionsCount,
@@ -437,6 +465,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   section: { marginBottom: 20 },
+  simUserSegment: { marginTop: 6, marginBottom: 4 },
   btn: { alignSelf: 'flex-start' },
   btnSecond: { marginTop: 12 },
   help: { fontSize: 12, marginTop: 8, maxWidth: '100%' },

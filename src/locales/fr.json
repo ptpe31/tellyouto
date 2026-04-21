@@ -15,7 +15,8 @@
   "capture": {
     "offlineNoteGenericToast": "Note sauvegardée localement. L'organisation intelligente sera finalisée dès le retour du réseau.",
     "offlineRetryOkToast": "Tri IA terminé — ta Timeline est à jour.",
-    "pendingAiNetworkBack": "{{count}} idée(s) attendent encore le tri par l'IA — tu peux toucher « Réessayer le tri IA » sur la carte."
+    "pendingAiNetworkBack": "{{count}} idée(s) attendent encore le tri par l'IA — tu peux toucher « Réessayer le tri IA » sur la carte.",
+    "offlineAudioCapturedTitle": "Mode Hors-ligne — Note Audio capturée"
   },
   "quota": {
     "format": "{{current}}/{{total}}"
@@ -720,7 +721,11 @@
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",
-    "externalIntentionBody": "Ton Allié a capté une nouvelle intention : {{title}}. Elle est sur ton Rail."
+    "externalIntentionBody": "Ton Allié a capté une nouvelle intention : {{title}}. Elle est sur ton Rail.",
+    "offlineAudioReadyTitle": "☁️⚡ Note capturée hors-ligne disponible",
+    "offlineAudioReadyBody": "Voulez-vous l'analyser maintenant ?",
+    "offlineAnalyzeAction": "Analyser",
+    "offlineKeepAudioAction": "Garder Audio"
   },
   "recharge": {
     "eyebrow": "STATION SENSORIELLE",
@@ -1301,5 +1306,26 @@
     "optionalNoPressure": "Facultatif (Sans pression)",
     "rebalanceToToday": "Reporter a Aujourd'hui",
     "rebalanceToNoPressure": "Basculer Sans pression"
+  },
+  "intentionModal": {
+    "title": "Catalogue des intentions",
+    "untitled": "Intention",
+    "save": "Sauvegarder",
+    "saveNote": "Enregistrer la Note",
+    "audioMemoType": "Memo Audio",
+    "play": "Lecture",
+    "pause": "Pause",
+    "noTranscript": "Transcription indisponible",
+    "categoryLeisure": "Loisirs",
+    "logisticsToggle": "Me prevenir quand partir",
+    "wherePlaceholder": "Ou ca ?",
+    "kind": {
+      "trip": "Trajet",
+      "task": "Tache",
+      "habit": "Habitude",
+      "note": "Memo",
+      "timer": "Minuteur",
+      "birthday": "Anniversaire"
+    }
   }
 }

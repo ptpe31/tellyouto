@@ -22,6 +22,9 @@ const DEVICE_ID_KEY = '@tellyouto/sync_device_id';
 
 /** Fenêtre alignée sur la purge serveur (24h) si deleteDoc échoue après transit. */
 export const TRANSIT_TTL_MS = 24 * 60 * 60 * 1000;
+const SYNC_COOLDOWN_MS = 3000;
+let syncInFlight: Promise<{ ok: boolean; failedCount: number }> | null = null;
+let lastSyncStartedAt = 0;
 
 export async function getOrCreateDeviceId(): Promise<string> {
   let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
@@ -76,6 +79,13 @@ async function pushIntentionToFirestore(
  * Envoie les intentions locales non synchronisées vers Firestore.
  */
 export async function syncPendingIntentions(): Promise<{ ok: boolean; failedCount: number }> {
+  const now = Date.now();
+  if (syncInFlight) return syncInFlight;
+  if (now - lastSyncStartedAt < SYNC_COOLDOWN_MS) {
+    return { ok: true, failedCount: 0 };
+  }
+  lastSyncStartedAt = now;
+  const run = (async () => {
   const firestore = getFirestoreDb();
   if (!firestore) return { ok: false, failedCount: 1 };
 
@@ -118,6 +128,13 @@ export async function syncPendingIntentions(): Promise<{ ok: boolean; failedCoun
     }
   }
   return { ok: failedCount === 0, failedCount };
+  })();
+  syncInFlight = run;
+  try {
+    return await run;
+  } finally {
+    syncInFlight = null;
+  }
 }
 
 /**
@@ -136,7 +153,7 @@ export function startConnectivitySyncListener(): () => void {
   });
 
   void NetInfo.fetch().then((state) => {
-    if (state.isConnected) {
+    if (state.isConnected && state.isInternetReachable !== false) {
       void syncPendingIntentions();
     }
   });
