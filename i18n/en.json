@@ -5,9 +5,8 @@
   "APP_LAUNCH": "Start",
   "TAB_HOME": "Home",
   "TAB_TIMELINE": "Timeline",
-  "TAB_SETTINGS": "Settings",
+  "TAB_DEBUG": "TalkDebug",
   "TIMELINE_EMPTY": "Nothing captured yet.",
-  "SETTINGS_PLACEHOLDER": "Settings",
 
   "MIC_PERMISSION_TITLE": "Microphone permission",
   "MIC_PERMISSION_BODY": "Please allow microphone access in Settings to use voice capture.",
