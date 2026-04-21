@@ -1,17 +1,17 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
-import { Home, List, Settings } from 'lucide-react-native';
+import { Bug, Home, List } from 'lucide-react-native';
 
 import { useTranslation } from '../i18n';
 import { HomeScreen } from '../screens/HomeScreen';
 import { TimelineScreen } from '../screens/TimelineScreen';
-import { SettingsScreen } from '../screens/SettingsScreen';
+import { TalkDebugScreen } from '../screens/TalkDebugScreen';
 
 export type RootTabsParamList = {
   Home: undefined;
   Timeline: undefined;
-  Settings: undefined;
+  TalkDebug: undefined;
 };
 
 const Tab = createBottomTabNavigator<RootTabsParamList>();
@@ -45,15 +45,14 @@ export function MainNavigator() {
           }}
         />
         <Tab.Screen
-          name="Settings"
-          component={SettingsScreen}
+          name="TalkDebug"
+          component={TalkDebugScreen}
           options={{
-            title: t('TAB_SETTINGS'),
-            tabBarIcon: ({ color, size }) => <Settings color={color} size={size} />,
+            title: t('TAB_DEBUG'),
+            tabBarIcon: ({ color, size }) => <Bug color={color} size={size} />,
           }}
         />
       </Tab.Navigator>
     </NavigationContainer>
   );
 }
-
