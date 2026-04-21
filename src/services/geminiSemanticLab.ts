@@ -26,11 +26,15 @@
 
 import Constants from 'expo-constants';
 
-import { getActiveGeminiModelId, getLastRemoteConfigResolvedModelId, recoverGeminiModelViaListModels } from './geminiRemoteModelSteering';
+import {
+  getActiveGeminiModelId,
+  getLastRemoteConfigResolvedModelId,
+  recoverGeminiModelViaListModelsExcluding,
+} from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
 
-const BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_API_VERSION_LABEL = 'v1beta';
+const BASE = 'https://generativelanguage.googleapis.com/v1';
+const GEMINI_API_VERSION_LABEL = 'v1';
 
 /** Lignes de détail des blocs `[GeminiAPI]` — même indentation que `[OneTap]` / `[OneTapPerf]`. */
 const GLOG = '\n  | ';
@@ -293,18 +297,15 @@ async function postGenerateContent(
   };
 
   let model = modelOverride || getActiveGeminiModelId();
+  const usedModels: string[] = [model];
   let usedRecoverRetry = false;
   let { res, text, modelId, latencyMs } = await runOnce(model);
-  if (
-    !res.ok &&
-    (res.status === 404 || res.status === 503) &&
-    !modelOverride
-  ) {
-    const recovered = await recoverGeminiModelViaListModels();
-    if (recovered) {
-      usedRecoverRetry = true;
-      ({ res, text, modelId, latencyMs } = await runOnce(recovered));
-    }
+  for (let tries = 0; !res.ok && (res.status === 404 || res.status === 503) && !modelOverride && tries < 3; tries += 1) {
+    const recovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
+    if (!recovered) break;
+    usedRecoverRetry = true;
+    usedModels.push(recovered);
+    ({ res, text, modelId, latencyMs } = await runOnce(recovered));
   }
 
   if (res.ok) {
@@ -878,6 +879,7 @@ async function postStreamGenerateContent(
   };
 
   let model = modelOverride || getActiveGeminiModelId();
+  const usedModels: string[] = [model];
   let { res, modelId } = await openStream(model);
   let lastErrBody = '';
   let usedRecoverRetry = false;
@@ -889,9 +891,11 @@ async function postStreamGenerateContent(
       preview: lastErrBody.slice(0, 220),
     });
     if ((res.status === 404 || res.status === 503) && !modelOverride) {
-      const recovered = await recoverGeminiModelViaListModels();
-      if (recovered) {
+      for (let tries = 0; tries < 3 && !res.ok; tries += 1) {
+        const recovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
+        if (!recovered) break;
         usedRecoverRetry = true;
+        usedModels.push(recovered);
         ({ res, modelId } = await openStream(recovered));
         if (!res.ok) {
           lastErrBody = await res.text();
@@ -900,6 +904,7 @@ async function postStreamGenerateContent(
             status: res.status,
             preview: lastErrBody.slice(0, 220),
           });
+          if (res.status !== 404 && res.status !== 503) break;
         }
       }
     }

@@ -144,7 +144,7 @@ export function orderGeminiModelIdsForHealthProbe(ids: string[]): string[] {
 }
 
 /**
- * Liste paginée tous les modèles v1beta visibles pour la clé.
+ * Liste paginée tous les modèles v1 visibles pour la clé.
  */
 export async function fetchAllGeminiModelsList(apiKey: string): Promise<GeminiListedModel[]> {
   const key = apiKey.trim();
@@ -152,7 +152,7 @@ export async function fetchAllGeminiModelsList(apiKey: string): Promise<GeminiLi
   const out: GeminiListedModel[] = [];
   let pageToken: string | undefined;
   do {
-    const u = new URL('https://generativelanguage.googleapis.com/v1beta/models');
+    const u = new URL('https://generativelanguage.googleapis.com/v1/models');
     u.searchParams.set('key', key);
     u.searchParams.set('pageSize', '100');
     if (pageToken) u.searchParams.set('pageToken', pageToken);

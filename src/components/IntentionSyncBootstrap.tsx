@@ -1,7 +1,11 @@
 import { useEffect } from 'react';
 
+import NetInfo from '@react-native-community/netinfo';
 import { startConnectivitySyncListener } from '../api/syncService';
-import { purgeProcessedQueue } from '../services/intention/offlineAudioQueue';
+import {
+  notifyOfflineAudioPendingAnalysis,
+  purgeProcessedQueue,
+} from '../services/intention/offlineAudioQueue';
 
 import { NativeAlarmBootstrap } from './NativeAlarmBootstrap';
 import { ProfileSyncBootstrap } from './ProfileSyncBootstrap';
@@ -12,6 +16,11 @@ import { ProfileSyncBootstrap } from './ProfileSyncBootstrap';
 export function IntentionSyncBootstrap() {
   useEffect(() => {
     void purgeProcessedQueue();
+    void NetInfo.fetch().then((state) => {
+      if (state.isConnected === true && state.isInternetReachable === true) {
+        void notifyOfflineAudioPendingAnalysis();
+      }
+    });
     return startConnectivitySyncListener();
   }, []);
   return (

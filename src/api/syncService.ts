@@ -19,12 +19,12 @@ import {
 } from './localDb';
 
 const DEVICE_ID_KEY = '@tellyouto/sync_device_id';
+const SYNC_COOLDOWN_MS = 8_000;
+let syncInFlight: Promise<{ ok: boolean; failedCount: number }> | null = null;
+let lastSyncStartedAt = 0;
 
 /** Fenêtre alignée sur la purge serveur (24h) si deleteDoc échoue après transit. */
 export const TRANSIT_TTL_MS = 24 * 60 * 60 * 1000;
-const SYNC_COOLDOWN_MS = 3000;
-let syncInFlight: Promise<{ ok: boolean; failedCount: number }> | null = null;
-let lastSyncStartedAt = 0;
 
 export async function getOrCreateDeviceId(): Promise<string> {
   let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
@@ -81,11 +81,9 @@ async function pushIntentionToFirestore(
 export async function syncPendingIntentions(): Promise<{ ok: boolean; failedCount: number }> {
   const now = Date.now();
   if (syncInFlight) return syncInFlight;
-  if (now - lastSyncStartedAt < SYNC_COOLDOWN_MS) {
-    return { ok: true, failedCount: 0 };
-  }
+  if (now - lastSyncStartedAt < SYNC_COOLDOWN_MS) return { ok: true, failedCount: 0 };
   lastSyncStartedAt = now;
-  const run = (async () => {
+  const run = (async (): Promise<{ ok: boolean; failedCount: number }> => {
   const firestore = getFirestoreDb();
   if (!firestore) return { ok: false, failedCount: 1 };
 
@@ -145,15 +143,14 @@ export function startConnectivitySyncListener(): () => void {
   const unsubscribe = NetInfo.addEventListener((state) => {
     const online =
       state.isConnected === true &&
-      (state.isInternetReachable === true ||
-        state.isInternetReachable === null);
+      state.isInternetReachable === true;
     if (online) {
       void syncPendingIntentions();
     }
   });
 
   void NetInfo.fetch().then((state) => {
-    if (state.isConnected && state.isInternetReachable !== false) {
+    if (state.isConnected === true && state.isInternetReachable === true) {
       void syncPendingIntentions();
     }
   });

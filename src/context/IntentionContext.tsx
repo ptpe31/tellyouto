@@ -58,7 +58,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     const net = await NetInfo.fetch();
     const online = net.isConnected === true && net.isInternetReachable === true;
     if (!online && audioUri) {
-      const title = cleaned.slice(0, 56) || 'Mémo audio';
+      const title = cleaned.slice(0, 56) || 'Memo audio';
       await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
       dispatch({ type: 'CAPTURE_OFFLINE_QUEUED', transcript: cleaned, title });
       return;
@@ -70,7 +70,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'PARSE_SUCCESS', drafts });
     } catch (e) {
       if (audioUri) {
-        const title = cleaned.slice(0, 56) || 'Mémo audio';
+        const title = cleaned.slice(0, 56) || 'Memo audio';
         await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
         dispatch({ type: 'CAPTURE_OFFLINE_QUEUED', transcript: cleaned, title });
         return;
@@ -117,7 +117,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsub = NetInfo.addEventListener((state) => {
-      if (state.isConnected && state.isInternetReachable === true) {
+      if (state.isConnected === true && state.isInternetReachable === true) {
         void notifyOfflineAudioPendingAnalysis();
       }
     });
@@ -134,7 +134,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         if (typeof data.queueId === 'string') void markOfflineAudioAsKept(data.queueId);
         return;
       }
-      if (response.actionIdentifier === OFFLINE_AUDIO_ACTION_ANALYZE || response.actionIdentifier === n.DEFAULT_ACTION_IDENTIFIER) {
+      if (
+        response.actionIdentifier === OFFLINE_AUDIO_ACTION_ANALYZE ||
+        response.actionIdentifier === n.DEFAULT_ACTION_IDENTIFIER
+      ) {
         const queueId = typeof data.queueId === 'string' ? data.queueId : undefined;
         void analyzeLatestOfflineAudio(queueId);
       }
@@ -162,9 +165,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         visible={state.status === 'REVIEWING' || state.status === 'SAVING'}
         busy={state.status === 'SAVING'}
         drafts={state.drafts}
-        transcript={state.transcript}
-        audioUri={state.audioUri}
-        offlineNotice={state.offlineNotice}
         onChangeDraft={updateDraft}
         onConfirm={() => void confirmReview()}
         onDismiss={dismissReview}

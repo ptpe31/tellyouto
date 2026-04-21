@@ -1,8 +1,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { insertIntention, withLocalDatabase } from '../../api/localDb';
-import { getNotifications } from '../notifications';
 import i18n from '../../locales/i18n';
+import { getNotifications } from '../notifications';
 
 export const OFFLINE_AUDIO_CATEGORY_ID = 'offline_audio_queue_actions';
 export const OFFLINE_AUDIO_ACTION_ANALYZE = 'offline_audio_analyze';
@@ -22,8 +22,12 @@ type OfflineQueuedAudioRow = {
 const OFFLINE_QUEUE_DIR = `${FileSystem.documentDirectory}offline_queue`;
 const PROCESSED_RETENTION_MS = 48 * 60 * 60 * 1000;
 
-function newId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+function newQueueId(): string {
+  return `offline_audio_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function newIntentionId(): string {
+  return `offline_intention_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 async function ensureOfflineAudioQueueTable(): Promise<void> {
@@ -39,7 +43,8 @@ async function ensureOfflineAudioQueueTable(): Promise<void> {
         created_at INTEGER NOT NULL,
         notified_at INTEGER
       );
-      CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_status ON offline_audio_queue (status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_status
+        ON offline_audio_queue (status, created_at DESC);
     `);
   });
 }
@@ -55,8 +60,8 @@ export async function queueOfflineAudioCapture(params: {
 }): Promise<{ intentionId: string; queueId: string; storedPath: string }> {
   await ensureOfflineAudioQueueTable();
   await ensureOfflineQueueDirectory();
-  const queueId = newId('offline_audio');
-  const intentionId = newId('offline_intention');
+  const queueId = newQueueId();
+  const intentionId = newIntentionId();
   const targetPath = `${OFFLINE_QUEUE_DIR}/${queueId}.m4a`;
   await FileSystem.copyAsync({ from: params.audioUri, to: targetPath });
   const now = Date.now();
@@ -74,7 +79,6 @@ export async function queueOfflineAudioCapture(params: {
     raw_transcript: params.transcript,
     type: 'audio_memo',
     semantic_tags: ['offline_queue'],
-    is_pending_analysis: true,
   });
   await withLocalDatabase(async (db) => {
     await db.runAsync(
@@ -84,16 +88,6 @@ export async function queueOfflineAudioCapture(params: {
     );
   });
   return { intentionId, queueId, storedPath: targetPath };
-}
-
-export async function getPendingOfflineAudioCount(): Promise<number> {
-  await ensureOfflineAudioQueueTable();
-  return withLocalDatabase(async (db) => {
-    const row = await db.getFirstAsync<{ c: number }>(
-      `SELECT COUNT(*) as c FROM offline_audio_queue WHERE status = 'pending'`,
-    );
-    return Number(row?.c ?? 0);
-  });
 }
 
 export async function getLatestPendingOfflineAudio(): Promise<OfflineQueuedAudioRow | null> {
@@ -124,7 +118,7 @@ async function deleteQueuedAudioFile(queueId: string): Promise<void> {
   try {
     await FileSystem.deleteAsync(path, { idempotent: true });
   } catch {
-    /* delete best effort */
+    /* best effort */
   }
 }
 
@@ -136,9 +130,6 @@ export async function markOfflineAudioAsDone(queueId: string): Promise<void> {
       `UPDATE offline_audio_queue SET status = 'done', notified_at = COALESCE(notified_at, ?) WHERE id = ?`,
       [Date.now(), queueId],
     );
-    await db.runAsync(`UPDATE intentions SET is_pending_analysis = 0 WHERE id = (SELECT intention_id FROM offline_audio_queue WHERE id = ?)`, [
-      queueId,
-    ]);
   });
 }
 
@@ -146,10 +137,10 @@ export async function markOfflineAudioAsKept(queueId: string): Promise<void> {
   await ensureOfflineAudioQueueTable();
   await deleteQueuedAudioFile(queueId);
   await withLocalDatabase(async (db) => {
-    await db.runAsync(`UPDATE offline_audio_queue SET status = 'kept', notified_at = COALESCE(notified_at, ?) WHERE id = ?`, [
-      Date.now(),
-      queueId,
-    ]);
+    await db.runAsync(
+      `UPDATE offline_audio_queue SET status = 'kept', notified_at = COALESCE(notified_at, ?) WHERE id = ?`,
+      [Date.now(), queueId],
+    );
   });
 }
 
@@ -158,31 +149,28 @@ export async function notifyOfflineAudioPendingAnalysis(): Promise<void> {
   if (!n) return;
   await ensureOfflineAudioQueueTable();
   const pending = await getLatestPendingOfflineAudio();
-  if (!pending) return;
-  if (pending.notified_at) return;
+  if (!pending || pending.notified_at) return;
   try {
     await n.setNotificationCategoryAsync(OFFLINE_AUDIO_CATEGORY_ID, [
       {
         identifier: OFFLINE_AUDIO_ACTION_ANALYZE,
-        buttonTitle: i18n.t('notifications.offlineAnalyzeAction'),
+        buttonTitle: i18n.t('notifications.offlineAnalyzeAction', { defaultValue: 'Analyser' }),
       },
       {
         identifier: OFFLINE_AUDIO_ACTION_KEEP,
-        buttonTitle: i18n.t('notifications.offlineKeepAudioAction'),
-        options: { isDestructive: false },
+        buttonTitle: i18n.t('notifications.offlineKeepAudioAction', { defaultValue: 'Garder audio' }),
       },
     ]);
   } catch {
-    /* keep simple fallback without category */
+    /* category unsupported */
   }
   await n.scheduleNotificationAsync({
     content: {
-      title: i18n.t('notifications.offlineAudioReadyTitle'),
-      body: i18n.t('notifications.offlineAudioReadyBody'),
-      data: {
-        kind: 'offline_audio_queue',
-        queueId: pending.id,
-      },
+      title: i18n.t('notifications.offlineAudioReadyTitle', { defaultValue: 'Note hors-ligne disponible' }),
+      body: i18n.t('notifications.offlineAudioReadyBody', {
+        defaultValue: 'Une capture audio attend votre analyse.',
+      }),
+      data: { kind: 'offline_audio_queue', queueId: pending.id },
       categoryIdentifier: OFFLINE_AUDIO_CATEGORY_ID,
       sticky: true,
     },
@@ -193,7 +181,6 @@ export async function notifyOfflineAudioPendingAnalysis(): Promise<void> {
   });
 }
 
-/** Purge discrète des entrées traitées/kept > 48h. */
 export async function purgeProcessedQueue(): Promise<number> {
   await ensureOfflineAudioQueueTable();
   const cutoff = Date.now() - PROCESSED_RETENTION_MS;

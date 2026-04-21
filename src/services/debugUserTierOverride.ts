@@ -1,39 +1,43 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DeviceEventEmitter } from 'react-native';
 
-/**
- * Surcharge locale du statut Pro pour tests (quota, paywall) — persistante AsyncStorage.
- * @see {@link DEBUG_USER_TIER_OVERRIDE_CHANGED} — rafraîchissement UI immédiat.
- */
-export const DEBUG_USER_TIER_OVERRIDE_KEY = '@tellyouto/is_pro_simulated';
+export type DebugUserTierOverride = 'force_free' | 'force_pro' | null;
 
-export const DEBUG_USER_TIER_OVERRIDE_CHANGED = 'debugUserTierOverrideChanged';
+const DEBUG_USER_TIER_OVERRIDE_KEY = 'debug_user_tier_override_v1';
 
-export type DebugUserTierOverride = 'none' | 'force_free' | 'force_pro';
+let cachedOverride: DebugUserTierOverride = null;
+let hydrated = false;
 
-let cached: DebugUserTierOverride = 'none';
+function normalizeOverride(value: unknown): DebugUserTierOverride {
+  if (value === 'force_free' || value === 'force_pro') return value;
+  return null;
+}
 
 export function getDebugUserTierOverrideCached(): DebugUserTierOverride {
-  return cached;
+  return cachedOverride;
 }
 
-function normalize(raw: string | null): DebugUserTierOverride {
-  if (raw === 'force_free' || raw === 'force_pro') return raw;
-  return 'none';
-}
-
-export async function readDebugUserTierOverride(): Promise<DebugUserTierOverride> {
-  const raw = await AsyncStorage.getItem(DEBUG_USER_TIER_OVERRIDE_KEY);
-  cached = normalize(raw);
-  return cached;
-}
-
-export async function writeDebugUserTierOverride(value: DebugUserTierOverride): Promise<void> {
-  cached = value;
-  if (value === 'none') {
-    await AsyncStorage.removeItem(DEBUG_USER_TIER_OVERRIDE_KEY);
-  } else {
-    await AsyncStorage.setItem(DEBUG_USER_TIER_OVERRIDE_KEY, value);
+export async function hydrateDebugUserTierOverride(): Promise<DebugUserTierOverride> {
+  if (hydrated) return cachedOverride;
+  hydrated = true;
+  try {
+    const raw = await AsyncStorage.getItem(DEBUG_USER_TIER_OVERRIDE_KEY);
+    cachedOverride = normalizeOverride(raw);
+  } catch {
+    cachedOverride = null;
   }
-  DeviceEventEmitter.emit(DEBUG_USER_TIER_OVERRIDE_CHANGED, value);
+  return cachedOverride;
+}
+
+export async function setDebugUserTierOverride(value: DebugUserTierOverride): Promise<void> {
+  cachedOverride = normalizeOverride(value);
+  hydrated = true;
+  try {
+    if (cachedOverride) {
+      await AsyncStorage.setItem(DEBUG_USER_TIER_OVERRIDE_KEY, cachedOverride);
+    } else {
+      await AsyncStorage.removeItem(DEBUG_USER_TIER_OVERRIDE_KEY);
+    }
+  } catch {
+    /* best effort */
+  }
 }

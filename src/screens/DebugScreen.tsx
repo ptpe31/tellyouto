@@ -10,17 +10,16 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { Button, SegmentedButtons, useTheme } from 'react-native-paper';
+import { Button, useTheme } from 'react-native-paper';
 
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
-import { useUserSpectrum } from '../context/UserSpectrumContext';
-import type { DebugUserTierOverride } from '../services/debugUserTierOverride';
 import { getTrankilV2IntentionTaskCounts } from '../api/trankilV2Db';
 import { INTENTIONS_CHANGED_EVENT_NAME, LOCAL_DB_RESET_EVENT } from '../api/localDb';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { usePower } from '../context/PowerContext';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
 import {
   applyGeminiLocalModelOverride,
   ensureGeminiRemoteModelInitialized,
@@ -32,12 +31,17 @@ import { runGeminiModelHealthCheck } from '../services/geminiModelHealthCheck';
 import { TrafficScheduler, type TrafficMonitoringSnapshot } from '../services/traffic/TrafficScheduler';
 import { TrafficSimulator } from '../services/traffic/TrafficSimulator';
 import { computeDurationTargetSec } from '../services/traffic/TrafficEngine';
+import {
+  hydrateDebugUserTierOverride,
+  setDebugUserTierOverride,
+  type DebugUserTierOverride,
+} from '../services/debugUserTierOverride';
 
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
   const power = usePower();
-  const { spectrum, debugUserTierOverride, applyDebugUserTierOverride } = useUserSpectrum();
+  const { spectrum, setProUser } = useUserSpectrum();
   const [busy, setBusy] = useState<
     'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | null
   >(null);
@@ -47,6 +51,7 @@ export function DebugScreen() {
   const [talkCaptureLog, setTalkCaptureLog] = useState<TalkCaptureDebugPayload | null>(null);
   const [dbCounts, setDbCounts] = useState({ intentionsCount: 0, tasksCount: 0 });
   const [trafficSnapshot, setTrafficSnapshot] = useState<TrafficMonitoringSnapshot | null>(null);
+  const [tierOverride, setTierOverride] = useState<DebugUserTierOverride>(null);
   const simulatorRef = useRef<TrafficSimulator | null>(null);
   const schedulerRef = useRef<TrafficScheduler | null>(null);
   const criticalAlertShownRef = useRef(false);
@@ -88,6 +93,8 @@ export function DebugScreen() {
     useCallback(() => {
       void (async () => {
         await ensureGeminiRemoteModelInitialized();
+        const override = await hydrateDebugUserTierOverride();
+        setTierOverride(override);
         syncModelLabels();
       })();
     }, [syncModelLabels]),
@@ -250,12 +257,32 @@ export function DebugScreen() {
     }
   }, [t]);
 
+  const onApplyTierOverride = useCallback(
+    async (next: DebugUserTierOverride) => {
+      await setDebugUserTierOverride(next);
+      setTierOverride(next);
+      if (next === 'force_free') {
+        await setProUser(false);
+      } else if (next === 'force_pro') {
+        await setProUser(true);
+      }
+    },
+    [setProUser],
+  );
+
   const rcLabel =
     rcModelDisplay === null
       ? t('debug.rcModelUnavailable')
       : t('debug.rcModelValue', { modelId: rcModelDisplay });
   const localOverrides =
     rcModelDisplay !== null && localModelDisplay !== rcModelDisplay;
+  const tierLabelKey =
+    tierOverride === 'force_free'
+      ? 'debug.simUserModeFree'
+      : tierOverride === 'force_pro'
+        ? 'debug.simUserModePro'
+        : 'debug.simUserModeReal';
+  const effectiveTierKey = spectrum.isProUser ? 'debug.simUserModePro' : 'debug.simUserModeFree';
 
   return (
     <ScrollView
@@ -270,6 +297,38 @@ export function DebugScreen() {
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
           {t('debug.dashboardSectionPilotageIa')}
+        </Text>
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          {t('debug.simUserModeTitle', { tier: t(tierLabelKey) })}
+        </Text>
+        <View style={styles.godRow}>
+          <Button
+            mode={tierOverride === 'force_free' ? 'contained' : 'outlined'}
+            onPress={() => void onApplyTierOverride('force_free')}
+            disabled={busy !== null}
+            style={styles.btnCompact}
+          >
+            {t('debug.simUserModeFree')}
+          </Button>
+          <Button
+            mode={tierOverride === 'force_pro' ? 'contained' : 'outlined'}
+            onPress={() => void onApplyTierOverride('force_pro')}
+            disabled={busy !== null}
+            style={styles.btnCompact}
+          >
+            {t('debug.simUserModePro')}
+          </Button>
+          <Button
+            mode={tierOverride === null ? 'contained-tonal' : 'outlined'}
+            onPress={() => void onApplyTierOverride(null)}
+            disabled={busy !== null}
+            style={styles.btnCompact}
+          >
+            {t('debug.simUserModeReal')}
+          </Button>
+        </View>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.simUserModeHelp', { effective: t(effectiveTierKey) })}
         </Text>
         <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
           {t('debug.rcModelCaption')}
@@ -388,31 +447,6 @@ export function DebugScreen() {
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
           {t('debug.dashboardSectionSysteme')}
         </Text>
-        <Text style={[styles.blockTitle, { color: theme.colors.onSurface }]}>
-          {t('debug.simUserModeTitle', {
-            tier:
-              debugUserTierOverride === 'force_pro'
-                ? 'PRO'
-                : debugUserTierOverride === 'force_free'
-                  ? 'FREE'
-                  : t('debug.simUserModeTierReal'),
-          })}
-        </Text>
-        <SegmentedButtons
-          value={debugUserTierOverride}
-          onValueChange={(v) => void applyDebugUserTierOverride(v as DebugUserTierOverride)}
-          buttons={[
-            { value: 'none', label: t('debug.simUserModeReal') },
-            { value: 'force_free', label: t('debug.simUserModeFree') },
-            { value: 'force_pro', label: t('debug.simUserModePro') },
-          ]}
-          style={styles.simUserSegment}
-        />
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
-          {t('debug.simUserModeHelp', {
-            effective: spectrum.isProUser ? 'PRO' : 'FREE',
-          })}
-        </Text>
         <Text style={[styles.mono, styles.countLine, { color: theme.colors.onSurfaceVariant }]}>
           {t('debug.sqliteCountsLine', {
             intentions: dbCounts.intentionsCount,
@@ -465,7 +499,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   section: { marginBottom: 20 },
-  simUserSegment: { marginTop: 6, marginBottom: 4 },
   btn: { alignSelf: 'flex-start' },
   btnSecond: { marginTop: 12 },
   help: { fontSize: 12, marginTop: 8, maxWidth: '100%' },

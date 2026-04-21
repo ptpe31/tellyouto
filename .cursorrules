@@ -1,8 +1,0 @@
-
-AUCUN texte ne doit être écrit en dur dans les composants TSX. Utilise systématiquement le système d'internationalisation existant (ex: i18n.t('key')).
-
-Pour les appels Gemini (GeminiLab, GeminiExpert), appliquer systématiquement une stratégie "ListModels + fallback":
-- Lister les modèles supportant `generateContent` via l'endpoint models.
-- Construire une shortlist priorisée et courte (max 3-4 modèles) pour éviter les cascades de requêtes.
-- Sur erreur 404/NOT_FOUND d'un modèle, tenter automatiquement le modèle suivant.
-- Garder `generationConfig.candidateCount = 1` et des paramètres de génération légers (`topP`/`topK`) pour réduire la charge.

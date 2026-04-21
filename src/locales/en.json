@@ -15,8 +15,7 @@
   "capture": {
     "offlineNoteGenericToast": "Saved on this device. Smart sorting will finish when the connection is back.",
     "offlineRetryOkToast": "AI sorting finished — your timeline is up to date.",
-    "pendingAiNetworkBack": "{{count}} idea(s) still waiting for AI sorting — tap “Retry AI sort” on the card if you like.",
-    "offlineAudioCapturedTitle": "Offline Mode — Audio Note Captured"
+    "pendingAiNetworkBack": "{{count}} idea(s) still waiting for AI sorting — tap “Retry AI sort” on the card if you like."
   },
   "quota": {
     "format": "{{current}}/{{total}}"
@@ -722,10 +721,10 @@
   "notifications": {
     "externalIntentionTitle": "TellYouTo",
     "externalIntentionBody": "Your ally captured a new intention: {{title}}. It’s on your rail.",
-    "offlineAudioReadyTitle": "☁️⚡ Offline captured note is ready",
-    "offlineAudioReadyBody": "Would you like to analyze it now?",
+    "offlineAudioReadyTitle": "Offline note available",
+    "offlineAudioReadyBody": "An audio capture is waiting for analysis.",
     "offlineAnalyzeAction": "Analyze",
-    "offlineKeepAudioAction": "Keep Audio"
+    "offlineKeepAudioAction": "Keep audio"
   },
   "recharge": {
     "eyebrow": "SENSORY STATION",
@@ -1306,26 +1305,5 @@
     "optionalNoPressure": "Optional (No pressure)",
     "rebalanceToToday": "Move to Today",
     "rebalanceToNoPressure": "Move to No pressure"
-  },
-  "intentionModal": {
-    "title": "Intentions Catalog",
-    "untitled": "Intention",
-    "save": "Save",
-    "saveNote": "Save Note",
-    "audioMemoType": "Audio Memo",
-    "play": "Play",
-    "pause": "Pause",
-    "noTranscript": "Transcript unavailable",
-    "categoryLeisure": "Leisure",
-    "logisticsToggle": "Remind me when to leave",
-    "wherePlaceholder": "Where to?",
-    "kind": {
-      "trip": "Trip",
-      "task": "Task",
-      "habit": "Habit",
-      "note": "Memo",
-      "timer": "Timer",
-      "birthday": "Birthday"
-    }
   }
 }

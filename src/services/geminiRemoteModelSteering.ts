@@ -56,12 +56,18 @@ function isBenignRemoteConfigPlatformError(e: unknown): boolean {
 export const REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL = 'active_gemini_model';
 
 /** Modèle utilisé tant que RC n’a pas répondu ou si la clé est vide / invalide. */
-export const GEMINI_SAFE_DEFAULT_MODEL_ID = 'gemini-1.5-flash-latest';
+export const GEMINI_SAFE_DEFAULT_MODEL_ID = 'gemini-1.5-flash';
+const GEMINI_FALLBACK_LIST_MODELS = [
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-8b',
+  'gemini-1.5-pro',
+] as const;
 
 let cachedActiveGeminiModelId: string = GEMINI_SAFE_DEFAULT_MODEL_ID;
 /** Dernière valeur lue depuis le paramètre RC `active_gemini_model` (fetch réussi). `null` si Firebase absent ou exception hors try RC. */
 let lastRemoteConfigResolvedModelId: string | null = null;
 let steeringInitPromise: Promise<void> | null = null;
+let fallbackCursor = 0;
 
 /** Secours local après self-heal (24h). */
 const GEMINI_FALLBACK_STORAGE_KEY = 'tellyouto_gemini_model_fallback_v1';
@@ -119,6 +125,21 @@ async function tryRecoverFromListModels(apiKey: string): Promise<string | null> 
   }
 }
 
+function getFallbackListModelsExcluding(excluded: string[]): string[] {
+  const ex = new Set(excluded.map((m) => sanitizeRemoteModelId(m) || '').filter(Boolean));
+  return GEMINI_FALLBACK_LIST_MODELS.filter((m) => !ex.has(m));
+}
+
+async function rotateFallbackModel(used: string[]): Promise<string | null> {
+  const candidates = getFallbackListModelsExcluding(used);
+  if (!candidates.length) return null;
+  const pick = candidates[fallbackCursor % candidates.length];
+  fallbackCursor += 1;
+  await persistFallbackModelFor24h(pick);
+  cachedActiveGeminiModelId = pick;
+  return pick;
+}
+
 /**
  * **Self-healing** après HTTP **404** ou **503** sur `:generateContent` / stream : interroge `listModels`,
  * sélectionne un modèle préféré, enregistre le secours 24h et met à jour le cache.
@@ -126,7 +147,15 @@ async function tryRecoverFromListModels(apiKey: string): Promise<string | null> 
  * @returns L’id du modèle choisi, ou `null` si pas de clé API ou échec réseau.
  */
 export async function recoverGeminiModelViaListModels(): Promise<string | null> {
+  return recoverGeminiModelViaListModelsExcluding([]);
+}
+
+export async function recoverGeminiModelViaListModelsExcluding(
+  excludedModelIds: string[],
+): Promise<string | null> {
   const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
+  const rotated = await rotateFallbackModel(excludedModelIds);
+  if (rotated) return rotated;
   if (!key) return null;
   const now = Date.now();
   if (recoverInFlight) return recoverInFlight;
