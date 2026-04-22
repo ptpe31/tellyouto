@@ -3,6 +3,7 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def repoRoot = rootDir.getAbsoluteFile().getParentFile().getParentFile().getAbsolutePath()
 def nodeBinary = "node"
 def nodeFromEnv = System.getenv("NODE_BINARY")
 if (nodeFromEnv != null && nodeFromEnv.trim().length() > 0) {
@@ -24,9 +25,9 @@ if (nodeFromEnv != null && nodeFromEnv.trim().length() > 0) {
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
-    root = file(projectRoot)
+    root = file(repoRoot)
     nodeExecutableAndArgs = [nodeBinary]
-    entryFile = file([nodeBinary, "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
+    entryFile = file("${repoRoot}/src_v2/index.js")
     reactNativeDir = new File([nodeBinary, "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
     hermesCommand = new File([nodeBinary, "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
     codegenDir = new File([nodeBinary, "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
