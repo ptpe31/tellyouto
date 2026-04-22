@@ -1,11 +1,11 @@
 /**
- * Expert Gemini via API REST v1beta — un seul modèle (Remote Config), fail-fast.
+ * Expert Gemini via API REST v1 — un seul modèle (Remote Config), fail-fast.
  * Clé : process.env.EXPO_PUBLIC_GEMINI_API_KEY
  */
 
 import { getActiveGeminiModelId, recoverGeminiModelViaListModels } from './geminiRemoteModelSteering';
 
-const BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const BASE = 'https://generativelanguage.googleapis.com/v1';
 
 function log(stage, detail) {
   const line = `[GeminiExpert] ${stage}`;
@@ -24,10 +24,9 @@ function getApiKey() {
     selected: k ? 'env' : 'none',
   });
   if (!k) {
+    console.error('[GeminiExpert] API Key missing (EXPO_PUBLIC_GEMINI_API_KEY). Skipping Gemini calls.');
     log('init.error', { ok: false, reason: 'EXPO_PUBLIC_GEMINI_API_KEY absente' });
-    throw new Error(
-      'GeminiExpert: définis EXPO_PUBLIC_GEMINI_API_KEY dans .env (voir env.example).',
-    );
+    return null;
   }
   return k;
 }
@@ -61,6 +60,9 @@ function extractTextFromGenerateResponse(data) {
 async function generateContentWithFallback(prompt, generationConfig) {
   const apiKey = getApiKey();
   const model = getModelId();
+  if (!apiKey) {
+    return { model, rawText: '' };
+  }
   const effectiveGenerationConfig = withLightGenerationConfig(generationConfig);
   const body = JSON.stringify({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],

@@ -84,7 +84,7 @@ react {
 /**
  * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
  */
-def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
+def enableMinifyInReleaseBuilds = false
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -131,9 +131,8 @@ android {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
-            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
-            shrinkResources enableShrinkResources.toBoolean()
-            minifyEnabled enableMinifyInReleaseBuilds
+            shrinkResources false
+            minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
@@ -147,6 +146,70 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+tasks.matching { it.name == 'externalNativeBuildCleanRelease' || it.name == 'externalNativeBuildCleanDebug' }.configureEach {
+    doFirst {
+        def hostRoot = rootDir.getParentFile().getParentFile().getAbsolutePath()
+        def fallbackTargets = [
+            "${hostRoot}/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/": 'react_codegen_rnasyncstorage',
+            "${hostRoot}/node_modules/@react-native-community/datetimepicker/android/build/generated/source/codegen/jni/": 'react_codegen_RNDateTimePickerCGen',
+            "${hostRoot}/node_modules/react-native-gesture-handler/android/build/generated/source/codegen/jni/": 'react_codegen_rngesturehandler_codegen',
+            "${hostRoot}/node_modules/react-native-reanimated/android/build/generated/source/codegen/jni/": 'react_codegen_rnreanimated',
+            "${hostRoot}/node_modules/react-native-share/android/build/generated/source/codegen/jni/": 'react_codegen_RNShareSpec',
+            "${hostRoot}/node_modules/react-native-view-shot/android/build/generated/source/codegen/jni/": 'react_codegen_rnviewshot',
+            "${hostRoot}/node_modules/react-native-worklets/android/build/generated/source/codegen/jni/": 'react_codegen_rnworklets',
+            "${hostRoot}/node_modules/whisper.rn/android/build/generated/source/codegen/jni/": 'react_codegen_RNWhisperSpec',
+        ]
+        def targetsByPath = new LinkedHashMap(fallbackTargets)
+
+        def cmake = file("$buildDir/generated/autolinking/src/main/jni/Android-autolinking.cmake")
+        if (cmake.exists()) {
+            def txt = cmake.getText('UTF-8')
+            def re = ~/add_subdirectory\(\s*"([^"]+)"/
+            def m = re.matcher(txt)
+            def pathsInOrder = []
+            while (m.find()) {
+                def p = m.group(1)
+                if (p) pathsInOrder.add(p)
+            }
+            def block = (txt =~ /set\\(AUTOLINKED_LIBRARIES([\\s\\S]*?)\\)/)
+            if (block.find()) {
+                def libs = block.group(1)
+                    .split('\\n')
+                    .collect { it.trim() }
+                    .findAll { it && !it.startsWith('#') }
+                def n = Math.min(pathsInOrder.size(), libs.size())
+                for (int i = 0; i < n; i += 1) {
+                    def p = pathsInOrder[i]
+                    def tname = libs[i]
+                    if (p && tname) {
+                        targetsByPath[p] = tname
+                    }
+                }
+            }
+        }
+
+        targetsByPath.each { p, tname ->
+            def d = file(String.valueOf(p))
+            if (!d.exists()) {
+                d.mkdirs()
+            }
+            def cm = new File(d, "CMakeLists.txt")
+            if (!cm.exists()) {
+                cm.write("cmake_minimum_required(VERSION 3.13)\nproject(stub)\nadd_library(${tname} INTERFACE)\n")
+            }
+        }
+    }
+}
+
+afterEvaluate {
+    tasks.matching { it.name.startsWith('externalNativeBuildClean') }.configureEach {
+        enabled = false
+    }
+    tasks.matching { it.name == 'clean' }.configureEach {
+        delete "${projectDir}/.cxx"
     }
 }
 

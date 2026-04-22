@@ -1,5 +1,5 @@
 /**
- * **Gemini Lab** — appels HTTP directs vers `generativelanguage.googleapis.com/v1beta` (REST).
+ * **Gemini Lab** — appels HTTP directs vers `generativelanguage.googleapis.com/v1` (REST).
  *
  * ## Résolution du modèle
  * Tous les chemins passent par {@link getActiveGeminiModelId} sauf **override** explicite (`modelOverride` sur certains appels).
@@ -18,7 +18,7 @@
  * alimentent le **Path B** décrit dans {@link oneTapUniversalCapture} (`refineOneTapWithGeminiCompressed`).
  *
  * ## Logs terminal (Metro)
- * Chaque réponse HTTP aboutie : **`[GeminiAPI] 🚀 CALL_SUCCESS`** ou **`❌ CALL_ERROR`** (modèle, latence, FallbackUsed, v1beta, operation).
+ * Chaque réponse HTTP aboutie : **`[GeminiAPI] 🚀 CALL_SUCCESS`** ou **`❌ CALL_ERROR`** (modèle, latence, FallbackUsed, v1, operation).
  * **Path B one-tap** : succès HTTP différé — après fusion filaire, **`[GeminiAPI] ✅ CALL_SUCCESS`** avec `Category` / `Entities` (voir {@link logGeminiApiPathBResolvedSuccess}) ; les erreurs incluent `PathA_Fallback_Category` / `PathA_Entities`.
  *
  * @module geminiSemanticLab
@@ -194,9 +194,8 @@ export type GeminiLabAnalysis = {
 function buildGenerateUrl(modelId: string): string {
   const key = getGeminiApiKey();
   if (!key) {
-    throw new Error(
-      'Gemini: clé absente. Définis EXPO_PUBLIC_GEMINI_API_KEY dans `.env` à la racine, puis `npx expo prebuild` ou relance Metro avec cache vidé.',
-    );
+    console.error('[GeminiLab] API Key missing (EXPO_PUBLIC_GEMINI_API_KEY). Skipping Gemini calls.');
+    return `${BASE}/models/${modelId}:generateContent`;
   }
   return `${BASE}/models/${modelId}:generateContent?key=${encodeURIComponent(key)}`;
 }
@@ -821,9 +820,8 @@ const ONETAP_WIRE_SYSTEM_PREFIX =
 function buildStreamGenerateUrl(modelId: string): string {
   const key = getGeminiApiKey();
   if (!key) {
-    throw new Error(
-      'Gemini: clé absente. Définis EXPO_PUBLIC_GEMINI_API_KEY dans `.env` à la racine, puis `npx expo prebuild` ou relance Metro avec cache vidé.',
-    );
+    console.error('[GeminiLab] API Key missing (EXPO_PUBLIC_GEMINI_API_KEY). Skipping Gemini calls.');
+    return `${BASE}/models/${modelId}:streamGenerateContent`;
   }
   return `${BASE}/models/${modelId}:streamGenerateContent?key=${encodeURIComponent(key)}`;
 }

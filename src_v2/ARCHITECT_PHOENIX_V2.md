@@ -69,6 +69,15 @@ Objectif : l’IA génère une base **unitaire** et le code multiplie dynamiquem
 **Calcul UI**
 - `displayQty = item.isScalable ? (item.qty * pivotValue) : item.qty`
 
+### 2.4 Encapsuler l'appel API
+
+**Règle** : toute la logique qui construit le prompt, déclenche l’appel réseau et interprète la réponse doit être encapsulée dans une fonction de service, isolée de l’UI.
+
+- L’UI ne doit jamais contenir de `fetch` Gemini, ni de prompt multiline/JSON “en dur”.
+- L’UI appelle une fonction unique (ex. `capture → refine`) avec des inputs minimaux (transcript, `REF_NOW`, locale, hints).
+- Le service retourne un résultat typé (squelette/refine) prêt pour la modale et la persistance (aucun parsing JSON dans les screens).
+- Cette couche devient le point de bascule vers un **proxy backend** (remplacer l’implémentation réseau sans toucher à la navigation/UI).
+
 ## 3) Architecture technique
 
 ### 3.1 Stratégie de persistance (silencieuse)
@@ -124,3 +133,14 @@ Phoenix V2 supporte des quotas distincts : micro vs trajets.
   - Crédit(s) restant(s) : bouton normal avec mention `({n} restants)`.
   - Aucun crédit : bouton grisé/badge “Acheter le Pack Trajet”.
 
+## Évolutions Futures & Sécurité
+
+### 1. Proxy Backend (Firebase Cloud Functions)
+
+Objectif : Sécurisation maximale de la clé API Gemini en la déplaçant du client (APK) vers un environnement serveur.
+
+Architecture cible : Mobile ➔ Firebase Cloud Function (Proxy) ➔ Gemini API.
+
+Avantages : Masquage total des secrets, possibilité de Rate Limiting, et mises à jour des modèles IA sans nouveau build.
+
+Statut : À implémenter en phase finale de pré-production (Post-MVP).
