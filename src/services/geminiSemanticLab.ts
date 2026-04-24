@@ -295,11 +295,11 @@ async function postGenerateContent(
     return { res, text, modelId, latencyMs };
   };
 
-  let model = modelOverride || getActiveGeminiModelId();
+  const model = getActiveGeminiModelId();
   const usedModels: string[] = [model];
   let usedRecoverRetry = false;
   let { res, text, modelId, latencyMs } = await runOnce(model);
-  for (let tries = 0; !res.ok && (res.status === 404 || res.status === 503) && !modelOverride && tries < 3; tries += 1) {
+  for (let tries = 0; !res.ok && (res.status === 404 || res.status === 503) && tries < 3; tries += 1) {
     const recovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
     if (!recovered) break;
     usedRecoverRetry = true;
@@ -876,7 +876,7 @@ async function postStreamGenerateContent(
     return { res, modelId };
   };
 
-  let model = modelOverride || getActiveGeminiModelId();
+  const model = getActiveGeminiModelId();
   const usedModels: string[] = [model];
   let { res, modelId } = await openStream(model);
   let lastErrBody = '';
@@ -888,7 +888,7 @@ async function postStreamGenerateContent(
       status: res.status,
       preview: lastErrBody.slice(0, 220),
     });
-    if ((res.status === 404 || res.status === 503) && !modelOverride) {
+    if (res.status === 404 || res.status === 503) {
       for (let tries = 0; tries < 3 && !res.ok; tries += 1) {
         const recovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
         if (!recovered) break;

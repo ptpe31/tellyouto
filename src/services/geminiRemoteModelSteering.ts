@@ -56,8 +56,11 @@ function isBenignRemoteConfigPlatformError(e: unknown): boolean {
 export const REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL = 'active_gemini_model';
 
 /** Modèle utilisé tant que RC n’a pas répondu ou si la clé est vide / invalide. */
-const ENV_GEMINI_MODEL = sanitizeRemoteModelId(process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim() ?? '');
-export const GEMINI_SAFE_DEFAULT_MODEL_ID = ENV_GEMINI_MODEL || 'gemini-1.5-flash';
+function getEnvGeminiModelId(): string {
+  return sanitizeRemoteModelId(process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim() ?? '') || 'gemini-1.5-flash';
+}
+
+export const GEMINI_SAFE_DEFAULT_MODEL_ID = getEnvGeminiModelId();
 const GEMINI_FALLBACK_LIST_MODELS = Array.from(
   new Set([GEMINI_SAFE_DEFAULT_MODEL_ID, 'gemini-1.5-flash-8b', 'gemini-1.5-pro']),
 );
@@ -152,6 +155,8 @@ export async function recoverGeminiModelViaListModels(): Promise<string | null> 
 export async function recoverGeminiModelViaListModelsExcluding(
   excludedModelIds: string[],
 ): Promise<string | null> {
+  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
+  return null;
   const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
   const rotated = await rotateFallbackModel(excludedModelIds);
   if (rotated) return rotated;
@@ -179,7 +184,7 @@ export async function recoverGeminiModelViaListModelsExcluding(
 
 /** Modèle effectif pour les appels REST Gemini (mis à jour après `ensureGeminiRemoteModelInitialized`). */
 export function getActiveGeminiModelId(): string {
-  return cachedActiveGeminiModelId;
+  return GEMINI_SAFE_DEFAULT_MODEL_ID;
 }
 
 /** Modèle issu du dernier fetch RC (sans tenir compte du secours local 24h). */
@@ -205,6 +210,10 @@ export async function forceRefreshGeminiRemoteConfig(): Promise<void> {
  * @throws Si l’id ne passe pas {@link sanitizeRemoteModelId}.
  */
 export async function applyGeminiLocalModelOverride(modelId: string): Promise<void> {
+  void modelId;
+  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
+  await clearPersistedFallbackModel();
+  return;
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) {
     throw new Error('applyGeminiLocalModelOverride: invalid model id');
@@ -223,6 +232,7 @@ export async function applyGeminiLocalModelOverride(modelId: string): Promise<vo
  * @remarks Intervalle minimal entre fetch RC : 60s en `__DEV__`, 4h en production (paramètre SDK client).
  */
 export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
+  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
   const app = getFirebaseApp();
   if (!app) {
     lastRemoteConfigResolvedModelId = null;
@@ -250,7 +260,6 @@ export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
     const clean = sanitizeRemoteModelId(raw);
     if (clean) {
       lastRemoteConfigResolvedModelId = clean;
-      cachedActiveGeminiModelId = clean;
       if (__DEV__) {
         console.log(`[GeminiSteering] ${REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL}=${clean}`);
       }
@@ -269,10 +278,6 @@ export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
     cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
     if (__DEV__ && !isBenignRemoteConfigPlatformError(e)) {
       console.warn('[GeminiSteering] Remote Config indisponible', e);
-    }
-    const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
-    if (key) {
-      await tryRecoverFromListModels(key);
     }
   }
 }
