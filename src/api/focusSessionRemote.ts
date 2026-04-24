@@ -1,0 +1,34 @@
+import { doc, setDoc } from 'firebase/firestore';
+
+import { sanitizeFirestoreMap } from './firestoreSanitize';
+import {
+  ensureFirebaseAnonymousAuth,
+  getFirebaseAuth,
+  getFirestoreDb,
+} from './firebase';
+import { getOrCreateDeviceId } from './syncService';
+
+/**
+ * Indique côté Firestore si l’utilisateur est en session Focus (évite les rappels proactifs).
+ */
+export async function setRemoteFocusSessionActive(
+  active: boolean,
+  intentionId?: string,
+): Promise<void> {
+  const db = getFirestoreDb();
+  if (!db) return;
+  await ensureFirebaseAnonymousAuth();
+  const deviceId = await getOrCreateDeviceId();
+  const uid = getFirebaseAuth()?.currentUser?.uid ?? null;
+  await setDoc(
+    doc(db, 'devices', deviceId),
+    sanitizeFirestoreMap({
+      focus_session_active: active,
+      focus_session_intention_id:
+        active && intentionId ? intentionId : null,
+      focus_session_updated_at: Date.now(),
+      firebase_uid: uid,
+    }),
+    { merge: true },
+  );
+}

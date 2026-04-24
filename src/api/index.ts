@@ -1,0 +1,111 @@
+/**
+ * Point d’entrée **public** des modules `src/api/*` : Firebase, SQLite Trankil v2,
+ * sync et utilitaires d’intentions. Préférer cet index aux imports profonds pour
+ * limiter le couplage et faciliter les refactors.
+ *
+ * @packageDocumentation
+ */
+export {
+  AccountLinkingRequiredError,
+  ensureAuthenticatedUser,
+  isFirebaseUserAnonymous,
+} from './accountLinking';
+export { getFirebaseApp, getFirestoreDb } from './firebase';
+export {
+  addRemainingIntents,
+  addIaCredits,
+  refundIaCredit,
+  applyAvailabilityReward,
+  applyGrowthDecayIfNeeded,
+  deleteTrankilV2IntentionById,
+  consumeTrankilV2IntentCredit,
+  countOfflineFirstAiPendingNotes,
+  getEveningDoneSummaryToday,
+  grantViralBonus,
+  getLocalEcoScore,
+  getTrankilV2UnorganizedCount,
+  countTrankilV2RootTodoTasksDueOnLocalDate,
+  getFreeCaptureQuotaSnapshot,
+  consumeFreeCaptureSuccessOnce,
+  FREE_DAILY_CAPTURE_MAX,
+  FREE_DAILY_LIST_MAX,
+  getListFreeQuotaSnapshot,
+  consumeListFreeSuccessOnce,
+  getTrankilV2UserStats,
+  growthPointsForType,
+  initTrankilV2Schema,
+  incrementBehaviorScores,
+  incrementAdVideosWatched,
+  insertTrankilV2Intention,
+  listTrankilV2OrganizedIntentions,
+  listTrankilV2Intentions,
+  listTrankilV2TimelineItemsByDate,
+  listTrankilV2MergedTodayTimelineWithLowPressure,
+  listTrankilV2UndatedRootTasks,
+  listTrankilV2LowPressureRootTasks,
+  TIMELINE_PAGE_SIZE,
+  bulkTrankilV2TaskChildStatsByParentIds,
+  listArchivedIntentions,
+  listTrankilV2MeliArchivesIntentions,
+  listTrankilV2IsArchivedIntentions,
+  mapTrankilIntentionToTimelineItemRow,
+  cleanOldArchives,
+  listTrankilV2UnorganizedIntentions,
+  markTrankilV2IntentionDone,
+  toggleIntentionDone,
+  archiveIntention,
+  pickAvailabilityTask,
+  setMorningFocusSelection,
+  setAdState,
+  recordLocalAffinityEvent,
+  saveEmergencyLog,
+  setDebugSpawnFlies,
+  setNotificationsQuietUntil,
+  setEveningRitualDateKey,
+  updateGrowth,
+  updateTrankilV2IntentionOrganization,
+  updateTrankilV2IntentionQuick,
+  updateTrankilV2IntentionTemporal,
+  updateTrankilV2IntentionArchiveState,
+  updateTrankilV2IntentionAlarmFields,
+  listTrankilV2PendingAlarmIntentions,
+  getTrankilV2IntentionById,
+} from './trankilV2Db';
+export type {
+  TrankilIntentStatus,
+  TrankilIntentType,
+  TrankilV2ChildTaskStats,
+  TrankilV2IntentionRow,
+  TimelinePaging,
+  TimelineSqlContext,
+  TrankilV2TimelineDateMode,
+  TrankilV2TimelineItemRow,
+  TrankilV2UserStatsRow,
+  FreeCaptureQuotaSnapshot,
+  ListFreeQuotaSnapshot,
+} from './trankilV2Db';
+export {
+  withLocalDatabase,
+  createIntention,
+  insertIntention,
+  listCompletedSessionsBetween,
+  listIntentionsDescending,
+  listRecentCompletedFocusSessions,
+  listUnclusteredPendingIntentions,
+  listUnsyncedIntentions,
+  markIntentionActive,
+  markIntentionSynced,
+  updateIntention,
+} from './localDb';
+export type {
+  IntentionRow,
+  IntentionStatus,
+  UserStatusRow,
+} from './localDb';
+export { getUserStatus, updateUserStatus } from './localDb';
+export { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';
+export {
+  getOrCreateDeviceId,
+  startConnectivitySyncListener,
+  syncPendingIntentions,
+} from './syncService';

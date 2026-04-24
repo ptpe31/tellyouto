@@ -1,0 +1,72 @@
+{
+  "ally": {
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文",
+      "ar": "العربية",
+      "ko": "한국어",
+      "nl": "Nederlands",
+      "sv": "Svenska"
+    }
+  },
+  "timeline": {
+    "createdOn": "Gemaakt op {{date}}",
+    "skyClear": "Strak blauw — je hoofd heeft ruimte.",
+    "pilot": {
+      "title": "Stuurpost",
+      "timeNav": "Tijd",
+      "contextNav": "Contexten",
+      "statusNav": "Status",
+      "contextAll": "Alles",
+      "contextHome": "Thuis",
+      "contextWork": "Werk",
+      "contextPiggy": "Spaarvarken",
+      "contextArchives": "Archief",
+      "todo": "Te doen",
+      "done": "Klaar"
+    },
+    "tasks": {
+      "title": "Mijn taken",
+      "scheduledToday": "Vandaag gepland",
+      "noPressure": "Geen haast"
+    },
+    "habits": {
+      "title": "Gewoontes"
+    },
+    "projects": {
+      "title": "Projectstappen"
+    },
+    "notesAudio": {
+      "title": "Notities en audio"
+    },
+    "ideaBank": {
+      "title": "Ideeënbus",
+      "button": "taken in de ideeënbus",
+      "done": "Klaar",
+      "schedule": "Inplannen",
+      "remove": "Verwijderen",
+      "removeConfirmTitle": "Taak verwijderen?",
+      "removeConfirmBody": "Permanent van je apparaat gewist.",
+      "clearAll": "Alles legen",
+      "clearAllTitle": "Ideeënbus legen?",
+      "clearAllBody": "Alle taken zonder datum worden verwijderd.",
+      "scheduleTitle": "Kies een datum",
+      "empty": "Geen taken zonder datum.",
+      "close": "Sluiten",
+      "cancel": "Annuleren"
+    }
+  },
+  "settings": {
+    "memorySectionTitle": "Geheugenbeheer",
+    "archivePurgeTitle": "Gearchiveerde items definitief verwijderen na",
+    "archivePurgeHint": "Wordt bij app-start uitgevoerd. Alleen rijen met een archiefdatum ouder dan dit venster worden verwijderd.",
+    "archivePurge7": "7 dagen",
+    "archivePurge30": "30 dagen",
+    "archivePurgeNever": "Nooit"
+  }
+}

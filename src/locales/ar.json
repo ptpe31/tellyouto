@@ -1,0 +1,72 @@
+{
+  "ally": {
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文",
+      "ar": "العربية",
+      "ko": "한국어",
+      "nl": "Nederlands",
+      "sv": "Svenska"
+    }
+  },
+  "timeline": {
+    "createdOn": "أُنشئ في {{date}}",
+    "skyClear": "سماء صافية — ذهنك أخف.",
+    "pilot": {
+      "title": "قيادة",
+      "timeNav": "الوقت",
+      "contextNav": "السياقات",
+      "statusNav": "الحالة",
+      "contextAll": "الكل",
+      "contextHome": "المنزل",
+      "contextWork": "العمل",
+      "contextPiggy": "الحصالة",
+      "contextArchives": "الأرشيف",
+      "todo": "للتنفيذ",
+      "done": "تم"
+    },
+    "tasks": {
+      "title": "مهامي",
+      "scheduledToday": "مستحق اليوم",
+      "noPressure": "دون ضغط"
+    },
+    "habits": {
+      "title": "عادات"
+    },
+    "projects": {
+      "title": "خطوات المشاريع"
+    },
+    "notesAudio": {
+      "title": "ملاحظات وصوتيات"
+    },
+    "ideaBank": {
+      "title": "حصالة الأفكار",
+      "button": "مهام في الحصالة",
+      "done": "تم",
+      "schedule": "جدولة",
+      "remove": "إزالة",
+      "removeConfirmTitle": "إزالة هذه المهمة؟",
+      "removeConfirmBody": "ستُحذف نهائياً من جهازك.",
+      "clearAll": "مسح الكل",
+      "clearAllTitle": "إفراغ الحصالة؟",
+      "clearAllBody": "ستُحذف كل المهام بلا تاريخ.",
+      "scheduleTitle": "اختر تاريخاً",
+      "empty": "لا توجد مهام بلا تاريخ.",
+      "close": "إغلاق",
+      "cancel": "إلغاء"
+    }
+  },
+  "settings": {
+    "memorySectionTitle": "إدارة الذاكرة",
+    "archivePurgeTitle": "حذف العناصر المؤرشفة نهائياً بعد",
+    "archivePurgeHint": "يُنفّذ عند بدء التطبيق. تُحذف فقط الصفوف ذات تاريخ أرشفة أقدم من هذه المدة.",
+    "archivePurge7": "7 أيام",
+    "archivePurge30": "30 يوماً",
+    "archivePurgeNever": "أبداً"
+  }
+}

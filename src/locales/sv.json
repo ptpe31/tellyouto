@@ -1,0 +1,72 @@
+{
+  "ally": {
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文",
+      "ar": "العربية",
+      "ko": "한국어",
+      "nl": "Nederlands",
+      "sv": "Svenska"
+    }
+  },
+  "timeline": {
+    "createdOn": "Skapad {{date}}",
+    "skyClear": "Klar himmel — sinnet har utrymme.",
+    "pilot": {
+      "title": "Pilot",
+      "timeNav": "Tid",
+      "contextNav": "Kontexter",
+      "statusNav": "Status",
+      "contextAll": "Alla",
+      "contextHome": "Hem",
+      "contextWork": "Arbete",
+      "contextPiggy": "Spargris",
+      "contextArchives": "Arkiv",
+      "todo": "Att göra",
+      "done": "Klar"
+    },
+    "tasks": {
+      "title": "Mina uppgifter",
+      "scheduledToday": "Idag",
+      "noPressure": "Utan stress"
+    },
+    "habits": {
+      "title": "Vanor"
+    },
+    "projects": {
+      "title": "Projektsteg"
+    },
+    "notesAudio": {
+      "title": "Anteckningar och ljud"
+    },
+    "ideaBank": {
+      "title": "Idéspargrisen",
+      "button": "uppgifter i spargrisen",
+      "done": "Klar",
+      "schedule": "Planera",
+      "remove": "Ta bort",
+      "removeConfirmTitle": "Ta bort uppgiften?",
+      "removeConfirmBody": "Den raderas permanent från enheten.",
+      "clearAll": "Töm allt",
+      "clearAllTitle": "Tömma spargrisen?",
+      "clearAllBody": "Alla uppgifter utan datum raderas.",
+      "scheduleTitle": "Välj datum",
+      "empty": "Inga uppgifter utan datum.",
+      "close": "Stäng",
+      "cancel": "Avbryt"
+    }
+  },
+  "settings": {
+    "memorySectionTitle": "Minneshantering",
+    "archivePurgeTitle": "Radera arkiverade objekt permanent efter",
+    "archivePurgeHint": "Körs när appen startar. Endast rader med arkivdatum äldre än detta fönster tas bort.",
+    "archivePurge7": "7 dagar",
+    "archivePurge30": "30 dagar",
+    "archivePurgeNever": "Aldrig"
+  }
+}

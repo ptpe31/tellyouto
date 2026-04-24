@@ -1,0 +1,72 @@
+{
+  "ally": {
+    "lang": {
+      "fr": "Français",
+      "en": "English",
+      "es": "Español",
+      "de": "Deutsch",
+      "it": "Italiano",
+      "ja": "日本語",
+      "zh": "中文",
+      "ar": "العربية",
+      "ko": "한국어",
+      "nl": "Nederlands",
+      "sv": "Svenska"
+    }
+  },
+  "timeline": {
+    "createdOn": "{{date}}에 생성됨",
+    "skyClear": "맑은 하늘처럼, 마음에 여유가 있어요.",
+    "pilot": {
+      "title": "조종석",
+      "timeNav": "시간",
+      "contextNav": "맥락",
+      "statusNav": "상태",
+      "contextAll": "전체",
+      "contextHome": "집",
+      "contextWork": "일",
+      "contextPiggy": "저금통",
+      "contextArchives": "보관함",
+      "todo": "할 일",
+      "done": "완료"
+    },
+    "tasks": {
+      "title": "내 작업",
+      "scheduledToday": "오늘 마감",
+      "noPressure": "여유 있게"
+    },
+    "habits": {
+      "title": "습관"
+    },
+    "projects": {
+      "title": "프로젝트 단계"
+    },
+    "notesAudio": {
+      "title": "메모 및 오디오"
+    },
+    "ideaBank": {
+      "title": "아이디어 저금통",
+      "button": "저금통의 작업",
+      "done": "완료",
+      "schedule": "일정 잡기",
+      "remove": "삭제",
+      "removeConfirmTitle": "이 작업을 삭제할까요?",
+      "removeConfirmBody": "기기에서 영구적으로 삭제됩니다.",
+      "clearAll": "모두 비우기",
+      "clearAllTitle": "저금통을 비울까요?",
+      "clearAllBody": "날짜 없는 작업이 모두 삭제됩니다.",
+      "scheduleTitle": "날짜 선택",
+      "empty": "날짜 없는 작업이 없습니다.",
+      "close": "닫기",
+      "cancel": "취소"
+    }
+  },
+  "settings": {
+    "memorySectionTitle": "메모리 관리",
+    "archivePurgeTitle": "보관된 항목을 영구 삭제하기까지",
+    "archivePurgeHint": "앱 시작 시 실행됩니다. 보관 시각이 이 기간보다 오래된 행만 삭제됩니다.",
+    "archivePurge7": "7일",
+    "archivePurge30": "30일",
+    "archivePurgeNever": "안 함"
+  }
+}
