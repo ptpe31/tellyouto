@@ -3,7 +3,12 @@
  * Clé : process.env.EXPO_PUBLIC_GEMINI_API_KEY
  */
 
-import { getActiveGeminiModelId, recoverGeminiModelViaListModels } from './geminiRemoteModelSteering';
+import {
+  getActiveGeminiModelId,
+  getGeminiCandidateModelIds,
+  persistValidatedGeminiModelId,
+  recoverGeminiModelViaListModelsExcluding,
+} from './geminiRemoteModelSteering';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1';
 
@@ -57,11 +62,24 @@ function extractTextFromGenerateResponse(data) {
     .trim();
 }
 
+function isModelNotSupported(status, bodyText) {
+  if (status === 404) return true;
+  if (status !== 400) return false;
+  const t = String(bodyText || '').toLowerCase();
+  if (!t) return false;
+  return (
+    (t.includes('model') && t.includes('not found')) ||
+    t.includes('not supported') ||
+    t.includes('unsupported') ||
+    t.includes('unknown model')
+  );
+}
+
 async function generateContentWithFallback(prompt, generationConfig) {
   const apiKey = getApiKey();
-  const model = getModelId();
+  const candidates = getGeminiCandidateModelIds();
   if (!apiKey) {
-    return { model, rawText: '' };
+    return { model: candidates[0] ?? 'unknown', rawText: '' };
   }
   const effectiveGenerationConfig = withLightGenerationConfig(generationConfig);
   const body = JSON.stringify({
@@ -88,21 +106,36 @@ async function generateContentWithFallback(prompt, generationConfig) {
     return { res, text, modelId };
   };
 
-  let { res, text, modelId } = await doFetch(model);
-  if (!res.ok && (res.status === 404 || res.status === 503)) {
-    const recovered = await recoverGeminiModelViaListModels();
-    if (recovered) {
-      ({ res, text, modelId } = await doFetch(recovered));
+  const usedModels = [];
+  let last = null;
+  for (const modelId of candidates) {
+    usedModels.push(modelId);
+    const attempt = await doFetch(modelId);
+    last = attempt;
+    if (attempt.res.ok) {
+      void persistValidatedGeminiModelId(attempt.modelId);
+      const parsed = JSON.parse(attempt.text);
+      return { model: attempt.modelId, rawText: extractTextFromGenerateResponse(parsed) };
     }
+    if (isModelNotSupported(attempt.res.status, attempt.text)) {
+      continue;
+    }
+    throw new Error(`Gemini HTTP ${attempt.res.status}: ${attempt.text.slice(0, 800)}`);
   }
-  if (res.ok) {
-    const parsed = JSON.parse(text);
-    return {
-      model: modelId,
-      rawText: extractTextFromGenerateResponse(parsed),
-    };
+  const discovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
+  if (discovered) {
+    const attempt = await doFetch(discovered);
+    if (attempt.res.ok) {
+      void persistValidatedGeminiModelId(attempt.modelId);
+      const parsed = JSON.parse(attempt.text);
+      return { model: attempt.modelId, rawText: extractTextFromGenerateResponse(parsed) };
+    }
+    throw new Error(`Gemini HTTP ${attempt.res.status}: ${attempt.text.slice(0, 800)}`);
   }
-  throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
+  if (last) {
+    throw new Error(`Gemini HTTP ${last.res.status}: ${last.text.slice(0, 800)}`);
+  }
+  throw new Error('Gemini: no candidates');
 }
 
 function extractJsonBlock(raw) {

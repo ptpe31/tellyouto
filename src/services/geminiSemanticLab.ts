@@ -28,7 +28,8 @@ import Constants from 'expo-constants';
 
 import {
   getActiveGeminiModelId,
-  getLastRemoteConfigResolvedModelId,
+  getGeminiCandidateModelIds,
+  persistValidatedGeminiModelId,
   recoverGeminiModelViaListModelsExcluding,
 } from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
@@ -219,11 +220,21 @@ function withLightGenerationConfig(body: object): object {
   };
 }
 
-function computeGeminiIsFallback(finalModelId: string, usedRecoverRetry: boolean): boolean {
-  if (usedRecoverRetry) return true;
-  const rc = getLastRemoteConfigResolvedModelId();
-  if (rc == null || rc === '') return false;
-  return finalModelId !== rc;
+function computeGeminiIsFallback(_: string, usedRecoverRetry: boolean): boolean {
+  return usedRecoverRetry;
+}
+
+function isModelNotSupported(status: number, bodyText: string): boolean {
+  if (status === 404) return true;
+  if (status !== 400) return false;
+  const t = bodyText.toLowerCase();
+  if (!t) return false;
+  return (
+    (t.includes('model') && t.includes('not found')) ||
+    t.includes('not supported') ||
+    t.includes('unsupported') ||
+    t.includes('unknown model')
+  );
 }
 
 function sumTextPayloadCharsFromGenerateBody(body: object): number {
@@ -295,16 +306,37 @@ async function postGenerateContent(
     return { res, text, modelId, latencyMs };
   };
 
-  let model = getActiveGeminiModelId();
-  const usedModels: string[] = [model];
+  const candidates = modelOverride ? [modelOverride] : getGeminiCandidateModelIds();
+  const usedModels: string[] = [];
   let usedRecoverRetry = false;
-  let { res, text, modelId, latencyMs } = await runOnce(model);
-  for (let tries = 0; !res.ok && (res.status === 404 || res.status === 503) && tries < 3; tries += 1) {
-    const recovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
-    if (!recovered) break;
-    usedRecoverRetry = true;
-    usedModels.push(recovered);
-    ({ res, text, modelId, latencyMs } = await runOnce(recovered));
+  let exhaustedUnsupported = false;
+  let last = await runOnce(candidates[0]);
+  usedModels.push(last.modelId);
+  for (let i = 0; i < candidates.length && !last.res.ok; i += 1) {
+    const candidate = candidates[i];
+    if (i > 0) {
+      last = await runOnce(candidate);
+      usedModels.push(last.modelId);
+    }
+    if (last.res.ok) break;
+    if (!modelOverride && isModelNotSupported(last.res.status, last.text)) {
+      if (i === candidates.length - 1) exhaustedUnsupported = true;
+      continue;
+    }
+    break;
+  }
+  if (!last.res.ok && !modelOverride && exhaustedUnsupported) {
+    const discovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
+    if (discovered) {
+      usedRecoverRetry = true;
+      last = await runOnce(discovered);
+      usedModels.push(discovered);
+    }
+  }
+  const { res, text, modelId, latencyMs } = last;
+  if (!modelOverride && res.ok) {
+    void persistValidatedGeminiModelId(modelId);
+    usedRecoverRetry = usedModels[0] !== modelId || usedRecoverRetry;
   }
 
   if (res.ok) {
@@ -876,11 +908,13 @@ async function postStreamGenerateContent(
     return { res, modelId };
   };
 
-  let model = getActiveGeminiModelId();
-  const usedModels: string[] = [model];
-  let { res, modelId } = await openStream(model);
+  const candidates = modelOverride ? [modelOverride] : getGeminiCandidateModelIds();
+  const usedModels: string[] = [];
   let lastErrBody = '';
   let usedRecoverRetry = false;
+  let exhaustedUnsupported = false;
+  let { res, modelId } = await openStream(candidates[0]);
+  usedModels.push(modelId);
   if (!res.ok) {
     lastErrBody = await res.text();
     labLog('stream.request.error', {
@@ -888,22 +922,41 @@ async function postStreamGenerateContent(
       status: res.status,
       preview: lastErrBody.slice(0, 220),
     });
-    if (res.status === 404 || res.status === 503) {
-      for (let tries = 0; tries < 3 && !res.ok; tries += 1) {
-        const recovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
-        if (!recovered) break;
-        usedRecoverRetry = true;
-        usedModels.push(recovered);
-        ({ res, modelId } = await openStream(recovered));
-        if (!res.ok) {
-          lastErrBody = await res.text();
-          labLog('stream.request.error', {
-            model: modelId,
-            status: res.status,
-            preview: lastErrBody.slice(0, 220),
-          });
-          if (res.status !== 404 && res.status !== 503) break;
-        }
+  }
+  for (let i = 0; i < candidates.length && !res.ok; i += 1) {
+    const candidate = candidates[i];
+    if (i > 0) {
+      ({ res, modelId } = await openStream(candidate));
+      usedModels.push(modelId);
+      if (!res.ok) {
+        lastErrBody = await res.text();
+        labLog('stream.request.error', {
+          model: modelId,
+          status: res.status,
+          preview: lastErrBody.slice(0, 220),
+        });
+      }
+    }
+    if (res.ok) break;
+    if (!modelOverride && isModelNotSupported(res.status, lastErrBody)) {
+      if (i === candidates.length - 1) exhaustedUnsupported = true;
+      continue;
+    }
+    break;
+  }
+  if (!res.ok && !modelOverride && exhaustedUnsupported) {
+    const discovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
+    if (discovered) {
+      usedRecoverRetry = true;
+      ({ res, modelId } = await openStream(discovered));
+      usedModels.push(discovered);
+      if (!res.ok) {
+        lastErrBody = await res.text();
+        labLog('stream.request.error', {
+          model: modelId,
+          status: res.status,
+          preview: lastErrBody.slice(0, 220),
+        });
       }
     }
   }
@@ -918,7 +971,11 @@ async function postStreamGenerateContent(
     });
     throw new Error(`Gemini stream: HTTP ${res.status}: ${lastErrBody.slice(0, 800)}`);
   }
-  model = modelId;
+  if (!modelOverride) {
+    void persistValidatedGeminiModelId(modelId);
+    usedRecoverRetry = usedModels[0] !== modelId || usedRecoverRetry;
+  }
+  let model = modelId;
   const reader = res.body?.getReader?.();
   if (!reader) {
     // Préviews / RN sans corps lisible → repli non-stream generateContent (même modèle), ex. Gemini 3.1 preview.

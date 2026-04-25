@@ -25,54 +25,39 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ensureFirebaseAnonymousAuth, getFirebaseApp } from '../api/firebase';
-import { fetchAndActivate, getRemoteConfig, getValue } from 'firebase/remote-config';
 
-import { fetchAllGeminiModelsList, pickPreferredGeminiModelId } from './geminiModelCatalog';
+import {
+  fetchAllGeminiModelsList,
+  GEMINI_MODEL_SHORTLIST,
+  pickPreferredGeminiModelId,
+  shortGeminiModelId,
+} from './geminiModelCatalog';
 
-/** Erreurs plateforme RC (IndexedDB / Hermes) — pas d’avertissement console, repli sur valeurs locales ou défaut. */
-function isBenignRemoteConfigPlatformError(e: unknown): boolean {
-  const code =
-    typeof e === 'object' && e !== null && 'code' in e
-      ? String((e as { code?: string }).code ?? '')
-      : '';
-  const msg = e instanceof Error ? e.message : String(e);
-  const bundle = `${code} ${msg}`.toLowerCase();
-  return (
-    bundle.includes('indexeddb') ||
-    bundle.includes('indexed db') ||
-    bundle.includes('storage-open') ||
-    bundle.includes('idb') ||
-    bundle.includes('indexeddb-unavailable') ||
-    (bundle.includes('property') && bundle.includes("doesn't exist") && bundle.includes('indexed')) ||
-    bundle.includes('typeerror') ||
-    bundle.includes('cannot read property') ||
-    (bundle.includes('open') &&
-      (bundle.includes('undefined') || bundle.includes('null') || bundle.includes('indexeddb')))
-  );
+function getConfiguredShortlist(): string[] {
+  const env = sanitizeRemoteModelId(process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim() ?? '');
+  const base = env ? [env, ...GEMINI_MODEL_SHORTLIST] : [...GEMINI_MODEL_SHORTLIST];
+  const uniq: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of base) {
+    const clean = sanitizeRemoteModelId(raw);
+    if (!clean) continue;
+    if (seen.has(clean)) continue;
+    seen.add(clean);
+    uniq.push(clean);
+  }
+  return uniq.length ? uniq : ['gemini-1.5-flash'];
 }
 
-/** Valeur RC attendue côté console Firebase. */
-export const REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL = 'active_gemini_model';
-
-/** Modèle utilisé tant que RC n’a pas répondu ou si la clé est vide / invalide. */
-function getEnvGeminiModelId(): string {
-  return sanitizeRemoteModelId(process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim() ?? '') || 'gemini-1.5-flash';
-}
-
-export const GEMINI_SAFE_DEFAULT_MODEL_ID = getEnvGeminiModelId();
-const GEMINI_FALLBACK_LIST_MODELS = Array.from(
-  new Set([GEMINI_SAFE_DEFAULT_MODEL_ID, 'gemini-1.5-flash-8b', 'gemini-1.5-pro']),
-);
+export const GEMINI_SAFE_DEFAULT_MODEL_ID = getConfiguredShortlist()[0] ?? 'gemini-1.5-flash';
+const GEMINI_FALLBACK_LIST_MODELS = getConfiguredShortlist();
 
 let cachedActiveGeminiModelId: string = GEMINI_SAFE_DEFAULT_MODEL_ID;
-/** Dernière valeur lue depuis le paramètre RC `active_gemini_model` (fetch réussi). `null` si Firebase absent ou exception hors try RC. */
 let lastRemoteConfigResolvedModelId: string | null = null;
 let steeringInitPromise: Promise<void> | null = null;
 let fallbackCursor = 0;
 
 /** Secours local après self-heal (24h). */
-const GEMINI_FALLBACK_STORAGE_KEY = 'tellyouto_gemini_model_fallback_v1';
+const GEMINI_FALLBACK_STORAGE_KEY = 'validated_model_id';
 const GEMINI_FALLBACK_TTL_MS = 24 * 60 * 60 * 1000;
 const RECOVER_COOLDOWN_MS = 90_000;
 let recoverInFlight: Promise<string | null> | null = null;
@@ -95,6 +80,23 @@ async function persistFallbackModelFor24h(modelId: string): Promise<void> {
   );
 }
 
+async function readPersistedFallbackModel(): Promise<string | null> {
+  try {
+    const raw = await AsyncStorage.getItem(GEMINI_FALLBACK_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { modelId?: unknown; expiresAtMs?: unknown };
+    const modelId = sanitizeRemoteModelId(String(parsed.modelId ?? '').trim());
+    const expiresAtMs = Number(parsed.expiresAtMs ?? 0);
+    if (!modelId || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      await clearPersistedFallbackModel();
+      return null;
+    }
+    return modelId;
+  } catch {
+    return null;
+  }
+}
+
 /** Efface le secours disque (appelé dès qu’un refresh RC a réussi — RC reprend la priorité). */
 async function clearPersistedFallbackModel(): Promise<void> {
   try {
@@ -110,8 +112,13 @@ async function clearPersistedFallbackModel(): Promise<void> {
  */
 async function tryRecoverFromListModels(apiKey: string): Promise<string | null> {
   try {
+    const excluded = new Set<string>();
     const models = await fetchAllGeminiModelsList(apiKey);
-    const picked = pickPreferredGeminiModelId(models);
+    const filtered = models.filter((m) => {
+      const id = shortGeminiModelId(m.name);
+      return !excluded.has(id);
+    });
+    const picked = pickPreferredGeminiModelId(filtered);
     if (!picked) return null;
     await persistFallbackModelFor24h(picked);
     cachedActiveGeminiModelId = picked;
@@ -155,13 +162,29 @@ export async function recoverGeminiModelViaListModels(): Promise<string | null> 
 export async function recoverGeminiModelViaListModelsExcluding(
   excludedModelIds: string[],
 ): Promise<string | null> {
-  void excludedModelIds;
-  return null;
+  try {
+    const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
+    if (!key) return null;
+    const excluded = new Set(excludedModelIds.map((m) => sanitizeRemoteModelId(m) || '').filter(Boolean));
+    const models = await fetchAllGeminiModelsList(key);
+    const filtered = models.filter((m) => {
+      const id = shortGeminiModelId(m.name);
+      return !excluded.has(id);
+    });
+    const picked = pickPreferredGeminiModelId(filtered);
+    if (!picked) return null;
+    await persistFallbackModelFor24h(picked);
+    cachedActiveGeminiModelId = picked;
+    lastRemoteConfigResolvedModelId = picked;
+    return picked;
+  } catch {
+    return null;
+  }
 }
 
 /** Modèle effectif pour les appels REST Gemini (mis à jour après `ensureGeminiRemoteModelInitialized`). */
 export function getActiveGeminiModelId(): string {
-  return GEMINI_SAFE_DEFAULT_MODEL_ID;
+  return cachedActiveGeminiModelId;
 }
 
 /** Modèle issu du dernier fetch RC (sans tenir compte du secours local 24h). */
@@ -187,9 +210,10 @@ export async function forceRefreshGeminiRemoteConfig(): Promise<void> {
  * @throws Si l’id ne passe pas {@link sanitizeRemoteModelId}.
  */
 export async function applyGeminiLocalModelOverride(modelId: string): Promise<void> {
-  void modelId;
-  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-  await clearPersistedFallbackModel();
+  const clean = sanitizeRemoteModelId(modelId);
+  if (!clean) return;
+  cachedActiveGeminiModelId = clean;
+  await persistFallbackModelFor24h(clean);
 }
 
 /**
@@ -202,54 +226,14 @@ export async function applyGeminiLocalModelOverride(modelId: string): Promise<vo
  * @remarks Intervalle minimal entre fetch RC : 60s en `__DEV__`, 4h en production (paramètre SDK client).
  */
 export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
-  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-  const app = getFirebaseApp();
-  if (!app) {
-    lastRemoteConfigResolvedModelId = null;
-    cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-    if (__DEV__) {
-      console.log(
-        `[GeminiSteering] Firebase absent — modèle par défaut ${GEMINI_SAFE_DEFAULT_MODEL_ID}`,
-      );
-    }
+  const persisted = await readPersistedFallbackModel();
+  if (persisted) {
+    cachedActiveGeminiModelId = persisted;
+    lastRemoteConfigResolvedModelId = persisted;
     return;
   }
-
-  try {
-    await ensureFirebaseAnonymousAuth();
-    const rc = getRemoteConfig(app);
-    rc.settings.minimumFetchIntervalMillis = __DEV__ ? 60_000 : 4 * 60 * 60 * 1000;
-    try {
-      await fetchAndActivate(rc);
-    } catch (e) {
-      if (__DEV__ && !isBenignRemoteConfigPlatformError(e)) {
-        console.warn('[GeminiSteering] fetchAndActivate (valeurs locales RC)', e);
-      }
-    }
-    const raw = getValue(rc, REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL).asString();
-    const clean = sanitizeRemoteModelId(raw);
-    if (clean) {
-      lastRemoteConfigResolvedModelId = clean;
-      if (__DEV__) {
-        console.log(`[GeminiSteering] ${REMOTE_CONFIG_KEY_ACTIVE_GEMINI_MODEL}=${clean}`);
-      }
-    } else {
-      lastRemoteConfigResolvedModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-      cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-      if (__DEV__) {
-        console.log(
-          `[GeminiSteering] RC vide ou invalide — ${GEMINI_SAFE_DEFAULT_MODEL_ID}`,
-        );
-      }
-    }
-    await clearPersistedFallbackModel();
-  } catch (e) {
-    lastRemoteConfigResolvedModelId = null;
-    cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-    if (__DEV__ && !isBenignRemoteConfigPlatformError(e)) {
-      console.warn('[GeminiSteering] Remote Config indisponible', e);
-    }
-  }
+  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
+  lastRemoteConfigResolvedModelId = cachedActiveGeminiModelId;
 }
 
 /**
@@ -261,4 +245,18 @@ export function ensureGeminiRemoteModelInitialized(): Promise<void> {
     steeringInitPromise = refreshGeminiModelFromRemoteConfig();
   }
   return steeringInitPromise;
+}
+
+export function getGeminiCandidateModelIds(): string[] {
+  const base = GEMINI_FALLBACK_LIST_MODELS;
+  const active = getActiveGeminiModelId();
+  return [active, ...base.filter((id) => id !== active)];
+}
+
+export async function persistValidatedGeminiModelId(modelId: string): Promise<void> {
+  const clean = sanitizeRemoteModelId(modelId);
+  if (!clean) return;
+  cachedActiveGeminiModelId = clean;
+  lastRemoteConfigResolvedModelId = clean;
+  await persistFallbackModelFor24h(clean);
 }

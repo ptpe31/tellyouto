@@ -10,7 +10,7 @@ import {
   type GeminiListedModel,
 } from './geminiModelCatalog';
 
-const BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const BASE = 'https://generativelanguage.googleapis.com/v1';
 const MAX_PROBES = 32;
 
 async function pingGenerateContent(modelId: string, apiKey: string): Promise<boolean> {

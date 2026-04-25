@@ -15,6 +15,12 @@ export type GeminiListedModel = {
   baseModelId?: string;
 };
 
+export const GEMINI_MODEL_SHORTLIST = [
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro-latest',
+] as const;
+
 export function shortGeminiModelId(fullName: string): string {
   return String(fullName || '').trim().replace(/^models\//, '');
 }
