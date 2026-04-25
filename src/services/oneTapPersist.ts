@@ -102,8 +102,9 @@ function nextAnniversaryDueYmd(monthDay: string | null): string | null {
   return `${d1.getFullYear()}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-function buildMetadataJsonForInsert(baseJson: string, draft: OneTapUniversalResult): string {
-  return mergeIntentionMetadataJson(baseJson, {
+function buildMetadataJsonForInsert(baseJson: string | null | undefined, draft: OneTapUniversalResult): string {
+  const base = typeof baseJson === 'string' && baseJson.trim().length ? baseJson : '{}';
+  return mergeIntentionMetadataJson(base, {
     ...buildTravelMetadataFromOneTap(draft),
     gemini_universal_draft: draft,
   });

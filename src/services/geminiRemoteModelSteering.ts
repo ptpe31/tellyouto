@@ -155,31 +155,8 @@ export async function recoverGeminiModelViaListModels(): Promise<string | null> 
 export async function recoverGeminiModelViaListModelsExcluding(
   excludedModelIds: string[],
 ): Promise<string | null> {
-  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
+  void excludedModelIds;
   return null;
-  const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
-  const rotated = await rotateFallbackModel(excludedModelIds);
-  if (rotated) return rotated;
-  if (!key) return null;
-  const now = Date.now();
-  if (recoverInFlight) return recoverInFlight;
-  const lastAt = Math.max(lastRecoverAttemptAtMs, lastRecoverSucceededAtMs);
-  if (lastAt > 0 && now - lastAt < RECOVER_COOLDOWN_MS) {
-    return null;
-  }
-  lastRecoverAttemptAtMs = now;
-  recoverInFlight = (async () => {
-    const recovered = await tryRecoverFromListModels(key);
-    if (recovered) {
-      lastRecoverSucceededAtMs = Date.now();
-    }
-    return recovered;
-  })();
-  try {
-    return await recoverInFlight;
-  } finally {
-    recoverInFlight = null;
-  }
 }
 
 /** Modèle effectif pour les appels REST Gemini (mis à jour après `ensureGeminiRemoteModelInitialized`). */
@@ -213,13 +190,6 @@ export async function applyGeminiLocalModelOverride(modelId: string): Promise<vo
   void modelId;
   cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
   await clearPersistedFallbackModel();
-  return;
-  const clean = sanitizeRemoteModelId(modelId);
-  if (!clean) {
-    throw new Error('applyGeminiLocalModelOverride: invalid model id');
-  }
-  await persistFallbackModelFor24h(clean);
-  cachedActiveGeminiModelId = clean;
 }
 
 /**

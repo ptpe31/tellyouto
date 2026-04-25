@@ -1,0 +1,2 @@
+declare module 'expo-print';
+

@@ -48,6 +48,7 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
+import { PassProModal } from '../components/PassProModal';
 import {
   formatOneTapCourtesyLine,
   OneTapCourtesyInterstitial,
@@ -133,6 +134,7 @@ export function TalkHomeScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const intentionFlow = useOptionalIntentionContext();
+  const [passProVisible, setPassProVisible] = useState(false);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const windowH = Dimensions.get('window').height;
@@ -535,7 +537,7 @@ export function TalkHomeScreen() {
     if (!spectrum.isProUser) {
       const snap = await getFreeCaptureQuotaSnapshot();
       if (snap.remaining <= 0) {
-        navigation.navigate('Recharge');
+        setPassProVisible(true);
         return;
       }
     }
@@ -922,7 +924,7 @@ export function TalkHomeScreen() {
           if (!res.ok) {
             if (res.code === 'LIST_QUOTA') {
               showAppToast(t('talkDebug.listQuotaExhaustedToast'));
-              navigation.navigate('Recharge');
+              setPassProVisible(true);
               return;
             }
             throw res.error;
@@ -986,7 +988,7 @@ export function TalkHomeScreen() {
       if (!res.ok) {
         if (res.code === 'LIST_QUOTA') {
           showAppToast(t('talkDebug.listQuotaExhaustedToast'));
-          navigation.navigate('Recharge');
+          setPassProVisible(true);
           return;
         }
         if (res.code === 'LIST_SELECTION') {
@@ -1293,6 +1295,14 @@ export function TalkHomeScreen() {
 
   return (
     <View style={styles.root}>
+      <PassProModal
+        visible={passProVisible}
+        onDismiss={() => setPassProVisible(false)}
+        onOpenSubscription={() => {
+          setPassProVisible(false);
+          navigation.navigate('ProSubscription' as never);
+        }}
+      />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>
           <TextInput

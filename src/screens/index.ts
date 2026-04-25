@@ -6,8 +6,6 @@ export { LegalScreen } from './LegalScreen';
 export { RechargeScreen } from './RechargeScreen';
 export { StatsScreen } from './StatsScreen';
 export { ProSubscriptionScreen } from './ProSubscriptionScreen';
-export { OnboardingScreen } from './OnboardingScreen';
-export { LanguageSelectionScreen } from './LanguageSelectionScreen';
 export { DebugScreen } from './DebugScreen';
 export { SemanticBrainLabScreen } from './SemanticBrainLabScreen';
 export { TalkHomeScreen } from './TalkDebugScreen';

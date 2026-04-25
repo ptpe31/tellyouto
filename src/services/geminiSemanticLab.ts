@@ -295,7 +295,7 @@ async function postGenerateContent(
     return { res, text, modelId, latencyMs };
   };
 
-  const model = getActiveGeminiModelId();
+  let model = getActiveGeminiModelId();
   const usedModels: string[] = [model];
   let usedRecoverRetry = false;
   let { res, text, modelId, latencyMs } = await runOnce(model);
@@ -876,7 +876,7 @@ async function postStreamGenerateContent(
     return { res, modelId };
   };
 
-  const model = getActiveGeminiModelId();
+  let model = getActiveGeminiModelId();
   const usedModels: string[] = [model];
   let { res, modelId } = await openStream(model);
   let lastErrBody = '';
