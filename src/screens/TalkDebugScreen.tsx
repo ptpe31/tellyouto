@@ -582,6 +582,8 @@ export function TalkHomeScreen() {
     }
   }, [busy, captureStep, ensureMicrophoneReady, i18n.language, isRecording, navigation, spectrum.isProUser, t]);
 
+  const micLocked = !spectrum.isProUser && (freeQuotaSnapshot?.remaining ?? 1) <= 0;
+
   const stopCapture = useCallback(async () => {
     if (captureStep !== 'recording' || !isRecording) return;
     try {
@@ -1298,10 +1300,6 @@ export function TalkHomeScreen() {
       <PassProModal
         visible={passProVisible}
         onDismiss={() => setPassProVisible(false)}
-        onOpenSubscription={() => {
-          setPassProVisible(false);
-          navigation.navigate('ProSubscription' as never);
-        }}
       />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>
@@ -1458,13 +1456,39 @@ export function TalkHomeScreen() {
           </View>
         ) : null}
         {captureStep === 'idle' ? (
-          <Pressable
-            onPress={() => void startCapture()}
-            disabled={busy}
-            style={[styles.micBtn, busy ? styles.disabled : null]}
-          >
-            <Mic size={24} color="#fff" />
-          </Pressable>
+          <View style={styles.micShell}>
+            {micLocked ? (
+              <Pressable
+                onPress={() => setPassProVisible(true)}
+                disabled={false}
+                style={styles.micHintPress}
+              >
+                <Text style={styles.micHintText}>{t('talkDebug.micQuotaUpsellHint')}</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => {
+                if (micLocked) {
+                  setPassProVisible(true);
+                  return;
+                }
+                void startCapture();
+              }}
+              disabled={busy && !micLocked}
+              style={[
+                styles.micBtn,
+                micLocked ? styles.micBtnLocked : null,
+                busy && !micLocked ? styles.disabled : null,
+              ]}
+            >
+              <Mic size={24} color={micLocked ? '#e2e8f0' : '#fff'} />
+              {micLocked ? (
+                <View style={styles.micLockBadge}>
+                  <Lock size={14} color="#fff" />
+                </View>
+              ) : null}
+            </Pressable>
+          </View>
         ) : null}
         {captureStep === 'recording' ? (
           <View style={styles.pilotRowDocked}>
@@ -1870,6 +1894,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#008080',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  micShell: { alignSelf: 'center', width: '100%', alignItems: 'center', gap: 10, marginBottom: 8 },
+  micHintPress: { maxWidth: 320, paddingHorizontal: 14, paddingVertical: 8 },
+  micHintText: { color: 'rgba(226, 232, 240, 0.92)', fontSize: 12, lineHeight: 16, textAlign: 'center', fontWeight: '700' },
+  micBtnLocked: { backgroundColor: '#475569' },
+  micLockBadge: {
+    position: 'absolute',
+    right: -6,
+    top: -6,
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: 'rgba(226,232,240,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pilotRow: {
     flexDirection: 'row',

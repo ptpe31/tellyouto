@@ -2,19 +2,20 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Button, Dialog, Portal, useTheme } from 'react-native-paper';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
 
 type Props = {
   visible: boolean;
   onDismiss: () => void;
-  onOpenSubscription: () => void;
 };
 
 /**
  * Invitation à passer Pro lorsqu’un canal premium est sélectionné sans abonnement.
  */
-export function PassProModal({ visible, onDismiss, onOpenSubscription }: Props) {
+export function PassProModal({ visible, onDismiss }: Props) {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { setProUser } = useUserSpectrum();
 
   return (
     <Portal>
@@ -52,7 +53,15 @@ export function PassProModal({ visible, onDismiss, onOpenSubscription }: Props) 
         </Dialog.ScrollArea>
         <Dialog.Actions style={styles.actions}>
           <Button onPress={onDismiss}>{t('pro.modalLater')}</Button>
-          <Button mode="contained" onPress={onOpenSubscription}>
+          <Button
+            mode="contained"
+            onPress={() => {
+              void (async () => {
+                await setProUser(true);
+                onDismiss();
+              })();
+            }}
+          >
             {t('pro.modalCta')}
           </Button>
         </Dialog.Actions>

@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { Button, useTheme } from 'react-native-paper';
@@ -17,6 +18,7 @@ import { getTrankilV2IntentionTaskCounts } from '../api/trankilV2Db';
 import { INTENTIONS_CHANGED_EVENT_NAME, LOCAL_DB_RESET_EVENT } from '../api/localDb';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
+import { askGeminiExpert } from '../services/GeminiExpert';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -48,6 +50,8 @@ export function DebugScreen() {
   const [lastError, setLastError] = useState<string | null>(null);
   const [rcModelDisplay, setRcModelDisplay] = useState<string | null>(null);
   const [localModelDisplay, setLocalModelDisplay] = useState(() => getActiveGeminiModelId());
+  const [validatedModelDisplay, setValidatedModelDisplay] = useState<string>('None');
+  const [iaCacheBusy, setIaCacheBusy] = useState(false);
   const [talkCaptureLog, setTalkCaptureLog] = useState<TalkCaptureDebugPayload | null>(null);
   const [dbCounts, setDbCounts] = useState({ intentionsCount: 0, tasksCount: 0 });
   const [trafficSnapshot, setTrafficSnapshot] = useState<TrafficMonitoringSnapshot | null>(null);
@@ -60,6 +64,26 @@ export function DebugScreen() {
   const syncModelLabels = useCallback(() => {
     setRcModelDisplay(getLastRemoteConfigResolvedModelId());
     setLocalModelDisplay(getActiveGeminiModelId());
+  }, []);
+
+  const refreshValidatedModelDisplay = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem('validated_model_id');
+      if (!raw) {
+        setValidatedModelDisplay('None');
+        return;
+      }
+      const parsed = JSON.parse(raw) as { modelId?: unknown; expiresAtMs?: unknown };
+      const modelId = typeof parsed.modelId === 'string' ? parsed.modelId.trim() : '';
+      const expiresAtMs = Number(parsed.expiresAtMs ?? 0);
+      if (!modelId || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+        setValidatedModelDisplay('None');
+        return;
+      }
+      setValidatedModelDisplay(modelId);
+    } catch {
+      setValidatedModelDisplay('None');
+    }
   }, []);
 
   const refreshDbCounts = useCallback(async () => {
@@ -96,8 +120,9 @@ export function DebugScreen() {
         const override = await hydrateDebugUserTierOverride();
         setTierOverride(override);
         syncModelLabels();
+        await refreshValidatedModelDisplay();
       })();
-    }, [syncModelLabels]),
+    }, [refreshValidatedModelDisplay, syncModelLabels]),
   );
 
   useEffect(() => {
@@ -174,6 +199,7 @@ export function DebugScreen() {
       const result = await runGeminiModelHealthCheck(key);
       await applyGeminiLocalModelOverride(result.winnerId);
       syncModelLabels();
+      await refreshValidatedModelDisplay();
       Alert.alert(
         t('debug.iaHealthTitle'),
         t('debug.iaHealthBody', {
@@ -190,7 +216,42 @@ export function DebugScreen() {
     } finally {
       setBusy(null);
     }
-  }, [syncModelLabels, t]);
+  }, [refreshValidatedModelDisplay, syncModelLabels, t]);
+
+  const onResetIaCache = useCallback(async () => {
+    setIaCacheBusy(true);
+    try {
+      await AsyncStorage.removeItem('validated_model_id');
+      await ensureGeminiRemoteModelInitialized();
+      syncModelLabels();
+      await refreshValidatedModelDisplay();
+      Alert.alert('IA', 'Cache réinitialisé');
+    } finally {
+      setIaCacheBusy(false);
+    }
+  }, [refreshValidatedModelDisplay, syncModelLabels]);
+
+  const onForce404Test = useCallback(async () => {
+    const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
+    if (!key) {
+      Alert.alert(t('debug.pilotTitle'), t('debug.iaHealthNoApiKey'));
+      return;
+    }
+    setIaCacheBusy(true);
+    try {
+      await applyGeminiLocalModelOverride('gemini-unknown-model');
+      syncModelLabels();
+      await refreshValidatedModelDisplay();
+      await askGeminiExpert('test');
+      syncModelLabels();
+      await refreshValidatedModelDisplay();
+      Alert.alert('IA', `OK: ${getActiveGeminiModelId()}`);
+    } catch (e) {
+      Alert.alert('IA', e instanceof Error ? e.message : String(e));
+    } finally {
+      setIaCacheBusy(false);
+    }
+  }, [refreshValidatedModelDisplay, syncModelLabels, t]);
 
   const onLaunchElasticSimulation = useCallback(async () => {
     setLastError(null);
@@ -295,6 +356,17 @@ export function DebugScreen() {
       <Text style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>{t('debug.note')}</Text>
 
       <View style={styles.section}>
+        <View style={styles.iaCachePanel}>
+          <View style={styles.iaCacheRow}>
+            <Button mode="contained" onPress={() => void onResetIaCache()} disabled={iaCacheBusy}>
+              Reset IA Cache
+            </Button>
+            <Text style={styles.iaCacheLabel}>Cache: {validatedModelDisplay}</Text>
+          </View>
+          <Button mode="outlined" onPress={() => void onForce404Test()} disabled={iaCacheBusy}>
+            Force 404 Test
+          </Button>
+        </View>
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
           {t('debug.dashboardSectionPilotageIa')}
         </Text>
@@ -492,6 +564,15 @@ const styles = StyleSheet.create({
   pad: { padding: 16, paddingBottom: 40 },
   heroTitle: { fontSize: 24, fontWeight: '800', marginBottom: 4 },
   note: { fontSize: 13, marginBottom: 20 },
+  iaCachePanel: {
+    backgroundColor: '#fde2e4',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+    gap: 10,
+  },
+  iaCacheRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 },
+  iaCacheLabel: { fontSize: 12, color: '#6b7280' },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '700',
