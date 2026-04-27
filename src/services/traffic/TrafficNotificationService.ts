@@ -1,14 +1,18 @@
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import { getNotifications } from '../notifications';
 
 export const SENTINEL_NOTIFICATION_CHANNEL_ID = 'sentinel_silent_updates';
+export const SENTINEL_NOTIFICATION_CATEGORY_ID = 'sentinel_trip';
+export const SENTINEL_ACTION_LAUNCH_ROUTE = 'sentinel_launch_route';
 
 type SentinelPayload = {
   kind: 'sentinel_trip';
   tripTaskId: string;
   destination: string;
 };
+
+let listenerRegistered = false;
 
 async function ensureSentinelChannel(): Promise<void> {
   const n = getNotifications();
@@ -21,6 +25,21 @@ async function ensureSentinelChannel(): Promise<void> {
     showBadge: false,
     sound: null,
   });
+}
+
+async function ensureSentinelCategory(): Promise<void> {
+  const n = getNotifications();
+  if (!n) return;
+  try {
+    await n.setNotificationCategoryAsync(SENTINEL_NOTIFICATION_CATEGORY_ID, [
+      {
+        identifier: SENTINEL_ACTION_LAUNCH_ROUTE,
+        buttonTitle: "Lancer l'itinéraire",
+        options: { opensAppToForeground: true },
+      },
+    ]);
+  } catch {
+  }
 }
 
 function fmtHm(ms: number): string {
@@ -48,6 +67,36 @@ function buildNewtonGauge(params: {
   return `${fmtHm(left)} ${bar.join('')} ${fmtHm(right)}`;
 }
 
+function buildUniversalNavUrl(destination: string): string {
+  const q = encodeURIComponent(destination);
+  return Platform.OS === 'ios' ? `maps:0,0?q=${q}` : `geo:0,0?q=${q}`;
+}
+
+async function openUniversalNavigation(destination: string): Promise<void> {
+  const url = buildUniversalNavUrl(destination);
+  const supported = await Linking.canOpenURL(url);
+  if (supported) {
+    await Linking.openURL(url);
+    return;
+  }
+  await Linking.openURL(
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destination)}`
+  );
+}
+
+function ensureResponseListener(): void {
+  if (listenerRegistered) return;
+  const n = getNotifications();
+  if (!n) return;
+  listenerRegistered = true;
+  n.addNotificationResponseReceivedListener((response) => {
+    const data = response.notification.request.content.data as SentinelPayload | undefined;
+    if (data?.kind !== 'sentinel_trip') return;
+    if (response.actionIdentifier !== SENTINEL_ACTION_LAUNCH_ROUTE) return;
+    void openUniversalNavigation(String(data.destination || '').trim());
+  });
+}
+
 export class SentinelNotificationManager {
   async update(input: {
     tripTaskId: string;
@@ -61,6 +110,8 @@ export class SentinelNotificationManager {
     const n = getNotifications();
     if (!n) return;
     await ensureSentinelChannel();
+    await ensureSentinelCategory();
+    ensureResponseListener();
 
     const existing = await this.findPresentedNotificationId(input.tripTaskId);
     if (existing) {
@@ -87,6 +138,7 @@ export class SentinelNotificationManager {
         title,
         body: `${gauge}\n${line3}`,
         data: payload,
+        categoryIdentifier: SENTINEL_NOTIFICATION_CATEGORY_ID,
         sticky: true,
         autoDismiss: false,
         sound: false,
