@@ -427,7 +427,8 @@ export function mergeWireIntoOneTapSkeleton(
 
 function buildCompressedGeminiPrompt(transcript: string, seedLine: string, uiLocale: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
-  const loc = String(uiLocale || 'fr').toLowerCase().startsWith('en')
+  const lang = String(uiLocale || 'fr').trim() || 'fr';
+  const loc = lang.toLowerCase().startsWith('en')
     ? 'Prefer English for K, T, N, C, R text when natural.'
     : 'Préfère le français pour K, T, N, C, R quand c’est naturel.';
   const now = new Date();
@@ -443,13 +444,13 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string, uiLoc
   const fullDateString =
     (() => {
       try {
-        return now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' });
+        return now.toLocaleString(lang, { dateStyle: 'full', timeStyle: 'long' });
       } catch {
         return now.toString();
       }
     })();
   return `${loc}
-[CONTEXT] Today is ${fullDateString} (${tz}).
+Current Reference Time: [Locale: ${lang}, Date: ${fullDateString} (${tz})]
 Local heuristic (refine or override if wrong):
 ${seedLine}
 
@@ -510,7 +511,36 @@ export function inferOneTapSkeletonFromTranscript(
 
   let base = defaultOneTapDataForType(predictedType);
   const ref = new Date();
-  const chronoResults = chrono.parse(cleaned, ref, { forwardDate: true });
+  const chronoResults =
+    (() => {
+      const loc = String(options.uiLocale || 'fr').toLowerCase();
+      const lang2 = loc.slice(0, 2);
+      const mod = (
+        lang2 === 'fr'
+          ? chrono.fr
+          : lang2 === 'en'
+            ? chrono.en
+            : lang2 === 'de'
+              ? chrono.de
+              : lang2 === 'it'
+                ? chrono.it
+                : lang2 === 'es'
+                  ? chrono.es
+                  : lang2 === 'ja'
+                    ? chrono.ja
+                    : lang2 === 'zh'
+                      ? chrono.zh
+                      : lang2 === 'nl'
+                        ? chrono.nl
+                        : lang2 === 'sv'
+                          ? chrono.sv
+                          : null
+      ) as unknown as { parse?: (t: string, r?: Date, o?: Record<string, unknown>) => unknown[] } | null;
+      if (mod?.parse) {
+        return mod.parse(cleaned, ref, { forwardDate: true }) as unknown[];
+      }
+      return chrono.parse(cleaned, ref, { forwardDate: true }) as unknown[];
+    })() as unknown as chrono.ParsedResult[];
   if (chronoResults.length > 0 && (predictedType === 'TASK' || predictedType === 'NOTE' || predictedType === 'HABIT')) {
     const start = chronoResults[0].start?.date();
     if (start && !Number.isNaN(start.getTime())) {
