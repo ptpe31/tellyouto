@@ -27,6 +27,7 @@ export const BANNED_MODELS_FOR_ONETAP = ['gemini-2.5-flash', 'gemini-2.0-flash']
 
 export function isBannedGeminiModelIdForOneTap(id: string): boolean {
   const clean = String(id || '').trim();
+  if (/-(?:exp|experimental)\b/i.test(clean)) return true;
   for (const base of BANNED_MODELS_FOR_ONETAP) {
     if (clean === base) return true;
     if (clean.startsWith(`${base}-`)) return true;

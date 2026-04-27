@@ -217,6 +217,70 @@ export type OneTapIntentJson = {
   arrivalDue?: string;
 };
 
+function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
+  const s = String(buffer || '');
+  const parts = s.split('\n');
+  const lines = partial && !s.endsWith('\n') ? parts.slice(0, -1) : parts;
+  const intents: OneTapIntentJson[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line.startsWith('>')) continue;
+    const body = line.slice(1).trim();
+    if (!body) continue;
+    const segs = body
+      .split('|')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (segs.length < 2) continue;
+    const type = segs[0].toUpperCase();
+    const content = segs[1];
+    if (!content) continue;
+
+    if (type === 'TASK') {
+      const due = segs.length >= 3 ? segs[2] : '';
+      intents.push({ type: 'TASK', content, due });
+      continue;
+    }
+    if (type === 'NOTE') {
+      intents.push({ type: 'NOTE', content });
+      continue;
+    }
+    if (type === 'HABIT') {
+      const recurrence = segs.length >= 3 ? segs[2] : '';
+      intents.push({ type: 'HABIT', content, recurrence });
+      continue;
+    }
+    if (type === 'TRIP') {
+      const due = segs.length >= 3 ? segs[2] : '';
+      intents.push({ type: 'TRIP', destination: content, arrivalDue: due });
+      continue;
+    }
+    if (type === 'LIST') {
+      const qtySeg = segs.length >= 3 ? segs[2] : '';
+      const itemsSeg = segs.length >= 4 ? segs[3] : segs.length >= 3 ? segs[2] : '';
+      let baseCount = 1;
+      let unitLabel = 'personne';
+      if (qtySeg) {
+        const m = qtySeg.match(/(\d{1,4})/);
+        if (m?.[1]) {
+          baseCount = Math.max(1, parseInt(m[1], 10));
+          const rest = qtySeg.replace(m[1], '').trim();
+          if (rest) unitLabel = rest.slice(0, 40);
+        }
+      }
+      const items =
+        itemsSeg
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean)
+          .slice(0, 48);
+      intents.push({ type: 'LIST', title: content, baseCount, unitLabel, items });
+      continue;
+    }
+  }
+  return intents;
+}
+
 /**
  * Sérialise le squelette Path A en une **seule ligne** `KEY:value|KEY:value` consommée par Gemini Path B.
  *
@@ -714,7 +778,7 @@ ${seedLine}
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
-Return ONLY a JSON array of intent objects (no markdown, no backticks).`;
+Reply ONLY with lines starting with ">" and pipe-separated segments. No markdown, no explanations.`;
 }
 
 /**
@@ -918,9 +982,7 @@ export async function refineOneTapWithGeminiCompressed(
   };
 
   const applyBuffer = (buf: string) => {
-    const arr = tryParseJsonArrayBestEffort(buf);
-    if (!arr) return;
-    const intents = arr.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as OneTapIntentJson[];
+    const intents = parseBulletPipeIntentsFromBuffer(buf, useStream);
     if (!intents.length) return;
     const merged = mergeIntentArrayIntoOneTapSkeleton(skeleton, intents);
     options.onPartial?.(merged);
@@ -940,12 +1002,9 @@ export async function refineOneTapWithGeminiCompressed(
   }
 
   let parsed = skeleton;
-  const jsonArr = tryParseJsonArrayBestEffort(rawModelText);
-  if (jsonArr) {
-    const intents = jsonArr.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as OneTapIntentJson[];
-    if (intents.length) {
-      parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, intents);
-    }
+  const bp = parseBulletPipeIntentsFromBuffer(rawModelText, false);
+  if (bp.length) {
+    parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, bp);
   } else {
     for (const w of parseOneTapWireLineBlocks(rawModelText)) {
       parsed = mergeWireIntoOneTapSkeleton(parsed, w);

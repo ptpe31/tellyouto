@@ -896,17 +896,12 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
 }
 
 const ONETAP_WIRE_SYSTEM_PREFIX =
-  'You convert a voice note into a JSON array of intent objects. ' +
-  'Output MUST be a single valid JSON array only (no markdown, no fences, no prose, no line breaks outside JSON). ' +
-  'Each object MUST include a "type" field with one of: TASK, LIST, HABIT, TRIP, NOTE. ' +
-  'TASK fields: "content" (string), optional "due" (ISO 8601 date-time string), optional "notes" (string), optional "category" (short tag). ' +
-  'LIST fields: "title" (string), "baseCount" (number), "unitLabel" (string), "items" (array of objects). ' +
-  'Each LIST item object fields: "name" (string), "baseQuantity" (number), "unit" (string), "scalable" (boolean). ' +
-  'If the user mentions servings/people count (e.g. "pour 6 personnes"), set baseCount=6 and unitLabel="personnes". If not mentioned, default baseCount=1, unitLabel="personne". ' +
-  'Always set scalable=true for ingredients that scale with baseCount (most ingredients), scalable=false for items that should not scale (e.g. "1 four", "une casserole"). ' +
-  'HABIT fields: "content" (string), optional "recurrence" (string), optional "preferredTime" (HH:mm), optional "category". ' +
-  'TRIP fields: "destination" (string), optional "address" (string), optional "placeId" (string), optional "lat" (number), optional "lng" (number), optional "arrivalDue" (ISO 8601 date-time), optional "category". ' +
-  'NOTE fields: "content" (string), optional "category".\n\n';
+  'Reply ONLY with lines starting with ">". No comments, no explanations, no markdown. ' +
+  'Format per line: > TYPE | TitleOrContent | DateISO(optional for TASK) | ListUnit(optional for LIST) | ListItems(optional for LIST) ' +
+  'Allowed TYPE: TASK, NOTE, LIST, HABIT, TRIP. ' +
+  'TASK example: > TASK | Acheter des frites | 2026-04-27T20:00 ' +
+  'NOTE example: > NOTE | Nourrir le poisson rouge ' +
+  'LIST example: > LIST | Gâteau au yaourt | 6 personnes | farine, oeufs, sucre\n\n';
 
 function buildStreamGenerateUrl(modelId: string, traceOperation?: string): string {
   const { base } = traceOperation?.startsWith('oneTap.wire') ? { base: BASE_V1BETA } : getGeminiApiMetaForModel(modelId);

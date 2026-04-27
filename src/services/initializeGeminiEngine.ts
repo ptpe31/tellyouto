@@ -63,61 +63,59 @@ export async function initializeGeminiEngine(): Promise<void> {
       return Number.isFinite(v) ? v : 0;
     };
     const allIds = [...new Set(withGen.map((m) => shortGeminiModelId(m.name)))];
-    const desiredPrefixes = [...new Set(GEMINI_MODEL_SHORTLIST.map((id) => id.replace(/-latest$/i, '')))];
-    const matchesDesired = (id: string) => desiredPrefixes.some((p) => id === p || id.startsWith(`${p}-`));
     const oneTapMinOut = 800;
     for (const m of withGen) {
       const id = shortGeminiModelId(m.name);
       metaById.set(id, { inLim: toNumber(m.inputTokenLimit), outLim: toNumber(m.outputTokenLimit) });
     }
 
+    const okOneTapFamily = (id: string) => !isBannedGeminiModelId(id) && !isBannedGeminiModelIdForOneTap(id) && /^gemini-1\.5-/i.test(id);
+    const isFlash15 = (id: string) => /^gemini-1\.5-flash/i.test(id);
+    const isPro15 = (id: string) => /^gemini-1\.5-pro/i.test(id);
+    const isLatest = (id: string) => /-latest$/i.test(id);
+
     for (const id of allIds) {
-      if (isBannedGeminiModelId(id)) continue;
-      if (isBannedGeminiModelIdForOneTap(id)) {
-        const meta = metaById.get(id);
-        const outLim = meta?.outLim ?? 0;
-        const inLim = meta?.inLim ?? 0;
-        const desired = matchesDesired(id);
-        console.log(
-          `[RECRUTEMENT-AI] 📋 ${id} | In:${inLim || '?'} Out:${outLim || '?'} | Desired:${desired ? 'YES' : 'NO'} | NON_QUALIFIÉ`,
-        );
-        continue;
-      }
+      if (!okOneTapFamily(id)) continue;
       const meta = metaById.get(id);
       const outLim = meta?.outLim ?? 0;
       const inLim = meta?.inLim ?? 0;
-      const desired = matchesDesired(id);
+      const desired = isFlash15(id) || isPro15(id);
       const qualified = outLim > 0 ? outLim >= oneTapMinOut : true;
       console.log(
         `[RECRUTEMENT-AI] 📋 ${id} | In:${inLim || '?'} Out:${outLim || '?'} | Desired:${desired ? 'YES' : 'NO'} | ${qualified ? 'QUALIFIÉ' : 'NON_QUALIFIÉ'}`,
       );
-      if (desired && qualified) candidates.push(id);
     }
 
-    if (!candidates.length) {
-      for (const id of allIds) {
-        if (isBannedGeminiModelId(id)) continue;
-        if (isBannedGeminiModelIdForOneTap(id)) continue;
-        if (!matchesDesired(id)) continue;
-        candidates.push(id);
+    const ordered = allIds
+      .filter((id) => okOneTapFamily(id) && (isFlash15(id) || isPro15(id)))
+      .sort((a, b) => {
+        const fa = isFlash15(a) ? 0 : 1;
+        const fb = isFlash15(b) ? 0 : 1;
+        if (fa !== fb) return fa - fb;
+        const la = isLatest(a) ? 0 : 1;
+        const lb = isLatest(b) ? 0 : 1;
+        if (la !== lb) return la - lb;
+        const oa = metaById.get(a)?.outLim ?? 0;
+        const ob = metaById.get(b)?.outLim ?? 0;
+        if (oa !== ob) return ob - oa;
+        return b.localeCompare(a);
+      });
+
+    for (const id of ordered) {
+      const outLim = metaById.get(id)?.outLim ?? 0;
+      if (outLim > 0 && outLim < oneTapMinOut) continue;
+      const probe = await pingGenerateContent(id, apiKey);
+      if (probe.ok) {
+        candidates = [id];
+        break;
       }
     }
-
-    const rank = (id: string) => {
-      const pref = desiredPrefixes.findIndex((p) => id === p || id.startsWith(`${p}-`));
-      const role = /flash/i.test(id) ? 0 : /pro/i.test(id) ? 1 : 2;
-      const latestBonus = /-latest$/i.test(id) ? 0 : 1;
-      const outLim = metaById.get(id)?.outLim ?? 0;
-      return pref < 0 ? 9999 : role * 1000 + pref * 10 + latestBonus - Math.min(999, Math.floor(outLim / 1000));
-    };
-    candidates.sort((a, b) => rank(a) - rank(b));
   } catch {
     candidates = [];
   }
 
   if (!candidates.length) {
-    const fallback = GEMINI_MODEL_SHORTLIST.filter((id) => !isBannedGeminiModelId(id));
-    candidates = fallback;
+    candidates = GEMINI_MODEL_SHORTLIST.filter((id) => !isBannedGeminiModelId(id));
   }
 
   setGeminiSessionCandidateModelIds(candidates);
