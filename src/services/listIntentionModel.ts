@@ -18,6 +18,27 @@ export type ListItemStored = {
   checked?: boolean;
 };
 
+export type ListItemDraft = {
+  name: string;
+  baseQuantity?: number;
+  qty?: number;
+  unit?: string;
+  scalable?: boolean;
+  includeInSave?: boolean;
+};
+
+export type ListCategoryDraft = {
+  name: string;
+  items: ListItemDraft[];
+};
+
+export type ListDraftBlock = {
+  title: string;
+  baseCount: number;
+  unitLabel: string;
+  categories: ListCategoryDraft[];
+};
+
 export type ListCategoryStored = {
   name: string;
   items: ListItemStored[];
