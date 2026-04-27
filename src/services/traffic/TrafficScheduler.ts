@@ -1,3 +1,4 @@
+import { withLocalDatabase } from '../../api/localDb';
 import { getNotifications } from '../notifications';
 import {
   calculateNextJump,
@@ -7,7 +8,6 @@ import {
 } from './TrafficEngine';
 import { SentinelNotificationManager } from './TrafficNotificationService';
 import i18n from '../../locales/i18n';
-import { getOrCreateViaUserId, withViaDb } from '../db/Schema';
 
 /** Marge invisible anti-risque: depart 5 min avant le point critique. */
 export const INNER_SAFETY_MARGIN_SEC = 300;
@@ -25,14 +25,11 @@ export type TrafficTaskStatus =
 
 export type TripTaskRow = {
   id: string;
-  userId: string;
-  locationId: string;
   destination: string;
-  lat: number | null;
-  lng: number | null;
   arrivalAtMs: number;
   status: TrafficTaskStatus;
   sentinelMode: 'SENTINEL' | 'STATIC';
+  targetDurationSec: number;
   lastTrafficDuration: number;
   internalScanCount: number;
   nextCheckAt: number | null;
@@ -86,8 +83,8 @@ const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
     if (!n) return;
     await n.scheduleNotificationAsync({
       content: {
-        title: i18n.t('sentinel.gateTitle'),
-        body: i18n.t('sentinel.gateBody', { destination: task.destination }),
+        title: 'Surveillance trajet',
+        body: `Souhaitez-vous activer la surveillance pour ${task.destination} ?`,
         data: { kind: 'traffic_confirmation_gate', tripTaskId: task.id },
       },
       trigger: null,
@@ -98,8 +95,8 @@ const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
     if (!n) return;
     await n.scheduleNotificationAsync({
       content: {
-        title: i18n.t('sentinel.surveillanceTitle'),
-        body: i18n.t('sentinel.surveillanceBody', { destination: task.destination }),
+        title: 'Surveillance active',
+        body: `Surveillance en cours vers ${task.destination}.`,
         data: { kind: 'traffic_surveillance_reminder', tripTaskId: task.id },
       },
       trigger: null,
@@ -110,8 +107,8 @@ const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
     if (!n) return;
     await n.scheduleNotificationAsync({
       content: {
-        title: i18n.t('sentinel.topDepartTitle'),
-        body: i18n.t('sentinel.topDepartBody', { destination: task.destination }),
+        title: 'TOP DEPART',
+        body: `C'est le moment de partir pour ${task.destination}.`,
         sound: 'default',
         data: { kind: 'traffic_top_depart', tripTaskId: task.id },
       },
@@ -123,8 +120,8 @@ const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
     if (!n) return;
     await n.scheduleNotificationAsync({
       content: {
-        title: i18n.t('sentinel.vigilanceOrangeTitle'),
-        body: i18n.t('sentinel.vigilanceOrangeBody', { destination: task.destination }),
+        title: 'Fenêtre ouverte',
+        body: `La fenêtre de départ est ouverte pour ${task.destination}.`,
         data: { kind: 'traffic_vigilance_orange', tripTaskId: task.id },
       },
       trigger: null,
@@ -135,8 +132,8 @@ const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
     if (!n) return;
     await n.scheduleNotificationAsync({
       content: {
-        title: i18n.t('sentinel.vigilanceRedTitle'),
-        body: i18n.t('sentinel.vigilanceRedBody', { destination: task.destination }),
+        title: 'TOP DÉPART CRITIQUE',
+        body: `Départ critique pour ${task.destination}.`,
         sound: 'default',
         data: { kind: 'traffic_vigilance_red', tripTaskId: task.id },
       },
@@ -148,7 +145,7 @@ const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
 function sessionFromTask(task: TripTaskRow): TrafficScanSession {
   return {
     status: task.status === 'ACTIVE' ? 'active' : task.status === 'DONE' ? 'finished' : 'cancelled',
-    durationTargetSec: 0,
+    durationTargetSec: task.targetDurationSec,
     lastTrafficDurationSec: task.lastTrafficDuration,
     internalScanCount: task.internalScanCount,
   };
@@ -172,7 +169,7 @@ export class TrafficScheduler {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private simulationMode = false;
   private readonly onMonitoringSnapshot?: (snapshot: TrafficMonitoringSnapshot) => void;
-  private readonly tableName = 'via_sentinel_trips';
+  private readonly tableName = 'sentinel_trips';
   private readonly notificationManager = new SentinelNotificationManager();
 
   constructor(
@@ -185,6 +182,7 @@ export class TrafficScheduler {
   }
 
   async start(): Promise<void> {
+    await this.ensureSchema();
     const tasks = await this.listScannableTasks();
     for (const task of tasks) {
       await this.planTask(task);
@@ -206,6 +204,7 @@ export class TrafficScheduler {
     arrivalAtMs: number;
     status?: TrafficTaskStatus;
     sentinelMode?: 'SENTINEL' | 'STATIC';
+    targetDurationSec: number;
     lastTrafficDuration?: number;
     internalScanCount?: number;
     nextCheckAt?: number | null;
@@ -213,39 +212,27 @@ export class TrafficScheduler {
     tPessimisteMs?: number | null;
     vigilanceStatus?: string | null;
   }): Promise<void> {
-    const userId = await getOrCreateViaUserId();
-    const now = Date.now();
-    const locationId = `debug_loc_${input.id}`;
-    await withViaDb(async (db) => {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO via_locations (
-          id, user_id, alias, formatted_address, place_id, lat, lng, created_at_ms, updated_at_ms, is_synced
-        ) VALUES (?, ?, NULL, ?, NULL, NULL, NULL, ?, ?, 0)`,
-        [locationId, userId, input.destination, now, now]
-      );
+    await this.ensureSchema();
+    await withLocalDatabase(async (db) => {
       await db.runAsync(
         `INSERT OR REPLACE INTO ${this.tableName} (
-          id, user_id, location_id, target_arrival_ms, status, sentinel_mode,
-          last_traffic_duration_sec, internal_scan_count, next_check_at_ms, gate_prompted_at_ms, last_error_at_ms,
-          t_optimiste_ms, t_pessimiste_ms, vigilance_status, created_at_ms, updated_at_ms, is_synced
-        ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 0
-        )`,
+          id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,
+          internal_scan_count, next_check_at, gate_prompted_at, last_error_at,
+          t_optimiste_ms, t_pessimiste_ms, vigilance_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
         [
           input.id,
-          userId,
-          locationId,
+          input.destination,
           input.arrivalAtMs,
           input.status ?? 'ACTIVE',
           input.sentinelMode ?? 'SENTINEL',
+          input.targetDurationSec,
           input.lastTrafficDuration ?? 0,
           input.internalScanCount ?? 0,
           input.nextCheckAt ?? null,
           input.tOptimisteMs ?? null,
           input.tPessimisteMs ?? null,
           input.vigilanceStatus ?? null,
-          now,
-          now,
         ]
       );
     });
@@ -317,14 +304,6 @@ export class TrafficScheduler {
         targetArrivalMs: task.arrivalAtMs,
         nowMs,
       });
-
-      console.log(
-        `\u001b[1m\u001b[35m**************** [ NEWTON ] ****************\u001b[0m\n` +
-          `\u001b[35m[NEWTON]\u001b[0m Raw=${sample.trafficDurationSec}s Stabilized=${output.stabilizedTrafficDurationSec}s\n` +
-          `\u001b[35m[NEWTON]\u001b[0m tOpt=${new Date(output.tOptimisteMs).toLocaleTimeString()} tPes=${new Date(
-            output.tPessimisteMs
-          ).toLocaleTimeString()} arrival=${new Date(task.arrivalAtMs).toLocaleTimeString()}`
-      );
 
       const bufferSafetyMin = (output.tPessimisteMs - nowMs) / 60_000;
       const nextVigilanceStatus = output.evaluation.status;
@@ -444,60 +423,42 @@ export class TrafficScheduler {
     this.timers.delete(taskId);
   }
 
+  private async ensureSchema(): Promise<void> {
+    await withLocalDatabase(async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS sentinel_trips (
+          id TEXT PRIMARY KEY NOT NULL,
+          destination TEXT NOT NULL,
+          arrival_at_ms INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          sentinel_mode TEXT NOT NULL DEFAULT 'SENTINEL',
+          target_duration_sec INTEGER NOT NULL DEFAULT 0,
+          last_traffic_duration INTEGER NOT NULL DEFAULT 0,
+          internal_scan_count INTEGER NOT NULL DEFAULT 0,
+          next_check_at INTEGER,
+          gate_prompted_at INTEGER,
+          last_error_at INTEGER,
+          t_optimiste_ms INTEGER,
+          t_pessimiste_ms INTEGER,
+          vigilance_status TEXT
+        );
+      `);
+    });
+  }
+
   private async listScannableTasks(): Promise<TripTaskRow[]> {
-    return withViaDb(async (db) => {
+    return withLocalDatabase(async (db) => {
       const rows = await db.getAllAsync<Record<string, unknown>>(
-        `SELECT
-           t.id,
-           t.user_id,
-           t.location_id,
-           l.formatted_address AS destination,
-           l.lat AS lat,
-           l.lng AS lng,
-           t.target_arrival_ms,
-           t.status,
-           t.sentinel_mode,
-           t.last_traffic_duration_sec,
-           t.internal_scan_count,
-           t.next_check_at_ms,
-           t.gate_prompted_at_ms,
-           t.last_error_at_ms,
-           t.t_optimiste_ms,
-           t.t_pessimiste_ms,
-           t.vigilance_status
-         FROM ${this.tableName} t
-         JOIN via_locations l ON l.id = t.location_id
-        WHERE t.status IN ('ACTIVE','PENDING_CONFIRMATION','ERROR')`
+        `SELECT * FROM ${this.tableName} WHERE status IN ('ACTIVE','PENDING_CONFIRMATION','ERROR')`
       );
       return rows.map(this.rowToTask);
     });
   }
 
   private async getTaskById(taskId: string): Promise<TripTaskRow | null> {
-    return withViaDb(async (db) => {
+    return withLocalDatabase(async (db) => {
       const row = await db.getFirstAsync<Record<string, unknown>>(
-        `SELECT
-           t.id,
-           t.user_id,
-           t.location_id,
-           l.formatted_address AS destination,
-           l.lat AS lat,
-           l.lng AS lng,
-           t.target_arrival_ms,
-           t.status,
-           t.sentinel_mode,
-           t.last_traffic_duration_sec,
-           t.internal_scan_count,
-           t.next_check_at_ms,
-           t.gate_prompted_at_ms,
-           t.last_error_at_ms,
-           t.t_optimiste_ms,
-           t.t_pessimiste_ms,
-           t.vigilance_status
-         FROM ${this.tableName} t
-         JOIN via_locations l ON l.id = t.location_id
-        WHERE t.id = ?
-        LIMIT 1`,
+        `SELECT * FROM ${this.tableName} WHERE id = ?`,
         [taskId]
       );
       return row ? this.rowToTask(row) : null;
@@ -505,16 +466,8 @@ export class TrafficScheduler {
   }
 
   private async updateTaskStatus(taskId: string, status: TrafficTaskStatus): Promise<void> {
-    const now = Date.now();
-    await withViaDb(async (db) => {
-      await db.runAsync(
-        `UPDATE ${this.tableName}
-            SET status = ?,
-                updated_at_ms = ?,
-                is_synced = 0
-          WHERE id = ?`,
-        [status, now, taskId]
-      );
+    await withLocalDatabase(async (db) => {
+      await db.runAsync(`UPDATE ${this.tableName} SET status = ? WHERE id = ?`, [status, taskId]);
     });
   }
 
@@ -532,21 +485,19 @@ export class TrafficScheduler {
       vigilanceStatus: string | null;
     }>
   ): Promise<void> {
-    const now = Date.now();
-    await withViaDb(async (db) => {
+    await withLocalDatabase(async (db) => {
       await db.runAsync(
         `UPDATE ${this.tableName}
-           SET last_traffic_duration_sec = COALESCE(?, last_traffic_duration_sec),
+           SET last_traffic_duration = COALESCE(?, last_traffic_duration),
                internal_scan_count = COALESCE(?, internal_scan_count),
-               next_check_at_ms = COALESCE(?, next_check_at_ms),
+               next_check_at = COALESCE(?, next_check_at),
                status = COALESCE(?, status),
-               gate_prompted_at_ms = COALESCE(?, gate_prompted_at_ms),
-               last_error_at_ms = ?,
+               gate_prompted_at = COALESCE(?, gate_prompted_at),
+               last_error_at = ?,
                t_optimiste_ms = COALESCE(?, t_optimiste_ms),
                t_pessimiste_ms = COALESCE(?, t_pessimiste_ms),
                vigilance_status = COALESCE(?, vigilance_status),
-               updated_at_ms = ?,
-               is_synced = 0
+               target_duration_sec = target_duration_sec
          WHERE id = ?`,
         [
           patch.lastTrafficDuration ?? null,
@@ -558,7 +509,6 @@ export class TrafficScheduler {
           patch.tOptimisteMs ?? null,
           patch.tPessimisteMs ?? null,
           patch.vigilanceStatus ?? null,
-          now,
           taskId,
         ]
       );
@@ -567,20 +517,17 @@ export class TrafficScheduler {
 
   private rowToTask = (row: Record<string, unknown>): TripTaskRow => ({
     id: String(row.id ?? ''),
-    userId: String(row.user_id ?? ''),
-    locationId: String(row.location_id ?? ''),
     destination: String(row.destination ?? ''),
-    lat: row.lat == null ? null : Number(row.lat),
-    lng: row.lng == null ? null : Number(row.lng),
-    arrivalAtMs: Number(row.target_arrival_ms ?? 0),
+    arrivalAtMs: Number(row.arrival_at_ms ?? 0),
     status: String(row.status ?? 'PAUSED') as TrafficTaskStatus,
     sentinelMode:
       String(row.sentinel_mode ?? 'SENTINEL').toUpperCase() === 'STATIC' ? 'STATIC' : 'SENTINEL',
-    lastTrafficDuration: Number(row.last_traffic_duration_sec ?? 0),
+    targetDurationSec: Number(row.target_duration_sec ?? 0),
+    lastTrafficDuration: Number(row.last_traffic_duration ?? 0),
     internalScanCount: Number(row.internal_scan_count ?? 0),
-    nextCheckAt: row.next_check_at_ms == null ? null : Number(row.next_check_at_ms),
-    gatePromptedAt: row.gate_prompted_at_ms == null ? null : Number(row.gate_prompted_at_ms),
-    lastErrorAt: row.last_error_at_ms == null ? null : Number(row.last_error_at_ms),
+    nextCheckAt: row.next_check_at == null ? null : Number(row.next_check_at),
+    gatePromptedAt: row.gate_prompted_at == null ? null : Number(row.gate_prompted_at),
+    lastErrorAt: row.last_error_at == null ? null : Number(row.last_error_at),
     tOptimisteMs: row.t_optimiste_ms == null ? null : Number(row.t_optimiste_ms),
     tPessimisteMs: row.t_pessimiste_ms == null ? null : Number(row.t_pessimiste_ms),
     vigilanceStatus: row.vigilance_status == null ? null : String(row.vigilance_status),
