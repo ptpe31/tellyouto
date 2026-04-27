@@ -19,11 +19,11 @@ export type GeminiListedModel = {
 
 export const GEMINI_MODEL_SHORTLIST = [
   'gemini-1.5-flash',
-  'gemini-1.5-flash-latest',
   'gemini-1.5-pro',
+  'gemini-2.0-flash-exp',
 ] as const;
 
-export const BANNED_MODELS_FOR_ONETAP = ['gemini-2.5-flash'] as const;
+export const BANNED_MODELS_FOR_ONETAP = ['gemini-2.5-flash', 'gemini-2.0-flash'] as const;
 
 export function isBannedGeminiModelIdForOneTap(id: string): boolean {
   const clean = String(id || '').trim();
@@ -175,7 +175,7 @@ export async function fetchAllGeminiModelsList(apiKey: string): Promise<GeminiLi
   const out: GeminiListedModel[] = [];
   let pageToken: string | undefined;
   do {
-    const u = new URL('https://generativelanguage.googleapis.com/v1/models');
+    const u = new URL('https://generativelanguage.googleapis.com/v1beta/models');
     u.searchParams.set('key', key);
     u.searchParams.set('pageSize', '100');
     if (pageToken) u.searchParams.set('pageToken', pageToken);

@@ -20,7 +20,7 @@ const BASE_V1 = 'https://generativelanguage.googleapis.com/v1';
 const BASE_V1BETA = 'https://generativelanguage.googleapis.com/v1beta';
 
 async function pingGenerateContent(modelId: string, apiKey: string): Promise<{ ok: boolean; status: number }> {
-  const base = /-latest$/i.test(modelId) ? BASE_V1BETA : BASE_V1;
+  const base = BASE_V1BETA;
   const url = `${base}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
     method: 'POST',
@@ -87,11 +87,20 @@ export async function initializeGeminiEngine(): Promise<void> {
       const outLim = meta?.outLim ?? 0;
       const inLim = meta?.inLim ?? 0;
       const desired = matchesDesired(id);
-      const qualified = outLim >= oneTapMinOut;
+      const qualified = outLim > 0 ? outLim >= oneTapMinOut : true;
       console.log(
         `[RECRUTEMENT-AI] 📋 ${id} | In:${inLim || '?'} Out:${outLim || '?'} | Desired:${desired ? 'YES' : 'NO'} | ${qualified ? 'QUALIFIÉ' : 'NON_QUALIFIÉ'}`,
       );
       if (desired && qualified) candidates.push(id);
+    }
+
+    if (!candidates.length) {
+      for (const id of allIds) {
+        if (isBannedGeminiModelId(id)) continue;
+        if (isBannedGeminiModelIdForOneTap(id)) continue;
+        if (!matchesDesired(id)) continue;
+        candidates.push(id);
+      }
     }
 
     const rank = (id: string) => {

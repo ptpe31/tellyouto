@@ -203,8 +203,8 @@ export type GeminiLabAnalysis = {
   reasoning: string;
 };
 
-function buildGenerateUrl(modelId: string): string {
-  const { base } = getGeminiApiMetaForModel(modelId);
+function buildGenerateUrl(modelId: string, traceOperation?: string): string {
+  const { base } = traceOperation?.startsWith('oneTap.wire') ? { base: BASE_V1BETA } : getGeminiApiMetaForModel(modelId);
   const key = getGeminiApiKey();
   if (!key) {
     console.error('[GeminiLab] API Key missing (EXPO_PUBLIC_GEMINI_API_KEY). Skipping Gemini calls.');
@@ -309,7 +309,7 @@ async function postGenerateContent(
   }
 
   const runOnce = async (modelId: string) => {
-    const url = buildGenerateUrl(modelId);
+    const url = buildGenerateUrl(modelId, traceOperation);
     const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
     const tNet0 = perfNowMs();
     labLog('request.start', {
@@ -318,6 +318,7 @@ async function postGenerateContent(
       endpoint: safeUrl,
       tNet0: Math.round(tNet0),
     });
+    labLog('FINAL_URL', { model: modelId, endpoint: safeUrl, operation: traceOperation });
     if (traceOperation.startsWith('oneTap.wire')) {
       const gc = (effectiveBody as { generationConfig?: Record<string, unknown> }).generationConfig ?? {};
       labLog('oneTap.generationConfig', { model: modelId, ...gc });
@@ -907,8 +908,8 @@ const ONETAP_WIRE_SYSTEM_PREFIX =
   'TRIP fields: "destination" (string), optional "address" (string), optional "placeId" (string), optional "lat" (number), optional "lng" (number), optional "arrivalDue" (ISO 8601 date-time), optional "category". ' +
   'NOTE fields: "content" (string), optional "category".\n\n';
 
-function buildStreamGenerateUrl(modelId: string): string {
-  const { base } = getGeminiApiMetaForModel(modelId);
+function buildStreamGenerateUrl(modelId: string, traceOperation?: string): string {
+  const { base } = traceOperation?.startsWith('oneTap.wire') ? { base: BASE_V1BETA } : getGeminiApiMetaForModel(modelId);
   const key = getGeminiApiKey();
   if (!key) {
     console.error('[GeminiLab] API Key missing (EXPO_PUBLIC_GEMINI_API_KEY). Skipping Gemini calls.');
@@ -956,9 +957,10 @@ async function postStreamGenerateContent(
 ): Promise<string> {
   const effectiveBody = enforceOneTapMaxOutputTokens(withLightGenerationConfig(body), traceOperation);
   const openStream = async (modelId: string) => {
-    const url = buildStreamGenerateUrl(modelId);
+    const url = buildStreamGenerateUrl(modelId, traceOperation);
     const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
     labLog('stream.request.start', { model: modelId, endpoint: safeUrl });
+    labLog('FINAL_URL', { model: modelId, endpoint: safeUrl, operation: traceOperation });
     if (traceOperation.startsWith('oneTap.wire')) {
       const gc = (effectiveBody as { generationConfig?: Record<string, unknown> }).generationConfig ?? {};
       labLog('oneTap.generationConfig', { model: modelId, ...gc });
