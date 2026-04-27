@@ -82,6 +82,10 @@ function readDraftIntents(draft: OneTapUniversalResult): Record<string, unknown>
   return raw.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as Record<string, unknown>[];
 }
 
+function hasStreamedIntents(draft: OneTapUniversalResult): boolean {
+  return readDraftIntents(draft).length > 0;
+}
+
 function ymdFromDate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -236,6 +240,13 @@ export function OneTapConfirmModal({
 
   const patchDraftIntents = (next: Record<string, unknown>[]) => {
     onChangeDraft({ ...draft, data: { ...draft.data, intents: next } });
+  };
+
+  const removeIntentAt = (intentIndex: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const next = displayedIntents.filter((_, i) => i !== intentIndex);
+    setDisplayedIntents(next);
+    patchDraftIntents(next);
   };
 
   const toggleIntentListItemInclude = (intentIndex: number, itemIndex: number) => {
@@ -415,6 +426,15 @@ export function OneTapConfirmModal({
             return (
               <View key={`intent-${idx}`} style={styles.intentCard}>
                 <View style={styles.intentHeadRow}>
+                  <Pressable
+                    style={styles.intentDeleteBtn}
+                    onPress={() => !busy && removeIntentAt(idx)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Supprimer"
+                  >
+                    <View style={styles.intentDeleteMinus} />
+                  </Pressable>
                   <Text style={styles.intentType}>TASK</Text>
                   {badge ? <Text style={styles.intentBadge}>{badge}</Text> : null}
                 </View>
@@ -427,6 +447,15 @@ export function OneTapConfirmModal({
             return (
               <View key={`intent-${idx}`} style={styles.intentCard}>
                 <View style={styles.intentHeadRow}>
+                  <Pressable
+                    style={styles.intentDeleteBtn}
+                    onPress={() => !busy && removeIntentAt(idx)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Supprimer"
+                  >
+                    <View style={styles.intentDeleteMinus} />
+                  </Pressable>
                   <Text style={styles.intentType}>NOTE</Text>
                 </View>
                 <Text style={styles.intentTitle}>{title}</Text>
@@ -441,26 +470,20 @@ export function OneTapConfirmModal({
             return (
               <View key={`intent-${idx}`} style={styles.intentCard}>
                 <View style={styles.intentHeadRow}>
+                  <Pressable
+                    style={styles.intentDeleteBtn}
+                    onPress={() => !busy && removeIntentAt(idx)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Supprimer"
+                  >
+                    <View style={styles.intentDeleteMinus} />
+                  </Pressable>
                   <Text style={styles.intentType}>LIST</Text>
                   <Text style={styles.intentBadge}>{`${numberOfPeople} ${unitLabel}`.trim()}</Text>
                 </View>
                 <Text style={styles.intentTitle}>{title}</Text>
-                <View style={styles.quantityRow}>
-                  <Pressable
-                    style={[styles.stepBtn, busy && styles.disabled]}
-                    disabled={busy}
-                    onPress={() => adjustIntentListBaseCount(idx, -1)}
-                  >
-                    <Text style={styles.stepBtnText}>−</Text>
-                  </Pressable>
-                  <Text style={styles.countText}>{numberOfPeople}</Text>
-                  <Pressable
-                    style={[styles.stepBtn, busy && styles.disabled]}
-                    disabled={busy}
-                    onPress={() => adjustIntentListBaseCount(idx, 1)}
-                  >
-                    <Text style={styles.stepBtnText}>+</Text>
-                  </Pressable>
+                <View style={styles.listControlsRow}>
                   <TextInput
                     value={unitLabel}
                     onChangeText={(text) => setIntentListUnitLabel(idx, text)}
@@ -468,6 +491,23 @@ export function OneTapConfirmModal({
                     editable={!busy}
                     placeholder={t('talkDebug.oneTapListUnitPlaceholder')}
                   />
+                  <View style={styles.listStepperRight}>
+                    <Pressable
+                      style={[styles.stepBtn, busy && styles.disabled]}
+                      disabled={busy}
+                      onPress={() => adjustIntentListBaseCount(idx, -1)}
+                    >
+                      <Text style={styles.stepBtnText}>−</Text>
+                    </Pressable>
+                    <Text style={styles.countText}>{numberOfPeople}</Text>
+                    <Pressable
+                      style={[styles.stepBtn, busy && styles.disabled]}
+                      disabled={busy}
+                      onPress={() => adjustIntentListBaseCount(idx, 1)}
+                    >
+                      <Text style={styles.stepBtnText}>+</Text>
+                    </Pressable>
+                  </View>
                 </View>
                 <View style={styles.catBlock}>
                   {items.map((raw, ii) => {
@@ -506,6 +546,15 @@ export function OneTapConfirmModal({
             return (
               <View key={`intent-${idx}`} style={styles.intentCard}>
                 <View style={styles.intentHeadRow}>
+                  <Pressable
+                    style={styles.intentDeleteBtn}
+                    onPress={() => !busy && removeIntentAt(idx)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Supprimer"
+                  >
+                    <View style={styles.intentDeleteMinus} />
+                  </Pressable>
                   <Text style={styles.intentType}>HABIT</Text>
                   {rec ? <Text style={styles.intentBadge}>{rec}</Text> : null}
                 </View>
@@ -518,6 +567,15 @@ export function OneTapConfirmModal({
             return (
               <View key={`intent-${idx}`} style={styles.intentCard}>
                 <View style={styles.intentHeadRow}>
+                  <Pressable
+                    style={styles.intentDeleteBtn}
+                    onPress={() => !busy && removeIntentAt(idx)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Supprimer"
+                  >
+                    <View style={styles.intentDeleteMinus} />
+                  </Pressable>
                   <Text style={styles.intentType}>TRIP</Text>
                 </View>
                 <Text style={styles.intentTitle}>{title}</Text>
@@ -526,7 +584,6 @@ export function OneTapConfirmModal({
           }
           return null;
         })}
-        {isGenerating ? <StreamingIndicator /> : null}
       </View>
     );
   };
@@ -988,6 +1045,8 @@ export function OneTapConfirmModal({
             />
           </ScrollView>
 
+          {isGenerating && hasStreamedIntents(draft) ? <StreamingIndicator /> : null}
+
           <View style={[styles.actions, draft.predictedType === 'LIST' ? styles.actionsWithPrint : null]}>
             {draft.predictedType === 'LIST' ? (
               <PaperButton mode="outlined" onPress={() => void onPrintList()} disabled={busy}>
@@ -1034,11 +1093,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   card: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderRadius: 22,
     padding: 16,
     gap: 8,
     maxHeight: '92%',
+    borderWidth: 0.5,
+    borderColor: 'rgba(15,23,42,0.10)',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 2,
   },
   scroll: { maxHeight: '72%' },
   cardTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
@@ -1082,18 +1148,39 @@ const styles = StyleSheet.create({
   intentCard: {
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    borderWidth: 0.5,
+    borderColor: 'rgba(15,23,42,0.10)',
     backgroundColor: '#fff',
-    marginBottom: 10,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 1,
   },
   intentHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  intentDeleteBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  intentDeleteMinus: {
+    width: 11,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: '#fff',
+  },
   intentType: { fontSize: 12, fontWeight: '900', color: '#0f766e' },
   intentBadge: { fontSize: 12, fontWeight: '800', color: '#475569' },
   intentTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginTop: 6 },
   streamingRow: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 6 },
   streamingDot: { fontSize: 18, fontWeight: '900', color: '#0f766e', marginHorizontal: 2 },
+  listControlsRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
+  listStepperRight: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 'auto' },
   label: { fontSize: 12, fontWeight: '700', color: '#64748b', marginTop: 8 },
   input: {
     borderWidth: 1,
@@ -1184,8 +1271,8 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 8 },
   actionsWithPrint: { justifyContent: 'space-between', flexWrap: 'wrap' },
   actionsSpacer: { flex: 1, minWidth: 8 },
-  btn: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10 },
-  btnPrimary: { backgroundColor: '#008080' },
+  btn: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: 18 },
+  btnPrimary: { backgroundColor: '#007AFF' },
   btnPrimaryText: { fontWeight: '800', color: '#fff' },
   disabled: { opacity: 0.45 },
 });
