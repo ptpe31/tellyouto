@@ -49,12 +49,6 @@ import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../const
 import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
 import { PassProModal } from '../components/PassProModal';
-import {
-  formatOneTapCourtesyLine,
-  OneTapCourtesyInterstitial,
-  ONE_TAP_MODAL_OPEN_SAFETY_MS,
-} from '../components/OneTapCourtesyInterstitial';
-import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
 import { VoiceMeteringWaveform } from '../components/VoiceMeteringWaveform';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import type { GeminiExpertIntention } from '../services/GeminiExpert';
@@ -94,17 +88,12 @@ import {
   inferOneTapSkeletonFromTranscript,
   logOneTapCaptureCycleStartBanner,
   ONE_TAP_DEBUG_LOG_CONT,
-  refineOneTapWithGeminiCompressed,
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
 import {
-  finalizeOneTapOptimisticDraft,
   persistOneTapDraft,
-  preSaveOneTapOptimisticDraft,
-  replacePendingOneTapDraft,
 } from '../services/oneTapPersist';
-import { cancelOneTapUniversalReminders } from '../services/oneTapUniversalReminders';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { activateSentinelTrip } from '../services/traffic/sentinelActivation';
 import { consumeSentinelQuotaOnTripValidation } from '../services/QuotaManager';
@@ -144,12 +133,6 @@ export function TalkHomeScreen() {
   const [phoenixInput, setPhoenixInput] = useState('');
   const [phoenixSubmitting, setPhoenixSubmitting] = useState(false);
   const [captureStep, setCaptureStep] = useState<'idle' | 'recording'>('idle');
-  const [oneTapDraft, setOneTapDraft] = useState<OneTapUniversalResult | null>(null);
-  const [oneTapModalVisible, setOneTapModalVisible] = useState(false);
-  const [oneTapCourtesyVisible, setOneTapCourtesyVisible] = useState(false);
-  const [oneTapCourtesyText, setOneTapCourtesyText] = useState('');
-  const [oneTapRefinePhase, setOneTapRefinePhase] = useState<'idle' | 'local' | 'streaming' | 'done' | 'error'>('idle');
-  const [oneTapOptimisticId, setOneTapOptimisticId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
@@ -324,11 +307,6 @@ export function TalkHomeScreen() {
     setDeadlineError('');
     setIsGeneratingPlan(false);
     setProjectPlanPreview(null);
-    setOneTapDraft(null);
-    setOneTapModalVisible(false);
-    setOneTapCourtesyVisible(false);
-    setOneTapCourtesyText('');
-    setOneTapRefinePhase('idle');
     setMeteringDb(-100);
   }, []);
 
@@ -537,6 +515,7 @@ export function TalkHomeScreen() {
 
   const startCapture = useCallback(async () => {
     if (isRecording || busy) return;
+    intentionFlow?.startCapture();
     if (!spectrum.isProUser) {
       const snap = await getFreeCaptureQuotaSnapshot();
       if (snap.remaining <= 0) {
@@ -589,13 +568,15 @@ export function TalkHomeScreen() {
 
   const stopCapture = useCallback(async () => {
     if (captureStep !== 'recording' || !isRecording) return;
+    let uri: string | null = null;
     try {
       ExpoSpeechRecognitionModule.stop();
       const rec = recRef.current;
       recRef.current = null;
       if (rec) {
         await rec.stopAndUnloadAsync();
-        setAudioUri(rec.getURI() ?? null);
+        uri = rec.getURI() ?? null;
+        setAudioUri(uri);
       }
     } catch (e) {
       if (isLikelyMissingNativeModuleError(e)) {
@@ -619,149 +600,28 @@ export function TalkHomeScreen() {
         Alert.alert(t('talkDebug.captureTitle'), t('talkDebug.oneTapEmptyTranscript'));
         return;
       }
-      const fallbackTitle =
-        (isTitleLocked ? lockedTitle : '') ||
-        generateSmartTitle(cleanedTranscript, spectrum.locale) ||
-        cleanedTranscript.trim();
-      setTitleDraft(fallbackTitle);
-      setHasManualTitleEdit(false);
-      const finalTxPre =
-        buildFinalTranscriptForCapture(nextTranscript, rawTranscript).trim() || cleanedTranscript;
-      const skeleton = inferOneTapSkeletonFromTranscript(cleanedTranscript, {
-        uiLocale: spectrum.locale || 'fr',
-        titleHint: fallbackTitle,
-      });
-      setOneTapDraft(skeleton);
-      void (async () => {
-        const hydrated = await hydrateOneTapDraftWithFavoriteAlias(skeleton);
-        setOneTapDraft(hydrated);
-      })();
-      setOneTapRefinePhase('local');
-      setOneTapCourtesyText(formatOneTapCourtesyLine(t, spectrum.first_name, i18n.language));
-      setOneTapCourtesyVisible(true);
-      setCaptureStep('idle');
-      void (async () => {
-        const t1 = perfNowMs();
-        console.log(
-          `[OneTapPerf] T1_DUAL_PATH_BACKGROUND${ONE_TAP_DEBUG_LOG_CONT}t1_ms: ${Math.round(t1)}`,
-        );
-        let safetyTimer: ReturnType<typeof setTimeout> | null = null;
-        let modalOpened = false;
-        try {
-          const pre = await preSaveOneTapOptimisticDraft({
-            deps: captureStrategyDeps,
-            draft: skeleton,
-            transcript: finalTxPre,
-            habitsDefaultTitle: t('common.habits'),
-            birthdayLabel: t('talkDebug.birthdayLabel'),
-          });
-          const intentionId = pre.ok ? pre.intentionId : null;
-          if (pre.ok) setOneTapOptimisticId(pre.intentionId);
-          else setOneTapOptimisticId(null);
-
-          setOneTapRefinePhase('streaming');
-          const gemStart = perfNowMs();
-
-          safetyTimer = setTimeout(() => {
-            if (modalOpened) return;
-            modalOpened = true;
-            setOneTapDraft(skeleton);
-            setOneTapModalVisible(true);
-            setOneTapCourtesyVisible(false);
-            console.log('[OneTapUX] ✨ Modale ouverte via Timeout (Path A)');
-          }, ONE_TAP_MODAL_OPEN_SAFETY_MS);
-
-          const { parsed, rawModelText } = await refineOneTapWithGeminiCompressed(cleanedTranscript, skeleton, {
-            uiLocale: spectrum.locale || 'fr',
-            useStream: true,
-            onPartial: (d) => {
-              setOneTapDraft(d);
-              void (async () => {
-                const hydrated = await hydrateOneTapDraftWithFavoriteAlias(d);
-                setOneTapDraft(hydrated);
-              })();
-            },
-            chainPerf: { t0, t1 },
-          });
-          if (safetyTimer) {
-            clearTimeout(safetyTimer);
-            safetyTimer = null;
-          }
-          const gemEnd = perfNowMs();
-
-          if (!modalOpened) {
-            modalOpened = true;
-            setOneTapDraft(parsed);
-            setOneTapRefinePhase('done');
-            setOneTapModalVisible(true);
-            setOneTapCourtesyVisible(false);
-            console.log('[OneTapUX] ✨ Modale ouverte via Path B (Success)');
-          } else {
-            setOneTapDraft(parsed);
-            setOneTapRefinePhase('done');
-          }
-
-          if (intentionId) {
-            const rep = await replacePendingOneTapDraft({
-              deps: captureStrategyDeps,
-              intentionId,
-              draft: parsed,
-              transcript: finalTxPre,
-              habitsDefaultTitle: t('common.habits'),
-              birthdayLabel: t('talkDebug.birthdayLabel'),
-            });
-            if (!rep.ok && __DEV__) {
-              console.warn('[OneTap] replacePendingOneTapDraft failed', rep.error);
-            }
-          }
-          const t3 = perfNowMs();
-          const geminiMs = Math.round(gemEnd - gemStart);
-          const totalFromT1Ms = Math.round(t3 - t1);
-          console.log(
-            `[OneTapPerf] T3_REFINE_DONE${ONE_TAP_DEBUG_LOG_CONT}t3_ms: ${Math.round(t3)}${ONE_TAP_DEBUG_LOG_CONT}geminiMs: ${geminiMs}${ONE_TAP_DEBUG_LOG_CONT}totalFromT1Ms: ${totalFromT1Ms}`,
-          );
-          emitTalkDebug({
-            mode: 'quick',
-            at: Date.now(),
-            rawTranscript: cleanedTranscript,
-            geminiFullJson: JSON.stringify({ oneTap: parsed, rawModelText }, null, 2),
-            oneTapPerfMs: {
-              t0: Math.round(t0),
-              t1: Math.round(t1),
-              t3: Math.round(t3),
-              geminiMs,
-              totalFromT1Ms,
-            },
-          });
-        } catch (e) {
-          if (safetyTimer) {
-            clearTimeout(safetyTimer);
-            safetyTimer = null;
-          }
-          if (!modalOpened) {
-            modalOpened = true;
-            setOneTapDraft(skeleton);
-            setOneTapModalVisible(true);
-            setOneTapCourtesyVisible(false);
-          }
-          setOneTapRefinePhase('error');
-          showAppToast(t('talkDebug.oneTapRefineFailedToast'), 4200);
-          if (__DEV__) console.warn('[OneTap] refine error', e);
-        }
-      })();
+      if (!intentionFlow) {
+        setCaptureStep('idle');
+        Alert.alert('Capture', 'IntentionProvider manquant (Dev Client requis).');
+        return;
+      }
+      try {
+        intentionFlow.startCapture();
+        await intentionFlow.submitCapturePayload({ transcript: cleanedTranscript, audioUri: uri });
+      } finally {
+        setCaptureStep('idle');
+      }
     }
   }, [
     captureStep,
-    captureStrategyDeps,
-    emitTalkDebug,
     i18n.language,
     isRecording,
     isTitleLocked,
     lockedTitle,
     rawTranscript,
-    spectrum.first_name,
     spectrum.locale,
     t,
+    intentionFlow,
   ]);
 
   const cancelCapture = useCallback(async () => {
@@ -978,146 +838,6 @@ export function TalkHomeScreen() {
       transcriptDraft,
     ],
   );
-
-  const confirmOneTap = useCallback(async () => {
-    if (!oneTapDraft) return;
-    setBusy(true);
-    try {
-      const finalTranscript = buildFinalTranscriptForCapture(transcriptDraft, rawTranscript);
-      const res = oneTapOptimisticId
-        ? await finalizeOneTapOptimisticDraft({
-            deps: captureStrategyDeps,
-            intentionId: oneTapOptimisticId,
-            draft: oneTapDraft,
-            transcript: finalTranscript,
-            habitsDefaultTitle: t('common.habits'),
-            birthdayLabel: t('talkDebug.birthdayLabel'),
-          })
-        : await persistOneTapDraft({
-            deps: captureStrategyDeps,
-            draft: oneTapDraft,
-            transcript: finalTranscript,
-            habitsDefaultTitle: t('common.habits'),
-            birthdayLabel: t('talkDebug.birthdayLabel'),
-          });
-      if (!res.ok) {
-        if (res.code === 'LIST_QUOTA') {
-          showAppToast(t('talkDebug.listQuotaExhaustedToast'));
-          setPassProVisible(true);
-          return;
-        }
-        if (res.code === 'LIST_SELECTION') {
-          showAppToast(t('talkDebug.oneTapListNeedOneItem'));
-          return;
-        }
-        throw res.error;
-      }
-      const o = res.outcome;
-      const data = oneTapDraft.data as Record<string, unknown>;
-      const shouldActivateSentinel = data.logisticsPotential === true;
-      const sentinelTaskId =
-        (o.kind === 'persisted_temporal' || o.kind === 'list_inventory_persisted'
-          ? o.intentionId
-          : typeof o.intentionId === 'string'
-            ? o.intentionId
-            : null) ?? oneTapOptimisticId ?? null;
-      const arrivalIso = typeof data.dueDateTime === 'string' ? data.dueDateTime.trim() : '';
-      const arrivalMs = arrivalIso ? new Date(arrivalIso).getTime() : NaN;
-      const formattedAddress = String(data.location_address ?? '').trim();
-      const placeId = String(data.location_place_id ?? '').trim();
-      const lat = Number(data.location_lat);
-      const lng = Number(data.location_lng);
-      const sentinelReady =
-        shouldActivateSentinel &&
-        Boolean(sentinelTaskId) &&
-        formattedAddress.length > 0 &&
-        placeId.length > 0 &&
-        Number.isFinite(lat) &&
-        Number.isFinite(lng) &&
-        Number.isFinite(arrivalMs) &&
-        arrivalMs > 0;
-
-      if ('consumedClassicFreeSlot' in o && o.consumedClassicFreeSlot) {
-        await maybeConsumeFreeCaptureSuccess();
-      }
-      const postEffectsConfigFor = (mirrorType: 'TASK' | 'HABIT'): PostCaptureEffectsConfig => ({
-        isProUser: spectrum.isProUser,
-        calendarSyncEnabled: mirrorType === 'TASK' ? calendarSyncByType.task : calendarSyncByType.habit,
-        alarmSyncEnabled: mirrorType === 'TASK' ? alarmSyncByType.task : alarmSyncByType.habit,
-        autoArchiveAfterCalendarSync,
-        selectedCalendarId,
-      });
-      if (o.kind === 'persisted_temporal') {
-        const cfg = postEffectsConfigFor(o.mirrorType);
-        void (async () => {
-          const fx = await applyPostCaptureEffects(
-            o.intentionId,
-            o.mirrorType,
-            {
-              title: o.title,
-              dueDateYmd: o.dueDateYmd,
-              metadataJson: o.metadataJson,
-            },
-            cfg,
-          );
-          pushSuccessFeedback(buildTemporalCaptureRecap(o.recapIntroI18nKey, fx, t));
-        })();
-      } else if (o.kind === 'simple_note_or_audio') {
-        pushSuccessFeedback(t(o.successFeedbackI18nKey));
-      } else if (o.kind === 'list_inventory_persisted') {
-        pushSuccessFeedback(t(o.successFeedbackI18nKey));
-      }
-      if (sentinelReady && sentinelTaskId) {
-        const quota = await consumeSentinelQuotaOnTripValidation({ isProUser: spectrum.isProUser });
-        const { tOptimisteMs } = await activateSentinelTrip({
-          tripTaskId: sentinelTaskId,
-          formattedAddress,
-          targetArrivalMs: arrivalMs,
-          lat,
-          lng,
-          sentinelMode: quota.mode,
-        });
-        pushSuccessFeedback(
-          t('sentinel.activatedToast', {
-            tOpt: new Date(tOptimisteMs).toLocaleTimeString(),
-            date: new Date(arrivalMs).toLocaleDateString(),
-            time: new Date(arrivalMs).toLocaleTimeString(),
-          })
-        );
-      }
-      setOneTapModalVisible(false);
-      setOneTapDraft(null);
-      setOneTapOptimisticId(null);
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-      hardResetToIdle();
-      navigation.navigate('Timeline', {
-        initialTimeNav: 'TODAY',
-        initialContext: 'ALL',
-      });
-    } catch (e) {
-      await handleCaptureFlowError(e, { translate: t });
-    } finally {
-      setBusy(false);
-    }
-  }, [
-    alarmSyncByType.habit,
-    alarmSyncByType.task,
-    autoArchiveAfterCalendarSync,
-    calendarSyncByType.habit,
-    calendarSyncByType.task,
-    captureStrategyDeps,
-    hardResetToIdle,
-    maybeConsumeFreeCaptureSuccess,
-    navigation,
-    oneTapDraft,
-    oneTapOptimisticId,
-    pushSuccessFeedback,
-    rawTranscript,
-    selectedCalendarId,
-    spectrum.isProUser,
-    t,
-    transcriptDraft,
-  ]);
 
   const toggleDeadlineDictation = useCallback(async () => {
     if (isDeadlineListening) {
@@ -1404,8 +1124,7 @@ export function TalkHomeScreen() {
 
       {captureStep === 'idle' &&
       transcriptDraft.trim().length > 0 &&
-      !oneTapModalVisible &&
-      !oneTapCourtesyVisible ? (
+      !deadlineModalVisible ? (
         <View style={styles.projectCtaWrap}>
           <Pressable
             style={styles.projectCtaBtn}
@@ -1425,43 +1144,9 @@ export function TalkHomeScreen() {
 
       <View style={styles.middleSpacer} />
 
-      <OneTapCourtesyInterstitial visible={oneTapCourtesyVisible} text={oneTapCourtesyText} />
-
-      <OneTapConfirmModal
-        visible={oneTapModalVisible}
-        draft={oneTapDraft}
-        transcript={transcriptDraft}
-        refinePhase={oneTapRefinePhase}
-        busy={busy}
-        onChangeDraft={setOneTapDraft}
-        onChangeTranscript={setTranscriptDraft}
-        onConfirm={() => void confirmOneTap()}
-        onDismiss={() => {
-          void (async () => {
-            if (oneTapOptimisticId) {
-              try {
-                await cancelOneTapUniversalReminders(oneTapOptimisticId);
-                await deleteTrankilV2IntentionById(oneTapOptimisticId);
-              } catch {
-                /* ignore */
-              }
-              setOneTapOptimisticId(null);
-            }
-            setOneTapModalVisible(false);
-            setOneTapDraft(null);
-            setOneTapCourtesyVisible(false);
-            setOneTapCourtesyText('');
-            setOneTapRefinePhase('idle');
-            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          })();
-        }}
-      />
-
       <IntentionSuggestionsBanner
         visible={
           captureStep === 'idle' &&
-          !oneTapModalVisible &&
-          !oneTapCourtesyVisible &&
           !deadlineModalVisible
         }
         bottomOffset={112}
