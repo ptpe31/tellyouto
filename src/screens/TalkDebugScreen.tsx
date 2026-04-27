@@ -3,9 +3,11 @@ import {
   DeviceEventEmitter,
   FlatList,
   KeyboardAvoidingView,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -73,7 +75,7 @@ export function TalkHomeScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [input, setInput] = useState('');
+  const [phoenixInput, setPhoenixInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<CoreIntentionRow[]>([]);
 
@@ -126,9 +128,9 @@ export function TalkHomeScreen() {
 
   const keyExtractor = useCallback((item: CoreIntentionRow) => item.id, []);
 
-  const onSubmitText = useCallback(async () => {
+  const onSubmitPhoenix = useCallback(async () => {
     if (busy) return;
-    const raw = input;
+    const raw = phoenixInput;
     const segments = splitBatchInput(raw);
     if (segments.length === 0) return;
     setBusy(true);
@@ -156,11 +158,11 @@ export function TalkHomeScreen() {
       if (segments.length > 1) {
         console.log(`${ANSI.yellow}${ANSI.bold}[BANC-DE-TEST] ✅ Fin du batch. Base de données à jour.${ANSI.reset}`);
       }
-      setInput('');
+      setPhoenixInput('');
     } finally {
       setBusy(false);
     }
-  }, [busy, input]);
+  }, [busy, phoenixInput]);
 
   const keyboardBehavior = useMemo(() => (RPlatform.OS === 'ios' ? 'padding' : undefined), []);
 
@@ -175,11 +177,9 @@ export function TalkHomeScreen() {
           data={rows}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
-          contentContainerStyle={[styles.listPad, { paddingTop: Math.max(10, insets.top + 10) }]}
+          contentContainerStyle={[styles.listPad, { paddingTop: Math.max(insets.top, 6) + 78 }]}
           ListHeaderComponent={
-            <View style={styles.header}>
-              <Text style={[styles.brand, { color: theme.colors.onBackground }]}>{t('talkHome.brandName')}</Text>
-            </View>
+            <View />
           }
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
@@ -189,23 +189,38 @@ export function TalkHomeScreen() {
             </View>
           }
         />
-        <View style={[styles.bottomArea, { paddingBottom: Math.max(10, insets.bottom + 10) }]}>
-          <View style={[styles.chatBar, neumorphicInset(theme)]}>
+        <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
+          <View style={styles.phoenixRow}>
             <TextInput
-              value={input}
-              onChangeText={setInput}
+              value={phoenixInput}
+              onChangeText={setPhoenixInput}
               editable={!busy}
-              style={[styles.chatInput, { color: theme.colors.onSurface }]}
-              placeholder={t('talkCapture.hintTap')}
-              placeholderTextColor={theme.colors.onSurfaceVariant}
+              placeholder={t('talkHome.placeholderPhoenix', { defaultValue: 'Tape ton intention ici...' })}
+              placeholderTextColor="rgba(226,232,240,0.55)"
+              style={styles.phoenixInput}
               returnKeyType="send"
               blurOnSubmit={false}
-              onSubmitEditing={() => void onSubmitText()}
+              onSubmitEditing={() => void onSubmitPhoenix()}
             />
+            <TouchableOpacity
+              style={[styles.phoenixSendBtn, busy ? styles.disabled : null]}
+              onPress={() => void onSubmitPhoenix()}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.phoenixSendText}>{t('talkHome.send', { defaultValue: 'Envoyer' })}</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.micWrap}>
-            <TalkCaptureMicButton disabled={busy} />
-          </View>
+          <Pressable
+            style={styles.brandRow}
+            onPress={() => void refresh()}
+          >
+            <Text style={[styles.brand, { color: theme.colors.onBackground }]}>{t('talkHome.brandName')}</Text>
+          </Pressable>
+        </View>
+
+        <View style={[styles.micDock, { paddingBottom: Math.max(10, insets.bottom + 10) }]}>
+          <TalkCaptureMicButton disabled={busy} />
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -214,7 +229,37 @@ export function TalkHomeScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingBottom: 6 },
+  headerSafe: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    gap: 10,
+  },
+  phoenixRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  phoenixInput: {
+    flex: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(15,23,42,0.72)',
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  phoenixSendBtn: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(94,234,212,0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(94,234,212,0.28)',
+  },
+  phoenixSendText: { color: '#e2e8f0', fontSize: 12, fontWeight: '900' },
+  disabled: { opacity: 0.45 },
+  brandRow: { paddingHorizontal: 2 },
   brand: { fontSize: 16, fontWeight: '900' },
   listPad: { paddingHorizontal: 16, paddingBottom: 180, gap: 10 },
   rowCard: { padding: 14, borderRadius: 18, gap: 6 },
@@ -231,7 +276,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 10,
   },
-  chatBar: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
-  chatInput: { fontSize: 14, fontWeight: '700' },
-  micWrap: { alignItems: 'center', justifyContent: 'center', paddingBottom: 6 },
+  micDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
 });

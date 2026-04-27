@@ -1,8 +1,21 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  DeviceEventEmitter,
+  FlatList,
+  KeyboardAvoidingView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from 'react-native-paper';
 
 import { withViaDb, getOrCreateViaUserId } from '../services/db/Schema';
+import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
+import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
+import { Platform as RPlatform } from '../utils/rnPlatform';
+import { neumorphicRaised } from '../theme/neumorphism';
 
 type CoreIntentionRow = {
   id: string;
@@ -29,6 +42,8 @@ function fmtHm(ms: number): string {
 
 export function TimelineScreen() {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [intentions, setIntentions] = useState<CoreIntentionRow[]>([]);
   const [trips, setTrips] = useState<ViaSentinelTripRow[]>([]);
 
@@ -81,51 +96,76 @@ export function TimelineScreen() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
+      void refresh();
+    });
+    return () => sub.remove();
+  }, [refresh]);
+
+  const items = useMemo(() => {
+    const mappedTrips = trips.map((x) => ({
+      kind: 'trip' as const,
+      id: `trip_${x.id}`,
+      title: x.destination,
+      meta: `${t('timeline.arrivalAt', { time: fmtHm(x.arrivalAtMs) })} • ${x.sentinelMode} • ${x.vigilanceStatus ?? '—'}`,
+    }));
+    const mappedIntentions = intentions.map((x) => ({
+      kind: 'intent' as const,
+      id: `intent_${x.id}`,
+      title: x.title,
+      meta: `${x.type} • ${x.status}${x.dueAtMs ? ` • ${t('timeline.dueAt', { time: fmtHm(x.dueAtMs) })}` : ''}`,
+    }));
+    return [...mappedTrips, ...mappedIntentions];
+  }, [intentions, t, trips]);
+
+  const keyboardBehavior = useMemo(() => (RPlatform.OS === 'ios' ? 'padding' : undefined), []);
+
   return (
-    <ScrollView contentContainerStyle={styles.pad}>
-      <Text style={styles.h1}>{t('timeline.title')}</Text>
-
-      <Text style={styles.h2}>{t('timeline.sectionSentinel')}</Text>
-      {trips.length === 0 ? <Text style={styles.muted}>{t('timeline.empty')}</Text> : null}
-      {trips.map((row) => (
-        <View key={row.id} style={styles.card}>
-          <Text style={styles.title}>{row.destination}</Text>
-          <Text style={styles.meta}>
-            {t('timeline.arrivalAt', { time: fmtHm(row.arrivalAtMs) })} • {row.sentinelMode} •{' '}
-            {row.vigilanceStatus ?? '—'}
-          </Text>
-        </View>
-      ))}
-
-      <Text style={[styles.h2, { marginTop: 18 }]}>{t('timeline.sectionIntentions')}</Text>
-      {intentions.length === 0 ? <Text style={styles.muted}>{t('timeline.empty')}</Text> : null}
-      {intentions.map((row) => (
-        <View key={row.id} style={styles.card}>
-          <Text style={styles.title}>{row.title}</Text>
-          <Text style={styles.meta}>
-            {row.type} • {row.status}
-            {row.dueAtMs ? ` • ${t('timeline.dueAt', { time: fmtHm(row.dueAtMs) })}` : ''}
-          </Text>
-        </View>
-      ))}
-    </ScrollView>
+    <KeyboardAvoidingView
+      style={[styles.flex, { backgroundColor: theme.colors.background }]}
+      behavior={keyboardBehavior}
+      keyboardVerticalOffset={Math.max(0, insets.top + 6)}
+    >
+      <FlatList
+        data={items}
+        keyExtractor={(it) => it.id}
+        contentContainerStyle={[styles.pad, { paddingTop: Math.max(10, insets.top + 10) }]}
+        ListHeaderComponent={<Text style={[styles.h1, { color: theme.colors.onBackground }]}>{t('timeline.title')}</Text>}
+        ListEmptyComponent={<Text style={[styles.muted, { color: theme.colors.onSurfaceVariant }]}>{t('timeline.empty')}</Text>}
+        renderItem={({ item }) => (
+          <View style={[styles.card, neumorphicRaised(theme)]}>
+            <Text style={[styles.title, { color: theme.colors.onSurface }]} numberOfLines={2}>
+              {item.title}
+            </Text>
+            <Text style={[styles.meta, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
+              {item.meta}
+            </Text>
+          </View>
+        )}
+      />
+      <View style={[styles.bottomDock, { paddingBottom: Math.max(10, insets.bottom + 10) }]}>
+        <TalkCaptureMicButton compact />
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  pad: { padding: 16, paddingBottom: 40, gap: 10 },
-  h1: { fontSize: 22, fontWeight: '900', color: '#0f172a' },
-  h2: { fontSize: 14, fontWeight: '900', color: '#0f172a', marginTop: 6 },
-  muted: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-  card: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 14,
-    padding: 12,
-    backgroundColor: '#fff',
-    gap: 4,
+  flex: { flex: 1 },
+  pad: { padding: 16, paddingBottom: 140, gap: 10 },
+  h1: { fontSize: 22, fontWeight: '900' },
+  muted: { fontSize: 13, fontWeight: '700' },
+  card: { padding: 14, borderRadius: 18, gap: 6 },
+  title: { fontSize: 14, fontWeight: '900' },
+  meta: { fontSize: 12, fontWeight: '700' },
+  bottomDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
-  title: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
-  meta: { fontSize: 12, fontWeight: '700', color: '#475569' },
 });
-
