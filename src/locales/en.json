@@ -38,7 +38,26 @@
     "notifStatusOrange": "Window open",
     "notifStatusRed": "Critical departure",
     "notifStatusStatic": "Static mode",
-    "notifDepartureAt": "Depart at {{time}}"
+    "notifDepartureAt": "Depart at {{time}}",
+    "gateTitle": "Trip monitoring",
+    "gateBody": "Activate monitoring for {{destination}}?",
+    "surveillanceTitle": "Monitoring active",
+    "surveillanceBody": "Monitoring in progress to {{destination}}.",
+    "topDepartTitle": "DEPART NOW",
+    "topDepartBody": "Time to leave for {{destination}}.",
+    "vigilanceOrangeTitle": "Window open",
+    "vigilanceOrangeBody": "Departure window is open for {{destination}}.",
+    "vigilanceRedTitle": "CRITICAL DEPARTURE",
+    "vigilanceRedBody": "Critical departure for {{destination}}."
+  },
+  "talk": {
+    "title": "Talk (dev)",
+    "helper": "Quickly insert an intention into via_production.db (core_intentions).",
+    "titleLabel": "Title",
+    "noteLabel": "Content",
+    "dueLabel": "Due (optional)",
+    "saveCta": "Save",
+    "debugFallbackTitle": "Note"
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
@@ -322,6 +341,11 @@
     }
   },
   "timeline": {
+    "title": "Timeline",
+    "sectionSentinel": "Sentinel",
+    "sectionIntentions": "Intentions",
+    "arrivalAt": "Arrival at {{time}}",
+    "dueAt": "Due {{time}}",
     "subtitle": "Today’s rail — suggested slots follow your spectrum (high Momentum → deeper blocks).",
     "now": "Now",
     "dayRail": "Where you are in the day (6am–10pm)",

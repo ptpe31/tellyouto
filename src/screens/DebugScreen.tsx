@@ -301,14 +301,12 @@ export function DebugScreen() {
       const nowSimMs = simulator.getCurrentSimulatedNowMs();
       const arrivalAtMs = nowSimMs + 60 * 60 * 1000;
       simulatedArrivalAtMsRef.current = arrivalAtMs;
-      const targetDurationSec = computeDurationTargetSec(25 * 60);
 
       await scheduler.upsertTripTask({
         id: 'debug_trip_muret_toulouse',
         destination: t('debug.trafficDebugTripDestination'),
         arrivalAtMs,
         status: 'ACTIVE',
-        targetDurationSec,
         lastTrafficDuration: 25 * 60,
         internalScanCount: 0,
       });

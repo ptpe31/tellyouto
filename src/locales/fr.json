@@ -38,7 +38,17 @@
     "notifStatusOrange": "Fenêtre ouverte",
     "notifStatusRed": "Départ critique",
     "notifStatusStatic": "Mode statique",
-    "notifDepartureAt": "Départ à {{time}}"
+    "notifDepartureAt": "Départ à {{time}}",
+    "gateTitle": "Surveillance trajet",
+    "gateBody": "Souhaitez-vous activer la surveillance pour {{destination}} ?",
+    "surveillanceTitle": "Surveillance active",
+    "surveillanceBody": "Surveillance en cours vers {{destination}}.",
+    "topDepartTitle": "TOP DÉPART",
+    "topDepartBody": "C'est le moment de partir pour {{destination}}.",
+    "vigilanceOrangeTitle": "Fenêtre ouverte",
+    "vigilanceOrangeBody": "La fenêtre de départ est ouverte pour {{destination}}.",
+    "vigilanceRedTitle": "TOP DÉPART CRITIQUE",
+    "vigilanceRedBody": "Départ critique pour {{destination}}."
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
@@ -283,6 +293,15 @@
       "syncNo": "Non, garder l'interface"
     }
   },
+  "talk": {
+    "title": "Talk (dev)",
+    "helper": "Ajoute rapidement une intention dans via_production.db (core_intentions).",
+    "titleLabel": "Titre",
+    "noteLabel": "Contenu",
+    "dueLabel": "Échéance (optionnel)",
+    "saveCta": "Enregistrer",
+    "debugFallbackTitle": "Note"
+  },
   "radar": {
     "proBadge": "PRO",
     "channelsNudgeTitle": "Relier ton Allié (Telegram)",
@@ -322,6 +341,11 @@
     }
   },
   "timeline": {
+    "title": "Timeline",
+    "sectionSentinel": "Sentinel",
+    "sectionIntentions": "Intentions",
+    "arrivalAt": "Arrivée à {{time}}",
+    "dueAt": "Échéance {{time}}",
     "subtitle": "Rail du jour — créneaux suggérés selon ton spectre (Momentum élevé → blocs plus profonds).",
     "now": "Maintenant",
     "dayRail": "Position dans la journée (6h–22h)",

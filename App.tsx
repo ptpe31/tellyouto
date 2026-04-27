@@ -31,6 +31,8 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { rootNavigationRef } from './src/navigation/rootNavigationRef';
 import { recordAppInteraction } from './src/services/AvailabilityTimer';
 import { configureCaptureBackgroundTask } from './src/services/CaptureProcessingService';
+import { ensureViaSchema } from './src/services/db/Schema';
+import { wipeLegacyDatabasesOnBoot } from './src/services/db/devDbWipe';
 import { ensureGeminiRemoteModelInitialized } from './src/services/geminiRemoteModelSteering';
 import { requestBackgroundExecutionPermissions } from './src/services/PermissionService';
 import { navigationThemeFromPaper } from './src/theme/paperTheme';
@@ -52,6 +54,9 @@ function AppNavigation() {
 
 export default function App() {
   useEffect(() => {
+    void wipeLegacyDatabasesOnBoot().then(async () => {
+      await ensureViaSchema();
+    });
     void ensureGeminiRemoteModelInitialized();
     void configureCaptureBackgroundTask();
     void requestBackgroundExecutionPermissions();

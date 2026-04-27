@@ -1,30 +1,9 @@
-import { withLocalDatabase } from '../../api/localDb';
+import { randomUUID } from 'expo-crypto';
+
 import { computeNewtonWindow } from './TrafficEngine';
 import { SentinelNotificationManager } from './TrafficNotificationService';
 import i18n from '../../locales/i18n';
-
-export async function ensureSentinelTripsSchema(): Promise<void> {
-  await withLocalDatabase(async (db) => {
-    await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS sentinel_trips (
-        id TEXT PRIMARY KEY NOT NULL,
-        destination TEXT NOT NULL,
-        arrival_at_ms INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        sentinel_mode TEXT NOT NULL DEFAULT 'SENTINEL',
-        target_duration_sec INTEGER NOT NULL DEFAULT 0,
-        last_traffic_duration INTEGER NOT NULL DEFAULT 0,
-        internal_scan_count INTEGER NOT NULL DEFAULT 0,
-        next_check_at INTEGER,
-        gate_prompted_at INTEGER,
-        last_error_at INTEGER,
-        t_optimiste_ms INTEGER,
-        t_pessimiste_ms INTEGER,
-        vigilance_status TEXT
-      );
-    `);
-  });
-}
+import { getOrCreateViaUserId, withViaDb } from '../db/Schema';
 
 export async function activateSentinelTrip(input: {
   tripTaskId: string;
@@ -34,6 +13,7 @@ export async function activateSentinelTrip(input: {
   lat?: number;
   lng?: number;
   sentinelMode?: 'SENTINEL' | 'STATIC';
+  placeId?: string | null;
 }): Promise<{ tOptimisteMs: number; tPessimisteMs: number }> {
   const nowMs = Date.now();
   const durationSec = Math.max(0, Number(input.initialDurationSec ?? 25 * 60) || 0);
@@ -48,28 +28,62 @@ export async function activateSentinelTrip(input: {
           ? 'VIGILANCE_ORANGE'
           : 'VIGILANCE_BLUE';
 
-  await ensureSentinelTripsSchema();
-  await withLocalDatabase(async (db) => {
+  const userId = await getOrCreateViaUserId();
+  await withViaDb(async (db) => {
+    const formattedAddress = input.formattedAddress.trim();
+    const placeId = input.placeId ? String(input.placeId).trim() : '';
+    const lookup = placeId
+      ? await db.getFirstAsync<Record<string, unknown>>(
+          `SELECT id FROM via_locations WHERE user_id = ? AND place_id = ? LIMIT 1`,
+          [userId, placeId]
+        )
+      : await db.getFirstAsync<Record<string, unknown>>(
+          `SELECT id FROM via_locations WHERE user_id = ? AND formatted_address = ? LIMIT 1`,
+          [userId, formattedAddress]
+        );
+    const id = lookup?.id ? String(lookup.id) : randomUUID();
     await db.runAsync(
-      `INSERT OR REPLACE INTO sentinel_trips (
-        id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,
-        internal_scan_count, next_check_at, gate_prompted_at, last_error_at,
-        t_optimiste_ms, t_pessimiste_ms, vigilance_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO via_locations (
+        id, user_id, alias, formatted_address, place_id, lat, lng, created_at_ms, updated_at_ms, is_synced
+      ) VALUES (
+        ?, ?, NULL, ?, ?, ?, ?, COALESCE((SELECT created_at_ms FROM via_locations WHERE id = ?), ?), ?, 0
+      )`,
+      [
+        id,
+        userId,
+        formattedAddress,
+        placeId || null,
+        typeof input.lat === 'number' ? input.lat : null,
+        typeof input.lng === 'number' ? input.lng : null,
+        id,
+        nowMs,
+        nowMs,
+      ]
+    );
+    await db.runAsync(
+      `INSERT OR REPLACE INTO via_sentinel_trips (
+        id, user_id, location_id, target_arrival_ms, status, sentinel_mode,
+        last_traffic_duration_sec, internal_scan_count, next_check_at_ms, gate_prompted_at_ms, last_error_at_ms,
+        t_optimiste_ms, t_pessimiste_ms, vigilance_status, created_at_ms, updated_at_ms, is_synced
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, ?, ?, ?, ?, ?, 0
+      )`,
       [
         input.tripTaskId,
-        input.formattedAddress.trim(),
+        userId,
+        id,
         input.targetArrivalMs,
         vigilanceStatus === 'FINISHED' ? 'DONE' : 'ACTIVE',
         sentinelMode,
-        0,
         durationSec,
-        0,
         tOptimisteMs,
         tPessimisteMs,
         vigilanceStatus,
+        nowMs,
+        nowMs,
       ]
     );
+    return;
   });
 
   const manager = new SentinelNotificationManager();

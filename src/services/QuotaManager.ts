@@ -1,9 +1,9 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
-import { withLocalDatabase } from '../api/localDb';
 import { ensureFirebaseAnonymousAuth, getFirestoreDb } from '../api/firebase';
 import { sanitizeFirestoreMap } from '../api/firestoreSanitize';
 import { getOrCreateDeviceId } from '../api/syncService';
+import { withViaDb, getOrCreateViaUserId } from './db/Schema';
 import { fetchInitialSentinelFreeQuota } from './sentinelRemoteConfig';
 
 export type SentinelQuotaSnapshot = {
@@ -11,28 +11,13 @@ export type SentinelQuotaSnapshot = {
   fetchedAtMs: number;
 };
 
-const TABLE = 'sentinel_quota_cache';
 let initInFlight: Promise<void> | null = null;
 
-async function ensureQuotaSchema(): Promise<void> {
-  await withLocalDatabase(async (db) => {
-    await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS ${TABLE} (
-        device_id TEXT PRIMARY KEY NOT NULL,
-        sentinel_trial_balance INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL,
-        synced_at_ms INTEGER
-      );
-    `);
-  });
-}
-
-async function readLocal(deviceId: string): Promise<SentinelQuotaSnapshot | null> {
-  await ensureQuotaSchema();
-  return withLocalDatabase(async (db) => {
+async function readLocal(userId: string): Promise<SentinelQuotaSnapshot | null> {
+  return withViaDb(async (db) => {
     const row = await db.getFirstAsync<Record<string, unknown>>(
-      `SELECT sentinel_trial_balance, updated_at_ms FROM ${TABLE} WHERE device_id = ?`,
-      [deviceId]
+      `SELECT sentinel_trial_balance, updated_at_ms FROM user_profile WHERE user_id = ?`,
+      [userId]
     );
     if (!row) return null;
     const balance = Number(row.sentinel_trial_balance ?? 0);
@@ -43,15 +28,29 @@ async function readLocal(deviceId: string): Promise<SentinelQuotaSnapshot | null
   });
 }
 
-async function writeLocal(deviceId: string, balance: number, syncedAtMs: number | null): Promise<void> {
-  await ensureQuotaSchema();
+async function writeLocal(userId: string, balance: number): Promise<void> {
   const now = Date.now();
   const b = Number.isFinite(balance) ? Math.max(0, Math.floor(balance)) : 0;
-  await withLocalDatabase(async (db) => {
+  await withViaDb(async (db) => {
+    const existing = await db.getFirstAsync<Record<string, unknown>>(
+      `SELECT user_id FROM user_profile WHERE user_id = ?`,
+      [userId]
+    );
+    if (!existing) {
+      await db.runAsync(
+        `INSERT INTO user_profile (user_id, is_pro_user, sentinel_trial_balance, created_at_ms, updated_at_ms, is_synced)
+         VALUES (?, 0, ?, ?, ?, 0)`,
+        [userId, b, now, now]
+      );
+      return;
+    }
     await db.runAsync(
-      `INSERT OR REPLACE INTO ${TABLE} (device_id, sentinel_trial_balance, updated_at_ms, synced_at_ms)
-       VALUES (?, ?, ?, ?)`,
-      [deviceId, b, now, syncedAtMs ?? null]
+      `UPDATE user_profile
+         SET sentinel_trial_balance = ?,
+             updated_at_ms = ?,
+             is_synced = 0
+       WHERE user_id = ?`,
+      [b, now, userId]
     );
   });
 }
@@ -87,13 +86,14 @@ async function writeRemote(deviceId: string, balance: number): Promise<void> {
 export async function ensureSentinelQuotaInitialized(): Promise<void> {
   if (initInFlight) return initInFlight;
   initInFlight = (async () => {
-    const deviceId = await getOrCreateDeviceId();
-    const local = await readLocal(deviceId);
+    const userId = await getOrCreateViaUserId();
+    const local = await readLocal(userId);
     if (local) return;
 
     const defaultBalance = await fetchInitialSentinelFreeQuota();
     let balance = defaultBalance;
     try {
+      const deviceId = await getOrCreateDeviceId();
       const remote = await readRemote(deviceId);
       if (typeof remote === 'number') {
         balance = remote;
@@ -103,7 +103,7 @@ export async function ensureSentinelQuotaInitialized(): Promise<void> {
     } catch {
       /* ignore */
     }
-    await writeLocal(deviceId, balance, null);
+    await writeLocal(userId, balance);
   })().finally(() => {
     initInFlight = null;
   });
@@ -111,8 +111,8 @@ export async function ensureSentinelQuotaInitialized(): Promise<void> {
 }
 
 export async function getSentinelQuotaSnapshotLocalOnly(): Promise<SentinelQuotaSnapshot> {
-  const deviceId = await getOrCreateDeviceId();
-  const local = await readLocal(deviceId);
+  const userId = await getOrCreateViaUserId();
+  const local = await readLocal(userId);
   return local ?? { balance: 0, fetchedAtMs: 0 };
 }
 
@@ -132,16 +132,12 @@ export async function consumeSentinelQuotaOnTripValidation(params: {
   }
 
   const deviceId = await getOrCreateDeviceId();
+  const userId = await getOrCreateViaUserId();
   const snap = await getSentinelQuotaSnapshotLocalOnly();
   if (snap.balance <= 0) return { mode: 'STATIC', balanceAfter: 0 };
 
   const next = Math.max(0, snap.balance - 1);
-  await writeLocal(deviceId, next, null);
-  void writeRemote(deviceId, next).then(async () => {
-    await withLocalDatabase(async (db) => {
-      await db.runAsync(`UPDATE ${TABLE} SET synced_at_ms = ? WHERE device_id = ?`, [Date.now(), deviceId]);
-    });
-  });
+  await writeLocal(userId, next);
+  void writeRemote(deviceId, next);
   return { mode: 'SENTINEL', balanceAfter: next };
 }
-
