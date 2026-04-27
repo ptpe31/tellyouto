@@ -173,9 +173,6 @@ export async function recoverGeminiModelViaListModelsExcluding(
     });
     const picked = pickPreferredGeminiModelId(filtered);
     if (!picked) return null;
-    await persistFallbackModelFor24h(picked);
-    cachedActiveGeminiModelId = picked;
-    lastRemoteConfigResolvedModelId = picked;
     return picked;
   } catch {
     return null;
