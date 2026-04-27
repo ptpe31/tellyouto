@@ -13,10 +13,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
-import { Checkbox, Menu, Button as PaperButton, Switch } from 'react-native-paper';
+import { Checkbox, Menu, Button as PaperButton } from 'react-native-paper';
 import { Bell, ChevronDown } from 'lucide-react-native';
 
 import { TimelineDatePickerLazy } from './TimelineDatePickerLazy';
+import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import { fetchLatestOneTapLogisticsMemory } from '../api/trankilV2Db';
 import type { OneTapPredictedType, OneTapUniversalResult } from '../services/oneTapUniversalCapture';
 import {
@@ -287,30 +288,50 @@ export function OneTapConfirmModal({
     const d = draft.data;
     const logisticsBlock = () => {
       if (d.logisticsPotential !== true) return null;
-      const remind = d.remind_to_leave === true || d.remind_to_leave === 1;
+      const detected = strData(d, 'destination_name');
       const addr = strData(d, 'location_address');
-      const hint = strData(d, 'destination_name');
+      const hasValid =
+        String(d.location_place_id ?? '').trim().length > 0 &&
+        typeof d.location_lat === 'number' &&
+        Number.isFinite(d.location_lat) &&
+        typeof d.location_lng === 'number' &&
+        Number.isFinite(d.location_lng);
       return (
         <View style={styles.logisticsWrap}>
-          <View style={styles.logisticsRow}>
-            <Text style={styles.logisticsLabel}>{t('talkDebug.oneTapLogisticsRemind')}</Text>
-            <Switch
-              value={remind}
-              onValueChange={(v: boolean) => onChangeDraft(patchData(draft, { remind_to_leave: v }))}
-              disabled={busy}
-            />
-          </View>
-          {remind ? (
-            <>
-              <Text style={styles.label}>{t('talkDebug.oneTapLogisticsWhere')}</Text>
-              <TextInput
-                value={addr}
-                onChangeText={(text) => onChangeDraft(patchData(draft, { location_address: text }))}
-                style={styles.input}
-                editable={!busy}
-                placeholder={hint ? hint : t('talkDebug.oneTapLogisticsWherePlaceholder')}
-              />
-            </>
+          <Text style={styles.logisticsTitle}>{t('sentinel.validationTitle')}</Text>
+          <Text style={styles.logisticsHint}>
+            {t('sentinel.detectedPlace', { place: detected || '—' })}
+          </Text>
+          <Text style={styles.label}>{t('sentinel.addressLabel')}</Text>
+          <GooglePlacesAutocompleteField
+            value={addr}
+            onChangeText={(text) =>
+              onChangeDraft(
+                patchData(draft, {
+                  location_address: text,
+                  location_place_id: null,
+                  location_lat: null,
+                  location_lng: null,
+                })
+              )
+            }
+            onSelect={(p) =>
+              onChangeDraft(
+                patchData(draft, {
+                  location_address: p.formattedAddress,
+                  location_place_id: p.placeId,
+                  location_lat: p.lat,
+                  location_lng: p.lng,
+                })
+              )
+            }
+            disabled={busy}
+            language={i18n.language}
+            placeholder={t('sentinel.addressPlaceholder')}
+            missingKeyLabel={t('sentinel.placesMissingKey')}
+          />
+          {!hasValid ? (
+            <Text style={styles.logisticsWarn}>{t('sentinel.validationRequired')}</Text>
           ) : null}
         </View>
       );
@@ -717,8 +738,26 @@ export function OneTapConfirmModal({
             <PaperButton mode="text" onPress={onDismiss} disabled={busy}>
               {t('common.cancel')}
             </PaperButton>
-            <Pressable style={[styles.btn, styles.btnPrimary]} onPress={onConfirm} disabled={busy}>
-              <Text style={styles.btnPrimaryText}>{t('talkDebug.oneTapConfirm')}</Text>
+            <Pressable
+              style={[styles.btn, styles.btnPrimary]}
+              onPress={onConfirm}
+              disabled={
+                busy ||
+                (draft.data.logisticsPotential === true &&
+                  !(
+                    String(draft.data.location_place_id ?? '').trim().length > 0 &&
+                    typeof draft.data.location_lat === 'number' &&
+                    Number.isFinite(draft.data.location_lat) &&
+                    typeof draft.data.location_lng === 'number' &&
+                    Number.isFinite(draft.data.location_lng)
+                  ))
+              }
+            >
+              <Text style={styles.btnPrimaryText}>
+                {draft.data.logisticsPotential === true
+                  ? t('sentinel.activateCta')
+                  : t('talkDebug.oneTapConfirm')}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -841,6 +880,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   logisticsLabel: { flex: 1, fontSize: 13, fontWeight: '600', color: '#64748b' },
+  logisticsTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
+  logisticsHint: { fontSize: 13, fontWeight: '600', color: '#475569', marginBottom: 8 },
+  logisticsWarn: { fontSize: 12, fontWeight: '700', color: '#b91c1c', marginTop: 6 },
   dateCta: {
     marginTop: 6,
     paddingVertical: 12,

@@ -20,6 +20,16 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "sentinel": {
+    "validationTitle": "Address validation",
+    "detectedPlace": "Detected place: {{place}}",
+    "addressLabel": "Validated address (Google Places)",
+    "addressPlaceholder": "Search an address…",
+    "validationRequired": "Select a valid address to activate Sentinel.",
+    "activateCta": "Activate Sentinel",
+    "placesMissingKey": "Missing Google Places key (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "activatedToast": "VIA is monitoring your trip. Comfort zone expected around {{tOpt}} to arrive on {{date}} at {{time}}."
+  },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
     "creditsDepleted": "0 ⚡",

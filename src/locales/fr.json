@@ -20,6 +20,16 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "sentinel": {
+    "validationTitle": "Validation d'adresse",
+    "detectedPlace": "Lieu détecté : {{place}}",
+    "addressLabel": "Adresse validée (Google Places)",
+    "addressPlaceholder": "Rechercher une adresse…",
+    "validationRequired": "Sélectionne une adresse valide pour activer Sentinel.",
+    "activateCta": "Activer Sentinel",
+    "placesMissingKey": "Clé Google Places manquante (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "activatedToast": "VIA surveille votre trajet. Zone de confort prévue vers {{tOpt}} pour arriver le {{date}} à {{time}}."
+  },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
     "creditsDepleted": "0 ⚡",
