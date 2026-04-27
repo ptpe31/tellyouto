@@ -37,6 +37,7 @@ export {
 export {
   calculateNextJump,
   calculateTripComplexity,
+  computeNewtonWindow,
   computeDynamicToleranceRatio,
   computeDurationTargetSec,
   evaluateTrafficStatus,
@@ -52,7 +53,7 @@ export type {
   TrafficEvaluation,
   TrafficScanEvent,
   TrafficScanSession,
-  TrafficStatus,
+  VigilanceStatus,
 } from './traffic/TrafficEngine';
 export {
   CONFIRMATION_GATE_HOURS,

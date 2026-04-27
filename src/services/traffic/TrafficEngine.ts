@@ -5,18 +5,22 @@
 
 export const SURVEILLANCE_NOTIF_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
-export type TrafficStatus = "TOP_DEPART" | "STILL_OVER" | "FLUID";
+export type VigilanceStatus =
+  | "VIGILANCE_BLUE"
+  | "VIGILANCE_ORANGE"
+  | "VIGILANCE_RED"
+  | "FINISHED";
 
 export type TrafficEvaluation = {
-  status: TrafficStatus;
+  status: VigilanceStatus;
   nextJumpMs: number;
 };
 
 export type EvaluateTrafficStatusInput = {
-  targetDurationSec: number;
-  currentDurationSec: number;
-  lastDurationSec?: number | null;
-  departureGapMin: number;
+  nowMs: number;
+  targetArrivalMs: number;
+  stabilizedDurationSec: number;
+  sessionStatus?: TrafficScanSession["status"];
 };
 
 export type TrafficScanSession = {
@@ -37,7 +41,7 @@ export type TrafficScanEvent =
 export type ExecuteTrafficScanInput = {
   session: TrafficScanSession;
   currentTrafficDurationSec: number;
-  departureGapMin: number;
+  targetArrivalMs: number;
   previousTrafficDurationSec?: number | null;
   nowMs?: number;
 };
@@ -49,6 +53,8 @@ export type ExecuteTrafficScanOutput = {
   shouldNotify: boolean;
   stabilizedTrafficDurationSec: number;
   tripComplexityScore: number;
+  tOptimisteMs: number;
+  tPessimisteMs: number;
 };
 
 /**
@@ -56,26 +62,43 @@ export type ExecuteTrafficScanOutput = {
  * @param departureGapMin Minutes restantes avant l'heure de depart prevue
  * @returns Intervalle en millisecondes
  */
-export function calculateNextJump(departureGapMin: number): number {
-  const MIN_INTERVAL = 2; // 2 minutes (precision finale)
-  const MAX_INTERVAL = 20; // 20 minutes (economie API)
-  const K_FACTOR = 3; // verification tous les 1/3 du temps restant
+export function computeNewtonWindow(
+  targetArrivalMs: number,
+  stabilizedDurationSec: number
+): { tOptimisteMs: number; tPessimisteMs: number } {
+  const arrivalMs = Math.max(0, Number(targetArrivalMs) || 0);
+  const durationMs = Math.max(0, Number(stabilizedDurationSec) || 0) * 1000;
+  const marginMs = 5 * 60 * 1000;
+  const tPessimisteMs = Math.round(arrivalMs - durationMs - marginMs);
+  const tOptimisteMs = Math.round(tPessimisteMs - durationMs * 0.15);
+  return { tOptimisteMs, tPessimisteMs };
+}
 
-  if (!Number.isFinite(departureGapMin)) {
-    return MIN_INTERVAL * 60 * 1000;
+export function calculateNextJump(departureGapMin: number): number;
+export function calculateNextJump(params: {
+  nowMs: number;
+  targetArrivalMs: number;
+  stabilizedDurationSec: number;
+}): number;
+export function calculateNextJump(
+  params: number | { nowMs: number; targetArrivalMs: number; stabilizedDurationSec: number }
+): number {
+  if (typeof params === "number") {
+    const gapMin = Number.isFinite(Number(params)) ? Number(params) : 0;
+    if (gapMin > 120) return 60 * 60 * 1000;
+    if (gapMin < 60) return 15 * 60 * 1000;
+    return 30 * 60 * 1000;
   }
 
-  if (departureGapMin <= MIN_INTERVAL) {
-    return MIN_INTERVAL * 60 * 1000;
-  }
+  const nowMs = Number.isFinite(Number(params.nowMs)) ? Number(params.nowMs) : Date.now();
+  const { tOptimisteMs, tPessimisteMs } = computeNewtonWindow(params.targetArrivalMs, params.stabilizedDurationSec);
 
-  const suggestedJump = departureGapMin / K_FACTOR;
-  const finalJumpMin = Math.max(
-    MIN_INTERVAL,
-    Math.min(MAX_INTERVAL, suggestedJump)
-  );
+  if (nowMs >= tOptimisteMs && nowMs < tPessimisteMs) return 5 * 60 * 1000;
 
-  return Math.floor(finalJumpMin * 60 * 1000);
+  const remainingToCriticalMs = tPessimisteMs - nowMs;
+  if (remainingToCriticalMs > 2 * 60 * 60 * 1000) return 60 * 60 * 1000;
+  if (remainingToCriticalMs < 60 * 60 * 1000) return 15 * 60 * 1000;
+  return 30 * 60 * 1000;
 }
 
 /**
@@ -146,23 +169,29 @@ export function stabilizeTrafficDurationSec(
 export function evaluateTrafficStatus(
   input: EvaluateTrafficStatusInput
 ): TrafficEvaluation {
-  const target = Math.max(0, Number(input.targetDurationSec) || 0);
-  const current = Math.max(0, Number(input.currentDurationSec) || 0);
-  const last = Math.max(0, Number(input.lastDurationSec ?? 0) || 0);
+  const nowMs = Number.isFinite(Number(input.nowMs)) ? Number(input.nowMs) : Date.now();
+  const arrivalMs = Math.max(0, Number(input.targetArrivalMs) || 0);
+  const stabilizedDurationSec = Math.max(0, Number(input.stabilizedDurationSec) || 0);
 
-  const overNow = target > 0 && current > target;
-  const wasOver = target > 0 && last > target;
-
-  let status: TrafficStatus = "FLUID";
-  if (wasOver && !overNow) {
-    status = "TOP_DEPART";
-  } else if (overNow) {
-    status = "STILL_OVER";
+  const { tOptimisteMs, tPessimisteMs } = computeNewtonWindow(arrivalMs, stabilizedDurationSec);
+  let status: VigilanceStatus = "VIGILANCE_BLUE";
+  if (input.sessionStatus && input.sessionStatus !== "active") {
+    status = "FINISHED";
+  } else if (arrivalMs > 0 && nowMs >= arrivalMs) {
+    status = "FINISHED";
+  } else if (arrivalMs > 0 && nowMs >= tPessimisteMs) {
+    status = "VIGILANCE_RED";
+  } else if (arrivalMs > 0 && nowMs >= tOptimisteMs) {
+    status = "VIGILANCE_ORANGE";
   }
 
   return {
     status,
-    nextJumpMs: calculateNextJump(input.departureGapMin),
+    nextJumpMs: calculateNextJump({
+      nowMs,
+      targetArrivalMs: arrivalMs,
+      stabilizedDurationSec,
+    }),
   };
 }
 
@@ -181,23 +210,26 @@ export function evaluateTrafficStatus(
  * - Offre une base pour un cout au prorata par trajet
  */
 export function calculateTripComplexity(
-  departureGapMin: number,
-  surveillanceWindowMin: number
+  params: { nowMs: number; targetArrivalMs: number; stabilizedDurationSec: number }
 ): number {
-  const minGap = Math.max(0, Number(departureGapMin) || 0);
-  const windowMin = Math.max(0, Number(surveillanceWindowMin) || 0);
+  const nowMs = Number.isFinite(Number(params.nowMs)) ? Number(params.nowMs) : Date.now();
+  const { tPessimisteMs } = computeNewtonWindow(params.targetArrivalMs, params.stabilizedDurationSec);
+  const remainingMin = Math.max(0, (tPessimisteMs - nowMs) / 60_000);
 
   let scansEstimated = 0;
-  let remaining = minGap;
+  let cursorMs = nowMs;
   const hardLimit = 200;
-  while (remaining > 0 && scansEstimated < hardLimit) {
-    const jumpMs = calculateNextJump(remaining);
-    const jumpMin = Math.max(0.01, jumpMs / 60_000);
+  while (cursorMs < tPessimisteMs && scansEstimated < hardLimit) {
+    const jumpMs = calculateNextJump({
+      nowMs: cursorMs,
+      targetArrivalMs: params.targetArrivalMs,
+      stabilizedDurationSec: params.stabilizedDurationSec,
+    });
     scansEstimated += 1;
-    remaining -= jumpMin;
+    cursorMs += Math.max(1, jumpMs);
   }
 
-  return Math.round(scansEstimated * 10 + windowMin);
+  return Math.round(scansEstimated * 10 + remainingMin);
 }
 
 /**
@@ -213,7 +245,6 @@ export function executeTrafficScan(
     ? Number(input.nowMs)
     : Date.now();
   const current = Math.max(0, Number(input.currentTrafficDurationSec) || 0);
-  const target = Math.max(0, Number(input.session.durationTargetSec) || 0);
   const previous = Math.max(0, Number(input.session.lastTrafficDurationSec) || 0);
   const previousForEma = Math.max(
     0,
@@ -222,9 +253,14 @@ export function executeTrafficScan(
   const stabilizedCurrent = stabilizeTrafficDurationSec(current, previousForEma);
   const scanCount = Math.max(0, Math.floor(Number(input.session.internalScanCount) || 0));
   const status = input.session.status;
-  const tripComplexityScore = calculateTripComplexity(
-    input.departureGapMin,
-    input.departureGapMin
+  const tripComplexityScore = calculateTripComplexity({
+    nowMs,
+    targetArrivalMs: input.targetArrivalMs,
+    stabilizedDurationSec: stabilizedCurrent,
+  });
+  const { tOptimisteMs, tPessimisteMs } = computeNewtonWindow(
+    input.targetArrivalMs,
+    stabilizedCurrent
   );
 
   if (status !== "active") {
@@ -232,20 +268,18 @@ export function executeTrafficScan(
       nextSession: { ...input.session },
       event: "NONE",
       evaluation: evaluateTrafficStatus({
-        targetDurationSec: target,
-        currentDurationSec: stabilizedCurrent,
-        lastDurationSec: previous,
-        departureGapMin: input.departureGapMin,
+        nowMs,
+        targetArrivalMs: input.targetArrivalMs,
+        stabilizedDurationSec: stabilizedCurrent,
+        sessionStatus: status,
       }),
       shouldNotify: false,
       stabilizedTrafficDurationSec: stabilizedCurrent,
       tripComplexityScore,
+      tOptimisteMs,
+      tPessimisteMs,
     };
   }
-
-  const fluidNow = target > 0 && stabilizedCurrent <= target;
-  const overNow = target > 0 && stabilizedCurrent > target;
-  const wasOver = target > 0 && previous > target;
 
   let event: TrafficScanEvent = "NONE";
   let shouldNotify = false;
@@ -256,42 +290,25 @@ export function executeTrafficScan(
     internalScanCount: scanCount + 1,
   };
 
-  if (scanCount === 0 && fluidNow) {
+  const evaluation = evaluateTrafficStatus({
+    nowMs,
+    targetArrivalMs: input.targetArrivalMs,
+    stabilizedDurationSec: stabilizedCurrent,
+    sessionStatus: status,
+  });
+  if (evaluation.status === "FINISHED") {
     nextSession.status = "finished";
-    event = "SCAN0_STANDARD";
-    shouldNotify = true;
-  } else if (scanCount === 0 && overNow) {
-    nextSession.lastSurveillanceNotifAtMs = nowMs;
-    event = "SURVEILLANCE_REMINDER";
-    shouldNotify = true;
-  } else if (wasOver && fluidNow) {
-    nextSession.topDepartAtMs = nowMs;
-    event = "TOP_DEPART";
-    shouldNotify = true;
-  } else if (overNow) {
-    const lastNotif = Math.max(
-      0,
-      Number(nextSession.lastSurveillanceNotifAtMs ?? 0) || 0
-    );
-    if (nowMs - lastNotif >= SURVEILLANCE_NOTIF_MIN_INTERVAL_MS) {
-      nextSession.lastSurveillanceNotifAtMs = nowMs;
-      event = "SURVEILLANCE_REMINDER";
-      shouldNotify = true;
-    }
   }
 
   return {
     nextSession,
     event,
-    evaluation: evaluateTrafficStatus({
-      targetDurationSec: target,
-        currentDurationSec: stabilizedCurrent,
-      lastDurationSec: previous,
-      departureGapMin: input.departureGapMin,
-    }),
+    evaluation,
     shouldNotify,
-      stabilizedTrafficDurationSec: stabilizedCurrent,
-      tripComplexityScore,
+    stabilizedTrafficDurationSec: stabilizedCurrent,
+    tripComplexityScore,
+    tOptimisteMs,
+    tPessimisteMs,
   };
 }
 

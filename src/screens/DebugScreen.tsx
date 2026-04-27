@@ -272,6 +272,8 @@ export function DebugScreen() {
           askSurveillanceActivation: async () => undefined,
           notifySurveillanceReminder: async () => undefined,
           triggerTopDepart: async () => undefined,
+          notifyVigilanceOrange: async () => undefined,
+          notifyVigilanceRed: async () => undefined,
         },
         {
           simulationMode: true,
@@ -284,7 +286,7 @@ export function DebugScreen() {
               nextJumpMs: snapshot.nextJumpMs,
               arrivalAtMs: simulatedArrivalAtMsRef.current,
             });
-            if (snapshot.status === 'TOP_DEPART' && !criticalAlertShownRef.current) {
+            if (snapshot.status === 'VIGILANCE_RED' && !criticalAlertShownRef.current) {
               criticalAlertShownRef.current = true;
               Alert.alert(t('debug.trafficCriticalTopDepartTitle'));
               simulator.dumpSimulationLogs();
@@ -502,11 +504,7 @@ export function DebugScreen() {
             </Text>
             <Text style={styles.trafficMonitorLine}>
               {t('debug.trafficStatusLabel')}{' '}
-              {trafficSnapshot.status === 'TOP_DEPART'
-                ? t('debug.trafficStatusTopDepart')
-                : trafficSnapshot.status === 'STILL_OVER'
-                  ? t('debug.trafficStatusStillOver')
-                  : t('debug.trafficStatusFluid')}
+              {trafficSnapshot.status}
             </Text>
             <Text style={styles.trafficMonitorLine}>
               {t('debug.trafficBufferSafety', { min: trafficSnapshot.bufferSafetyMin.toFixed(2) })}
