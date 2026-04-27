@@ -231,6 +231,25 @@ function withLightGenerationConfig(body: object): object {
   };
 }
 
+function enforceOneTapMaxOutputTokens(body: object, traceOperation: string): object {
+  if (!traceOperation.startsWith('oneTap.wire')) return body;
+  const raw = body as { generationConfig?: Record<string, unknown> };
+  const generationConfig = raw.generationConfig ?? {};
+  const current = Number(generationConfig.maxOutputTokens ?? 0);
+  const wanted = 800;
+  const next = Number.isFinite(current) ? Math.max(wanted, current) : wanted;
+  if (current !== next) {
+    labLog('oneTap.maxOutputTokens.enforced', { from: current, to: next });
+  }
+  return {
+    ...raw,
+    generationConfig: {
+      ...generationConfig,
+      maxOutputTokens: next,
+    },
+  };
+}
+
 function computeGeminiIsFallback(_: string, usedRecoverRetry: boolean): boolean {
   return usedRecoverRetry;
 }
@@ -280,7 +299,7 @@ async function postGenerateContent(
   traceOperation = 'generateContent.generic',
   options?: PostGeminiHttpOptions,
 ): Promise<unknown> {
-  const effectiveBody = withLightGenerationConfig(body);
+  const effectiveBody = enforceOneTapMaxOutputTokens(withLightGenerationConfig(body), traceOperation);
   const audioKb = sumAudioPayloadKbFromGenerateBody(effectiveBody);
   console.log(`[GeminiLab] Audio Payload Size: ${audioKb.toFixed(2)} KB`);
   const textChars = sumTextPayloadCharsFromGenerateBody(effectiveBody);
@@ -934,7 +953,7 @@ async function postStreamGenerateContent(
   traceOperation = 'streamGenerateContent.generic',
   options?: PostGeminiHttpOptions,
 ): Promise<string> {
-  const effectiveBody = withLightGenerationConfig(body);
+  const effectiveBody = enforceOneTapMaxOutputTokens(withLightGenerationConfig(body), traceOperation);
   const openStream = async (modelId: string) => {
     const url = buildStreamGenerateUrl(modelId);
     const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
