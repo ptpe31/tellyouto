@@ -413,8 +413,13 @@ function extractTextFromGenerateResponse(data: unknown): string {
   const d = data as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
-  const t = d?.candidates?.[0]?.content?.parts?.[0]?.text;
-  return typeof t === 'string' ? t.trim() : '';
+  const parts = d?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  let s = '';
+  for (const p of parts) {
+    if (p && typeof p.text === 'string') s += p.text;
+  }
+  return s.trim();
 }
 
 /**
@@ -1144,6 +1149,10 @@ export async function geminiGenerateOneTapCompressedLine(
 ): Promise<{ raw: string; httpMeta: GeminiHttpSettledMeta | undefined }> {
   const trimmed = String(prompt || '').trim();
   if (!trimmed) throw new Error('Gemini: prompt vide');
+  if (process.env.EXPO_PUBLIC_GEMINI_DEBUG_PROMPT === '1') {
+    const full = `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}`;
+    console.log(`[GeminiLab] oneTap.prompt.full\n${full}`);
+  }
   const t0 = perfNowMs();
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const data = await postGenerateContent(
@@ -1165,6 +1174,20 @@ export async function geminiGenerateOneTapCompressedLine(
       : undefined,
   );
   const raw = extractTextFromGenerateResponse(data).replace(/\s+/g, ' ').trim();
+  if (__DEV__ || process.env.EXPO_PUBLIC_GEMINI_DEBUG_PROMPT === '1') {
+    const d = data as {
+      candidates?: { finishReason?: unknown; content?: { parts?: { text?: unknown }[] } }[];
+    };
+    const c0 = d?.candidates?.[0];
+    const parts = Array.isArray(c0?.content?.parts) ? c0?.content?.parts ?? [] : [];
+    const texts = parts.map((p) => (p && typeof p.text === 'string' ? p.text : '')).filter(Boolean);
+    console.log('[GeminiLab] oneTap.response.debug', {
+      finishReason: String(c0?.finishReason ?? ''),
+      partsCount: texts.length,
+      partsChars: texts.map((t) => t.length),
+      joinedChars: texts.join('').length,
+    });
+  }
   const t1 = perfNowMs();
   labLog('geminiGenerateOneTapCompressedLine.timing', {
     ms: Math.round(t1 - t0),
@@ -1186,6 +1209,10 @@ export async function geminiStreamOneTapCompressedLine(
 ): Promise<{ raw: string; httpMeta: GeminiHttpSettledMeta | undefined }> {
   const trimmed = String(prompt || '').trim();
   if (!trimmed) throw new Error('Gemini: prompt vide');
+  if (process.env.EXPO_PUBLIC_GEMINI_DEBUG_PROMPT === '1') {
+    const full = `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}`;
+    console.log(`[GeminiLab] oneTap.prompt.full\n${full}`);
+  }
   const t0 = perfNowMs();
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const out = await postStreamGenerateContent(
