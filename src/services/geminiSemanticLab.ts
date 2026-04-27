@@ -1138,7 +1138,7 @@ export async function geminiGenerateOneTapCompressedLine(
     {
       contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
       generationConfig: {
-        maxOutputTokens: 256,
+        maxOutputTokens: 600,
       },
     },
     undefined,
@@ -1180,7 +1180,7 @@ export async function geminiStreamOneTapCompressedLine(
     {
       contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
       generationConfig: {
-        maxOutputTokens: 256,
+        maxOutputTokens: 600,
       },
     },
     onAccumulatedText,

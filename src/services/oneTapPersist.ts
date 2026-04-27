@@ -23,6 +23,9 @@ import type { OneTapUniversalResult } from './oneTapUniversalCapture';
 import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from './oneTapUniversalReminders';
 import { mergeIntentionMetadataJson } from './captureOfflineFirstUtils';
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
+import { dualWriteViaCoreIntention } from './viaCoreDualWrite';
+import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
+import { activateSentinelTrip } from './traffic/sentinelActivation';
 
 export type PersistOneTapSuccess =
   | {
@@ -50,6 +53,10 @@ export type PersistOneTapSuccess =
 
 export type PersistOneTapResult =
   | { ok: true; outcome: PersistOneTapSuccess }
+  | { ok: false; error: unknown; code?: 'LIST_QUOTA' | 'LIST_SELECTION' };
+
+export type PersistOneTapVentilatedResult =
+  | { ok: true; outcomes: PersistOneTapSuccess[] }
   | { ok: false; error: unknown; code?: 'LIST_QUOTA' | 'LIST_SELECTION' };
 
 function str(d: Record<string, unknown>, key: string): string | null {
@@ -646,4 +653,195 @@ export async function persistOneTapDraft(params: {
   } catch (error) {
     return { ok: false, error };
   }
+}
+
+function hasAnyListItems(listBlock: unknown): boolean {
+  if (!listBlock || typeof listBlock !== 'object') return false;
+  const list = listBlock as Record<string, unknown>;
+  const catsRaw = list.categories;
+  if (!Array.isArray(catsRaw)) return false;
+  for (const c of catsRaw) {
+    if (!c || typeof c !== 'object') continue;
+    const itemsRaw = (c as Record<string, unknown>).items;
+    if (!Array.isArray(itemsRaw)) continue;
+    for (const it of itemsRaw) {
+      if (!it || typeof it !== 'object') continue;
+      const rec = it as Record<string, unknown>;
+      if (rec.includeInSave === false) continue;
+      const name = String(rec.name ?? '').trim();
+      if (name) return true;
+    }
+  }
+  return false;
+}
+
+function hasTemporalSignals(data: Record<string, unknown>): boolean {
+  const dueIso = typeof data.dueDateTime === 'string' ? data.dueDateTime.trim() : '';
+  const dueYmd = typeof data.dueDateYmd === 'string' ? data.dueDateYmd.trim() : '';
+  const dueHm = typeof data.dueTimeHm === 'string' ? data.dueTimeHm.trim() : '';
+  const rec = data.recurrence;
+  const cadence = typeof data.cadenceDescription === 'string' ? data.cadenceDescription.trim() : '';
+  const pref = typeof data.preferredTimeHm === 'string' ? data.preferredTimeHm.trim() : '';
+  const nextYmd = typeof data.nextDueYmd === 'string' ? data.nextDueYmd.trim() : '';
+  return Boolean(dueIso || dueYmd || dueHm || cadence || pref || nextYmd || (rec && typeof rec === 'object'));
+}
+
+function inferTemporalType(data: Record<string, unknown>): 'TASK' | 'HABIT' {
+  const cadence = typeof data.cadenceDescription === 'string' ? data.cadenceDescription.trim() : '';
+  const pref = typeof data.preferredTimeHm === 'string' ? data.preferredTimeHm.trim() : '';
+  const rec = data.recurrence;
+  if (cadence || pref || (rec && typeof rec === 'object')) return 'HABIT';
+  return 'TASK';
+}
+
+function parseArrivalMsFromData(data: Record<string, unknown>): number | null {
+  const iso = typeof data.dueDateTime === 'string' ? data.dueDateTime.trim() : '';
+  if (iso) {
+    const dt = new Date(iso);
+    const ms = dt.getTime();
+    if (Number.isFinite(ms) && ms > 0) return ms;
+  }
+  const ymd = typeof data.dueDateYmd === 'string' ? data.dueDateYmd.trim() : '';
+  const hm = typeof data.dueTimeHm === 'string' ? data.dueTimeHm.trim() : '';
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const [y, m, d] = ymd.split('-').map((x) => parseInt(x, 10));
+  let hh = 0;
+  let mm = 0;
+  if (hm && /^\d{1,2}:\d{2}$/.test(hm)) {
+    hh = parseInt(hm.slice(0, hm.indexOf(':')), 10) || 0;
+    mm = parseInt(hm.slice(hm.indexOf(':') + 1), 10) || 0;
+  }
+  const dt = new Date(y, m - 1, d, hh, mm, 0, 0);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+async function persistAndDualWrite(params: {
+  deps: CaptureStrategyDeps;
+  draft: OneTapUniversalResult;
+  transcript: string;
+  habitsDefaultTitle: string;
+  birthdayLabel: string;
+  entityLabel: string;
+}): Promise<PersistOneTapResult> {
+  const { entityLabel, ...persistParams } = params;
+  const res = await persistOneTapDraft(persistParams);
+  if (res.ok) {
+    const id = 'intentionId' in res.outcome ? String((res.outcome as { intentionId?: unknown }).intentionId ?? '') : '';
+    console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
+    try {
+      await dualWriteViaCoreIntention({ draft: params.draft, transcript: params.transcript, outcome: res.outcome, entityLabel });
+    } catch {
+      /* ignore */
+    }
+  }
+  return res;
+}
+
+export async function persistOneTapDraftVentilated(params: {
+  deps: CaptureStrategyDeps;
+  draft: OneTapUniversalResult;
+  transcript: string;
+  habitsDefaultTitle: string;
+  birthdayLabel: string;
+}): Promise<PersistOneTapVentilatedResult> {
+  const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
+  const data = (draft.data ?? {}) as Record<string, unknown>;
+  const outcomes: PersistOneTapSuccess[] = [];
+  let firstError: unknown = null;
+  let firstCode: 'LIST_QUOTA' | 'LIST_SELECTION' | undefined;
+
+  const listBlock = data.list;
+  const shouldWriteList = hasAnyListItems(listBlock);
+  if (shouldWriteList) {
+    const listDraft: OneTapUniversalResult = { ...draft, predictedType: 'LIST', data: { ...data, list: listBlock } };
+    const r = await persistAndDualWrite({
+      deps,
+      draft: listDraft,
+      transcript,
+      habitsDefaultTitle,
+      birthdayLabel,
+      entityLabel: 'LIST',
+    });
+    if (r.ok) outcomes.push(r.outcome);
+    else {
+      firstError = firstError ?? r.error;
+      firstCode = firstCode ?? r.code;
+    }
+  }
+
+  const shouldWriteTemporal = hasTemporalSignals(data);
+  const logisticsPotential = Boolean(data.logisticsPotential);
+  const shouldWriteTrip = logisticsPotential;
+  let taskOutcomeId: string | null = null;
+
+  if (shouldWriteTemporal || shouldWriteTrip) {
+    const temporalType = shouldWriteTrip ? 'TASK' : inferTemporalType(data);
+    const temporalDraft: OneTapUniversalResult = { ...draft, predictedType: temporalType, data: { ...data } };
+    const r = await persistAndDualWrite({
+      deps,
+      draft: temporalDraft,
+      transcript,
+      habitsDefaultTitle,
+      birthdayLabel,
+      entityLabel: temporalType,
+    });
+    if (r.ok) {
+      outcomes.push(r.outcome);
+      if (r.outcome.kind === 'persisted_temporal' && r.outcome.mirrorType === 'TASK') {
+        taskOutcomeId = r.outcome.intentionId;
+      }
+    } else {
+      firstError = firstError ?? r.error;
+      firstCode = firstCode ?? r.code;
+    }
+  }
+
+  if (shouldWriteTrip && taskOutcomeId) {
+    const formattedAddress = String(data.location_address ?? '').trim();
+    const placeId = String(data.location_place_id ?? '').trim();
+    const lat = Number(data.location_lat);
+    const lng = Number(data.location_lng);
+    const arrivalMs = parseArrivalMsFromData(data);
+    const sentinelReady =
+      formattedAddress.length > 0 &&
+      placeId.length > 0 &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      Number.isFinite(arrivalMs) &&
+      (arrivalMs ?? 0) > 0;
+    if (sentinelReady && arrivalMs) {
+      const quota = await consumeSentinelQuotaOnTripValidation({ isProUser: deps.spectrum.isProUser });
+      await activateSentinelTrip({
+        tripTaskId: taskOutcomeId,
+        formattedAddress,
+        targetArrivalMs: arrivalMs,
+        lat,
+        lng,
+        sentinelMode: quota.mode,
+      });
+      console.log(`[VENTILATION-WRITE] ✅ TRIP_SENTINEL | ID: ${taskOutcomeId}`);
+    }
+  }
+
+  if (outcomes.length === 0) {
+    const noteDraft: OneTapUniversalResult = {
+      ...draft,
+      predictedType: 'NOTE',
+      data: { ...data, memo: typeof data.memo === 'string' && data.memo.trim() ? data.memo : transcript.trim().slice(0, 4000) },
+    };
+    const r = await persistAndDualWrite({
+      deps,
+      draft: noteDraft,
+      transcript,
+      habitsDefaultTitle,
+      birthdayLabel,
+      entityLabel: 'NOTE_FALLBACK',
+    });
+    if (r.ok) return { ok: true, outcomes: [r.outcome] };
+    return { ok: false, error: r.error, code: r.code };
+  }
+
+  if (outcomes.length > 0) return { ok: true, outcomes };
+  return { ok: false, error: firstError ?? new Error('persist_failed'), code: firstCode };
 }

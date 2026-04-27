@@ -42,8 +42,9 @@ export async function dualWriteViaCoreIntention(params: {
   draft: OneTapUniversalResult;
   transcript: string;
   outcome: PersistOneTapSuccess;
+  entityLabel?: string;
 }): Promise<void> {
-  const { draft, transcript, outcome } = params;
+  const { draft, transcript, outcome, entityLabel } = params;
   const id = resolveCoreId(outcome);
   const userId = await getOrCreateViaUserId();
   const now = Date.now();
@@ -66,6 +67,6 @@ export async function dualWriteViaCoreIntention(params: {
     );
   });
 
-  console.log(`[VIA-CORE-WRITE] 💾 Intention répliquée dans via_production.db | ID: ${id}.`);
+  const label = entityLabel ? ` | Entity: ${entityLabel}` : '';
+  console.log(`[VIA-CORE-WRITE] 💾 Intention répliquée dans via_production.db${label} | ID: ${id}.`);
 }
-

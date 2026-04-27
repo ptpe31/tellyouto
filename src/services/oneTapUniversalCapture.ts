@@ -267,6 +267,29 @@ export function parseOneTapWireLine(line: string): OneTapWireFields {
   return out;
 }
 
+export function parseOneTapWireLineBlocks(line: string): OneTapWireFields[] {
+  const s = String(line || '')
+    .trim()
+    .replace(/^[`"'«»\s]+/, '')
+    .replace(/[`"'«»\s]+$/, '');
+  const out: OneTapWireFields[] = [];
+  let cur: OneTapWireFields = {};
+  for (const seg of s.split('|')) {
+    const idx = seg.indexOf(':');
+    if (idx <= 0) continue;
+    const k = seg.slice(0, idx).trim().toUpperCase();
+    const v = seg.slice(idx + 1).trim();
+    if (!k) continue;
+    if (k === 'P' && Object.keys(cur).length > 0) {
+      out.push(cur);
+      cur = {};
+    }
+    cur[k] = v;
+  }
+  if (Object.keys(cur).length > 0) out.push(cur);
+  return out;
+}
+
 /** Parse incrémental (streaming) : n’utilise que les segments complets KEY:value. */
 export function parsePartialWireLine(buffer: string): OneTapWireFields {
   const segments = String(buffer || '').split('|');
@@ -280,6 +303,28 @@ export function parsePartialWireLine(buffer: string): OneTapWireFields {
     const v = seg.slice(idx + 1).trim();
     if (k) out[k] = v;
   }
+  return out;
+}
+
+export function parsePartialWireLineBlocks(buffer: string): OneTapWireFields[] {
+  const segments = String(buffer || '').split('|');
+  const out: OneTapWireFields[] = [];
+  let cur: OneTapWireFields = {};
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (i === segments.length - 1 && !seg.includes(':')) break;
+    const idx = seg.indexOf(':');
+    if (idx <= 0) continue;
+    const k = seg.slice(0, idx).trim().toUpperCase();
+    const v = seg.slice(idx + 1).trim();
+    if (!k) continue;
+    if (k === 'P' && Object.keys(cur).length > 0) {
+      out.push(cur);
+      cur = {};
+    }
+    cur[k] = v;
+  }
+  if (Object.keys(cur).length > 0) out.push(cur);
   return out;
 }
 
@@ -364,57 +409,42 @@ function normalizeWireHm(h: string): string | null {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-function patchDataFromWire(predictedType: OneTapPredictedType, wire: OneTapWireFields): Record<string, unknown> {
-  if (predictedType === 'TASK') {
-    const notes = wire.N ? wire.N.replace(/\|/g, ' ').slice(0, 2000) : undefined;
-    const hm = wire.H ? normalizeWireHm(wire.H) : null;
-    return {
-      ...(wire.D && /^\d{4}-\d{2}-\d{2}$/.test(wire.D) ? { dueDateYmd: wire.D } : {}),
-      ...(hm ? { dueTimeHm: hm } : {}),
-      ...(notes !== undefined ? { notes } : {}),
-    };
+function patchDataFromWire(wire: OneTapWireFields): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (wire.D && /^\d{4}-\d{2}-\d{2}$/.test(wire.D)) out.dueDateYmd = wire.D;
+  if (wire.D && /^\d{4}-\d{2}-\d{2}$/.test(wire.D)) out.nextDueYmd = wire.D;
+  const hm = wire.H ? normalizeWireHm(wire.H) : null;
+  if (hm) {
+    out.dueTimeHm = hm;
+    out.preferredTimeHm = hm;
   }
-  if (predictedType === 'RECURRING_TASK') {
-    return {
-      ...(wire.C ? { cadenceDescription: wire.C.slice(0, 500) } : {}),
-      ...(wire.D && /^\d{4}-\d{2}-\d{2}$/.test(wire.D) ? { nextDueYmd: wire.D } : {}),
-      ...(wire.N ? { anchorNotes: wire.N.slice(0, 2000) } : {}),
-    };
+  if (wire.C) out.cadenceDescription = wire.C.slice(0, 500);
+  if (wire.R) out.recurrence = { summary: wire.R.slice(0, 500) };
+  if (wire.N) {
+    const note = wire.N.replace(/\|/g, ' ').trim();
+    if (note) {
+      out.notes = note.slice(0, 2000);
+      out.memo = note.slice(0, 4000);
+      out.anchorNotes = note.slice(0, 2000);
+    }
   }
-  if (predictedType === 'HABIT') {
-    const hmH = wire.H ? normalizeWireHm(wire.H) : null;
-    return {
-      ...(wire.C ? { cadenceDescription: wire.C.slice(0, 500) } : {}),
-      ...(hmH ? { preferredTimeHm: hmH } : {}),
-      ...(wire.N ? { notes: wire.N.slice(0, 2000) } : {}),
-    };
-  }
-  if (predictedType === 'LIST' && wire.L) {
+  if (wire.L) {
     const items = parseWireListItems(wire.L);
-    return buildListDataFromWireItems(items, wire.T || '');
+    if (items.length) {
+      out.list = (buildListDataFromWireItems(items, wire.T || '').list as Record<string, unknown>) ?? undefined;
+    }
   }
-  if (predictedType === 'ANNIVERSARY') {
-    return {
-      ...(wire.A ? { personName: wire.A.slice(0, 200) } : {}),
-      ...(wire.G ? { monthDay: wire.G.slice(0, 32) } : {}),
-    };
-  }
-  if (predictedType === 'NOTE' && wire.N) {
-    return { memo: wire.N.slice(0, 4000) };
-  }
-  return {};
+  if (wire.A) out.personName = wire.A.slice(0, 200);
+  if (wire.G) out.monthDay = wire.G.slice(0, 32);
+  return out;
 }
 
 function mergeLogisticsFromWire(
-  predictedType: OneTapPredictedType,
   wire: OneTapWireFields,
   mergedBase: Record<string, unknown>,
 ): Record<string, unknown> {
   const v = wire.V?.replace(/\|/g, ' ').trim().slice(0, 400) ?? '';
   if (!v) return {};
-  if (predictedType !== 'TASK' && predictedType !== 'RECURRING_TASK' && predictedType !== 'HABIT') {
-    return {};
-  }
   const out: Record<string, unknown> = {
     logisticsPotential: true,
     destination_name: v,
@@ -439,17 +469,13 @@ export function mergeWireIntoOneTapSkeleton(
   skeleton: OneTapUniversalResult,
   wire: OneTapWireFields,
 ): OneTapUniversalResult {
-  const pRaw = wire.P?.trim().toUpperCase() ?? '';
-  const predictedType = ONE_TAP_PREDICTED_TYPES.includes(pRaw as OneTapPredictedType)
-    ? (pRaw as OneTapPredictedType)
-    : skeleton.predictedType;
   const categoryTag = (wire.K?.trim() || skeleton.categoryTag || 'Perso').slice(0, 80) || 'Perso';
   const title = (wire.T?.trim() || skeleton.title || 'Note').trim().slice(0, 200);
-  const mergedBase = mergeOneTapDataOnTypeChange(skeleton.predictedType, predictedType, skeleton.data, title);
-  const wirePatch = patchDataFromWire(predictedType, wire);
-  const logisticsPatch = mergeLogisticsFromWire(predictedType, wire, { ...mergedBase, ...wirePatch });
+  const mergedBase = { ...(skeleton.data as Record<string, unknown>) };
+  const wirePatch = patchDataFromWire(wire);
+  const logisticsPatch = mergeLogisticsFromWire(wire, { ...mergedBase, ...wirePatch });
   const data = normalizeUniversalTemporalInData({ ...mergedBase, ...wirePatch, ...logisticsPatch });
-  return { predictedType, categoryTag, title, data };
+  return { ...skeleton, categoryTag, title, data };
 }
 
 function buildCompressedGeminiPrompt(transcript: string, seedLine: string, uiLocale: string): string {
@@ -682,9 +708,12 @@ export async function refineOneTapWithGeminiCompressed(
   };
 
   const applyBuffer = (buf: string) => {
-    const wire = useStream ? parsePartialWireLine(buf) : parseOneTapWireLine(buf);
-    if (Object.keys(wire).length === 0) return;
-    const merged = mergeWireIntoOneTapSkeleton(skeleton, wire);
+    const blocks = useStream ? parsePartialWireLineBlocks(buf) : parseOneTapWireLineBlocks(buf);
+    if (blocks.length === 0) return;
+    let merged = skeleton;
+    for (const w of blocks) {
+      merged = mergeWireIntoOneTapSkeleton(merged, w);
+    }
     options.onPartial?.(merged);
   };
 
@@ -701,7 +730,10 @@ export async function refineOneTapWithGeminiCompressed(
     applyBuffer(rawModelText);
   }
 
-  let parsed = mergeWireIntoOneTapSkeleton(skeleton, parseOneTapWireLine(rawModelText));
+  let parsed = skeleton;
+  for (const w of parseOneTapWireLineBlocks(rawModelText)) {
+    parsed = mergeWireIntoOneTapSkeleton(parsed, w);
+  }
   const jsonObj = tryParseJsonObjectBestEffort(rawModelText);
   if (jsonObj) {
     try {

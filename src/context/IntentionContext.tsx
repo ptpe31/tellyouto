@@ -12,9 +12,8 @@ import {
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
-import { persistOneTapDraft } from '../services/oneTapPersist';
+import { persistOneTapDraftVentilated } from '../services/oneTapPersist';
 import { showAppToast } from '../services/appToast';
-import { dualWriteViaCoreIntention } from '../services/viaCoreDualWrite';
 import {
   getOfflineAudioById,
   getLatestPendingOfflineAudio,
@@ -213,7 +212,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     try {
       const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
       const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
-      const res = await persistOneTapDraft({
+      const res = await persistOneTapDraftVentilated({
         deps,
         draft,
         transcript,
@@ -232,11 +231,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       userEditedRef.current = false;
       lastCaptureWasMicRef.current = false;
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-      try {
-        await dualWriteViaCoreIntention({ draft, transcript, outcome: res.outcome });
-      } catch {
-        /* ignore */
-      }
     } catch (e) {
       showAppToast(i18n.t('talkDebug.oneTapRefineFailedToast', { defaultValue: 'Sauvegarde impossible.' }), 4200);
     } finally {
