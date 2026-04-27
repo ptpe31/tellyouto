@@ -355,7 +355,6 @@ export class TrafficScheduler {
       });
       await this.notificationService.askSurveillanceActivation(task);
       this.clearTaskTimer(task.id);
-      await this.notificationManager.cancel(task.id);
       return;
     }
 
