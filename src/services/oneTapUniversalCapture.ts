@@ -42,6 +42,7 @@ import * as chrono from 'chrono-node';
 
 import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
 import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
+import type { ListItemDraft } from './listIntentionModel';
 import {
   geminiGenerateOneTapCompressedLine,
   geminiStreamOneTapCompressedLine,
@@ -232,7 +233,7 @@ export type OneTapIntentJson = {
   recurrence?: string;
   preferredTime?: string;
   title?: string;
-  items?: unknown;
+  items?: ListItemDraft[] | unknown;
   baseCount?: unknown;
   unitLabel?: unknown;
   destination?: string;
@@ -266,16 +267,31 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
 
     if (isItem) {
       if (type !== 'ITEM') continue;
-      if (!currentList || currentList.type !== 'LIST') continue;
+      if (!currentList || currentList.type !== 'LIST') {
+        currentList = {
+          type: 'LIST',
+          title: 'Liste',
+          baseCount: 1,
+          unitLabel: 'personne',
+          items: [],
+        };
+        intents.push(currentList);
+      }
       const qtyRaw = segs.length >= 3 ? segs[2] : '';
       const unit = segs.length >= 4 ? segs[3] : 'piece';
       const scalableRaw = segs.length >= 5 ? segs[4] : 'true';
       const q = Number(String(qtyRaw).replace(',', '.'));
       const baseQuantity = Number.isFinite(q) && q > 0 ? q : 1;
-      const scalable =
-        String(scalableRaw).trim().toLowerCase() === 'false' ? false : Boolean(String(scalableRaw).trim());
-      const arr = Array.isArray(currentList.items) ? (currentList.items as unknown[]) : [];
-      arr.push({ name: content, baseQuantity, unit, scalable: scalable !== false });
+      const sraw = String(scalableRaw).trim().toLowerCase();
+      const scalable = !(sraw === 'false' || sraw === '0' || sraw === 'no' || sraw === 'non');
+      const arr = Array.isArray(currentList.items) ? (currentList.items as ListItemDraft[]) : [];
+      arr.push({
+        name: content,
+        baseQuantity,
+        unit,
+        scalable,
+        includeInSave: true,
+      });
       currentList.items = arr;
       continue;
     }
