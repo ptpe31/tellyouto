@@ -11,6 +11,7 @@ import {
   inferOneTapSkeletonFromTranscript,
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
+import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
 import { persistOneTapDraft } from '../services/oneTapPersist';
 import {
   getOfflineAudioById,
@@ -171,6 +172,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       setTranscript(cleaned);
       const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale: spectrum.locale || 'fr' });
       setDraft(skeleton);
+      void (async () => {
+        const hydrated = await hydrateOneTapDraftWithFavoriteAlias(skeleton);
+        setDraft(hydrated);
+      })();
       setVisible(true);
       setRefining(true);
 
@@ -188,7 +193,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       try {
         const out = await geminiOneTapUniversalFromTranscript(cleaned, { uiLocale: spectrum.locale || 'fr' });
         if (!userEditedRef.current) {
-          setDraft(out.parsed);
+          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(out.parsed);
+          setDraft(hydrated);
         }
         setRefining(false);
       } catch (e) {

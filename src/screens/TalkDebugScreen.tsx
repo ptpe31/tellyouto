@@ -97,6 +97,7 @@ import {
   refineOneTapWithGeminiCompressed,
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
+import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
 import {
   finalizeOneTapOptimisticDraft,
   persistOneTapDraft,
@@ -105,6 +106,7 @@ import {
 } from '../services/oneTapPersist';
 import { cancelOneTapUniversalReminders } from '../services/oneTapUniversalReminders';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
+import { activateSentinelTrip } from '../services/traffic/sentinelActivation';
 
 function newId(): string {
   try {
@@ -629,6 +631,10 @@ export function TalkHomeScreen() {
         titleHint: fallbackTitle,
       });
       setOneTapDraft(skeleton);
+      void (async () => {
+        const hydrated = await hydrateOneTapDraftWithFavoriteAlias(skeleton);
+        setOneTapDraft(hydrated);
+      })();
       setOneTapRefinePhase('local');
       setOneTapCourtesyText(formatOneTapCourtesyLine(t, spectrum.first_name, i18n.language));
       setOneTapCourtesyVisible(true);
@@ -667,7 +673,13 @@ export function TalkHomeScreen() {
           const { parsed, rawModelText } = await refineOneTapWithGeminiCompressed(cleanedTranscript, skeleton, {
             uiLocale: spectrum.locale || 'fr',
             useStream: true,
-            onPartial: (d) => setOneTapDraft(d),
+            onPartial: (d) => {
+              setOneTapDraft(d);
+              void (async () => {
+                const hydrated = await hydrateOneTapDraftWithFavoriteAlias(d);
+                setOneTapDraft(hydrated);
+              })();
+            },
             chainPerf: { t0, t1 },
           });
           if (safetyTimer) {
@@ -1000,6 +1012,30 @@ export function TalkHomeScreen() {
         throw res.error;
       }
       const o = res.outcome;
+      const data = oneTapDraft.data as Record<string, unknown>;
+      const shouldActivateSentinel = data.logisticsPotential === true;
+      const sentinelTaskId =
+        (o.kind === 'persisted_temporal' || o.kind === 'list_inventory_persisted'
+          ? o.intentionId
+          : typeof o.intentionId === 'string'
+            ? o.intentionId
+            : null) ?? oneTapOptimisticId ?? null;
+      const arrivalIso = typeof data.dueDateTime === 'string' ? data.dueDateTime.trim() : '';
+      const arrivalMs = arrivalIso ? new Date(arrivalIso).getTime() : NaN;
+      const formattedAddress = String(data.location_address ?? '').trim();
+      const placeId = String(data.location_place_id ?? '').trim();
+      const lat = Number(data.location_lat);
+      const lng = Number(data.location_lng);
+      const sentinelReady =
+        shouldActivateSentinel &&
+        Boolean(sentinelTaskId) &&
+        formattedAddress.length > 0 &&
+        placeId.length > 0 &&
+        Number.isFinite(lat) &&
+        Number.isFinite(lng) &&
+        Number.isFinite(arrivalMs) &&
+        arrivalMs > 0;
+
       if ('consumedClassicFreeSlot' in o && o.consumedClassicFreeSlot) {
         await maybeConsumeFreeCaptureSuccess();
       }
@@ -1029,6 +1065,22 @@ export function TalkHomeScreen() {
         pushSuccessFeedback(t(o.successFeedbackI18nKey));
       } else if (o.kind === 'list_inventory_persisted') {
         pushSuccessFeedback(t(o.successFeedbackI18nKey));
+      }
+      if (sentinelReady && sentinelTaskId) {
+        const { tOptimisteMs } = await activateSentinelTrip({
+          tripTaskId: sentinelTaskId,
+          formattedAddress,
+          targetArrivalMs: arrivalMs,
+          lat,
+          lng,
+        });
+        pushSuccessFeedback(
+          t('sentinel.activatedToast', {
+            tOpt: new Date(tOptimisteMs).toLocaleTimeString(),
+            date: new Date(arrivalMs).toLocaleDateString(),
+            time: new Date(arrivalMs).toLocaleTimeString(),
+          })
+        );
       }
       setOneTapModalVisible(false);
       setOneTapDraft(null);
