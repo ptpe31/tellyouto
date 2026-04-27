@@ -29,6 +29,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   fetchAllGeminiModelsList,
   GEMINI_MODEL_SHORTLIST,
+  isBannedGeminiModelId,
   pickPreferredGeminiModelId,
   shortGeminiModelId,
 } from './geminiModelCatalog';
@@ -41,6 +42,7 @@ function getConfiguredShortlist(): string[] {
   for (const raw of base) {
     const clean = sanitizeRemoteModelId(raw);
     if (!clean) continue;
+    if (isBannedGeminiModelId(clean)) continue;
     if (seen.has(clean)) continue;
     seen.add(clean);
     uniq.push(clean);
@@ -256,4 +258,10 @@ export async function persistValidatedGeminiModelId(modelId: string): Promise<vo
   cachedActiveGeminiModelId = clean;
   lastRemoteConfigResolvedModelId = clean;
   await persistFallbackModelFor24h(clean);
+}
+
+export async function clearGeminiValidatedModelCache(): Promise<void> {
+  await clearPersistedFallbackModel();
+  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
+  lastRemoteConfigResolvedModelId = cachedActiveGeminiModelId;
 }

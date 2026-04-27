@@ -31,7 +31,7 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { rootNavigationRef } from './src/navigation/rootNavigationRef';
 import { recordAppInteraction } from './src/services/AvailabilityTimer';
 import { configureCaptureBackgroundTask } from './src/services/CaptureProcessingService';
-import { ensureGeminiRemoteModelInitialized } from './src/services/geminiRemoteModelSteering';
+import { initializeGeminiEngine } from './src/services/initializeGeminiEngine';
 import { requestBackgroundExecutionPermissions } from './src/services/PermissionService';
 import { navigationThemeFromPaper } from './src/theme/paperTheme';
 
@@ -52,7 +52,7 @@ function AppNavigation() {
 
 export default function App() {
   useEffect(() => {
-    void ensureGeminiRemoteModelInitialized();
+    void initializeGeminiEngine();
     void configureCaptureBackgroundTask();
     void requestBackgroundExecutionPermissions();
     void cleanOldArchives();

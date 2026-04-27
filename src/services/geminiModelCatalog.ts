@@ -16,9 +16,8 @@ export type GeminiListedModel = {
 };
 
 export const GEMINI_MODEL_SHORTLIST = [
-  'gemini-1.5-flash-latest',
+  'gemini-2.0-flash',
   'gemini-1.5-flash',
-  'gemini-1.5-pro-latest',
 ] as const;
 
 export function shortGeminiModelId(fullName: string): string {
@@ -29,8 +28,8 @@ function isFlashModelId(id: string): boolean {
   return /flash/i.test(id);
 }
 
-function is8bOrLiteModelId(id: string): boolean {
-  return /\b8b\b/i.test(id) || /\blite\b/i.test(id);
+export function isBannedGeminiModelId(id: string): boolean {
+  return /\blite\b/i.test(id);
 }
 
 function isLatestModelId(id: string): boolean {
@@ -69,9 +68,9 @@ function parseTrailingNumericSuffix(id: string): number {
  * Utilisé pour les IDs **flash** uniquement (prérequis appelant).
  */
 export function compareFlashGeminiModelIds(aId: string, bId: string): number {
-  const la = is8bOrLiteModelId(aId) ? 1 : 0;
-  const lb = is8bOrLiteModelId(bId) ? 1 : 0;
-  if (la !== lb) return lb - la;
+  const ba = isBannedGeminiModelId(aId) ? 1 : 0;
+  const bb = isBannedGeminiModelId(bId) ? 1 : 0;
+  if (ba !== bb) return ba - bb;
 
   const latestA = isLatestModelId(aId) ? 1 : 0;
   const latestB = isLatestModelId(bId) ? 1 : 0;
@@ -96,9 +95,9 @@ function compareFlashGeminiModels(a: GeminiListedModel, b: GeminiListedModel): n
   const idA = shortGeminiModelId(a.name);
   const idB = shortGeminiModelId(b.name);
 
-  const la = is8bOrLiteModelId(idA) ? 1 : 0;
-  const lb = is8bOrLiteModelId(idB) ? 1 : 0;
-  if (la !== lb) return lb - la;
+  const ba = isBannedGeminiModelId(idA) ? 1 : 0;
+  const bb = isBannedGeminiModelId(idB) ? 1 : 0;
+  if (ba !== bb) return ba - bb;
 
   const vRank = parseApiVersionRank(b.version) - parseApiVersionRank(a.version);
   if (vRank !== 0) return vRank;
@@ -132,8 +131,10 @@ export function pickPreferredGeminiModelId(models: GeminiListedModel[]): string 
   );
   if (withGen.length === 0) return null;
 
-  const flashOnly = withGen.filter((m) => isFlashModelId(shortGeminiModelId(m.name)));
-  const pool = flashOnly.length > 0 ? flashOnly : withGen;
+  const nonBanned = withGen.filter((m) => !isBannedGeminiModelId(shortGeminiModelId(m.name)));
+  const usable = nonBanned.length ? nonBanned : withGen;
+  const flashOnly = usable.filter((m) => isFlashModelId(shortGeminiModelId(m.name)));
+  const pool = flashOnly.length > 0 ? flashOnly : usable;
   const sorted = [...pool].sort(compareFlashGeminiModels);
   return shortGeminiModelId(sorted[0].name);
 }
