@@ -430,7 +430,26 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string, uiLoc
   const loc = String(uiLocale || 'fr').toLowerCase().startsWith('en')
     ? 'Prefer English for K, T, N, C, R text when natural.'
     : 'Préfère le français pour K, T, N, C, R quand c’est naturel.';
+  const now = new Date();
+  const tz =
+    (() => {
+      try {
+        const o = Intl.DateTimeFormat().resolvedOptions();
+        return typeof o.timeZone === 'string' && o.timeZone.trim() ? o.timeZone.trim() : 'local';
+      } catch {
+        return 'local';
+      }
+    })();
+  const fullDateString =
+    (() => {
+      try {
+        return now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' });
+      } catch {
+        return now.toString();
+      }
+    })();
   return `${loc}
+[CONTEXT] Today is ${fullDateString} (${tz}).
 Local heuristic (refine or override if wrong):
 ${seedLine}
 
