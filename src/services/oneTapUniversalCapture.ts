@@ -197,6 +197,26 @@ function stripJsonFences(raw: string): string {
 /** Segments KEY:value d’une ligne compacte (Path B). */
 export type OneTapWireFields = Record<string, string>;
 
+export type OneTapIntentJson = {
+  type: string;
+  category?: string;
+  content?: string;
+  notes?: string;
+  due?: string;
+  recurrence?: string;
+  preferredTime?: string;
+  title?: string;
+  items?: unknown;
+  baseCount?: unknown;
+  unitLabel?: unknown;
+  destination?: string;
+  address?: string;
+  placeId?: string;
+  lat?: unknown;
+  lng?: unknown;
+  arrivalDue?: string;
+};
+
 /**
  * Sérialise le squelette Path A en une **seule ligne** `KEY:value|KEY:value` consommée par Gemini Path B.
  *
@@ -350,6 +370,28 @@ function tryParseJsonObjectBestEffort(raw: string): Record<string, unknown> | nu
   return hit;
 }
 
+function tryParseJsonArrayBestEffort(raw: string): unknown[] | null {
+  const s = stripJsonFences(raw);
+  if (!s || s[0] !== '[') return null;
+  const tryOnce = (t: string) => {
+    try {
+      const o = JSON.parse(t) as unknown;
+      if (Array.isArray(o)) return o;
+    } catch {
+      /* */
+    }
+    return null;
+  };
+  let hit = tryOnce(s);
+  if (hit) return hit;
+  let pad = s;
+  for (let i = 0; i < 40 && !hit; i++) {
+    pad += ']';
+    hit = tryOnce(pad);
+  }
+  return hit;
+}
+
 function buildListDataFromWireItems(items: string[], title: string): Record<string, unknown> {
   const clean = items.map((x) => x.trim()).filter(Boolean).slice(0, 48);
   if (clean.length === 0) return defaultOneTapDataForType('LIST');
@@ -407,6 +449,97 @@ function normalizeWireHm(h: string): string | null {
   const hh = Math.min(23, Math.max(0, parseInt(m[1], 10)));
   const mm = Math.min(59, Math.max(0, parseInt(m[2], 10)));
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function normalizeIntentType(raw: string): 'TASK' | 'LIST' | 'HABIT' | 'TRIP' | 'NOTE' | null {
+  const t = String(raw || '').trim().toUpperCase();
+  if (t === 'TASK' || t === 'LIST' || t === 'HABIT' || t === 'TRIP' || t === 'NOTE') return t;
+  return null;
+}
+
+function coerceItemsArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const it of raw) {
+    const s = String(it ?? '').trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s.slice(0, 120));
+    if (out.length >= 48) break;
+  }
+  return out;
+}
+
+function mergeIntentArrayIntoOneTapSkeleton(
+  skeleton: OneTapUniversalResult,
+  intents: OneTapIntentJson[],
+): OneTapUniversalResult {
+  const mergedBase = { ...(skeleton.data as Record<string, unknown>) };
+  const out: Record<string, unknown> = { ...mergedBase, intents };
+  let title = skeleton.title;
+  let categoryTag = skeleton.categoryTag;
+
+  for (const rawIntent of intents) {
+    const type = normalizeIntentType(rawIntent?.type);
+    if (!type) continue;
+    const cat = typeof rawIntent.category === 'string' ? rawIntent.category.trim().slice(0, 80) : '';
+    if (cat) categoryTag = cat;
+    if (type === 'LIST') {
+      const listTitle = typeof rawIntent.title === 'string' ? rawIntent.title.trim() : '';
+      const items = coerceItemsArray(rawIntent.items);
+      if (items.length) {
+        const built = buildListDataFromWireItems(items, listTitle || skeleton.title);
+        out.list = (built.list as Record<string, unknown>) ?? out.list;
+        if (listTitle) title = listTitle.slice(0, 200);
+      }
+    }
+    if (type === 'TASK') {
+      const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
+      if (content && (!title || title === skeleton.title)) title = content.slice(0, 200);
+      const due = typeof rawIntent.due === 'string' ? rawIntent.due.trim() : '';
+      if (due) out.dueDateTime = due;
+      const notes = typeof rawIntent.notes === 'string' ? rawIntent.notes.trim() : '';
+      if (notes) out.notes = notes.slice(0, 2000);
+    }
+    if (type === 'HABIT') {
+      const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
+      if (content && (!title || title === skeleton.title)) title = content.slice(0, 200);
+      const rec = typeof rawIntent.recurrence === 'string' ? rawIntent.recurrence.trim() : '';
+      if (rec) {
+        out.cadenceDescription = rec.slice(0, 500);
+        out.recurrence = { summary: rec.slice(0, 500) };
+      }
+      const pref = typeof rawIntent.preferredTime === 'string' ? rawIntent.preferredTime.trim() : '';
+      if (pref && /^\d{1,2}:\d{2}$/.test(pref)) out.preferredTimeHm = normalizeWireHm(pref) ?? pref;
+    }
+    if (type === 'TRIP') {
+      const dest = typeof rawIntent.destination === 'string' ? rawIntent.destination.trim() : '';
+      if (dest) {
+        out.logisticsPotential = true;
+        out.destination_name = dest.slice(0, 400);
+      }
+      const addr = typeof rawIntent.address === 'string' ? rawIntent.address.trim() : '';
+      if (addr) out.location_address = addr.slice(0, 500);
+      const placeId = typeof rawIntent.placeId === 'string' ? rawIntent.placeId.trim() : '';
+      if (placeId) out.location_place_id = placeId.slice(0, 200);
+      const lat = Number(rawIntent.lat);
+      const lng = Number(rawIntent.lng);
+      if (Number.isFinite(lat)) out.location_lat = lat;
+      if (Number.isFinite(lng)) out.location_lng = lng;
+      const due = typeof rawIntent.arrivalDue === 'string' ? rawIntent.arrivalDue.trim() : '';
+      if (due) out.dueDateTime = due;
+    }
+    if (type === 'NOTE') {
+      const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
+      if (content) out.memo = content.slice(0, 4000);
+    }
+  }
+
+  const data = normalizeUniversalTemporalInData(out);
+  return { ...skeleton, categoryTag, title: title.trim().slice(0, 200) || skeleton.title, data };
 }
 
 function patchDataFromWire(wire: OneTapWireFields): Record<string, unknown> {
@@ -510,9 +643,7 @@ ${seedLine}
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
-If the user must go somewhere (appointment, sport, fishing, dentist, travel, "chez…", "à la…"), add segment V with a short destination label (place or area name, no pipe). If unsure, omit V.
-
-Reply ONLY one KEY:value|KEY:value line (same key vocabulary as the guess).`;
+Return ONLY a JSON array of intent objects (no markdown, no backticks).`;
 }
 
 /**
@@ -716,12 +847,11 @@ export async function refineOneTapWithGeminiCompressed(
   };
 
   const applyBuffer = (buf: string) => {
-    const blocks = useStream ? parsePartialWireLineBlocks(buf) : parseOneTapWireLineBlocks(buf);
-    if (blocks.length === 0) return;
-    let merged = skeleton;
-    for (const w of blocks) {
-      merged = mergeWireIntoOneTapSkeleton(merged, w);
-    }
+    const arr = tryParseJsonArrayBestEffort(buf);
+    if (!arr) return;
+    const intents = arr.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as OneTapIntentJson[];
+    if (!intents.length) return;
+    const merged = mergeIntentArrayIntoOneTapSkeleton(skeleton, intents);
     options.onPartial?.(merged);
   };
 
@@ -739,15 +869,23 @@ export async function refineOneTapWithGeminiCompressed(
   }
 
   let parsed = skeleton;
-  for (const w of parseOneTapWireLineBlocks(rawModelText)) {
-    parsed = mergeWireIntoOneTapSkeleton(parsed, w);
-  }
-  const jsonObj = tryParseJsonObjectBestEffort(rawModelText);
-  if (jsonObj) {
-    try {
-      parsed = parseOneTapUniversalJson(JSON.stringify(jsonObj));
-    } catch {
-      /* keep wire merge */
+  const jsonArr = tryParseJsonArrayBestEffort(rawModelText);
+  if (jsonArr) {
+    const intents = jsonArr.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as OneTapIntentJson[];
+    if (intents.length) {
+      parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, intents);
+    }
+  } else {
+    for (const w of parseOneTapWireLineBlocks(rawModelText)) {
+      parsed = mergeWireIntoOneTapSkeleton(parsed, w);
+    }
+    const jsonObj = tryParseJsonObjectBestEffort(rawModelText);
+    if (jsonObj) {
+      try {
+        parsed = parseOneTapUniversalJson(JSON.stringify(jsonObj));
+      } catch {
+        /* keep wire merge */
+      }
     }
   }
   if (!parsed.title.trim()) {

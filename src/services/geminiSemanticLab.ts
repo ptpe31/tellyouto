@@ -875,12 +875,14 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
 }
 
 const ONETAP_WIRE_SYSTEM_PREFIX =
-  'You compress a voice note into ONE single line. Pipe-separated KEY:value segments. ' +
-  'Allowed keys: P (TASK|RECURRING_TASK|HABIT|LIST|ANNIVERSARY|NOTE), K (short domain tag), T (title max 90 chars, never use the pipe character inside values), ' +
-  'D (due date YYYY-MM-DD or empty), H (time HH:mm 24h or empty), N (short notes, no pipes), L (LIST only: item names separated by semicolons), ' +
-  'A (ANNIVERSARY person name), G (ANNIVERSARY month-day MM-DD or YYYY-MM-DD), C (cadence / habit text), R (recurrence short text), ' +
-  'V (TASK/RECURRING_TASK/HABIT only: short destination or venue label when the user must travel; no pipes). ' +
-  'Output ONLY that line: no markdown, no JSON, no line breaks.\n\n';
+  'You convert a voice note into a JSON array of intent objects. ' +
+  'Output MUST be a single valid JSON array only (no markdown, no fences, no prose, no line breaks outside JSON). ' +
+  'Each object MUST include a "type" field with one of: TASK, LIST, HABIT, TRIP, NOTE. ' +
+  'TASK fields: "content" (string), optional "due" (ISO 8601 date-time string), optional "notes" (string), optional "category" (short tag). ' +
+  'LIST fields: "title" (string), "items" (array of strings), optional "baseCount" (number), optional "unitLabel" (string), optional "category". ' +
+  'HABIT fields: "content" (string), optional "recurrence" (string), optional "preferredTime" (HH:mm), optional "category". ' +
+  'TRIP fields: "destination" (string), optional "address" (string), optional "placeId" (string), optional "lat" (number), optional "lng" (number), optional "arrivalDue" (ISO 8601 date-time), optional "category". ' +
+  'NOTE fields: "content" (string), optional "category".\n\n';
 
 function buildStreamGenerateUrl(modelId: string): string {
   const { base } = getGeminiApiMetaForModel(modelId);
@@ -1167,7 +1169,7 @@ export async function geminiGenerateOneTapCompressedLine(
     {
       contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
       generationConfig: {
-        maxOutputTokens: 600,
+        maxOutputTokens: 800,
       },
     },
     undefined,
@@ -1227,7 +1229,7 @@ export async function geminiStreamOneTapCompressedLine(
     {
       contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
       generationConfig: {
-        maxOutputTokens: 600,
+        maxOutputTokens: 800,
       },
     },
     onAccumulatedText,
