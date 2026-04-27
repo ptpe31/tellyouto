@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
+  LayoutAnimation,
   Modal,
   Platform,
   Pressable,
@@ -9,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,6 +46,41 @@ export type OneTapConfirmModalProps = {
   onConfirm: () => void;
   onDismiss: () => void;
 };
+
+function StreamingIndicator() {
+  const dot = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.timing(dot, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    anim.start();
+    return () => {
+      anim.stop();
+    };
+  }, [dot]);
+  const d1 = dot.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] });
+  const d2 = dot.interpolate({ inputRange: [0, 0.33, 1], outputRange: [0.2, 1, 0.2] });
+  const d3 = dot.interpolate({ inputRange: [0, 0.66, 1], outputRange: [0.2, 1, 0.2] });
+  return (
+    <View style={styles.streamingRow}>
+      <Animated.Text style={[styles.streamingDot, { opacity: d1 }]}>•</Animated.Text>
+      <Animated.Text style={[styles.streamingDot, { opacity: d2 }]}>•</Animated.Text>
+      <Animated.Text style={[styles.streamingDot, { opacity: d3 }]}>•</Animated.Text>
+    </View>
+  );
+}
+
+function readDraftIntents(draft: OneTapUniversalResult): Record<string, unknown>[] {
+  const data = draft.data as Record<string, unknown>;
+  const raw = data.intents;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as Record<string, unknown>[];
+}
 
 function ymdFromDate(d: Date): string {
   const y = d.getFullYear();
@@ -128,8 +167,10 @@ export function OneTapConfirmModal({
   const [menuOpen, setMenuOpen] = useState(false);
   const [dateTarget, setDateTarget] = useState<'TASK_DUE' | 'RECUR_NEXT' | 'UNIVERSAL_REMINDER' | null>(null);
   const [sentinelQuotaBalance, setSentinelQuotaBalance] = useState<number | null>(null);
+  const [displayedIntents, setDisplayedIntents] = useState<Record<string, unknown>[]>([]);
 
   const showRefiningBanner = refinePhase === 'streaming' || refinePhase === 'local';
+  const isGenerating = refinePhase === 'streaming' || refinePhase === 'local';
 
   const typeLabels = useMemo(
     () =>
@@ -175,6 +216,58 @@ export function OneTapConfirmModal({
   }, [draft, visible]);
 
   if (!draft) return null;
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      UIManager.setLayoutAnimationEnabledExperimental?.(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    const next = readDraftIntents(draft);
+    if (next.length > displayedIntents.length) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+    if (JSON.stringify(next) !== JSON.stringify(displayedIntents)) {
+      setDisplayedIntents(next);
+    }
+  }, [displayedIntents, draft, visible]);
+
+  const patchDraftIntents = (next: Record<string, unknown>[]) => {
+    onChangeDraft({ ...draft, data: { ...draft.data, intents: next } });
+  };
+
+  const toggleIntentListItemInclude = (intentIndex: number, itemIndex: number) => {
+    const intents = [...displayedIntents];
+    const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
+    const itemsRaw = intent.items;
+    const items = Array.isArray(itemsRaw) ? [...itemsRaw] : [];
+    const it = { ...((items[itemIndex] as Record<string, unknown>) ?? {}) };
+    const cur = it.includeInSave !== false;
+    it.includeInSave = !cur;
+    items[itemIndex] = it;
+    intent.items = items;
+    intents[intentIndex] = intent;
+    patchDraftIntents(intents);
+  };
+
+  const adjustIntentListBaseCount = (intentIndex: number, delta: number) => {
+    const intents = [...displayedIntents];
+    const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
+    const n = Math.max(1, Math.min(999, Math.round(Number(intent.baseCount ?? 1)) + delta));
+    intent.baseCount = n;
+    intents[intentIndex] = intent;
+    patchDraftIntents(intents);
+  };
+
+  const setIntentListUnitLabel = (intentIndex: number, unitLabel: string) => {
+    const intents = [...displayedIntents];
+    const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
+    intent.unitLabel = unitLabel;
+    intents[intentIndex] = intent;
+    patchDraftIntents(intents);
+  };
 
   const applyType = (next: OneTapPredictedType) => {
     if (next === draft.predictedType) {
@@ -299,7 +392,148 @@ export function OneTapConfirmModal({
     );
   };
 
+  const renderIntentCards = () => {
+    if (!displayedIntents.length) return null;
+    return (
+      <View style={styles.section}>
+        {displayedIntents.map((it, idx) => {
+          const type = String(it.type ?? '').trim().toUpperCase();
+          if (type === 'TASK') {
+            const title = String(it.content ?? it.title ?? '').trim() || '—';
+            const dueIso = String(it.due ?? '').trim();
+            let badge = '';
+            if (dueIso) {
+              try {
+                const dt = new Date(dueIso);
+                badge = Number.isNaN(dt.getTime())
+                  ? dueIso
+                  : dt.toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' });
+              } catch {
+                badge = dueIso;
+              }
+            }
+            return (
+              <View key={`intent-${idx}`} style={styles.intentCard}>
+                <View style={styles.intentHeadRow}>
+                  <Text style={styles.intentType}>TASK</Text>
+                  {badge ? <Text style={styles.intentBadge}>{badge}</Text> : null}
+                </View>
+                <Text style={styles.intentTitle}>{title}</Text>
+              </View>
+            );
+          }
+          if (type === 'NOTE') {
+            const title = String(it.content ?? it.title ?? '').trim() || '—';
+            return (
+              <View key={`intent-${idx}`} style={styles.intentCard}>
+                <View style={styles.intentHeadRow}>
+                  <Text style={styles.intentType}>NOTE</Text>
+                </View>
+                <Text style={styles.intentTitle}>{title}</Text>
+              </View>
+            );
+          }
+          if (type === 'LIST') {
+            const title = String(it.title ?? it.content ?? '').trim() || 'Liste';
+            const numberOfPeople = Math.max(1, Math.round(Number(it.baseCount ?? 1)));
+            const unitLabel = String(it.unitLabel ?? 'personne');
+            const items = Array.isArray(it.items) ? (it.items as unknown[]) : [];
+            return (
+              <View key={`intent-${idx}`} style={styles.intentCard}>
+                <View style={styles.intentHeadRow}>
+                  <Text style={styles.intentType}>LIST</Text>
+                  <Text style={styles.intentBadge}>{`${numberOfPeople} ${unitLabel}`.trim()}</Text>
+                </View>
+                <Text style={styles.intentTitle}>{title}</Text>
+                <View style={styles.quantityRow}>
+                  <Pressable
+                    style={[styles.stepBtn, busy && styles.disabled]}
+                    disabled={busy}
+                    onPress={() => adjustIntentListBaseCount(idx, -1)}
+                  >
+                    <Text style={styles.stepBtnText}>−</Text>
+                  </Pressable>
+                  <Text style={styles.countText}>{numberOfPeople}</Text>
+                  <Pressable
+                    style={[styles.stepBtn, busy && styles.disabled]}
+                    disabled={busy}
+                    onPress={() => adjustIntentListBaseCount(idx, 1)}
+                  >
+                    <Text style={styles.stepBtnText}>+</Text>
+                  </Pressable>
+                  <TextInput
+                    value={unitLabel}
+                    onChangeText={(text) => setIntentListUnitLabel(idx, text)}
+                    style={[styles.input, styles.unitInput]}
+                    editable={!busy}
+                    placeholder={t('talkDebug.oneTapListUnitPlaceholder')}
+                  />
+                </View>
+                <View style={styles.catBlock}>
+                  {items.map((raw, ii) => {
+                    const ir = raw as Record<string, unknown>;
+                    const label = String(ir.name ?? '').trim() || '—';
+                    const displayQty = listItemDisplayQuantity(ir, numberOfPeople);
+                    const unit = String(ir.unit ?? '');
+                    const included = ir.includeInSave !== false;
+                    const sub = displayQty > 0 ? `${displayQty}${unit ? ` ${unit}` : ''}` : '';
+                    return (
+                      <Pressable
+                        key={`it-${idx}-${ii}`}
+                        style={styles.checkRow}
+                        onPress={() => !busy && toggleIntentListItemInclude(idx, ii)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: included }}
+                      >
+                        <Checkbox.Android
+                          status={included ? 'checked' : 'unchecked'}
+                          onPress={() => !busy && toggleIntentListItemInclude(idx, ii)}
+                        />
+                        <View style={styles.checkLabelCol}>
+                          <Text style={styles.checkLabel}>{label}</Text>
+                          {sub ? <Text style={styles.checkSub}>{sub}</Text> : null}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          }
+          if (type === 'HABIT') {
+            const title = String(it.content ?? it.title ?? '').trim() || '—';
+            const rec = String(it.recurrence ?? '').trim();
+            return (
+              <View key={`intent-${idx}`} style={styles.intentCard}>
+                <View style={styles.intentHeadRow}>
+                  <Text style={styles.intentType}>HABIT</Text>
+                  {rec ? <Text style={styles.intentBadge}>{rec}</Text> : null}
+                </View>
+                <Text style={styles.intentTitle}>{title}</Text>
+              </View>
+            );
+          }
+          if (type === 'TRIP') {
+            const title = String(it.destination ?? it.content ?? '').trim() || '—';
+            return (
+              <View key={`intent-${idx}`} style={styles.intentCard}>
+                <View style={styles.intentHeadRow}>
+                  <Text style={styles.intentType}>TRIP</Text>
+                </View>
+                <Text style={styles.intentTitle}>{title}</Text>
+              </View>
+            );
+          }
+          return null;
+        })}
+        {isGenerating ? <StreamingIndicator /> : null}
+      </View>
+    );
+  };
+
   const renderTypeBody = () => {
+    const streamed = renderIntentCards();
+    if (streamed) return streamed;
     const d = draft.data;
     const logisticsBlock = () => {
       if (d.logisticsPotential !== true) return null;
@@ -845,6 +1079,21 @@ const styles = StyleSheet.create({
   },
   addReminderBtnText: { fontSize: 13, fontWeight: '700', color: '#475569' },
   sectionTitle: { fontSize: 14, fontWeight: '800', color: '#008080', marginBottom: 8 },
+  intentCard: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+    marginBottom: 10,
+  },
+  intentHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  intentType: { fontSize: 12, fontWeight: '900', color: '#0f766e' },
+  intentBadge: { fontSize: 12, fontWeight: '800', color: '#475569' },
+  intentTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginTop: 6 },
+  streamingRow: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 6 },
+  streamingDot: { fontSize: 18, fontWeight: '900', color: '#0f766e', marginHorizontal: 2 },
   label: { fontSize: 12, fontWeight: '700', color: '#64748b', marginTop: 8 },
   input: {
     borderWidth: 1,
