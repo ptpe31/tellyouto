@@ -20,6 +20,9 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "quota_remaining": "You have {{count}} free Sentinel trips remaining.",
+  "quota_exhausted_title": "Static Mode",
+  "quota_exhausted_desc": "Sentinel trial ended. Upgrade to PRO for real-time monitoring.",
   "sentinel": {
     "validationTitle": "Address validation",
     "detectedPlace": "Detected place: {{place}}",
@@ -28,7 +31,14 @@
     "validationRequired": "Select a valid address to activate Sentinel.",
     "activateCta": "Activate Sentinel",
     "placesMissingKey": "Missing Google Places key (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
-    "activatedToast": "VIA is monitoring your trip. Comfort zone expected around {{tOpt}} to arrive on {{date}} at {{time}}."
+    "activatedToast": "VIA is monitoring your trip. Comfort zone expected around {{tOpt}} to arrive on {{date}} at {{time}}.",
+    "notifTitle": "To: {{destination}} • Arrival {{arrival}}",
+    "notifUpdatedAt": "Updated at {{time}}",
+    "notifStatusBlue": "Monitoring",
+    "notifStatusOrange": "Window open",
+    "notifStatusRed": "Critical departure",
+    "notifStatusStatic": "Static mode",
+    "notifDepartureAt": "Depart at {{time}}"
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",

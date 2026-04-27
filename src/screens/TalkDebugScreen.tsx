@@ -107,6 +107,7 @@ import {
 import { cancelOneTapUniversalReminders } from '../services/oneTapUniversalReminders';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { activateSentinelTrip } from '../services/traffic/sentinelActivation';
+import { consumeSentinelQuotaOnTripValidation } from '../services/QuotaManager';
 
 function newId(): string {
   try {
@@ -1067,12 +1068,14 @@ export function TalkHomeScreen() {
         pushSuccessFeedback(t(o.successFeedbackI18nKey));
       }
       if (sentinelReady && sentinelTaskId) {
+        const quota = await consumeSentinelQuotaOnTripValidation({ isProUser: spectrum.isProUser });
         const { tOptimisteMs } = await activateSentinelTrip({
           tripTaskId: sentinelTaskId,
           formattedAddress,
           targetArrivalMs: arrivalMs,
           lat,
           lng,
+          sentinelMode: quota.mode,
         });
         pushSuccessFeedback(
           t('sentinel.activatedToast', {

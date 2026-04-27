@@ -19,6 +19,7 @@ import { Bell, ChevronDown } from 'lucide-react-native';
 import { TimelineDatePickerLazy } from './TimelineDatePickerLazy';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import { fetchLatestOneTapLogisticsMemory } from '../api/trankilV2Db';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
 import type { OneTapPredictedType, OneTapUniversalResult } from '../services/oneTapUniversalCapture';
 import {
   ONE_TAP_PREDICTED_TYPES,
@@ -27,6 +28,7 @@ import {
 } from '../services/oneTapUniversalCapture';
 import { printOneTapListDraft } from '../services/oneTapListPdf';
 import { listItemDisplayQuantity } from '../utils/listQuantityDisplay';
+import { ensureSentinelQuotaInitialized, getSentinelQuotaSnapshotLocalOnly } from '../services/QuotaManager';
 
 export type OneTapConfirmModalProps = {
   visible: boolean;
@@ -121,9 +123,11 @@ export function OneTapConfirmModal({
   onDismiss,
 }: OneTapConfirmModalProps) {
   const { t, i18n } = useTranslation();
+  const { spectrum } = useUserSpectrum();
   const insets = useSafeAreaInsets();
   const [menuOpen, setMenuOpen] = useState(false);
   const [dateTarget, setDateTarget] = useState<'TASK_DUE' | 'RECUR_NEXT' | 'UNIVERSAL_REMINDER' | null>(null);
+  const [sentinelQuotaBalance, setSentinelQuotaBalance] = useState<number | null>(null);
 
   const showRefiningBanner = refinePhase === 'streaming' || refinePhase === 'local';
 
@@ -158,6 +162,17 @@ export function OneTapConfirmModal({
     if (readDueIso(draft.data)) return true;
     return Boolean(readRecObj(draft.data));
   }, [draft]);
+
+  useEffect(() => {
+    if (!visible) return;
+    if (!draft) return;
+    if (draft.data.logisticsPotential !== true) return;
+    void (async () => {
+      await ensureSentinelQuotaInitialized();
+      const snap = await getSentinelQuotaSnapshotLocalOnly();
+      setSentinelQuotaBalance(snap.balance);
+    })();
+  }, [draft, visible]);
 
   if (!draft) return null;
 
@@ -332,6 +347,17 @@ export function OneTapConfirmModal({
           />
           {!hasValid ? (
             <Text style={styles.logisticsWarn}>{t('sentinel.validationRequired')}</Text>
+          ) : null}
+          {!spectrum.isProUser && sentinelQuotaBalance !== null ? (
+            <Text style={styles.logisticsQuota}>
+              {t('quota_remaining', { count: sentinelQuotaBalance })}
+            </Text>
+          ) : null}
+          {!spectrum.isProUser && sentinelQuotaBalance !== null && sentinelQuotaBalance <= 0 ? (
+            <View style={styles.logisticsExhausted}>
+              <Text style={styles.logisticsExhaustedTitle}>{t('quota_exhausted_title')}</Text>
+              <Text style={styles.logisticsExhaustedDesc}>{t('quota_exhausted_desc')}</Text>
+            </View>
           ) : null}
         </View>
       );
@@ -883,6 +909,17 @@ const styles = StyleSheet.create({
   logisticsTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
   logisticsHint: { fontSize: 13, fontWeight: '600', color: '#475569', marginBottom: 8 },
   logisticsWarn: { fontSize: 12, fontWeight: '700', color: '#b91c1c', marginTop: 6 },
+  logisticsQuota: { fontSize: 12, fontWeight: '700', color: '#0f766e', marginTop: 10 },
+  logisticsExhausted: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(244,63,94,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(244,63,94,0.22)',
+  },
+  logisticsExhaustedTitle: { fontSize: 13, fontWeight: '800', color: '#b91c1c', marginBottom: 2 },
+  logisticsExhaustedDesc: { fontSize: 12, fontWeight: '600', color: '#475569' },
   dateCta: {
     marginTop: 6,
     paddingVertical: 12,

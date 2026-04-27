@@ -1,6 +1,7 @@
 import { Linking, Platform } from 'react-native';
 
 import { getNotifications } from '../notifications';
+import i18n from '../../locales/i18n';
 
 export const SENTINEL_NOTIFICATION_CHANNEL_ID = 'sentinel_silent_updates';
 export const SENTINEL_NOTIFICATION_CATEGORY_ID = 'sentinel_trip';
@@ -117,6 +118,7 @@ export class SentinelNotificationManager {
     trafficLabel?: string;
     lat?: number;
     lng?: number;
+    staticDepartureAtMs?: number;
   }): Promise<void> {
     const n = getNotifications();
     if (!n) return;
@@ -137,18 +139,27 @@ export class SentinelNotificationManager {
       destination: input.destination,
       ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
     };
-    const title = `Vers : ${input.destination} • Arrivée ${fmtHm(input.targetArrivalMs)}`;
-    const gauge = buildNewtonGauge({
-      nowMs: input.nowMs,
-      tOptimisteMs: input.tOptimisteMs,
-      arrivalMs: input.targetArrivalMs,
+    const title = i18n.t('sentinel.notifTitle', {
+      destination: input.destination,
+      arrival: fmtHm(input.targetArrivalMs),
     });
-    const line3 = `${input.trafficLabel ?? input.vigilanceStatus} • Mis à jour à ${fmtHm(input.nowMs)}`;
+    const statusLine = input.trafficLabel ?? input.vigilanceStatus;
+    const updatedAt = i18n.t('sentinel.notifUpdatedAt', { time: fmtHm(input.nowMs) });
+    const staticDepartureAtMs = Number.isFinite(Number(input.staticDepartureAtMs))
+      ? Number(input.staticDepartureAtMs)
+      : null;
+    const body = staticDepartureAtMs !== null
+      ? `${i18n.t('sentinel.notifDepartureAt', { time: fmtHm(staticDepartureAtMs) })}\n${statusLine} • ${updatedAt}`
+      : `${buildNewtonGauge({
+          nowMs: input.nowMs,
+          tOptimisteMs: input.tOptimisteMs,
+          arrivalMs: input.targetArrivalMs,
+        })}\n${statusLine} • ${updatedAt}`;
     await n.scheduleNotificationAsync({
       identifier,
       content: {
         title,
-        body: `${gauge}\n${line3}`,
+        body,
         data: payload,
         categoryIdentifier: SENTINEL_NOTIFICATION_CATEGORY_ID,
         sticky: true,

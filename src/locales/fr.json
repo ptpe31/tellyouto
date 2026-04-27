@@ -20,6 +20,9 @@
   "quota": {
     "format": "{{current}}/{{total}}"
   },
+  "quota_remaining": "Il vous reste {{count}} trajets Sentinel offerts.",
+  "quota_exhausted_title": "Mode Statique",
+  "quota_exhausted_desc": "Essai Sentinel terminé. Passez à la version PRO pour la surveillance en temps réel.",
   "sentinel": {
     "validationTitle": "Validation d'adresse",
     "detectedPlace": "Lieu détecté : {{place}}",
@@ -28,7 +31,14 @@
     "validationRequired": "Sélectionne une adresse valide pour activer Sentinel.",
     "activateCta": "Activer Sentinel",
     "placesMissingKey": "Clé Google Places manquante (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
-    "activatedToast": "VIA surveille votre trajet. Zone de confort prévue vers {{tOpt}} pour arriver le {{date}} à {{time}}."
+    "activatedToast": "VIA surveille votre trajet. Zone de confort prévue vers {{tOpt}} pour arriver le {{date}} à {{time}}.",
+    "notifTitle": "Vers : {{destination}} • Arrivée {{arrival}}",
+    "notifUpdatedAt": "Mis à jour à {{time}}",
+    "notifStatusBlue": "Trafic surveillé",
+    "notifStatusOrange": "Fenêtre ouverte",
+    "notifStatusRed": "Départ critique",
+    "notifStatusStatic": "Mode statique",
+    "notifDepartureAt": "Départ à {{time}}"
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",

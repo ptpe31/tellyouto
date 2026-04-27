@@ -7,6 +7,7 @@ import {
   type TrafficScanSession,
 } from './TrafficEngine';
 import { SentinelNotificationManager } from './TrafficNotificationService';
+import i18n from '../../locales/i18n';
 
 /** Marge invisible anti-risque: depart 5 min avant le point critique. */
 export const INNER_SAFETY_MARGIN_SEC = 300;
@@ -27,6 +28,7 @@ export type TripTaskRow = {
   destination: string;
   arrivalAtMs: number;
   status: TrafficTaskStatus;
+  sentinelMode: 'SENTINEL' | 'STATIC';
   targetDurationSec: number;
   lastTrafficDuration: number;
   internalScanCount: number;
@@ -201,6 +203,7 @@ export class TrafficScheduler {
     destination: string;
     arrivalAtMs: number;
     status?: TrafficTaskStatus;
+    sentinelMode?: 'SENTINEL' | 'STATIC';
     targetDurationSec: number;
     lastTrafficDuration?: number;
     internalScanCount?: number;
@@ -213,15 +216,16 @@ export class TrafficScheduler {
     await withLocalDatabase(async (db) => {
       await db.runAsync(
         `INSERT OR REPLACE INTO ${this.tableName} (
-          id, destination, arrival_at_ms, status, target_duration_sec, last_traffic_duration,
+          id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,
           internal_scan_count, next_check_at, gate_prompted_at, last_error_at,
           t_optimiste_ms, t_pessimiste_ms, vigilance_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
         [
           input.id,
           input.destination,
           input.arrivalAtMs,
           input.status ?? 'ACTIVE',
+          input.sentinelMode ?? 'SENTINEL',
           input.targetDurationSec,
           input.lastTrafficDuration ?? 0,
           input.internalScanCount ?? 0,
@@ -258,6 +262,36 @@ export class TrafficScheduler {
     if (!task || task.status !== 'ACTIVE') return;
 
     try {
+      if (task.sentinelMode === 'STATIC') {
+        const nowMs = wallNowMs;
+        if (nowMs >= task.arrivalAtMs) {
+          await this.persistAfterScan(task.id, {
+            status: 'DONE',
+            lastErrorAt: null,
+            vigilanceStatus: 'FINISHED',
+          });
+          await this.notificationManager.cancel(task.id);
+          this.clearTaskTimer(task.id);
+          return;
+        }
+
+        const durationMs = Math.max(0, Number(task.lastTrafficDuration) || 0) * 1000;
+        const departureAtMs =
+          task.tPessimisteMs ?? Math.round(task.arrivalAtMs - durationMs - 5 * 60 * 1000);
+        await this.notificationManager.update({
+          tripTaskId: task.id,
+          destination: task.destination,
+          targetArrivalMs: task.arrivalAtMs,
+          nowMs,
+          tOptimisteMs: task.tOptimisteMs ?? departureAtMs,
+          vigilanceStatus: String(task.vigilanceStatus ?? 'VIGILANCE_BLUE'),
+          staticDepartureAtMs: departureAtMs,
+          trafficLabel: i18n.t('sentinel.notifStatusStatic'),
+        });
+        await this.planTask(task);
+        return;
+      }
+
       const sample = await this.mapsService.fetchTrafficSample(task);
       const nowMs =
         this.simulationMode && Number.isFinite(Number(sample.simulatedNowMs))
@@ -304,6 +338,14 @@ export class TrafficScheduler {
       if (nextVigilanceStatus === 'FINISHED') {
         await this.notificationManager.cancel(task.id);
       } else {
+        const trafficLabel =
+          nextVigilanceStatus === 'VIGILANCE_BLUE'
+            ? i18n.t('sentinel.notifStatusBlue')
+            : nextVigilanceStatus === 'VIGILANCE_ORANGE'
+              ? i18n.t('sentinel.notifStatusOrange')
+              : nextVigilanceStatus === 'VIGILANCE_RED'
+                ? i18n.t('sentinel.notifStatusRed')
+                : String(nextVigilanceStatus);
         await this.notificationManager.update({
           tripTaskId: task.id,
           destination: task.destination,
@@ -311,14 +353,7 @@ export class TrafficScheduler {
           nowMs,
           tOptimisteMs: output.tOptimisteMs,
           vigilanceStatus: nextVigilanceStatus,
-          trafficLabel:
-            nextVigilanceStatus === 'VIGILANCE_BLUE'
-              ? 'Trafic surveillé'
-              : nextVigilanceStatus === 'VIGILANCE_ORANGE'
-                ? 'Fenêtre ouverte'
-                : nextVigilanceStatus === 'VIGILANCE_RED'
-                  ? 'Départ critique'
-                  : 'Terminé',
+          trafficLabel,
         });
       }
 
@@ -347,7 +382,7 @@ export class TrafficScheduler {
     const gapMin = remainingMinutesUntilArrival(task.arrivalAtMs, nowMs);
     const isFar = gapMin > CONFIRMATION_GATE_HOURS * 60;
 
-    if (isFar && task.status !== 'PENDING_CONFIRMATION') {
+    if (task.sentinelMode === 'SENTINEL' && isFar && task.status !== 'PENDING_CONFIRMATION') {
       await this.persistAfterScan(task.id, {
         status: 'PENDING_CONFIRMATION',
         gatePromptedAt: nowMs,
@@ -360,11 +395,14 @@ export class TrafficScheduler {
 
     if (task.status !== 'ACTIVE') return;
 
-    const nextJumpMs = calculateNextJump({
-      nowMs,
-      targetArrivalMs: task.arrivalAtMs,
-      stabilizedDurationSec: task.lastTrafficDuration,
-    });
+    const nextJumpMs =
+      task.sentinelMode === 'STATIC'
+        ? Math.max(60_000, Math.min(60 * 60 * 1000, task.arrivalAtMs - nowMs))
+        : calculateNextJump({
+            nowMs,
+            targetArrivalMs: task.arrivalAtMs,
+            stabilizedDurationSec: task.lastTrafficDuration,
+          });
     const targetAt = task.nextCheckAt ?? nowMs + nextJumpMs;
     const rawDelay = Math.max(500, targetAt - nowMs);
     const warp =
@@ -393,6 +431,7 @@ export class TrafficScheduler {
           destination TEXT NOT NULL,
           arrival_at_ms INTEGER NOT NULL,
           status TEXT NOT NULL,
+          sentinel_mode TEXT NOT NULL DEFAULT 'SENTINEL',
           target_duration_sec INTEGER NOT NULL DEFAULT 0,
           last_traffic_duration INTEGER NOT NULL DEFAULT 0,
           internal_scan_count INTEGER NOT NULL DEFAULT 0,
@@ -481,6 +520,8 @@ export class TrafficScheduler {
     destination: String(row.destination ?? ''),
     arrivalAtMs: Number(row.arrival_at_ms ?? 0),
     status: String(row.status ?? 'PAUSED') as TrafficTaskStatus,
+    sentinelMode:
+      String(row.sentinel_mode ?? 'SENTINEL').toUpperCase() === 'STATIC' ? 'STATIC' : 'SENTINEL',
     targetDurationSec: Number(row.target_duration_sec ?? 0),
     lastTrafficDuration: Number(row.last_traffic_duration ?? 0),
     internalScanCount: Number(row.internal_scan_count ?? 0),
