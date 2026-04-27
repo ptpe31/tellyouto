@@ -5,6 +5,48 @@ import { Button } from 'react-native-paper';
 
 import { orchestrateNewIntention } from '../services/intentionsPipeline';
 
+const ANSI = {
+  reset: '\u001b[0m',
+  bold: '\u001b[1m',
+  red: '\u001b[31m',
+  green: '\u001b[32m',
+  yellow: '\u001b[33m',
+  cyan: '\u001b[36m',
+  white: '\u001b[37m',
+};
+
+function stars(label: string): string {
+  return `${ANSI.bold}${ANSI.white}**************** ${label} ****************${ANSI.reset}`;
+}
+
+function splitBatchInput(raw: string): string[] {
+  const s = String(raw ?? '');
+  if (!s.includes('//')) return [s];
+  const out: string[] = [];
+  let buf = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    const next = i + 1 < s.length ? s[i + 1] : '';
+    if (ch === '/' && next === '/') {
+      const prev = i > 0 ? s[i - 1] : '';
+      const isUrl = prev === ':';
+      const before = i > 0 ? s[i - 1] : '';
+      const after = i + 2 < s.length ? s[i + 2] : '';
+      const beforeOk = before === '' || /\s/.test(before);
+      const afterOk = after === '' || /\s/.test(after);
+      if (!isUrl && (beforeOk || afterOk)) {
+        out.push(buf);
+        buf = '';
+        i++;
+        continue;
+      }
+    }
+    buf += ch;
+  }
+  out.push(buf);
+  return out.map((x) => x.trim()).filter((x) => x.length > 0);
+}
+
 export function TalkHomeScreen() {
   const { t } = useTranslation();
   const [title, setTitle] = useState('');
@@ -16,12 +58,31 @@ export function TalkHomeScreen() {
     setBusy(true);
     try {
       const dueAtMs = dueAt ? new Date(dueAt).getTime() : null;
-      await orchestrateNewIntention({
-        source: 'TEXT',
-        content: note,
-        title: title || t('talk.debugFallbackTitle'),
-        dueAtMs,
-      });
+      const segments = splitBatchInput(note);
+      if (segments.length > 1) {
+        console.log(
+          `${ANSI.cyan}${ANSI.bold}[BANC-DE-TEST] 🚀 Lancement d'un batch de ${segments.length} intentions.${ANSI.reset}`
+        );
+      }
+      for (const [idx, segment] of segments.entries()) {
+        console.log(stars(`[ BANC-DE-TEST ${idx + 1}/${segments.length} ]`));
+        try {
+          await orchestrateNewIntention({
+            source: 'TEXT',
+            content: segment,
+            title: title || t('talk.debugFallbackTitle'),
+            dueAtMs,
+          });
+          console.log(`${ANSI.green}${ANSI.bold}[BANC-DE-TEST] ✅ OK${ANSI.reset}`);
+        } catch (e) {
+          console.log(
+            `${ANSI.red}${ANSI.bold}[BANC-DE-TEST] ❌ Erreur: ${e instanceof Error ? e.message : String(e)}${ANSI.reset}`
+          );
+        }
+      }
+      if (segments.length > 1) {
+        console.log(`${ANSI.yellow}${ANSI.bold}[BANC-DE-TEST] ✅ Fin du batch. Base de données à jour.${ANSI.reset}`);
+      }
       setTitle('');
       setNote('');
       setDueAt('');
