@@ -3,11 +3,16 @@ import {
   ensureGeminiRemoteModelInitialized,
   excludeGeminiModelForSession,
   getActiveGeminiModelId,
-  getGeminiCandidateModelIds,
   persistValidatedGeminiModelId,
+  setGeminiSessionCandidateModelIds,
   setGeminiActiveModelForSession,
 } from './geminiRemoteModelSteering';
-import { GEMINI_MODEL_SHORTLIST, isBannedGeminiModelId } from './geminiModelCatalog';
+import {
+  fetchAllGeminiModelsList,
+  GEMINI_MODEL_SHORTLIST,
+  isBannedGeminiModelId,
+  shortGeminiModelId,
+} from './geminiModelCatalog';
 import { getGeminiApiKey } from './geminiSemanticLab';
 
 const BASE_V1 = 'https://generativelanguage.googleapis.com/v1';
@@ -47,19 +52,37 @@ export async function initializeGeminiEngine(): Promise<void> {
     return;
   }
 
-  const raw = getGeminiCandidateModelIds();
-  const candidates: string[] = [];
-  const seen = new Set<string>();
-  for (const id of raw) {
-    if (!id || seen.has(id)) continue;
-    if (isBannedGeminiModelId(id)) continue;
-    seen.add(id);
-    candidates.push(id);
+  let candidates: string[] = [];
+  try {
+    const listed = await fetchAllGeminiModelsList(apiKey);
+    const withGen = listed.filter((m) => (m.supportedGenerationMethods ?? []).includes('generateContent'));
+    const allIds = [...new Set(withGen.map((m) => shortGeminiModelId(m.name)))];
+    const desiredPrefixes = [...new Set(GEMINI_MODEL_SHORTLIST.map((id) => id.replace(/-latest$/i, '')))];
+    const matchesDesired = (id: string) => desiredPrefixes.some((p) => id === p || id.startsWith(`${p}-`));
+    candidates = allIds.filter((id) => !isBannedGeminiModelId(id) && matchesDesired(id));
+    const rank = (id: string) => {
+      const pref = desiredPrefixes.findIndex((p) => id === p || id.startsWith(`${p}-`));
+      const familyBonus = /flash/i.test(id) ? 0 : /pro/i.test(id) ? 1 : 2;
+      const latestBonus = /-latest$/i.test(id) ? 0 : 1;
+      return pref < 0 ? 999 : pref * 10 + familyBonus * 2 + latestBonus;
+    };
+    candidates.sort((a, b) => rank(a) - rank(b));
+  } catch {
+    candidates = [];
   }
+
+  if (!candidates.length) {
+    const fallback = GEMINI_MODEL_SHORTLIST.filter((id) => !isBannedGeminiModelId(id));
+    candidates = fallback;
+  }
+
+  setGeminiSessionCandidateModelIds(candidates);
 
   const bannedForSession = new Set<string>();
   let usedTempFallback = false;
-  for (const id of candidates) {
+  const activeNow = getActiveGeminiModelId();
+  const ordered = activeNow && candidates.includes(activeNow) ? [activeNow, ...candidates.filter((m) => m !== activeNow)] : candidates;
+  for (const id of ordered) {
     if (bannedForSession.has(id)) continue;
     const probe = await pingGenerateContent(id, apiKey);
     if (probe.ok) {

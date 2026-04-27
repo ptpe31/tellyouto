@@ -298,6 +298,10 @@ async function postGenerateContent(
       endpoint: safeUrl,
       tNet0: Math.round(tNet0),
     });
+    if (traceOperation.startsWith('oneTap.wire')) {
+      const gc = (effectiveBody as { generationConfig?: Record<string, unknown> }).generationConfig ?? {};
+      labLog('oneTap.generationConfig', { model: modelId, ...gc });
+    }
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -930,6 +934,10 @@ async function postStreamGenerateContent(
     const url = buildStreamGenerateUrl(modelId);
     const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
     labLog('stream.request.start', { model: modelId, endpoint: safeUrl });
+    if (traceOperation.startsWith('oneTap.wire')) {
+      const gc = (effectiveBody as { generationConfig?: Record<string, unknown> }).generationConfig ?? {};
+      labLog('oneTap.generationConfig', { model: modelId, ...gc });
+    }
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

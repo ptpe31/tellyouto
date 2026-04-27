@@ -58,6 +58,7 @@ let lastRemoteConfigResolvedModelId: string | null = null;
 let steeringInitPromise: Promise<void> | null = null;
 let fallbackCursor = 0;
 const sessionExcludedModelIds = new Set<string>();
+let sessionCandidateModelIds: string[] | null = null;
 
 /** Secours local après self-heal (24h). */
 const GEMINI_FALLBACK_STORAGE_KEY = 'validated_model_id';
@@ -206,6 +207,20 @@ export function isGeminiModelExcludedForSession(modelId: string): boolean {
   return sessionExcludedModelIds.has(clean);
 }
 
+export function setGeminiSessionCandidateModelIds(modelIds: string[]): void {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of modelIds) {
+    const clean = sanitizeRemoteModelId(raw);
+    if (!clean) continue;
+    if (isBannedGeminiModelId(clean)) continue;
+    if (seen.has(clean)) continue;
+    seen.add(clean);
+    out.push(clean);
+  }
+  sessionCandidateModelIds = out.length ? out : null;
+}
+
 /** Modèle issu du dernier fetch RC (sans tenir compte du secours local 24h). */
 export function getLastRemoteConfigResolvedModelId(): string | null {
   return lastRemoteConfigResolvedModelId;
@@ -267,7 +282,7 @@ export function ensureGeminiRemoteModelInitialized(): Promise<void> {
 }
 
 export function getGeminiCandidateModelIds(): string[] {
-  const base = GEMINI_FALLBACK_LIST_MODELS;
+  const base = sessionCandidateModelIds ?? GEMINI_FALLBACK_LIST_MODELS;
   const active = getActiveGeminiModelId();
   const raw = [active, ...base.filter((id) => id !== active)];
   const out: string[] = [];
