@@ -329,6 +329,33 @@ function buildListDataFromWireItems(items: string[], title: string): Record<stri
   };
 }
 
+function parseWireListItems(raw: string): string[] {
+  const base = String(raw || '').replace(/\|/g, ' ').trim();
+  if (!base) return [];
+  const normalized = base.replace(/\r\n/g, '\n').replace(/[•·]/g, '\n');
+  let parts = normalized.split(/[\n;]+/);
+  if (parts.length <= 1 && normalized.includes(',')) {
+    parts = normalized.split(',');
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const cleaned = p
+      .trim()
+      .replace(/^\s*(?:[-*]\s*|\d+\s*[.)-]\s*)/, '')
+      .trim()
+      .replace(/\s{2,}/g, ' ')
+      .slice(0, 120);
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(cleaned);
+    if (out.length >= 48) break;
+  }
+  return out;
+}
+
 function normalizeWireHm(h: string): string | null {
   const m = h.trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
@@ -363,7 +390,7 @@ function patchDataFromWire(predictedType: OneTapPredictedType, wire: OneTapWireF
     };
   }
   if (predictedType === 'LIST' && wire.L) {
-    const items = wire.L.split(';').map((x) => x.trim()).filter(Boolean);
+    const items = parseWireListItems(wire.L);
     return buildListDataFromWireItems(items, wire.T || '');
   }
   if (predictedType === 'ANNIVERSARY') {
