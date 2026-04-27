@@ -6,6 +6,7 @@ import {
   notifyOfflineAudioPendingAnalysis,
   purgeProcessedQueue,
 } from '../services/intention/offlineAudioQueue';
+import { ensureSentinelQuotaInitialized } from '../services/QuotaManager';
 
 import { NativeAlarmBootstrap } from './NativeAlarmBootstrap';
 import { ProfileSyncBootstrap } from './ProfileSyncBootstrap';
@@ -16,6 +17,7 @@ import { ProfileSyncBootstrap } from './ProfileSyncBootstrap';
 export function IntentionSyncBootstrap() {
   useEffect(() => {
     void purgeProcessedQueue();
+    void ensureSentinelQuotaInitialized();
     void NetInfo.fetch().then((state) => {
       if (state.isConnected === true && state.isInternetReachable === true) {
         void notifyOfflineAudioPendingAnalysis();
