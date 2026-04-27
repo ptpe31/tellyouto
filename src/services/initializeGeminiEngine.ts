@@ -7,13 +7,15 @@ import {
   persistValidatedGeminiModelId,
   setGeminiActiveModelForSession,
 } from './geminiRemoteModelSteering';
-import { isBannedGeminiModelId } from './geminiModelCatalog';
+import { GEMINI_MODEL_SHORTLIST, isBannedGeminiModelId } from './geminiModelCatalog';
 import { getGeminiApiKey } from './geminiSemanticLab';
 
-const BASE = 'https://generativelanguage.googleapis.com/v1';
+const BASE_V1 = 'https://generativelanguage.googleapis.com/v1';
+const BASE_V1BETA = 'https://generativelanguage.googleapis.com/v1beta';
 
 async function pingGenerateContent(modelId: string, apiKey: string): Promise<{ ok: boolean; status: number }> {
-  const url = `${BASE}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const base = /-latest$/i.test(modelId) ? BASE_V1BETA : BASE_V1;
+  const url = `${base}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -35,7 +37,7 @@ export async function initializeGeminiEngine(): Promise<void> {
   await ensureGeminiRemoteModelInitialized();
 
   const active = getActiveGeminiModelId();
-  if (active && isBannedGeminiModelId(active)) {
+  if (active && (isBannedGeminiModelId(active) || !GEMINI_MODEL_SHORTLIST.includes(active as (typeof GEMINI_MODEL_SHORTLIST)[number]))) {
     await clearGeminiValidatedModelCache();
   }
 

@@ -543,13 +543,13 @@ export function inferOneTapSkeletonFromTranscript(
     predictedType = 'ANNIVERSARY';
   } else if (
     /\b(chaque jour|tous les jours|chaque matin|tous les matins|habitude|routine|quotidien)\b/i.test(cleaned) &&
-    !/\b(demain|après-demain|à \d{1,2}[:h]\d{2})\b/i.test(cleaned)
+    !/\b(demain|après-demain|à \d{1,2}(?:[:h]\d{2}|h\b))\b/i.test(cleaned)
   ) {
     predictedType = 'HABIT';
   } else if (/\b(chaque semaine|tous les lundis|toutes les semaines|récurrent|recurrent)\b/i.test(cleaned)) {
     predictedType = 'RECURRING_TASK';
   } else if (
-    /\b(rappel|demain|après-demain|dans \d+\s*minutes?|à \d{1,2}[:h]\d{2}|rendez-vous|rdv)\b/i.test(cleaned) ||
+    /\b(rappel|demain|après-demain|ce soir|dans \d+\s*minutes?|à \d{1,2}(?:[:h]\d{2}|h\b)|rendez-vous|rdv)\b/i.test(cleaned) ||
     /\b(tâche|task)\b/i.test(lower)
   ) {
     predictedType = 'TASK';
@@ -568,6 +568,12 @@ export function inferOneTapSkeletonFromTranscript(
     (() => {
       const loc = String(options.uiLocale || 'fr').toLowerCase();
       const lang2 = loc.slice(0, 2);
+      const chronoInput =
+        lang2 === 'fr'
+          ? cleaned
+              .replace(/\b(\d{1,2})\s*h\s*(\d{2})\b/gi, '$1:$2')
+              .replace(/\b(\d{1,2})\s*h\b/gi, '$1:00')
+          : cleaned;
       const mod = (
         lang2 === 'fr'
           ? chrono.fr
@@ -590,9 +596,9 @@ export function inferOneTapSkeletonFromTranscript(
                           : null
       ) as unknown as { parse?: (t: string, r?: Date, o?: Record<string, unknown>) => unknown[] } | null;
       if (mod?.parse) {
-        return mod.parse(cleaned, ref, { forwardDate: true }) as unknown[];
+        return mod.parse(chronoInput, ref, { forwardDate: true }) as unknown[];
       }
-      return chrono.parse(cleaned, ref, { forwardDate: true }) as unknown[];
+      return chrono.parse(chronoInput, ref, { forwardDate: true }) as unknown[];
     })() as unknown as chrono.ParsedResult[];
   if (chronoResults.length > 0 && (predictedType === 'TASK' || predictedType === 'NOTE' || predictedType === 'HABIT')) {
     const start = chronoResults[0].start?.date();
@@ -606,6 +612,8 @@ export function inferOneTapSkeletonFromTranscript(
       const hm = `${hh}:${mm}`;
       if (predictedType === 'TASK') {
         base = { ...base, dueDateYmd: ymd, dueTimeHm: hm, notes: cleaned.slice(0, 2000) };
+      } else if (predictedType === 'NOTE') {
+        base = { ...base, dueDateYmd: ymd, dueTimeHm: hm };
       } else if (predictedType === 'HABIT') {
         base = { ...base, preferredTimeHm: hm, cadenceDescription: base.cadenceDescription || 'Quotidien' };
       }
@@ -756,12 +764,14 @@ export async function refineOneTapWithGeminiCompressed(
 
   const pathBGeminiEnd = perfNowMs();
   const geminiRefineMs = Math.round(pathBGeminiEnd - pathBGeminiStart);
+  const metaModelId = getActiveGeminiModelId();
   const metaForLog: GeminiHttpSettledMeta =
     httpMeta ?? {
-      modelId: getActiveGeminiModelId(),
+      modelId: metaModelId,
       latencyMs: geminiRefineMs,
       fallbackUsed: false,
       operation: useStream ? 'oneTap.wire.stream' : 'oneTap.wire.nonstream',
+      versionLabel: /-latest$/i.test(metaModelId) ? 'v1beta' : 'v1',
     };
   logGeminiApiPathBResolvedSuccess(metaForLog, {
     categoryTag: parsed.categoryTag,

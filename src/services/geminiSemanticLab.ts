@@ -36,8 +36,8 @@ import {
 } from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
 
-const BASE = 'https://generativelanguage.googleapis.com/v1';
-const GEMINI_API_VERSION_LABEL = 'v1';
+const BASE_V1 = 'https://generativelanguage.googleapis.com/v1';
+const BASE_V1BETA = 'https://generativelanguage.googleapis.com/v1beta';
 
 /** Lignes de détail des blocs `[GeminiAPI]` — même indentation que `[OneTap]` / `[OneTapPerf]`. */
 const GLOG = '\n  | ';
@@ -55,7 +55,13 @@ export type GeminiHttpSettledMeta = {
   latencyMs: number;
   fallbackUsed: boolean;
   operation: string;
+  versionLabel: string;
 };
+
+function getGeminiApiMetaForModel(modelId: string): { base: string; versionLabel: string } {
+  if (/-latest$/i.test(modelId)) return { base: BASE_V1BETA, versionLabel: 'v1beta' };
+  return { base: BASE_V1, versionLabel: 'v1' };
+}
 
 type PostGeminiHttpOptions = {
   pathBLog?: GeminiPathBLogAnchor;
@@ -77,10 +83,11 @@ function logGeminiApiCallSuccess(params: {
   latencyMs: number;
   fallbackUsed: boolean;
   operation: string;
+  versionLabel: string;
 }): void {
   const fb = params.fallbackUsed ? 'YES' : 'NO';
   console.log(
-    `[GeminiAPI] 🚀 CALL_SUCCESS${GLOG}Model: ${params.modelId}${GLOG}Latency: ${params.latencyMs}ms${GLOG}FallbackUsed: ${fb}${GLOG}Version: ${GEMINI_API_VERSION_LABEL}${GLOG}Operation: ${params.operation}`,
+    `[GeminiAPI] 🚀 CALL_SUCCESS${GLOG}Model: ${params.modelId}${GLOG}Latency: ${params.latencyMs}ms${GLOG}FallbackUsed: ${fb}${GLOG}Version: ${params.versionLabel}${GLOG}Operation: ${params.operation}`,
   );
 }
 
@@ -95,7 +102,7 @@ export function logGeminiApiPathBResolvedSuccess(
   const fb = meta.fallbackUsed ? 'YES' : 'NO';
   const entitiesJson = safeJsonForTerminalLog(parsed.data, 2000);
   console.log(
-    `[GeminiAPI] ✅ CALL_SUCCESS${GLOG}Model: ${meta.modelId}${GLOG}Category: ${parsed.categoryTag}${GLOG}Entities: ${entitiesJson}${GLOG}Latency: ${meta.latencyMs}ms${GLOG}FallbackUsed: ${fb}${GLOG}Version: ${GEMINI_API_VERSION_LABEL}${GLOG}Operation: ${meta.operation}`,
+    `[GeminiAPI] ✅ CALL_SUCCESS${GLOG}Model: ${meta.modelId}${GLOG}Category: ${parsed.categoryTag}${GLOG}Entities: ${entitiesJson}${GLOG}Latency: ${meta.latencyMs}ms${GLOG}FallbackUsed: ${fb}${GLOG}Version: ${meta.versionLabel}${GLOG}Operation: ${meta.operation}`,
   );
 }
 
@@ -104,6 +111,7 @@ function logGeminiApiCallError(params: {
   latencyMs: number;
   fallbackUsed: boolean;
   operation: string;
+  versionLabel: string;
   httpStatus?: number;
   reason?: string;
   pathBAnchor?: GeminiPathBLogAnchor;
@@ -116,7 +124,7 @@ function logGeminiApiCallError(params: {
       ? `${GLOG}PathA_Fallback_Category: ${params.pathBAnchor.pathACategoryTag}${GLOG}PathA_Entities: ${safeJsonForTerminalLog(params.pathBAnchor.pathAData, 600)}`
       : '';
   console.log(
-    `[GeminiAPI] ❌ CALL_ERROR${GLOG}Model: ${params.modelId}${GLOG}Latency: ${params.latencyMs}ms${GLOG}FallbackUsed: ${fb}${GLOG}Version: ${GEMINI_API_VERSION_LABEL}${GLOG}Operation: ${params.operation}${http}${reason}${pathA}`,
+    `[GeminiAPI] ❌ CALL_ERROR${GLOG}Model: ${params.modelId}${GLOG}Latency: ${params.latencyMs}ms${GLOG}FallbackUsed: ${fb}${GLOG}Version: ${params.versionLabel}${GLOG}Operation: ${params.operation}${http}${reason}${pathA}`,
   );
 }
 
@@ -195,12 +203,13 @@ export type GeminiLabAnalysis = {
 };
 
 function buildGenerateUrl(modelId: string): string {
+  const { base } = getGeminiApiMetaForModel(modelId);
   const key = getGeminiApiKey();
   if (!key) {
     console.error('[GeminiLab] API Key missing (EXPO_PUBLIC_GEMINI_API_KEY). Skipping Gemini calls.');
-    return `${BASE}/models/${modelId}:generateContent`;
+    return `${base}/models/${modelId}:generateContent`;
   }
-  return `${BASE}/models/${modelId}:generateContent?key=${encodeURIComponent(key)}`;
+  return `${base}/models/${modelId}:generateContent?key=${encodeURIComponent(key)}`;
 }
 
 /**
@@ -354,6 +363,7 @@ async function postGenerateContent(
       void persistValidatedGeminiModelId(modelId);
     }
   }
+  const versionLabel = getGeminiApiMetaForModel(modelId).versionLabel;
 
   if (res.ok) {
     try {
@@ -364,16 +374,12 @@ async function postGenerateContent(
         latencyMs,
         fallbackUsed: fb,
         operation: traceOperation,
+        versionLabel,
       };
       if (options?.pathBLog) {
         options.onHttpSuccessMeta?.(meta);
       } else {
-        logGeminiApiCallSuccess({
-          modelId,
-          latencyMs,
-          fallbackUsed: fb,
-          operation: traceOperation,
-        });
+        logGeminiApiCallSuccess(meta);
       }
       return data;
     } catch {
@@ -382,6 +388,7 @@ async function postGenerateContent(
         latencyMs,
         fallbackUsed: computeGeminiIsFallback(modelId, usedRecoverRetry),
         operation: traceOperation,
+        versionLabel,
         reason: 'non-JSON response body',
         pathBAnchor: options?.pathBLog,
       });
@@ -394,6 +401,7 @@ async function postGenerateContent(
     latencyMs,
     fallbackUsed: usedRecoverRetry,
     operation: traceOperation,
+    versionLabel,
     httpStatus: res.status,
     reason: text.slice(0, 300),
     pathBAnchor: options?.pathBLog,
@@ -866,12 +874,13 @@ const ONETAP_WIRE_SYSTEM_PREFIX =
   'Output ONLY that line: no markdown, no JSON, no line breaks.\n\n';
 
 function buildStreamGenerateUrl(modelId: string): string {
+  const { base } = getGeminiApiMetaForModel(modelId);
   const key = getGeminiApiKey();
   if (!key) {
     console.error('[GeminiLab] API Key missing (EXPO_PUBLIC_GEMINI_API_KEY). Skipping Gemini calls.');
-    return `${BASE}/models/${modelId}:streamGenerateContent`;
+    return `${base}/models/${modelId}:streamGenerateContent`;
   }
-  return `${BASE}/models/${modelId}:streamGenerateContent?key=${encodeURIComponent(key)}`;
+  return `${base}/models/${modelId}:streamGenerateContent?key=${encodeURIComponent(key)}`;
 }
 
 function extractStreamedTextDelta(parsed: unknown): string {
@@ -983,11 +992,13 @@ async function postStreamGenerateContent(
     }
   }
   if (!res.ok) {
+    const versionLabel = getGeminiApiMetaForModel(modelId).versionLabel;
     logGeminiApiCallError({
       modelId,
       latencyMs: 0,
       fallbackUsed: usedRecoverRetry,
       operation: traceOperation,
+      versionLabel,
       httpStatus: res.status,
       reason: lastErrBody.slice(0, 300),
     });
@@ -1004,15 +1015,16 @@ async function postStreamGenerateContent(
   let model = modelId;
   const reader = res.body?.getReader?.();
   if (!reader) {
+    const versionLabel = getGeminiApiMetaForModel(modelId).versionLabel;
     // Préviews / RN sans corps lisible → repli non-stream generateContent (même modèle), ex. Gemini 3.1 preview.
     labLog('stream.antistream_fallback', {
       model: modelId,
       reason: 'no readable stream body',
       operation: traceOperation,
-      version: GEMINI_API_VERSION_LABEL,
+      version: versionLabel,
     });
     console.log(
-      `[GeminiAPI] 🔁 ANTISTREAM_FALLBACK${GLOG}Model: ${modelId}${GLOG}Reason: no readable stream body${GLOG}Version: ${GEMINI_API_VERSION_LABEL}${GLOG}Operation: ${traceOperation}`,
+      `[GeminiAPI] 🔁 ANTISTREAM_FALLBACK${GLOG}Model: ${modelId}${GLOG}Reason: no readable stream body${GLOG}Version: ${versionLabel}${GLOG}Operation: ${traceOperation}`,
     );
     const tAntistream0 = perfNowMs();
     const data = await postGenerateContent(
@@ -1029,6 +1041,7 @@ async function postStreamGenerateContent(
         latencyMs: Math.round(tAntistream1 - tAntistream0),
         fallbackUsed: computeGeminiIsFallback(modelId, usedRecoverRetry),
         operation: traceOperation,
+        versionLabel,
         reason: 'no readable stream body → generateContent empty',
         pathBAnchor: options?.pathBLog,
       });
@@ -1092,32 +1105,31 @@ async function postStreamGenerateContent(
   labLog('stream.request.timing', { model: modelId, ms: streamLatencyMs, chars: assembled.length });
   const out = assembled.trim();
   if (!out) {
+    const versionLabel = getGeminiApiMetaForModel(modelId).versionLabel;
     logGeminiApiCallError({
       modelId,
       latencyMs: streamLatencyMs,
       fallbackUsed: computeGeminiIsFallback(modelId, usedRecoverRetry),
       operation: traceOperation,
+      versionLabel,
       reason: 'empty stream text',
       pathBAnchor: options?.pathBLog,
     });
     throw new Error('Gemini stream: réponse vide');
   }
   const streamFb = computeGeminiIsFallback(modelId, usedRecoverRetry);
+  const versionLabel = getGeminiApiMetaForModel(modelId).versionLabel;
   const streamMeta: GeminiHttpSettledMeta = {
     modelId,
     latencyMs: streamLatencyMs,
     fallbackUsed: streamFb,
     operation: traceOperation,
+    versionLabel,
   };
   if (options?.pathBLog) {
     options.onHttpSuccessMeta?.(streamMeta);
   } else {
-    logGeminiApiCallSuccess({
-      modelId,
-      latencyMs: streamLatencyMs,
-      fallbackUsed: streamFb,
-      operation: traceOperation,
-    });
+    logGeminiApiCallSuccess(streamMeta);
   }
   return out;
 }

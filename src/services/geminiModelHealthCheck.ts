@@ -10,11 +10,13 @@ import {
   type GeminiListedModel,
 } from './geminiModelCatalog';
 
-const BASE = 'https://generativelanguage.googleapis.com/v1';
+const BASE_V1 = 'https://generativelanguage.googleapis.com/v1';
+const BASE_V1BETA = 'https://generativelanguage.googleapis.com/v1beta';
 const MAX_PROBES = 32;
 
 async function pingGenerateContent(modelId: string, apiKey: string): Promise<boolean> {
-  const url = `${BASE}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const base = /-latest$/i.test(modelId) ? BASE_V1BETA : BASE_V1;
+  const url = `${base}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
