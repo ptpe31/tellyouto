@@ -13,6 +13,8 @@ import {
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
 import { persistOneTapDraft } from '../services/oneTapPersist';
+import { showAppToast } from '../services/appToast';
+import { dualWriteViaCoreIntention } from '../services/viaCoreDualWrite';
 import {
   getOfflineAudioById,
   getLatestPendingOfflineAudio,
@@ -219,7 +221,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         birthdayLabel,
       });
       if (!res.ok) {
-        throw res.error;
+        showAppToast(i18n.t('talkDebug.oneTapRefineFailedToast', { defaultValue: 'Sauvegarde impossible.' }), 4200);
+        return;
       }
       if (lastCaptureWasMicRef.current) {
         await consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
@@ -229,8 +232,13 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       userEditedRef.current = false;
       lastCaptureWasMicRef.current = false;
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      try {
+        await dualWriteViaCoreIntention({ draft, transcript, outcome: res.outcome });
+      } catch {
+        /* ignore */
+      }
     } catch (e) {
-      Alert.alert('Sauvegarde', e instanceof Error ? e.message : String(e));
+      showAppToast(i18n.t('talkDebug.oneTapRefineFailedToast', { defaultValue: 'Sauvegarde impossible.' }), 4200);
     } finally {
       setBusy(false);
     }
