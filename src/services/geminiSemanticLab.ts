@@ -325,11 +325,22 @@ async function postGenerateContent(
       const gc = (effectiveBody as { generationConfig?: Record<string, unknown> }).generationConfig ?? {};
       labLog('oneTap.generationConfig', { model: modelId, ...gc });
     }
+    const isProModel = /\bpro\b/i.test(modelId);
+    const payload =
+      isProModel && !ttsProbe
+        ? (() => {
+            const b = effectiveBody as { generationConfig?: Record<string, unknown> };
+            const gc = b.generationConfig ?? {};
+            if (!gc.thinkingConfig) return effectiveBody;
+            const { thinkingConfig: _omit, ...rest } = gc;
+            return { ...b, generationConfig: rest };
+          })()
+        : effectiveBody;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(
-        ttsProbe ? { contents: [{ parts: [{ text: 'Bonjour' }] }] } : effectiveBody,
+        ttsProbe ? { contents: [{ parts: [{ text: 'Bonjour' }] }] } : payload,
       ),
     });
     const text = await res.text();
@@ -382,7 +393,7 @@ async function postGenerateContent(
   }
   if (!last.res.ok && !modelOverride && exhaustedUnsupported) {
     const discovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
-    if (discovered) {
+    if (discovered && !(traceOperation.startsWith('oneTap.wire') && /tts-preview/i.test(discovered))) {
       usedRecoverRetry = true;
       last = await runOnce(discovered);
       usedModels.push(discovered);
