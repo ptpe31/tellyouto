@@ -59,6 +59,7 @@ export type GeminiHttpSettledMeta = {
 };
 
 function getGeminiApiMetaForModel(modelId: string): { base: string; versionLabel: string } {
+  if (/^gemini-(?:2|3)\./i.test(modelId)) return { base: BASE_V1BETA, versionLabel: 'v1beta' };
   if (/-latest$/i.test(modelId)) return { base: BASE_V1BETA, versionLabel: 'v1beta' };
   return { base: BASE_V1, versionLabel: 'v1' };
 }

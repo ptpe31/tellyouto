@@ -9,6 +9,7 @@ import {
 } from './geminiRemoteModelSteering';
 import {
   fetchAllGeminiModelsList,
+  isBannedGeminiModelIdForOneTap,
   GEMINI_MODEL_SHORTLIST,
   isBannedGeminiModelId,
   shortGeminiModelId,
@@ -72,6 +73,16 @@ export async function initializeGeminiEngine(): Promise<void> {
 
     for (const id of allIds) {
       if (isBannedGeminiModelId(id)) continue;
+      if (isBannedGeminiModelIdForOneTap(id)) {
+        const meta = metaById.get(id);
+        const outLim = meta?.outLim ?? 0;
+        const inLim = meta?.inLim ?? 0;
+        const desired = matchesDesired(id);
+        console.log(
+          `[RECRUTEMENT-AI] 📋 ${id} | In:${inLim || '?'} Out:${outLim || '?'} | Desired:${desired ? 'YES' : 'NO'} | NON_QUALIFIÉ`,
+        );
+        continue;
+      }
       const meta = metaById.get(id);
       const outLim = meta?.outLim ?? 0;
       const inLim = meta?.inLim ?? 0;
@@ -115,6 +126,7 @@ export async function initializeGeminiEngine(): Promise<void> {
       } else {
         await persistValidatedGeminiModelId(id);
       }
+      setGeminiActiveModelForSession(id);
       const outLim = metaById.get(id)?.outLim ?? 0;
       console.log(
         `[RECRUTEMENT-AI] ✅ Candidat retenu : ${id} (Output limit: ${Number.isFinite(outLim) && outLim > 0 ? outLim : '?'})`,
