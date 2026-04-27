@@ -5,7 +5,7 @@ import { Alert, DeviceEventEmitter } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
-import { SasModal } from '../../src_v2/components/SasModal/SasModal';
+import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
 import {
   geminiOneTapUniversalFromTranscript,
   inferOneTapSkeletonFromTranscript,
@@ -289,18 +289,20 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   return (
     <IntentionContext.Provider value={value}>
       {children}
-      <SasModal
+      <OneTapConfirmModal
         visible={visible}
-        refining={refining}
-        result={draft}
+        draft={draft}
         transcript={transcript}
+        refinePhase={refining ? 'streaming' : 'done'}
         busy={busy}
-        onChangeResult={(next) => {
-          userEditedRef.current = true;
-          setDraft(next);
-        }}
         onUserEdited={() => {
           userEditedRef.current = true;
+        }}
+        onChangeDraft={(next) => {
+          setDraft(next);
+        }}
+        onChangeTranscript={(next) => {
+          setTranscript(next);
         }}
         onConfirm={() => void confirm()}
         onDismiss={cancelCapture}

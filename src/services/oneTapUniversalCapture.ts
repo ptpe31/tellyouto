@@ -281,13 +281,13 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
       const unit = segs.length >= 4 ? segs[3] : 'piece';
       const scalableRaw = segs.length >= 5 ? segs[4] : 'true';
       const q = Number(String(qtyRaw).replace(',', '.'));
-      const baseQuantity = Number.isFinite(q) && q > 0 ? q : 1;
+      const qty = Number.isFinite(q) && q > 0 ? q : 1;
       const sraw = String(scalableRaw).trim().toLowerCase();
       const scalable = !(sraw === 'false' || sraw === '0' || sraw === 'no' || sraw === 'non');
       const arr = Array.isArray(currentList.items) ? (currentList.items as ListItemDraft[]) : [];
       arr.push({
         name: content,
-        baseQuantity,
+        qty,
         unit,
         scalable,
         includeInSave: true,
@@ -598,7 +598,10 @@ function normalizeListUnit(u: unknown): string {
   return 'piece';
 }
 
-function coerceListItems(raw: unknown): { name: string; baseQuantity: number; unit: string; scalable: boolean }[] {
+function coerceListItems(
+  raw: unknown,
+  baseCount: number,
+): { name: string; baseQuantity: number; unit: string; scalable: boolean }[] {
   if (!Array.isArray(raw)) return [];
   const out: { name: string; baseQuantity: number; unit: string; scalable: boolean }[] = [];
   const seen = new Set<string>();
@@ -620,8 +623,12 @@ function coerceListItems(raw: unknown): { name: string; baseQuantity: number; un
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    const q = Number(r.baseQuantity ?? 1);
-    const baseQuantity = Number.isFinite(q) && q > 0 ? q : 1;
+    const q1 = r.baseQuantity;
+    const q2 = r.qty;
+    const q = Number(q1 ?? q2 ?? 1);
+    const n = Number.isFinite(q) && q > 0 ? q : 1;
+    const normBaseCount = Number.isFinite(baseCount) && baseCount > 0 ? baseCount : 1;
+    const baseQuantity = q1 !== undefined ? n : Math.max(0.000001, n / normBaseCount);
     const unit = normalizeListUnit(r.unit);
     const scalable = r.scalable !== undefined ? Boolean(r.scalable) : true;
     out.push({ name: name.slice(0, 120), baseQuantity, unit, scalable });
@@ -652,7 +659,7 @@ function mergeIntentArrayIntoOneTapSkeleton(
         typeof (rawIntent as { unitLabel?: unknown }).unitLabel === 'string'
           ? String((rawIntent as { unitLabel: string }).unitLabel).trim().slice(0, 40) || 'personne'
           : 'personne';
-      const itemsObj = coerceListItems(rawIntent.items);
+      const itemsObj = coerceListItems(rawIntent.items, baseCount);
       const itemsStr = itemsObj.length ? [] : coerceItemsArray(rawIntent.items);
       if (itemsObj.length || itemsStr.length) {
         out.list = {
@@ -833,7 +840,7 @@ Dictation:
 Reply ONLY with lines starting with ">" and pipe-separated segments. No markdown, no explanations.
 For LIST use multi-line format:
 > LIST | Title | baseCount | unitLabel
->> ITEM | Name | baseQuantity | unit | scalable`;
+>> ITEM | Name | quantity | unit | scalable`;
 }
 
 /**

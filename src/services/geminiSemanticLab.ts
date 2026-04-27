@@ -238,7 +238,7 @@ function enforceOneTapMaxOutputTokens(body: object, traceOperation: string): obj
   const raw = body as { generationConfig?: Record<string, unknown> };
   const generationConfig = raw.generationConfig ?? {};
   const current = Number(generationConfig.maxOutputTokens ?? 0);
-  const wanted = 800;
+  const wanted = 2048;
   const next = Number.isFinite(current) ? Math.max(wanted, current) : wanted;
   if (current !== next) {
     labLog('oneTap.maxOutputTokens.enforced', { from: current, to: next });
@@ -916,24 +916,16 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
 }
 
 const ONETAP_WIRE_SYSTEM_PREFIX =
-  'Reply ONLY with lines starting with ">". No comments, no explanations, no markdown. ' +
+  'Output ONLY lines starting with ">". No markdown, no explanations. ' +
+  'NO CALCULATIONS. Do NOT divide by baseCount. ' +
   'Allowed TYPE: TASK, NOTE, LIST, HABIT, TRIP. ' +
-  'TASK line: > TASK | TitleOrContent | DateISO (optional, ISO 8601) ' +
-  'NOTE line: > NOTE | TitleOrContent ' +
-  'HABIT line: > HABIT | TitleOrContent | RecurrenceText(optional) ' +
-  'TRIP line: > TRIP | Destination | DateISO(optional) ' +
-  'LIST is multi-line and MUST follow this structure exactly: ' +
-  '> LIST | Title | baseCount | unitLabel ' +
-  'Then one or more item lines: ' +
-  '>> ITEM | Name | baseQuantity | unit | scalable ' +
-  'Important: baseQuantity MUST be the quantity for ONE unit (e.g. for 1 person), even if baseCount is 6. ' +
-  'Set scalable=true for items that scale with baseCount. ' +
-  'Examples:\n' +
-  '> TASK | Acheter des frites | 2026-04-27T20:00\n' +
-  '> NOTE | Nourrir le poisson rouge\n' +
-  '> LIST | Gâteau au yaourt | 6 | personnes\n' +
-  '>> ITEM | farine | 30 | g | true\n' +
-  '>> ITEM | oeufs | 0.5 | piece | true\n\n';
+  'TASK: > TASK | TitleOrContent | DateISO(optional ISO 8601). ' +
+  'NOTE: > NOTE | TitleOrContent. ' +
+  'HABIT: > HABIT | TitleOrContent | RecurrenceText(optional). ' +
+  'TRIP: > TRIP | Destination | DateISO(optional). ' +
+  'LIST format: > LIST | Title | baseCount | unitLabel then items: >> ITEM | Name | quantity | unit | scalable. ' +
+  'quantity MUST be the standard recipe quantity for the whole recipe. ' +
+  'baseCount MUST match the user requested baseCount.\n';
 
 function buildStreamGenerateUrl(modelId: string, traceOperation?: string): string {
   const { base } = traceOperation?.startsWith('oneTap.wire') ? { base: BASE_V1BETA } : getGeminiApiMetaForModel(modelId);
@@ -1225,25 +1217,43 @@ export async function geminiGenerateOneTapCompressedLine(
   }
   const t0 = perfNowMs();
   let httpMeta: GeminiHttpSettledMeta | undefined;
-  const data = await postGenerateContent(
-    {
-      contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
-      generationConfig: {
-        maxOutputTokens: 800,
-      },
-    },
-    undefined,
-    'oneTap.wire.nonstream',
-    pathBLog
-      ? {
-          pathBLog,
-          onHttpSuccessMeta: (m) => {
-            httpMeta = m;
-          },
-        }
-      : undefined,
-  );
+  const thinkingLevel = String(process.env.EXPO_PUBLIC_ONETAP_THINKING_LEVEL || 'minimal').trim();
+  const generationConfig: Record<string, unknown> = { maxOutputTokens: 2048 };
+  if (thinkingLevel && !['off', 'none', '0', 'false'].includes(thinkingLevel.toLowerCase())) {
+    generationConfig.thinkingConfig = { thinkingLevel };
+  }
+  const body = {
+    contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
+    generationConfig,
+  };
+  const opts = pathBLog
+    ? {
+        pathBLog,
+        onHttpSuccessMeta: (m: GeminiHttpSettledMeta) => {
+          httpMeta = m;
+        },
+      }
+    : undefined;
+
+  const readFinishReason = (data: unknown): string => {
+    const d = data as { candidates?: { finishReason?: unknown }[] };
+    return String(d?.candidates?.[0]?.finishReason ?? '');
+  };
+  const readUsage = (data: unknown): Record<string, unknown> | null => {
+    const d = data as { usageMetadata?: unknown };
+    if (!d?.usageMetadata || typeof d.usageMetadata !== 'object' || Array.isArray(d.usageMetadata)) return null;
+    return d.usageMetadata as Record<string, unknown>;
+  };
+  const readModelVersion = (data: unknown): string => {
+    const d = data as { modelVersion?: unknown };
+    return typeof d?.modelVersion === 'string' ? d.modelVersion : '';
+  };
+
+  const data = await postGenerateContent(body, undefined, 'oneTap.wire.nonstream', opts);
   const raw = normalizeOneTapWireText(extractTextFromGenerateResponse(data));
+  const finishReason = readFinishReason(data);
+  const usageMetadata = readUsage(data);
+  const modelVersion = readModelVersion(data);
   if (__DEV__ || process.env.EXPO_PUBLIC_GEMINI_DEBUG_PROMPT === '1') {
     const d = data as {
       candidates?: { finishReason?: unknown; content?: { parts?: { text?: unknown }[] } }[];
@@ -1259,6 +1269,42 @@ export async function geminiGenerateOneTapCompressedLine(
     });
   }
   const t1 = perfNowMs();
+
+  if (usageMetadata || modelVersion) {
+    labLog('oneTap.usage.debug', {
+      modelVersion,
+      usageMetadata,
+      finishReason,
+      outChars: raw.length,
+    });
+  }
+
+  if (finishReason === 'MAX_TOKENS' && raw.length > 0 && raw.length < 600) {
+    const data2 = await postGenerateContent(body, 'gemini-pro-latest', 'oneTap.wire.nonstream.retry', opts);
+    const raw2 = normalizeOneTapWireText(extractTextFromGenerateResponse(data2));
+    const finishReason2 = readFinishReason(data2);
+    const usageMetadata2 = readUsage(data2);
+    const modelVersion2 = readModelVersion(data2);
+    labLog('oneTap.retry.debug', {
+      fromFinishReason: finishReason,
+      toFinishReason: finishReason2,
+      fromChars: raw.length,
+      toChars: raw2.length,
+      fromModelVersion: modelVersion,
+      toModelVersion: modelVersion2,
+      toUsageMetadata: usageMetadata2,
+    });
+    if (raw2) {
+      const t1 = perfNowMs();
+      labLog('geminiGenerateOneTapCompressedLine.timing', {
+        ms: Math.round(t1 - t0),
+        promptChars: trimmed.length,
+        outChars: raw2.length,
+      });
+      return { raw: raw2, httpMeta };
+    }
+  }
+
   labLog('geminiGenerateOneTapCompressedLine.timing', {
     ms: Math.round(t1 - t0),
     promptChars: trimmed.length,
@@ -1267,6 +1313,7 @@ export async function geminiGenerateOneTapCompressedLine(
   if (!raw) throw new Error('Gemini: réponse filaire vide');
   return { raw, httpMeta };
 }
+
 
 /**
  * **Path B (stream)** — même contrat que {@link geminiGenerateOneTapCompressedLine} avec tokens incrémentaux
@@ -1285,12 +1332,15 @@ export async function geminiStreamOneTapCompressedLine(
   }
   const t0 = perfNowMs();
   let httpMeta: GeminiHttpSettledMeta | undefined;
+  const thinkingLevel = String(process.env.EXPO_PUBLIC_ONETAP_THINKING_LEVEL || 'minimal').trim();
+  const generationConfig: Record<string, unknown> = { maxOutputTokens: 2048 };
+  if (thinkingLevel && !['off', 'none', '0', 'false'].includes(thinkingLevel.toLowerCase())) {
+    generationConfig.thinkingConfig = { thinkingLevel };
+  }
   const out = await postStreamGenerateContent(
     {
       contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
-      generationConfig: {
-        maxOutputTokens: 800,
-      },
+      generationConfig,
     },
     onAccumulatedText,
     undefined,

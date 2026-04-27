@@ -40,7 +40,9 @@ export type OneTapConfirmModalProps = {
   transcript: string;
   /** Affinage Gemini en arrière-plan (dual-path). */
   refinePhase?: 'idle' | 'local' | 'streaming' | 'done' | 'error';
+  variant?: 'minimal' | 'debug';
   busy: boolean;
+  onUserEdited?: () => void;
   onChangeDraft: (next: OneTapUniversalResult) => void;
   onChangeTranscript: (text: string) => void;
   onConfirm: () => void;
@@ -82,12 +84,63 @@ function readDraftIntents(draft: OneTapUniversalResult): Record<string, unknown>
   return raw.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as Record<string, unknown>[];
 }
 
+function normalizeIncomingIntents(intents: Record<string, unknown>[]): Record<string, unknown>[] {
+  return intents.map((it) => {
+    const type = String(it.type ?? '').trim().toUpperCase();
+    if (type !== 'LIST') return it;
+    const baseCount = Math.max(1, Math.round(Number(it.baseCount ?? 1)));
+    const itemsRaw = it.items;
+    const items = Array.isArray(itemsRaw) ? itemsRaw : [];
+    const nextItems = items.map((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+      const r = raw as Record<string, unknown>;
+      if (r.baseQuantity !== undefined) return raw;
+      const qty = Number(r.qty);
+      if (!Number.isFinite(qty)) return raw;
+      return { ...r, baseQuantity: qty / baseCount, includeInSave: r.includeInSave !== false };
+    });
+    return { ...it, baseCount, items: nextItems };
+  });
+}
+
+function intentLabel(it: Record<string, unknown> | null, predictedType: OneTapPredictedType): string {
+  const type = String(it?.type ?? predictedType ?? '').trim().toUpperCase();
+  if (type === 'LIST') {
+    const t = String(it?.title ?? it?.content ?? '').trim();
+    return `${t || 'Liste'}…`;
+  }
+  if (type === 'TASK') return 'Tâche…';
+  if (type === 'HABIT') return 'Habitude…';
+  if (type === 'TRIP') return 'Trajet…';
+  if (type === 'NOTE') return 'Note…';
+  return 'Analyse…';
+}
+
 function hasStreamedIntents(draft: OneTapUniversalResult): boolean {
   return readDraftIntents(draft).length > 0;
 }
 
 function deriveFallbackIntentFromDraft(draft: OneTapUniversalResult): Record<string, unknown>[] {
   const data = draft.data as Record<string, unknown>;
+  const rawList = data.list;
+  if (rawList && typeof rawList === 'object' && !Array.isArray(rawList)) {
+    const list = rawList as Record<string, unknown>;
+    const title = String(list.title ?? draft.title ?? 'Liste');
+    const baseCount = Number(list.baseCount ?? 1);
+    const unitLabel = String(list.unitLabel ?? 'personne');
+    const cats = Array.isArray(list.categories) ? (list.categories as unknown[]) : [];
+    const firstCat = (cats[0] as Record<string, unknown>) ?? {};
+    const items = Array.isArray(firstCat.items) ? firstCat.items : [];
+    return [
+      {
+        type: 'LIST',
+        title,
+        baseCount: Number.isFinite(baseCount) && baseCount > 0 ? baseCount : 1,
+        unitLabel,
+        items,
+      },
+    ];
+  }
   const type = String(draft.predictedType || '').trim().toUpperCase();
   if (!type) return [];
   if (type === 'LIST') {
@@ -124,6 +177,42 @@ function deriveFallbackIntentFromDraft(draft: OneTapUniversalResult): Record<str
   const content = String(data.memo ?? draft.title ?? '');
   return [{ type: 'NOTE', content }];
 }
+
+function buildListBlockFromIntent(it: Record<string, unknown>): Record<string, unknown> | null {
+  const title = String(it.title ?? it.content ?? '').trim() || 'Liste';
+  const baseCountRaw = Number(it.baseCount ?? 1);
+  const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? Math.round(baseCountRaw) : 1;
+  const unitLabel = String(it.unitLabel ?? 'personne').trim() || 'personne';
+  const rawItems = Array.isArray(it.items) ? (it.items as unknown[]) : [];
+  const items = rawItems
+    .map((r) => {
+      const o = r as Record<string, unknown>;
+      const name = String(o.name ?? '').trim();
+      if (!name) return null;
+      const unit = String(o.unit ?? 'piece').trim() || 'piece';
+      const scalable = o.scalable !== undefined ? Boolean(o.scalable) : true;
+      const includeInSave = o.includeInSave !== false;
+      const baseQuantityRaw =
+        o.baseQuantity !== undefined ? Number(o.baseQuantity) : o.qty !== undefined ? Number(o.qty) / baseCount : 1 / baseCount;
+      const baseQuantity = Number.isFinite(baseQuantityRaw) && baseQuantityRaw > 0 ? baseQuantityRaw : 1 / baseCount;
+      return { name, baseQuantity, unit, scalable, includeInSave };
+    })
+    .filter(Boolean);
+  return {
+    title,
+    baseCount,
+    unitLabel,
+    categories: [{ name: '—', items }],
+  };
+}
+
+type StagedIntent = {
+  id: string;
+  intent: Record<string, unknown> | null;
+  phase: 'loading' | 'shown';
+  createdAtMs: number;
+  revealedItemsCount?: number;
+};
 
 function ymdFromDate(d: Date): string {
   const y = d.getFullYear();
@@ -198,7 +287,9 @@ export function OneTapConfirmModal({
   draft,
   transcript,
   refinePhase = 'done',
+  variant = 'minimal',
   busy,
+  onUserEdited,
   onChangeDraft,
   onChangeTranscript,
   onConfirm,
@@ -207,13 +298,34 @@ export function OneTapConfirmModal({
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const insets = useSafeAreaInsets();
+  const debugModal = __DEV__ || process.env.EXPO_PUBLIC_ONETAP_MODAL_DEBUG === '1';
   const [menuOpen, setMenuOpen] = useState(false);
   const [dateTarget, setDateTarget] = useState<'TASK_DUE' | 'RECUR_NEXT' | 'UNIVERSAL_REMINDER' | null>(null);
   const [sentinelQuotaBalance, setSentinelQuotaBalance] = useState<number | null>(null);
   const [displayedIntents, setDisplayedIntents] = useState<Record<string, unknown>[]>([]);
+  const [stagedIntents, setStagedIntents] = useState<StagedIntent[]>([]);
+  const hasLocalEditsRef = useRef(false);
+  const revealAnimRef = useRef<Record<string, Animated.Value>>({});
+  const revealTimersRef = useRef<Record<string, number>>({});
+  const itemRevealTimersRef = useRef<Record<string, number>>({});
+  const stageDelayMs = Math.max(
+    300,
+    Math.min(3000, Number(process.env.EXPO_PUBLIC_ONETAP_STAGE_DELAY_MS ?? 1400) || 1400),
+  );
+  const itemRevealDelayMs = Math.max(
+    40,
+    Math.min(600, Number(process.env.EXPO_PUBLIC_ONETAP_ITEM_REVEAL_DELAY_MS ?? 120) || 120),
+  );
+  const listDebugSigRef = useRef<Record<string, string>>({});
 
   const showRefiningBanner = refinePhase === 'streaming' || refinePhase === 'local';
   const isGenerating = refinePhase === 'streaming' || refinePhase === 'local';
+  const minimalUi = variant === 'minimal';
+
+  const markUserEdited = useCallback(() => {
+    hasLocalEditsRef.current = true;
+    onUserEdited?.();
+  }, [onUserEdited]);
 
   const typeLabels = useMemo(
     () =>
@@ -262,7 +374,15 @@ export function OneTapConfirmModal({
 
   const patchDraftIntents = useCallback(
     (next: Record<string, unknown>[]) => {
-      onChangeDraft({ ...draft, data: { ...draft.data, intents: next } });
+      let data: Record<string, unknown> = { ...draft.data, intents: next };
+      if (String(draft.predictedType || '').toUpperCase() === 'LIST') {
+        const listIntent = next.find((x) => String((x as Record<string, unknown>)?.type ?? '').toUpperCase() === 'LIST');
+        if (listIntent) {
+          const list = buildListBlockFromIntent(listIntent as Record<string, unknown>);
+          if (list) data = { ...data, list };
+        }
+      }
+      onChangeDraft({ ...draft, data });
     },
     [draft, onChangeDraft],
   );
@@ -275,7 +395,21 @@ export function OneTapConfirmModal({
 
   const didBootstrapIntentsRef = useRef(false);
   useEffect(() => {
-    if (!visible) didBootstrapIntentsRef.current = false;
+    if (!visible) {
+      didBootstrapIntentsRef.current = false;
+      hasLocalEditsRef.current = false;
+      setStagedIntents([]);
+      for (const k of Object.keys(revealTimersRef.current)) {
+        clearTimeout(revealTimersRef.current[k]);
+      }
+      revealTimersRef.current = {};
+      for (const k of Object.keys(itemRevealTimersRef.current)) {
+        clearTimeout(itemRevealTimersRef.current[k]);
+      }
+      itemRevealTimersRef.current = {};
+      revealAnimRef.current = {};
+      listDebugSigRef.current = {};
+    }
   }, [visible]);
 
   useEffect(() => {
@@ -286,28 +420,157 @@ export function OneTapConfirmModal({
       if (derived.length) {
         didBootstrapIntentsRef.current = true;
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setDisplayedIntents(derived);
-        patchDraftIntents(derived);
+        const normalized = normalizeIncomingIntents(derived);
+        setDisplayedIntents(normalized);
+        patchDraftIntents(normalized);
         return;
       }
     }
     if (next.length > displayedIntents.length) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
-    if (JSON.stringify(next) !== JSON.stringify(displayedIntents)) {
-      setDisplayedIntents(next);
+    if (!hasLocalEditsRef.current) {
+      const normalized = normalizeIncomingIntents(next);
+      if (JSON.stringify(normalized) !== JSON.stringify(displayedIntents)) {
+        setDisplayedIntents(normalized);
+      }
     }
   }, [displayedIntents, draft, visible]);
 
+  const getWorkingIntents = useCallback((): Record<string, unknown>[] => {
+    const direct = readDraftIntents(draft);
+    if (!hasLocalEditsRef.current) {
+      if (direct.length) return normalizeIncomingIntents(direct);
+      return normalizeIncomingIntents(deriveFallbackIntentFromDraft(draft));
+    }
+    if (displayedIntents.length) return displayedIntents;
+    if (direct.length) return direct;
+    return deriveFallbackIntentFromDraft(draft);
+  }, [displayedIntents, draft]);
+
+  const lastDebugSigRef = useRef<string>('');
+  useEffect(() => {
+    if (!debugModal || !visible) return;
+    const working = getWorkingIntents();
+    const sig = JSON.stringify({
+      visible,
+      refinePhase,
+      isGenerating,
+      predictedType: draft.predictedType,
+      displayedIntentsLen: displayedIntents.length,
+      draftIntentsLen: readDraftIntents(draft).length,
+      workingLen: working.length,
+      stagedLen: stagedIntents.length,
+      stagedPhases: stagedIntents.map((s) => s.phase),
+      firstWorkingType: String(working[0]?.type ?? ''),
+      firstWorkingTitle: String(working[0]?.title ?? working[0]?.content ?? ''),
+    });
+    if (sig !== lastDebugSigRef.current) {
+      lastDebugSigRef.current = sig;
+      console.log('[OneTapModal][debug]', JSON.parse(sig));
+    }
+  }, [debugModal, displayedIntents.length, draft, getWorkingIntents, isGenerating, refinePhase, stagedIntents, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const intents = getWorkingIntents();
+    const targetCount = intents.length || (isGenerating ? 1 : 0);
+    setStagedIntents((prev) => {
+      if (targetCount === 0) return prev;
+      const next: StagedIntent[] = [];
+      for (let i = 0; i < targetCount; i++) {
+        const it = intents[i] ?? null;
+        const base = `${i}`;
+        const existing = prev.find((p) => p.id === base);
+        if (existing) {
+          next.push({ ...existing, intent: it });
+        } else {
+          if (debugModal) {
+            console.log('[OneTapModal][stage.add]', {
+              id: base,
+              idx: i,
+              type: String(it?.type ?? draft.predictedType ?? ''),
+              title: String(it?.title ?? it?.content ?? ''),
+              phase: 'loading',
+            });
+          }
+          next.push({ id: base, intent: it, phase: 'loading', createdAtMs: Date.now() });
+        }
+      }
+      return next;
+    });
+  }, [draft.predictedType, getWorkingIntents, isGenerating, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    for (const st of stagedIntents) {
+      if (st.phase !== 'loading') continue;
+      if (revealTimersRef.current[st.id]) continue;
+      if (debugModal) console.log('[OneTapModal][stage.timer.schedule]', { id: st.id });
+      const elapsed = Date.now() - (st.createdAtMs || Date.now());
+      const waitMs = Math.max(0, stageDelayMs - elapsed);
+      revealTimersRef.current[st.id] = setTimeout(() => {
+        if (debugModal) console.log('[OneTapModal][stage.timer.fire]', { id: st.id });
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setStagedIntents((prev) =>
+          prev.map((p) => (p.id === st.id ? { ...p, phase: 'shown', revealedItemsCount: 0 } : p)),
+        );
+      }, waitMs) as unknown as number;
+    }
+  }, [debugModal, stagedIntents, stageDelayMs, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    for (const st of stagedIntents) {
+      if (st.phase !== 'shown') continue;
+      const it = st.intent ?? {};
+      const type = String(it.type ?? '').trim().toUpperCase();
+      if (type !== 'LIST') continue;
+      const items = Array.isArray(it.items) ? (it.items as unknown[]) : [];
+      const revealed = Math.max(0, Math.round(Number(st.revealedItemsCount ?? 0)));
+      if (revealed >= items.length) continue;
+      if (itemRevealTimersRef.current[st.id]) continue;
+      if (debugModal) {
+        console.log('[OneTapModal][items.timer.schedule]', {
+          id: st.id,
+          itemsLen: items.length,
+          revealed,
+          delayMs: itemRevealDelayMs,
+        });
+      }
+      itemRevealTimersRef.current[st.id] = setTimeout(() => {
+        delete itemRevealTimersRef.current[st.id];
+        if (debugModal) {
+          console.log('[OneTapModal][items.timer.fire]', {
+            id: st.id,
+            itemsLen: items.length,
+            revealed,
+          });
+        }
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setStagedIntents((prev) =>
+          prev.map((p) =>
+            p.id === st.id
+              ? { ...p, revealedItemsCount: Math.min(items.length, Math.max(0, Math.round(Number(p.revealedItemsCount ?? 0))) + 1) }
+              : p,
+          ),
+        );
+      }, itemRevealDelayMs) as unknown as number;
+    }
+  }, [itemRevealDelayMs, stagedIntents, visible]);
+
   const removeIntentAt = (intentIndex: number) => {
+    markUserEdited();
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const next = displayedIntents.filter((_, i) => i !== intentIndex);
+    const src = getWorkingIntents();
+    const next = src.filter((_, i) => i !== intentIndex);
     setDisplayedIntents(next);
     patchDraftIntents(next);
   };
 
   const toggleIntentListItemInclude = (intentIndex: number, itemIndex: number) => {
-    const intents = [...displayedIntents];
+    markUserEdited();
+    const intents = [...getWorkingIntents()];
     const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
     const itemsRaw = intent.items;
     const items = Array.isArray(itemsRaw) ? [...itemsRaw] : [];
@@ -317,23 +580,47 @@ export function OneTapConfirmModal({
     items[itemIndex] = it;
     intent.items = items;
     intents[intentIndex] = intent;
+    setDisplayedIntents(intents);
+    patchDraftIntents(intents);
+  };
+
+  const removeIntentListItem = (intentIndex: number, itemIndex: number) => {
+    markUserEdited();
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const intents = [...getWorkingIntents()];
+    const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
+    const itemsRaw = intent.items;
+    const items = Array.isArray(itemsRaw) ? [...itemsRaw] : [];
+    items.splice(itemIndex, 1);
+    intent.items = items;
+    intents[intentIndex] = intent;
+    setDisplayedIntents(intents);
     patchDraftIntents(intents);
   };
 
   const adjustIntentListBaseCount = (intentIndex: number, delta: number) => {
-    const intents = [...displayedIntents];
+    markUserEdited();
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const intents = [...getWorkingIntents()];
     const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
-    const n = Math.max(1, Math.min(999, Math.round(Number(intent.baseCount ?? 1)) + delta));
+    const before = Math.max(1, Math.round(Number(intent.baseCount ?? 1)));
+    const n = Math.max(1, Math.min(999, before + delta));
     intent.baseCount = n;
     intents[intentIndex] = intent;
+    setDisplayedIntents(intents);
     patchDraftIntents(intents);
+    if (debugModal) {
+      console.log('[OneTapModal][stepper]', { intentIndex, delta, before, after: n });
+    }
   };
 
   const setIntentListUnitLabel = (intentIndex: number, unitLabel: string) => {
-    const intents = [...displayedIntents];
+    markUserEdited();
+    const intents = [...getWorkingIntents()];
     const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
     intent.unitLabel = unitLabel;
     intents[intentIndex] = intent;
+    setDisplayedIntents(intents);
     patchDraftIntents(intents);
   };
 
@@ -342,6 +629,7 @@ export function OneTapConfirmModal({
       setMenuOpen(false);
       return;
     }
+    markUserEdited();
     setDateTarget(null);
     const nextData = mergeOneTapDataOnTypeChange(draft.predictedType, next, draft.data, draft.title);
     onChangeDraft({
@@ -361,6 +649,7 @@ export function OneTapConfirmModal({
       return;
     }
     if (date) {
+      markUserEdited();
       const ymd = ymdFromDate(date);
       if (target === 'TASK_DUE') {
         onChangeDraft(patchData(draft, { dueDateYmd: ymd }));
@@ -461,11 +750,44 @@ export function OneTapConfirmModal({
   };
 
   const renderIntentCards = () => {
-    if (!displayedIntents.length) return null;
+    if (!stagedIntents.length) return null;
     return (
       <View style={styles.section}>
-        {displayedIntents.map((it, idx) => {
+        {stagedIntents.map((st, idx) => {
+          const it = st.intent ?? {};
           const type = String(it.type ?? '').trim().toUpperCase();
+          if (st.phase === 'loading') {
+            const loadingType = String((st.intent as Record<string, unknown> | null)?.type ?? draft.predictedType ?? '')
+              .trim()
+              .toUpperCase();
+            return (
+              <View key={st.id} style={styles.intentLoadingRow}>
+                <Text style={styles.intentType}>{loadingType || '...'}</Text>
+                <View style={styles.loadingTitleRow}>
+                  <Text style={styles.intentLoadingText}>{intentLabel(st.intent, draft.predictedType)}</Text>
+                  <StreamingIndicator />
+                </View>
+              </View>
+            );
+          }
+          const anim = revealAnimRef.current[st.id] ?? new Animated.Value(0);
+          if (!revealAnimRef.current[st.id]) {
+            revealAnimRef.current[st.id] = anim;
+            Animated.timing(anim, {
+              toValue: 1,
+              duration: 220,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }).start();
+          }
+          const cardStyle = {
+            opacity: anim,
+            transform: [
+              {
+                translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+              },
+            ],
+          };
           if (type === 'TASK') {
             const title = String(it.content ?? it.title ?? '').trim() || '—';
             const dueIso = String(it.due ?? '').trim();
@@ -481,7 +803,7 @@ export function OneTapConfirmModal({
               }
             }
             return (
-              <View key={`intent-${idx}`} style={styles.intentCard}>
+              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
                 <View style={styles.intentHeadRow}>
                   <Pressable
                     style={styles.intentDeleteBtn}
@@ -496,13 +818,13 @@ export function OneTapConfirmModal({
                   {badge ? <Text style={styles.intentBadge}>{badge}</Text> : null}
                 </View>
                 <Text style={styles.intentTitle}>{title}</Text>
-              </View>
+              </Animated.View>
             );
           }
           if (type === 'NOTE') {
             const title = String(it.content ?? it.title ?? '').trim() || '—';
             return (
-              <View key={`intent-${idx}`} style={styles.intentCard}>
+              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
                 <View style={styles.intentHeadRow}>
                   <Pressable
                     style={styles.intentDeleteBtn}
@@ -516,7 +838,7 @@ export function OneTapConfirmModal({
                   <Text style={styles.intentType}>NOTE</Text>
                 </View>
                 <Text style={styles.intentTitle}>{title}</Text>
-              </View>
+              </Animated.View>
             );
           }
           if (type === 'LIST') {
@@ -524,8 +846,47 @@ export function OneTapConfirmModal({
             const numberOfPeople = Math.max(1, Math.round(Number(it.baseCount ?? 1)));
             const unitLabel = String(it.unitLabel ?? 'personne');
             const items = Array.isArray(it.items) ? (it.items as unknown[]) : [];
+            const revealed = Math.max(0, Math.round(Number(st.revealedItemsCount ?? items.length)));
+            const shownItems = items.slice(0, revealed);
+            const showControls = items.length > 0 && revealed >= items.length;
+            if (debugModal) {
+              const sample = items.slice(0, 3).map((raw) => {
+                const ir = raw as Record<string, unknown>;
+                const derivedBaseQuantity =
+                  ir.baseQuantity !== undefined
+                    ? Number(ir.baseQuantity)
+                    : ir.qty !== undefined
+                      ? Number(ir.qty) / numberOfPeople
+                      : 1 / numberOfPeople;
+                const displayRef: Record<string, unknown> = {
+                  ...ir,
+                  baseQuantity: Number.isFinite(derivedBaseQuantity) ? derivedBaseQuantity : 1 / numberOfPeople,
+                };
+                const name = String(ir.name ?? '').trim();
+                const unit = String(ir.unit ?? '').trim();
+                const q = listItemDisplayQuantity(displayRef, numberOfPeople);
+                return `${name}:${q}${unit ? ` ${unit}` : ''}`;
+              });
+              const sig = JSON.stringify({
+                id: st.id,
+                phase: st.phase,
+                isGenerating,
+                title,
+                baseCount: numberOfPeople,
+                unitLabel,
+                itemsLen: items.length,
+                revealed,
+                shownLen: shownItems.length,
+                firstItem: items.length ? String((items[0] as Record<string, unknown>)?.name ?? '') : '',
+                sample,
+              });
+              if (listDebugSigRef.current[st.id] !== sig) {
+                listDebugSigRef.current[st.id] = sig;
+                console.log('[OneTapModal][list.render]', JSON.parse(sig));
+              }
+            }
             return (
-              <View key={`intent-${idx}`} style={styles.intentCard}>
+              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
                 <View style={styles.intentHeadRow}>
                   <Pressable
                     style={styles.intentDeleteBtn}
@@ -537,71 +898,93 @@ export function OneTapConfirmModal({
                     <View style={styles.intentDeleteMinus} />
                   </Pressable>
                   <Text style={styles.intentType}>LIST</Text>
-                  <Text style={styles.intentBadge}>{`${numberOfPeople} ${unitLabel}`.trim()}</Text>
                 </View>
-                <Text style={styles.intentTitle}>{title}</Text>
-                <View style={styles.listControlsRow}>
-                  <TextInput
-                    value={unitLabel}
-                    onChangeText={(text) => setIntentListUnitLabel(idx, text)}
-                    style={[styles.input, styles.unitInput]}
-                    editable={!busy}
-                    placeholder={t('talkDebug.oneTapListUnitPlaceholder')}
-                  />
-                  <View style={styles.listStepperRight}>
-                    <Pressable
-                      style={[styles.stepBtn, busy && styles.disabled]}
-                      disabled={busy}
-                      onPress={() => adjustIntentListBaseCount(idx, -1)}
-                    >
-                      <Text style={styles.stepBtnText}>−</Text>
-                    </Pressable>
-                    <Text style={styles.countText}>{numberOfPeople}</Text>
-                    <Pressable
-                      style={[styles.stepBtn, busy && styles.disabled]}
-                      disabled={busy}
-                      onPress={() => adjustIntentListBaseCount(idx, 1)}
-                    >
-                      <Text style={styles.stepBtnText}>+</Text>
-                    </Pressable>
+
+                <View style={styles.listTitleRow}>
+                  <Text style={styles.intentTitle} numberOfLines={1}>
+                    {title}
+                  </Text>
+                  {!showControls ? <StreamingIndicator /> : null}
+                </View>
+
+                {showControls ? (
+                  <View style={styles.listControlsBelow}>
+                    <Text style={styles.intentBadge}>{`${numberOfPeople} ${unitLabel}`.trim()}</Text>
+                    <View style={styles.listStepperInline}>
+                      <Pressable
+                        style={[styles.stepBtn, busy && styles.disabled]}
+                        disabled={busy}
+                        onPress={() => adjustIntentListBaseCount(idx, -1)}
+                      >
+                        <Text style={styles.stepBtnText}>−</Text>
+                      </Pressable>
+                      <Text style={styles.countText}>{numberOfPeople}</Text>
+                      <Pressable
+                        style={[styles.stepBtn, busy && styles.disabled]}
+                        disabled={busy}
+                        onPress={() => adjustIntentListBaseCount(idx, 1)}
+                      >
+                        <Text style={styles.stepBtnText}>+</Text>
+                      </Pressable>
+                    </View>
                   </View>
-                </View>
+                ) : null}
+
+                {isGenerating && !items.length ? (
+                  <View style={styles.intentLoadingInline}>
+                    <Text style={styles.intentLoadingInlineText}>Ingrédients…</Text>
+                  </View>
+                ) : null}
                 <View style={styles.catBlock}>
-                  {items.map((raw, ii) => {
+                  {shownItems.map((raw, ii) => {
                     const ir = raw as Record<string, unknown>;
+                    const derivedBaseQuantity =
+                      ir.baseQuantity !== undefined
+                        ? Number(ir.baseQuantity)
+                        : ir.qty !== undefined
+                          ? Number(ir.qty) / numberOfPeople
+                          : 1 / numberOfPeople;
+                    const displayRef: Record<string, unknown> = {
+                      ...ir,
+                      baseQuantity: Number.isFinite(derivedBaseQuantity) ? derivedBaseQuantity : 1 / numberOfPeople,
+                    };
                     const label = String(ir.name ?? '').trim() || '—';
-                    const displayQty = listItemDisplayQuantity(ir, numberOfPeople);
+                    const displayQty = listItemDisplayQuantity(displayRef, numberOfPeople);
                     const unit = String(ir.unit ?? '');
-                    const included = ir.includeInSave !== false;
                     const sub = displayQty > 0 ? `${displayQty}${unit ? ` ${unit}` : ''}` : '';
                     return (
                       <Pressable
                         key={`it-${idx}-${ii}`}
-                        style={styles.checkRow}
+                        style={styles.listItemRow}
                         onPress={() => !busy && toggleIntentListItemInclude(idx, ii)}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: included }}
                       >
-                        <Checkbox.Android
-                          status={included ? 'checked' : 'unchecked'}
-                          onPress={() => !busy && toggleIntentListItemInclude(idx, ii)}
-                        />
-                        <View style={styles.checkLabelCol}>
-                          <Text style={styles.checkLabel}>{label}</Text>
-                          {sub ? <Text style={styles.checkSub}>{sub}</Text> : null}
-                        </View>
+                        <Pressable
+                          style={[styles.ingredientDeleteBtn, busy && styles.disabled]}
+                          disabled={busy}
+                          onPress={() => !busy && removeIntentListItem(idx, ii)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Supprimer ingrédient"
+                        >
+                          <View style={styles.intentDeleteMinus} />
+                        </Pressable>
+                        <Text style={styles.listBullet}>•</Text>
+                        <Text style={styles.listItemLabel} numberOfLines={1}>
+                          {label}
+                        </Text>
+                        <Text style={styles.listItemQty}>{sub}</Text>
                       </Pressable>
                     );
                   })}
+                  {items.length > 0 && revealed < items.length ? <StreamingIndicator /> : null}
                 </View>
-              </View>
+              </Animated.View>
             );
           }
           if (type === 'HABIT') {
             const title = String(it.content ?? it.title ?? '').trim() || '—';
             const rec = String(it.recurrence ?? '').trim();
             return (
-              <View key={`intent-${idx}`} style={styles.intentCard}>
+              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
                 <View style={styles.intentHeadRow}>
                   <Pressable
                     style={styles.intentDeleteBtn}
@@ -616,13 +999,13 @@ export function OneTapConfirmModal({
                   {rec ? <Text style={styles.intentBadge}>{rec}</Text> : null}
                 </View>
                 <Text style={styles.intentTitle}>{title}</Text>
-              </View>
+              </Animated.View>
             );
           }
           if (type === 'TRIP') {
             const title = String(it.destination ?? it.content ?? '').trim() || '—';
             return (
-              <View key={`intent-${idx}`} style={styles.intentCard}>
+              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
                 <View style={styles.intentHeadRow}>
                   <Pressable
                     style={styles.intentDeleteBtn}
@@ -636,7 +1019,7 @@ export function OneTapConfirmModal({
                   <Text style={styles.intentType}>TRIP</Text>
                 </View>
                 <Text style={styles.intentTitle}>{title}</Text>
-              </View>
+              </Animated.View>
             );
           }
           return null;
@@ -647,6 +1030,7 @@ export function OneTapConfirmModal({
 
   const renderTypeBody = () => {
     const streamed = renderIntentCards();
+    if (minimalUi) return streamed;
     if (streamed) return streamed;
     const d = draft.data;
     const logisticsBlock = () => {
@@ -1028,78 +1412,92 @@ export function OneTapConfirmModal({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
       <View style={[styles.backdrop, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t('talkDebug.oneTapResultTitle')}</Text>
-          {showRefiningBanner ? (
+          {!minimalUi ? <Text style={styles.cardTitle}>{t('talkDebug.oneTapResultTitle')}</Text> : null}
+          {!minimalUi && showRefiningBanner ? (
             <View style={styles.refineBanner} accessibilityRole="progressbar">
               <ActivityIndicator size="small" color="#0f766e" />
               <Text style={styles.refineBannerText}>{t('talkDebug.oneTapRefiningHint')}</Text>
             </View>
           ) : null}
 
-          <Text style={styles.label}>{t('talkDebug.oneTapTypeField')}</Text>
-          <Menu
-            visible={menuOpen}
-            onDismiss={() => setMenuOpen(false)}
-            anchor={
-              <Pressable
-                style={[styles.typeAnchor, busy && styles.disabled]}
-                onPress={() => !busy && setMenuOpen(true)}
-                disabled={busy}
+          {!minimalUi ? (
+            <>
+              <Text style={styles.label}>{t('talkDebug.oneTapTypeField')}</Text>
+              <Menu
+                visible={menuOpen}
+                onDismiss={() => setMenuOpen(false)}
+                anchor={
+                  <Pressable
+                    style={[styles.typeAnchor, busy && styles.disabled]}
+                    onPress={() => !busy && setMenuOpen(true)}
+                    disabled={busy}
+                  >
+                    <Text style={styles.typeAnchorText}>{typeLabels[draft.predictedType]}</Text>
+                    <ChevronDown size={20} color="#0f172a" />
+                  </Pressable>
+                }
               >
-                <Text style={styles.typeAnchorText}>{typeLabels[draft.predictedType]}</Text>
-                <ChevronDown size={20} color="#0f172a" />
-              </Pressable>
-            }
-          >
-            {ONE_TAP_PREDICTED_TYPES.map((opt) => (
-              <Menu.Item key={opt} onPress={() => applyType(opt)} title={typeLabels[opt]} />
-            ))}
-          </Menu>
+                {ONE_TAP_PREDICTED_TYPES.map((opt) => (
+                  <Menu.Item key={opt} onPress={() => applyType(opt)} title={typeLabels[opt]} />
+                ))}
+              </Menu>
+            </>
+          ) : null}
 
           <ScrollView
             style={styles.scroll}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {renderUniversalReminderSection()}
+            {minimalUi ? (
+              <>
+                {transcript.trim() ? <Text style={styles.chatTranscript}>{transcript.trim()}</Text> : null}
+                <View style={styles.chatDivider} />
+              </>
+            ) : null}
+            {!minimalUi ? renderUniversalReminderSection() : null}
             {renderTypeBody()}
 
-            <Text style={styles.label}>{t('talkDebug.oneTapTranscriptLabel')}</Text>
-            <TextInput
-              value={transcript}
-              onChangeText={onChangeTranscript}
-              style={[styles.input, styles.multiline]}
-              multiline
-              editable={!busy}
-            />
+            {!minimalUi ? (
+              <>
+                <Text style={styles.label}>{t('talkDebug.oneTapTranscriptLabel')}</Text>
+                <TextInput
+                  value={transcript}
+                  onChangeText={onChangeTranscript}
+                  style={[styles.input, styles.multiline]}
+                  multiline
+                  editable={!busy}
+                />
 
-            <Text style={styles.label}>{t('talkDebug.oneTapTitleLabel')}</Text>
-            <TextInput
-              value={draft.title}
-              onChangeText={(title) => {
-                if (draft.predictedType === 'LIST') {
-                  const list = {
-                    ...((draft.data.list && typeof draft.data.list === 'object'
-                      ? draft.data.list
-                      : {}) as Record<string, unknown>),
-                    title,
-                  };
-                  onChangeDraft({ ...draft, title, data: { ...draft.data, list } });
-                } else {
-                  onChangeDraft({ ...draft, title });
-                }
-              }}
-              style={styles.input}
-              editable={!busy}
-            />
+                <Text style={styles.label}>{t('talkDebug.oneTapTitleLabel')}</Text>
+                <TextInput
+                  value={draft.title}
+                  onChangeText={(title) => {
+                    if (draft.predictedType === 'LIST') {
+                      const list = {
+                        ...((draft.data.list && typeof draft.data.list === 'object'
+                          ? draft.data.list
+                          : {}) as Record<string, unknown>),
+                        title,
+                      };
+                      onChangeDraft({ ...draft, title, data: { ...draft.data, list } });
+                    } else {
+                      onChangeDraft({ ...draft, title });
+                    }
+                  }}
+                  style={styles.input}
+                  editable={!busy}
+                />
 
-            <Text style={styles.label}>{t('talkDebug.oneTapCategoryTag')}</Text>
-            <TextInput
-              value={draft.categoryTag}
-              onChangeText={(categoryTag) => onChangeDraft({ ...draft, categoryTag })}
-              style={styles.input}
-              editable={!busy}
-            />
+                <Text style={styles.label}>{t('talkDebug.oneTapCategoryTag')}</Text>
+                <TextInput
+                  value={draft.categoryTag}
+                  onChangeText={(categoryTag) => onChangeDraft({ ...draft, categoryTag })}
+                  style={styles.input}
+                  editable={!busy}
+                />
+              </>
+            ) : null}
           </ScrollView>
 
           {isGenerating && hasStreamedIntents(draft) ? <StreamingIndicator /> : null}
@@ -1145,26 +1543,26 @@ export function OneTapConfirmModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.55)',
+    backgroundColor: 'rgba(245,245,247,0.92)',
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    borderRadius: 26,
     padding: 16,
     gap: 8,
     maxHeight: '92%',
-    borderWidth: 0.5,
-    borderColor: 'rgba(15,23,42,0.10)',
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.10,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 14 },
     elevation: 2,
   },
   scroll: { maxHeight: '72%' },
   cardTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  chatTranscript: { fontSize: 15, fontWeight: '600', color: '#0f172a', lineHeight: 20, marginTop: 4, marginBottom: 14 },
+  chatDivider: { height: 1, backgroundColor: 'rgba(15,23,42,0.10)', marginBottom: 10 },
   refineBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1172,9 +1570,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: 'rgba(0,128,128,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(0,128,128,0.2)',
+    backgroundColor: 'rgba(15,118,110,0.07)',
   },
   refineBannerText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0f766e' },
   section: { marginTop: 8, marginBottom: 4 },
@@ -1183,10 +1579,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,128,128,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(0,128,128,0.22)',
+    borderRadius: 16,
+    backgroundColor: 'rgba(15,118,110,0.06)',
   },
   reminderTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   reminderLine: { fontSize: 14, fontWeight: '600', color: '#0f172a', marginBottom: 4 },
@@ -1205,15 +1599,13 @@ const styles = StyleSheet.create({
   intentCard: {
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 16,
-    borderWidth: 0.5,
-    borderColor: 'rgba(15,23,42,0.10)',
-    backgroundColor: '#fff',
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.98)',
     marginBottom: 14,
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 1,
   },
   intentHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
@@ -1236,16 +1628,46 @@ const styles = StyleSheet.create({
   intentTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginTop: 6 },
   streamingRow: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 6 },
   streamingDot: { fontSize: 18, fontWeight: '900', color: '#0f766e', marginHorizontal: 2 },
-  listControlsRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
-  listStepperRight: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 'auto' },
+  listHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 'auto' },
+  listStepperInline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  listItemRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  ingredientDeleteBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  listBullet: { fontSize: 14, fontWeight: '900', color: 'rgba(15,23,42,0.25)', marginRight: 8 },
+  listItemLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  listItemQty: { fontSize: 13, fontWeight: '800', color: '#475569', marginLeft: 10 },
+  intentLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.70)',
+    marginBottom: 14,
+  },
+  intentLoadingText: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  loadingTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' },
+  listTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
+  listControlsBelow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
+  intentLoadingInline: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  intentLoadingInlineText: { fontSize: 13, fontWeight: '800', color: '#475569' },
   label: { fontSize: 12, fontWeight: '700', color: '#64748b', marginTop: 8 },
   input: {
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(15,23,42,0.10)',
+    borderRadius: 0,
+    paddingHorizontal: 2,
     paddingVertical: 10,
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     color: '#0f172a',
   },
   multiline: { minHeight: 88, textAlignVertical: 'top' },
@@ -1254,12 +1676,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#94a3b8',
-    borderRadius: 10,
-    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(15,23,42,0.10)',
+    paddingHorizontal: 2,
     paddingVertical: 12,
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
   },
   typeAnchorText: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
   quantityRow: {
@@ -1269,15 +1690,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   stepBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: '#e2e8f0',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepBtnText: { fontSize: 22, fontWeight: '700', color: '#0f172a' },
-  countText: { fontSize: 18, fontWeight: '800', color: '#0f172a', minWidth: 28, textAlign: 'center' },
+  stepBtnText: { fontSize: 20, fontWeight: '800', color: '#007AFF' },
+  countText: { fontSize: 16, fontWeight: '800', color: '#0f172a', minWidth: 24, textAlign: 'center' },
   unitInput: { flex: 1, minWidth: 0 },
   catBlock: { marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
   catName: { fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 6 },
