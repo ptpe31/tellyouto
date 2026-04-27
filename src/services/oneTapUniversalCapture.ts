@@ -473,6 +473,49 @@ function coerceItemsArray(raw: unknown): string[] {
   return out;
 }
 
+function normalizeListUnit(u: unknown): string {
+  const s = String(u ?? 'piece')
+    .trim()
+    .toLowerCase();
+  if (s === 'g' || s === 'kg' || s === 'piece' || s === 'cl' || s === 'l') return s;
+  if (s === 'pcs' || s === 'pc' || s === 'pièce' || s === 'pieces' || s === 'unité' || s === 'unite')
+    return 'piece';
+  if (s === 'ml') return 'cl';
+  return 'piece';
+}
+
+function coerceListItems(raw: unknown): { name: string; baseQuantity: number; unit: string; scalable: boolean }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { name: string; baseQuantity: number; unit: string; scalable: boolean }[] = [];
+  const seen = new Set<string>();
+  for (const it of raw) {
+    if (typeof it === 'string') {
+      const name = it.trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name: name.slice(0, 120), baseQuantity: 1, unit: 'piece', scalable: true });
+      if (out.length >= 48) break;
+      continue;
+    }
+    if (!it || typeof it !== 'object' || Array.isArray(it)) continue;
+    const r = it as Record<string, unknown>;
+    const name = String(r.name ?? '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const q = Number(r.baseQuantity ?? 1);
+    const baseQuantity = Number.isFinite(q) && q > 0 ? q : 1;
+    const unit = normalizeListUnit(r.unit);
+    const scalable = r.scalable !== undefined ? Boolean(r.scalable) : true;
+    out.push({ name: name.slice(0, 120), baseQuantity, unit, scalable });
+    if (out.length >= 48) break;
+  }
+  return out;
+}
+
 function mergeIntentArrayIntoOneTapSkeleton(
   skeleton: OneTapUniversalResult,
   intents: OneTapIntentJson[],
@@ -489,10 +532,38 @@ function mergeIntentArrayIntoOneTapSkeleton(
     if (cat) categoryTag = cat;
     if (type === 'LIST') {
       const listTitle = typeof rawIntent.title === 'string' ? rawIntent.title.trim() : '';
-      const items = coerceItemsArray(rawIntent.items);
-      if (items.length) {
-        const built = buildListDataFromWireItems(items, listTitle || skeleton.title);
-        out.list = (built.list as Record<string, unknown>) ?? out.list;
+      const baseCountRaw = Number((rawIntent as { baseCount?: unknown }).baseCount ?? 1);
+      const baseCount = Number.isFinite(baseCountRaw) ? Math.max(1, Math.round(baseCountRaw)) : 1;
+      const unitLabel =
+        typeof (rawIntent as { unitLabel?: unknown }).unitLabel === 'string'
+          ? String((rawIntent as { unitLabel: string }).unitLabel).trim().slice(0, 40) || 'personne'
+          : 'personne';
+      const itemsObj = coerceListItems(rawIntent.items);
+      const itemsStr = itemsObj.length ? [] : coerceItemsArray(rawIntent.items);
+      if (itemsObj.length || itemsStr.length) {
+        out.list = {
+          title: (listTitle || skeleton.title).trim().slice(0, 120) || 'Liste',
+          baseCount,
+          unitLabel,
+          categories: [
+            {
+              name: '—',
+              items: itemsObj.length
+                ? itemsObj.map((it) => ({
+                    name: it.name,
+                    baseQuantity: it.baseQuantity,
+                    unit: it.unit,
+                    scalable: it.scalable,
+                  }))
+                : itemsStr.map((name) => ({
+                    name,
+                    baseQuantity: 1,
+                    unit: 'piece',
+                    scalable: true,
+                  })),
+            },
+          ],
+        };
         if (listTitle) title = listTitle.slice(0, 200);
       }
     }

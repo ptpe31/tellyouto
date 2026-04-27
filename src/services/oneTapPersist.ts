@@ -730,14 +730,30 @@ function parseIsoToYmdHm(iso: string): { ymd: string; hm: string } | null {
 
 function buildListDraftBlock(params: {
   title: string;
-  items: string[];
+  items: { name: string; baseQuantity?: number; unit?: string; scalable?: boolean }[] | string[];
   baseCount?: number;
   unitLabel?: string;
 }): Record<string, unknown> {
   const title = params.title.trim().slice(0, 120) || 'Liste';
   const baseCount = Math.max(1, Math.round(Number(params.baseCount ?? 1)));
   const unitLabel = String(params.unitLabel ?? 'personne').trim() || 'personne';
-  const items = params.items.map((x) => String(x ?? '').trim()).filter(Boolean).slice(0, 48);
+  const rawItems = Array.isArray(params.items) ? params.items : [];
+  const items =
+    rawItems.length > 0 && typeof rawItems[0] === 'object'
+      ? (rawItems as { name: string; baseQuantity?: number; unit?: string; scalable?: boolean }[])
+          .map((x) => ({
+            name: String(x?.name ?? '').trim(),
+            baseQuantity: Number(x?.baseQuantity ?? 1),
+            unit: String(x?.unit ?? 'piece').trim() || 'piece',
+            scalable: x?.scalable !== undefined ? Boolean(x.scalable) : true,
+          }))
+          .filter((x) => Boolean(x.name))
+          .slice(0, 48)
+      : (rawItems as string[])
+          .map((x) => String(x ?? '').trim())
+          .filter(Boolean)
+          .slice(0, 48)
+          .map((name) => ({ name, baseQuantity: 1, unit: 'piece', scalable: true }));
   return {
     title,
     baseCount,
@@ -746,10 +762,10 @@ function buildListDraftBlock(params: {
       {
         name: '—',
         items: items.map((name) => ({
-          name: name.slice(0, 120),
-          baseQuantity: 1,
-          unit: 'piece',
-          scalable: true,
+          name: name.name.slice(0, 120),
+          baseQuantity: Number.isFinite(name.baseQuantity) && name.baseQuantity > 0 ? name.baseQuantity : 1,
+          unit: name.unit,
+          scalable: name.scalable,
         })),
       },
     ],
@@ -800,9 +816,12 @@ export async function persistOneTapDraftVentilated(params: {
       const categoryTag = (typeof r.category === 'string' ? r.category.trim().slice(0, 80) : '') || draft.categoryTag;
       if (type === 'LIST') {
         const title = String(r.title ?? '').trim() || draft.title;
-        const items = Array.isArray(r.items)
-          ? r.items.map((x) => String(x ?? '').trim()).filter(Boolean)
-          : [];
+        const items =
+          Array.isArray(r.items) && r.items.length > 0 && typeof r.items[0] === 'object'
+            ? (r.items as { name: string; baseQuantity?: number; unit?: string; scalable?: boolean }[])
+            : Array.isArray(r.items)
+              ? r.items.map((x) => String(x ?? '').trim()).filter(Boolean)
+              : [];
         if (items.length > 0) {
           const listBlock = buildListDraftBlock({
             title,

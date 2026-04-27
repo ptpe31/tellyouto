@@ -879,7 +879,10 @@ const ONETAP_WIRE_SYSTEM_PREFIX =
   'Output MUST be a single valid JSON array only (no markdown, no fences, no prose, no line breaks outside JSON). ' +
   'Each object MUST include a "type" field with one of: TASK, LIST, HABIT, TRIP, NOTE. ' +
   'TASK fields: "content" (string), optional "due" (ISO 8601 date-time string), optional "notes" (string), optional "category" (short tag). ' +
-  'LIST fields: "title" (string), "items" (array of strings), optional "baseCount" (number), optional "unitLabel" (string), optional "category". ' +
+  'LIST fields: "title" (string), "baseCount" (number), "unitLabel" (string), "items" (array of objects). ' +
+  'Each LIST item object fields: "name" (string), "baseQuantity" (number), "unit" (string), "scalable" (boolean). ' +
+  'If the user mentions servings/people count (e.g. "pour 6 personnes"), set baseCount=6 and unitLabel="personnes". If not mentioned, default baseCount=1, unitLabel="personne". ' +
+  'Always set scalable=true for ingredients that scale with baseCount (most ingredients), scalable=false for items that should not scale (e.g. "1 four", "une casserole"). ' +
   'HABIT fields: "content" (string), optional "recurrence" (string), optional "preferredTime" (HH:mm), optional "category". ' +
   'TRIP fields: "destination" (string), optional "address" (string), optional "placeId" (string), optional "lat" (number), optional "lng" (number), optional "arrivalDue" (ISO 8601 date-time), optional "category". ' +
   'NOTE fields: "content" (string), optional "category".\n\n';
