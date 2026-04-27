@@ -57,6 +57,7 @@ let cachedActiveGeminiModelId: string = GEMINI_SAFE_DEFAULT_MODEL_ID;
 let lastRemoteConfigResolvedModelId: string | null = null;
 let steeringInitPromise: Promise<void> | null = null;
 let fallbackCursor = 0;
+const sessionExcludedModelIds = new Set<string>();
 
 /** Secours local après self-heal (24h). */
 const GEMINI_FALLBACK_STORAGE_KEY = 'validated_model_id';
@@ -186,6 +187,25 @@ export function getActiveGeminiModelId(): string {
   return cachedActiveGeminiModelId;
 }
 
+export function setGeminiActiveModelForSession(modelId: string): void {
+  const clean = sanitizeRemoteModelId(modelId);
+  if (!clean) return;
+  cachedActiveGeminiModelId = clean;
+  lastRemoteConfigResolvedModelId = clean;
+}
+
+export function excludeGeminiModelForSession(modelId: string): void {
+  const clean = sanitizeRemoteModelId(modelId);
+  if (!clean) return;
+  sessionExcludedModelIds.add(clean);
+}
+
+export function isGeminiModelExcludedForSession(modelId: string): boolean {
+  const clean = sanitizeRemoteModelId(modelId);
+  if (!clean) return false;
+  return sessionExcludedModelIds.has(clean);
+}
+
 /** Modèle issu du dernier fetch RC (sans tenir compte du secours local 24h). */
 export function getLastRemoteConfigResolvedModelId(): string | null {
   return lastRemoteConfigResolvedModelId;
@@ -249,7 +269,19 @@ export function ensureGeminiRemoteModelInitialized(): Promise<void> {
 export function getGeminiCandidateModelIds(): string[] {
   const base = GEMINI_FALLBACK_LIST_MODELS;
   const active = getActiveGeminiModelId();
-  return [active, ...base.filter((id) => id !== active)];
+  const raw = [active, ...base.filter((id) => id !== active)];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of raw) {
+    const clean = sanitizeRemoteModelId(id) ?? '';
+    if (!clean) continue;
+    if (isBannedGeminiModelId(clean)) continue;
+    if (sessionExcludedModelIds.has(clean)) continue;
+    if (seen.has(clean)) continue;
+    seen.add(clean);
+    out.push(clean);
+  }
+  return out;
 }
 
 export async function persistValidatedGeminiModelId(modelId: string): Promise<void> {

@@ -1,16 +1,18 @@
 import {
   clearGeminiValidatedModelCache,
   ensureGeminiRemoteModelInitialized,
+  excludeGeminiModelForSession,
   getActiveGeminiModelId,
   getGeminiCandidateModelIds,
   persistValidatedGeminiModelId,
+  setGeminiActiveModelForSession,
 } from './geminiRemoteModelSteering';
 import { isBannedGeminiModelId } from './geminiModelCatalog';
 import { getGeminiApiKey } from './geminiSemanticLab';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1';
 
-async function pingGenerateContent(modelId: string, apiKey: string): Promise<boolean> {
+async function pingGenerateContent(modelId: string, apiKey: string): Promise<{ ok: boolean; status: number }> {
   const url = `${BASE}/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
     method: 'POST',
@@ -26,7 +28,7 @@ async function pingGenerateContent(modelId: string, apiKey: string): Promise<boo
       },
     }),
   });
-  return res.ok;
+  return { ok: res.ok, status: res.status };
 }
 
 export async function initializeGeminiEngine(): Promise<void> {
@@ -54,13 +56,23 @@ export async function initializeGeminiEngine(): Promise<void> {
   }
 
   const bannedForSession = new Set<string>();
+  let usedTempFallback = false;
   for (const id of candidates) {
     if (bannedForSession.has(id)) continue;
-    const ok = await pingGenerateContent(id, apiKey);
-    if (ok) {
-      await persistValidatedGeminiModelId(id);
+    const probe = await pingGenerateContent(id, apiKey);
+    if (probe.ok) {
+      if (usedTempFallback) {
+        setGeminiActiveModelForSession(id);
+      } else {
+        await persistValidatedGeminiModelId(id);
+      }
       console.log(`[GEMINI-BOOT] 🤖 Modèle validé pour cette session : ${id}`);
       return;
+    }
+    if (probe.status === 503) {
+      usedTempFallback = true;
+      excludeGeminiModelForSession(id);
+      continue;
     }
     bannedForSession.add(id);
     if (id === active) {
@@ -70,4 +82,3 @@ export async function initializeGeminiEngine(): Promise<void> {
 
   console.log(`[GEMINI-BOOT] 🤖 Modèle validé pour cette session : ${getActiveGeminiModelId()}`);
 }
-

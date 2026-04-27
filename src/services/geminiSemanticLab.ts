@@ -29,6 +29,8 @@ import Constants from 'expo-constants';
 import {
   getActiveGeminiModelId,
   getGeminiCandidateModelIds,
+  excludeGeminiModelForSession,
+  setGeminiActiveModelForSession,
   persistValidatedGeminiModelId,
   recoverGeminiModelViaListModelsExcluding,
 } from './geminiRemoteModelSteering';
@@ -224,6 +226,10 @@ function computeGeminiIsFallback(_: string, usedRecoverRetry: boolean): boolean 
   return usedRecoverRetry;
 }
 
+function isModelTemporarilyUnavailable(status: number): boolean {
+  return status === 503;
+}
+
 function isModelNotSupported(status: number, bodyText: string): boolean {
   if (status === 404) return true;
   if (status !== 400) return false;
@@ -309,6 +315,7 @@ async function postGenerateContent(
   const candidates = modelOverride ? [modelOverride] : getGeminiCandidateModelIds();
   const usedModels: string[] = [];
   let usedRecoverRetry = false;
+  let usedTempFallback = false;
   let exhaustedUnsupported = false;
   let last = await runOnce(candidates[0]);
   usedModels.push(last.modelId);
@@ -323,6 +330,11 @@ async function postGenerateContent(
       if (i === candidates.length - 1) exhaustedUnsupported = true;
       continue;
     }
+    if (!modelOverride && isModelTemporarilyUnavailable(last.res.status)) {
+      usedTempFallback = true;
+      excludeGeminiModelForSession(last.modelId);
+      continue;
+    }
     break;
   }
   if (!last.res.ok && !modelOverride && exhaustedUnsupported) {
@@ -335,8 +347,12 @@ async function postGenerateContent(
   }
   const { res, text, modelId, latencyMs } = last;
   if (!modelOverride && res.ok) {
-    void persistValidatedGeminiModelId(modelId);
-    usedRecoverRetry = usedModels[0] !== modelId || usedRecoverRetry;
+    usedRecoverRetry = usedModels[0] !== modelId || usedRecoverRetry || usedTempFallback;
+    if (usedTempFallback) {
+      setGeminiActiveModelForSession(modelId);
+    } else {
+      void persistValidatedGeminiModelId(modelId);
+    }
   }
 
   if (res.ok) {
@@ -912,6 +928,7 @@ async function postStreamGenerateContent(
   const usedModels: string[] = [];
   let lastErrBody = '';
   let usedRecoverRetry = false;
+  let usedTempFallback = false;
   let exhaustedUnsupported = false;
   let { res, modelId } = await openStream(candidates[0]);
   usedModels.push(modelId);
@@ -940,6 +957,11 @@ async function postStreamGenerateContent(
     if (res.ok) break;
     if (!modelOverride && isModelNotSupported(res.status, lastErrBody)) {
       if (i === candidates.length - 1) exhaustedUnsupported = true;
+      continue;
+    }
+    if (!modelOverride && isModelTemporarilyUnavailable(res.status)) {
+      usedTempFallback = true;
+      excludeGeminiModelForSession(modelId);
       continue;
     }
     break;
@@ -972,8 +994,12 @@ async function postStreamGenerateContent(
     throw new Error(`Gemini stream: HTTP ${res.status}: ${lastErrBody.slice(0, 800)}`);
   }
   if (!modelOverride) {
-    void persistValidatedGeminiModelId(modelId);
-    usedRecoverRetry = usedModels[0] !== modelId || usedRecoverRetry;
+    usedRecoverRetry = usedModels[0] !== modelId || usedRecoverRetry || usedTempFallback;
+    if (usedTempFallback) {
+      setGeminiActiveModelForSession(modelId);
+    } else {
+      void persistValidatedGeminiModelId(modelId);
+    }
   }
   let model = modelId;
   const reader = res.body?.getReader?.();
