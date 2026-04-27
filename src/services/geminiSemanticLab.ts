@@ -929,6 +929,7 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
 const ONETAP_WIRE_SYSTEM_PREFIX =
   'Output ONLY lines starting with ">". No markdown, no explanations. ' +
   'NO CALCULATIONS. Do NOT divide by baseCount. ' +
+  'If the dictation mentions a travel/route (going to a place, a station/airport, "trajet", "aller à", "chez"), output a TRIP intent FIRST. ' +
   'Allowed TYPE: TASK, NOTE, LIST, HABIT, TRIP. ' +
   'TASK: > TASK | TitleOrContent | DateISO(optional ISO 8601). ' +
   'NOTE: > NOTE | TitleOrContent. ' +

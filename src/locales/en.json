@@ -1238,6 +1238,7 @@
       "TASK": "Task",
       "RECURRING_TASK": "Recurring task",
       "HABIT": "Habit",
+      "TRIP": "Trip",
       "LIST": "List",
       "ANNIVERSARY": "Anniversary",
       "NOTE": "Note"

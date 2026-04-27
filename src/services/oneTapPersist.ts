@@ -186,6 +186,38 @@ async function materializeOneTapIntentionRow(params: {
       });
       return row;
     }
+    case 'TRIP': {
+      let dueDateYmd = str(draft.data, 'dueDateYmd');
+      if (!dueDateYmd) {
+        const iso = str(draft.data, 'dueDateTime') ?? str(draft.data, 'arrivalDue');
+        if (iso) {
+          const d = new Date(iso);
+          if (!Number.isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            dueDateYmd = `${y}-${m}-${day}`;
+          }
+        }
+      }
+      if (dueDateYmd && !/^\d{4}-\d{2}-\d{2}$/.test(dueDateYmd)) {
+        dueDateYmd = null;
+      }
+      const dest = str(draft.data, 'destination_name') || title;
+      const { row } = buildLocalTemporalIntentionInsertRow({
+        id: intentionId,
+        title: dest.slice(0, 200),
+        rawTranscript: raw,
+        localType: 'TASK',
+        dueDateYmd,
+        suggestedTags: [draft.categoryTag.toLowerCase().replace(/\s+/g, '_')],
+        source: 'one_tap_trip',
+        metadataExtra: { source: 'one_tap_universal', categoryTag: draft.categoryTag, trip: draft.data },
+        is_pending_ai: isPendingAi,
+        created_at,
+      });
+      return { ...row, ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>) };
+    }
     case 'HABIT': {
       const habitTitle = (title || habitsDefaultTitle).slice(0, 200);
       return {
@@ -411,6 +443,21 @@ export async function finalizeOneTapOptimisticDraft(params: {
             intentionId,
           },
         };
+      case 'TRIP': {
+        const dueDateYmd = row.due_date ?? null;
+        return {
+          ok: true,
+          outcome: {
+            kind: 'persisted_temporal',
+            intentionId,
+            mirrorType: 'TASK',
+            title: row.title,
+            dueDateYmd,
+            recapIntroI18nKey: 'talkDebug.taskQuickRecapIntro',
+            consumedClassicFreeSlot: consumedClassic,
+          },
+        };
+      }
       case 'TASK':
       case 'RECURRING_TASK': {
         let dueDateYmd = str(draft.data, 'dueDateYmd') ?? str(draft.data, 'nextDueYmd');
@@ -542,6 +589,38 @@ export async function persistOneTapDraft(params: {
             intentionId,
             mirrorType: 'TASK',
             title,
+            dueDateYmd,
+            recapIntroI18nKey: 'talkDebug.taskQuickRecapIntro',
+            consumedClassicFreeSlot: consumedClassic,
+          },
+        };
+      }
+      case 'TRIP': {
+        const intentionId = deps.newId();
+        const row = await materializeOneTapIntentionRow({
+          deps,
+          draft,
+          transcript: raw,
+          intentionId,
+          habitsDefaultTitle,
+          birthdayLabel,
+          isPendingAi: 0,
+        });
+        await insertTrankilV2Intention({ ...row, metadata_json: buildMetadataJsonForInsert(row.metadata_json, draft) });
+        void scheduleOneTapUniversalReminders({
+          intentionId,
+          title,
+          data: draft.data,
+          translate: deps.translate,
+        });
+        const dueDateYmd = row.due_date ?? null;
+        return {
+          ok: true,
+          outcome: {
+            kind: 'persisted_temporal',
+            intentionId,
+            mirrorType: 'TASK',
+            title: row.title,
             dueDateYmd,
             recapIntroI18nKey: 'talkDebug.taskQuickRecapIntro',
             consumedClassicFreeSlot: consumedClassic,
@@ -875,6 +954,42 @@ export async function persistOneTapDraftVentilated(params: {
           habitsDefaultTitle,
           birthdayLabel,
           entityLabel: 'TASK',
+        });
+        if (pr.ok) outcomes.push(pr.outcome);
+        else {
+          firstError = firstError ?? pr.error;
+          firstCode = firstCode ?? pr.code;
+        }
+        continue;
+      }
+      if (type === 'TRIP') {
+        const destination = String(r.destination ?? r.content ?? r.title ?? '').trim() || str(draft.data, 'destination_name') || draft.title;
+        const dueIso = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : typeof r.due === 'string' ? r.due.trim() : '';
+        const patch = dueIso ? parseIsoToYmdHm(dueIso) : null;
+        const tripDraft: OneTapUniversalResult = {
+          ...draft,
+          categoryTag,
+          title: destination.slice(0, 200) || draft.title,
+          predictedType: 'TRIP',
+          data: {
+            logisticsPotential: true,
+            destination_name: destination.slice(0, 400),
+            ...(dueIso ? { dueDateTime: dueIso } : {}),
+            ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
+            location_address: str(draft.data, 'location_address') ?? '',
+            location_place_id: (draft.data as Record<string, unknown>).location_place_id ?? null,
+            location_lat: (draft.data as Record<string, unknown>).location_lat ?? null,
+            location_lng: (draft.data as Record<string, unknown>).location_lng ?? null,
+            remind_to_leave: Boolean((draft.data as Record<string, unknown>).remind_to_leave),
+          },
+        };
+        const pr = await persistAndDualWrite({
+          deps,
+          draft: tripDraft,
+          transcript,
+          habitsDefaultTitle,
+          birthdayLabel,
+          entityLabel: 'TRIP',
         });
         if (pr.ok) outcomes.push(pr.outcome);
         else {

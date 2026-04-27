@@ -85,7 +85,7 @@ function readDraftIntents(draft: OneTapUniversalResult): Record<string, unknown>
 }
 
 function normalizeIncomingIntents(intents: Record<string, unknown>[]): Record<string, unknown>[] {
-  return intents.map((it) => {
+  const normalized = intents.map((it) => {
     const type = String(it.type ?? '').trim().toUpperCase();
     if (type !== 'LIST') return it;
     const baseCount = Math.max(1, Math.round(Number(it.baseCount ?? 1)));
@@ -101,6 +101,20 @@ function normalizeIncomingIntents(intents: Record<string, unknown>[]): Record<st
     });
     return { ...it, baseCount, items: nextItems };
   });
+  const priority = (it: Record<string, unknown>): number => {
+    const t = String(it.type ?? '').trim().toUpperCase();
+    if (t === 'TRIP') return 0;
+    if (t === 'LIST') return 1;
+    if (t === 'TASK' || t === 'RECURRING_TASK') return 2;
+    if (t === 'HABIT') return 3;
+    if (t === 'ANNIVERSARY') return 4;
+    if (t === 'NOTE') return 5;
+    return 9;
+  };
+  return normalized
+    .map((it, idx) => ({ it, idx }))
+    .sort((a, b) => priority(a.it) - priority(b.it) || a.idx - b.idx)
+    .map((x) => x.it);
 }
 
 function intentLabel(it: Record<string, unknown> | null, predictedType: OneTapPredictedType): string {
@@ -447,6 +461,31 @@ export function OneTapConfirmModal({
     if (direct.length) return direct;
     return deriveFallbackIntentFromDraft(draft);
   }, [displayedIntents, draft]);
+
+  const logisticsMemoryKeyRef = useRef<string>('');
+  useEffect(() => {
+    if (!visible || !draft) return;
+    if (draft.data?.logisticsPotential !== true && draft.predictedType !== 'TRIP') return;
+    const detected = strData(draft.data as Record<string, unknown>, 'destination_name');
+    const addr = strData(draft.data as Record<string, unknown>, 'location_address');
+    if (!detected || addr) return;
+    const key = detected.toLowerCase();
+    if (logisticsMemoryKeyRef.current === key) return;
+    logisticsMemoryKeyRef.current = key;
+    fetchLatestOneTapLogisticsMemory(detected)
+      .then((m) => {
+        if (!m) return;
+        const currentAddr = strData(draft.data as Record<string, unknown>, 'location_address');
+        if (currentAddr) return;
+        onChangeDraft(
+          patchData(draft, {
+            location_address: m.location_address,
+            remind_to_leave: m.remind_to_leave === 1,
+          }),
+        );
+      })
+      .catch(() => undefined);
+  }, [draft, onChangeDraft, visible]);
 
   const lastDebugSigRef = useRef<string>('');
   useEffect(() => {
@@ -1003,7 +1042,8 @@ export function OneTapConfirmModal({
             );
           }
           if (type === 'TRIP') {
-            const title = String(it.destination ?? it.content ?? '').trim() || '—';
+            const detected = String(it.destination ?? it.content ?? '').trim() || strData(draft.data as Record<string, unknown>, 'destination_name') || '—';
+            const addr = strData(draft.data as Record<string, unknown>, 'location_address');
             return (
               <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
                 <View style={styles.intentHeadRow}>
@@ -1018,7 +1058,39 @@ export function OneTapConfirmModal({
                   </Pressable>
                   <Text style={styles.intentType}>TRIP</Text>
                 </View>
-                <Text style={styles.intentTitle}>{title}</Text>
+                <Text style={styles.intentTitle}>{detected}</Text>
+                <View style={styles.tripAddressRow}>
+                  <GooglePlacesAutocompleteField
+                    value={addr}
+                    onChangeText={(text) =>
+                      onChangeDraft(
+                        patchData(draft, {
+                          logisticsPotential: true,
+                          destination_name: detected,
+                          location_address: text,
+                          location_place_id: null,
+                          location_lat: null,
+                          location_lng: null,
+                        }),
+                      )
+                    }
+                    onSelect={(p) =>
+                      onChangeDraft(
+                        patchData(draft, {
+                          logisticsPotential: true,
+                          destination_name: detected,
+                          location_address: p.formattedAddress,
+                          location_place_id: p.placeId,
+                          location_lat: p.lat,
+                          location_lng: p.lng,
+                        }),
+                      )
+                    }
+                    disabled={busy}
+                    placeholder={t('sentinel.addressPlaceholder')}
+                    missingKeyLabel={t('sentinel.placesMissingKey')}
+                  />
+                </View>
               </Animated.View>
             );
           }
@@ -1658,6 +1730,7 @@ const styles = StyleSheet.create({
   loadingTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' },
   listTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
   listControlsBelow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
+  tripAddressRow: { marginTop: 10 },
   intentLoadingInline: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   intentLoadingInlineText: { fontSize: 13, fontWeight: '800', color: '#475569' },
   label: { fontSize: 12, fontWeight: '700', color: '#64748b', marginTop: 8 },

@@ -74,6 +74,7 @@ export const ONE_TAP_PREDICTED_TYPES = [
   'TASK',
   'RECURRING_TASK',
   'HABIT',
+  'TRIP',
   'LIST',
   'ANNIVERSARY',
   'NOTE',
@@ -645,6 +646,8 @@ function mergeIntentArrayIntoOneTapSkeleton(
   const out: Record<string, unknown> = { ...mergedBase, intents };
   let title = skeleton.title;
   let categoryTag = skeleton.categoryTag;
+  let hasTrip = false;
+  let tripTitle = '';
 
   for (const rawIntent of intents) {
     const type = normalizeIntentType(rawIntent?.type);
@@ -712,6 +715,8 @@ function mergeIntentArrayIntoOneTapSkeleton(
     if (type === 'TRIP') {
       const dest = typeof rawIntent.destination === 'string' ? rawIntent.destination.trim() : '';
       if (dest) {
+        hasTrip = true;
+        if (!tripTitle) tripTitle = dest.slice(0, 200);
         out.logisticsPotential = true;
         out.destination_name = dest.slice(0, 400);
       }
@@ -733,7 +738,9 @@ function mergeIntentArrayIntoOneTapSkeleton(
   }
 
   const data = normalizeUniversalTemporalInData(out);
-  return { ...skeleton, categoryTag, title: title.trim().slice(0, 200) || skeleton.title, data };
+  const nextTitle = (hasTrip ? tripTitle : title).trim().slice(0, 200) || skeleton.title;
+  const baseType = hasTrip ? 'TRIP' : skeleton.predictedType;
+  return { ...skeleton, predictedType: baseType, categoryTag, title: nextTitle, data };
 }
 
 function patchDataFromWire(wire: OneTapWireFields): Record<string, unknown> {
@@ -975,11 +982,10 @@ export function inferOneTapSkeletonFromTranscript(
     ) ||
     /\b(pêche|peche|étang|cabane)\b/i.test(lower);
 
-  if (
-    travelHint &&
-    (predictedType === 'TASK' || predictedType === 'RECURRING_TASK' || predictedType === 'HABIT')
-  ) {
-    base = { ...base, logisticsPotential: true };
+  if (travelHint) {
+    predictedType = 'TRIP';
+    const nextBase = defaultOneTapDataForType('TRIP');
+    base = { ...nextBase, ...base, logisticsPotential: true };
   }
 
   return {
@@ -1254,6 +1260,16 @@ export function defaultOneTapDataForType(type: OneTapPredictedType): Record<stri
         remind_to_leave: false,
         location_address: '',
       };
+    case 'TRIP':
+      return {
+        ...u,
+        logisticsPotential: true,
+        destination_name: '',
+        remind_to_leave: false,
+        location_address: '',
+        arrivalDue: null,
+        transportMode: 'auto',
+      };
     case 'LIST':
       return {
         ...u,
@@ -1304,6 +1320,16 @@ export function mergeOneTapDataOnTypeChange(
       ...base,
       dueDateYmd: typeof prevData.dueDateYmd === 'string' ? prevData.dueDateYmd : prevData.nextDueYmd ?? null,
       notes: String(prevData.notes || prevData.memo || prevData.anchorNotes || ''),
+      ...tail,
+    };
+  }
+  if (nextType === 'TRIP') {
+    return {
+      ...base,
+      logisticsPotential: true,
+      destination_name: String(prevData.destination_name ?? prevData.location_address ?? '').trim(),
+      location_address: String(prevData.location_address ?? '').trim(),
+      remind_to_leave: Boolean(prevData.remind_to_leave),
       ...tail,
     };
   }
