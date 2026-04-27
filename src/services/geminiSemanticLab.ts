@@ -320,14 +320,17 @@ async function postGenerateContent(
       tNet0: Math.round(tNet0),
     });
     labLog('FINAL_URL', { model: modelId, endpoint: safeUrl, operation: traceOperation });
-    if (traceOperation.startsWith('oneTap.wire')) {
+    const ttsProbe = /tts-preview/i.test(modelId);
+    if (traceOperation.startsWith('oneTap.wire') && !ttsProbe) {
       const gc = (effectiveBody as { generationConfig?: Record<string, unknown> }).generationConfig ?? {};
       labLog('oneTap.generationConfig', { model: modelId, ...gc });
     }
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(effectiveBody),
+      body: JSON.stringify(
+        ttsProbe ? { contents: [{ parts: [{ text: 'Bonjour' }] }] } : effectiveBody,
+      ),
     });
     const text = await res.text();
     const tNet1 = perfNowMs();
@@ -347,7 +350,12 @@ async function postGenerateContent(
     return { res, text, modelId, latencyMs };
   };
 
-  const candidates = modelOverride ? [modelOverride] : getGeminiCandidateModelIds();
+  const candidates =
+    modelOverride
+      ? [modelOverride]
+      : traceOperation.startsWith('oneTap.wire')
+        ? ['gemini-flash-latest', 'gemini-pro-latest']
+        : getGeminiCandidateModelIds();
   const usedModels: string[] = [];
   let usedRecoverRetry = false;
   let usedTempFallback = false;
@@ -446,6 +454,17 @@ function extractTextFromGenerateResponse(data: unknown): string {
     if (p && typeof p.text === 'string') s += p.text;
   }
   return s.trim();
+}
+
+function normalizeOneTapWireText(raw: string): string {
+  const s = String(raw || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/\s+$/g, ''))
+    .join('\n')
+    .trim();
+  return s;
 }
 
 /**
@@ -969,19 +988,27 @@ async function postStreamGenerateContent(
     const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
     labLog('stream.request.start', { model: modelId, endpoint: safeUrl });
     labLog('FINAL_URL', { model: modelId, endpoint: safeUrl, operation: traceOperation });
-    if (traceOperation.startsWith('oneTap.wire')) {
+    const ttsProbe = /tts-preview/i.test(modelId);
+    if (traceOperation.startsWith('oneTap.wire') && !ttsProbe) {
       const gc = (effectiveBody as { generationConfig?: Record<string, unknown> }).generationConfig ?? {};
       labLog('oneTap.generationConfig', { model: modelId, ...gc });
     }
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(effectiveBody),
+      body: JSON.stringify(
+        ttsProbe ? { contents: [{ parts: [{ text: 'Bonjour' }] }] } : effectiveBody,
+      ),
     });
     return { res, modelId };
   };
 
-  const candidates = modelOverride ? [modelOverride] : getGeminiCandidateModelIds();
+  const candidates =
+    modelOverride
+      ? [modelOverride]
+      : traceOperation.startsWith('oneTap.wire')
+        ? ['gemini-flash-latest', 'gemini-pro-latest']
+        : getGeminiCandidateModelIds();
   const usedModels: string[] = [];
   let lastErrBody = '';
   let usedRecoverRetry = false;
@@ -1216,7 +1243,7 @@ export async function geminiGenerateOneTapCompressedLine(
         }
       : undefined,
   );
-  const raw = extractTextFromGenerateResponse(data).replace(/\s+/g, ' ').trim();
+  const raw = normalizeOneTapWireText(extractTextFromGenerateResponse(data));
   if (__DEV__ || process.env.EXPO_PUBLIC_GEMINI_DEBUG_PROMPT === '1') {
     const d = data as {
       candidates?: { finishReason?: unknown; content?: { parts?: { text?: unknown }[] } }[];
@@ -1283,5 +1310,5 @@ export async function geminiStreamOneTapCompressedLine(
     promptChars: trimmed.length,
     outChars: out.length,
   });
-  return { raw: out.replace(/\s+/g, ' ').trim(), httpMeta };
+  return { raw: normalizeOneTapWireText(out), httpMeta };
 }

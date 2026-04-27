@@ -86,6 +86,45 @@ function hasStreamedIntents(draft: OneTapUniversalResult): boolean {
   return readDraftIntents(draft).length > 0;
 }
 
+function deriveFallbackIntentFromDraft(draft: OneTapUniversalResult): Record<string, unknown>[] {
+  const data = draft.data as Record<string, unknown>;
+  const type = String(draft.predictedType || '').trim().toUpperCase();
+  if (!type) return [];
+  if (type === 'LIST') {
+    const list = (data.list as Record<string, unknown> | null) ?? null;
+    const title = String(list?.title ?? draft.title ?? 'Liste');
+    const baseCount = Number(list?.baseCount ?? 1);
+    const unitLabel = String(list?.unitLabel ?? 'personne');
+    const cats = Array.isArray(list?.categories) ? (list?.categories as unknown[]) : [];
+    const firstCat = (cats[0] as Record<string, unknown>) ?? {};
+    const items = Array.isArray(firstCat.items) ? firstCat.items : [];
+    return [
+      {
+        type: 'LIST',
+        title,
+        baseCount: Number.isFinite(baseCount) && baseCount > 0 ? baseCount : 1,
+        unitLabel,
+        items,
+      },
+    ];
+  }
+  if (type === 'TASK') {
+    const due = String(data.dueDateTime ?? '');
+    return [{ type: 'TASK', content: draft.title, due }];
+  }
+  if (type === 'HABIT') {
+    const recurrence = String(data.cadenceDescription ?? data.recurrence ?? '');
+    return [{ type: 'HABIT', content: draft.title, recurrence }];
+  }
+  if (type === 'TRIP') {
+    const destination = String(data.destination_name ?? data.destination ?? draft.title ?? '');
+    const arrivalDue = String(data.arrivalDue ?? data.dueDateTime ?? '');
+    return [{ type: 'TRIP', destination, arrivalDue }];
+  }
+  const content = String(data.memo ?? draft.title ?? '');
+  return [{ type: 'NOTE', content }];
+}
+
 function ymdFromDate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -221,15 +260,37 @@ export function OneTapConfirmModal({
 
   if (!draft) return null;
 
+  const patchDraftIntents = useCallback(
+    (next: Record<string, unknown>[]) => {
+      onChangeDraft({ ...draft, data: { ...draft.data, intents: next } });
+    },
+    [draft, onChangeDraft],
+  );
+
   useEffect(() => {
     if (Platform.OS === 'android') {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
   }, []);
 
+  const didBootstrapIntentsRef = useRef(false);
+  useEffect(() => {
+    if (!visible) didBootstrapIntentsRef.current = false;
+  }, [visible]);
+
   useEffect(() => {
     if (!visible) return;
     const next = readDraftIntents(draft);
+    if (!next.length && !displayedIntents.length && !didBootstrapIntentsRef.current) {
+      const derived = deriveFallbackIntentFromDraft(draft);
+      if (derived.length) {
+        didBootstrapIntentsRef.current = true;
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setDisplayedIntents(derived);
+        patchDraftIntents(derived);
+        return;
+      }
+    }
     if (next.length > displayedIntents.length) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
@@ -237,10 +298,6 @@ export function OneTapConfirmModal({
       setDisplayedIntents(next);
     }
   }, [displayedIntents, draft, visible]);
-
-  const patchDraftIntents = (next: Record<string, unknown>[]) => {
-    onChangeDraft({ ...draft, data: { ...draft.data, intents: next } });
-  };
 
   const removeIntentAt = (intentIndex: number) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);

@@ -18,9 +18,8 @@ export type GeminiListedModel = {
 };
 
 export const GEMINI_MODEL_SHORTLIST = [
-  'gemini-1.5-flash',
-  'gemini-1.5-pro',
-  'gemini-2.0-flash-exp',
+  'gemini-flash-latest',
+  'gemini-pro-latest',
 ] as const;
 
 export const BANNED_MODELS_FOR_ONETAP = ['gemini-2.5-flash', 'gemini-2.0-flash'] as const;

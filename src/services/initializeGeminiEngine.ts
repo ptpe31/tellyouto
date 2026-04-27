@@ -27,10 +27,7 @@ async function pingGenerateContent(modelId: string, apiKey: string): Promise<{ o
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: 'Bonjour' }] }],
-      generationConfig: {
-        maxOutputTokens: 16,
-      },
+      contents: [{ parts: [{ text: 'Bonjour' }] }],
     }),
   });
   return { ok: res.ok, status: res.status };
@@ -40,7 +37,7 @@ export async function initializeGeminiEngine(): Promise<void> {
   await ensureGeminiRemoteModelInitialized();
 
   const active = getActiveGeminiModelId();
-  if (active && (isBannedGeminiModelId(active) || !GEMINI_MODEL_SHORTLIST.includes(active as (typeof GEMINI_MODEL_SHORTLIST)[number]))) {
+  if (active && isBannedGeminiModelId(active)) {
     await clearGeminiValidatedModelCache();
   }
 
@@ -66,40 +63,31 @@ export async function initializeGeminiEngine(): Promise<void> {
       metaById.set(id, { inLim: toNumber(m.inputTokenLimit), outLim: toNumber(m.outputTokenLimit) });
     }
 
-    const okOneTapFamily = (id: string) =>
-      !isBannedGeminiModelId(id) &&
-      !isBannedGeminiModelIdForOneTap(id) &&
-      !isShortGeminiAliasModelId(id) &&
-      /^gemini-1\.5-/i.test(id);
-    const isFlash15 = (id: string) => /^gemini-1\.5-flash/i.test(id);
-    const isPro15 = (id: string) => /^gemini-1\.5-pro/i.test(id);
-    const isLatest = (id: string) => /-latest$/i.test(id);
-
     for (const id of allIds) {
-      if (!okOneTapFamily(id)) continue;
       const meta = metaById.get(id);
       const outLim = meta?.outLim ?? 0;
       const inLim = meta?.inLim ?? 0;
-      const desired = isFlash15(id) || isPro15(id);
-      const qualified = outLim > 0 ? outLim >= oneTapMinOut : true;
-      console.log(
-        `[RECRUTEMENT-AI] 📋 ${id} | In:${inLim || '?'} Out:${outLim || '?'} | Desired:${desired ? 'YES' : 'NO'} | ${qualified ? 'QUALIFIÉ' : 'NON_QUALIFIÉ'}`,
-      );
+      const supported = !isBannedGeminiModelId(id) && !isBannedGeminiModelIdForOneTap(id);
+      console.log(`[RECRUTEMENT-AI] 📋 ${id} | In:${inLim || '?'} Out:${outLim || '?'} | Supported:${supported ? 'YES' : 'NO'}`);
     }
 
+    const okForOneTap = (id: string) =>
+      !isBannedGeminiModelId(id) && !isBannedGeminiModelIdForOneTap(id) && !isShortGeminiAliasModelId(id);
+    const isFlashLatest = (id: string) => /^gemini-flash-latest$/i.test(id);
+    const isProLatest = (id: string) => /^gemini-pro-latest$/i.test(id);
+    const isFlash = (id: string) => /\bflash\b/i.test(id);
+    const isPro = (id: string) => /\bpro\b/i.test(id);
+    const isLatest = (id: string) => /-latest$/i.test(id);
     const ordered = allIds
-      .filter((id) => okOneTapFamily(id) && (isFlash15(id) || isPro15(id)))
+      .filter((id) => okForOneTap(id) && (isFlashLatest(id) || isProLatest(id) || isFlash(id) || isPro(id)))
       .sort((a, b) => {
-        const fa = isFlash15(a) ? 0 : 1;
-        const fb = isFlash15(b) ? 0 : 1;
-        if (fa !== fb) return fa - fb;
-        const la = isLatest(a) ? 0 : 1;
-        const lb = isLatest(b) ? 0 : 1;
-        if (la !== lb) return la - lb;
+        const pa = isFlashLatest(a) ? 0 : isProLatest(a) ? 1 : isLatest(a) ? 2 : isFlash(a) ? 3 : 4;
+        const pb = isFlashLatest(b) ? 0 : isProLatest(b) ? 1 : isLatest(b) ? 2 : isFlash(b) ? 3 : 4;
+        if (pa !== pb) return pa - pb;
         const oa = metaById.get(a)?.outLim ?? 0;
         const ob = metaById.get(b)?.outLim ?? 0;
         if (oa !== ob) return ob - oa;
-        return b.localeCompare(a);
+        return a.localeCompare(b);
       });
 
     for (const id of ordered) {
