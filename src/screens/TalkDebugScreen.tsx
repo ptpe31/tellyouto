@@ -1,9 +1,23 @@
-import React, { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  DeviceEventEmitter,
+  FlatList,
+  KeyboardAvoidingView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Button } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from 'react-native-paper';
 
 import { orchestrateNewIntention } from '../services/intentionsPipeline';
+import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
+import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
+import { getOrCreateViaUserId, withViaDb } from '../services/db/Schema';
+import { Platform as RPlatform } from '../utils/rnPlatform';
+import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
 
 const ANSI = {
   reset: '\u001b[0m',
@@ -47,21 +61,81 @@ function splitBatchInput(raw: string): string[] {
   return out.map((x) => x.trim()).filter((x) => x.length > 0);
 }
 
+type CoreIntentionRow = {
+  id: string;
+  type: string;
+  title: string;
+  contentRaw: string;
+  createdAtMs: number;
+};
+
 export function TalkHomeScreen() {
   const { t } = useTranslation();
-  const [title, setTitle] = useState('');
-  const [note, setNote] = useState('');
-  const [dueAt, setDueAt] = useState('');
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [rows, setRows] = useState<CoreIntentionRow[]>([]);
 
-  const save = useCallback(async () => {
+  const refresh = useCallback(async () => {
+    const userId = await getOrCreateViaUserId();
+    const next = await withViaDb(async (db) => {
+      const r = await db.getAllAsync<Record<string, unknown>>(
+        `SELECT id, type, title, content_raw, created_at_ms
+           FROM core_intentions
+          WHERE user_id = ?
+          ORDER BY created_at_ms DESC
+          LIMIT 50`,
+        [userId],
+      );
+      return r.map((x) => ({
+        id: String(x.id ?? ''),
+        type: String(x.type ?? ''),
+        title: String(x.title ?? ''),
+        contentRaw: String(x.content_raw ?? ''),
+        createdAtMs: Number(x.created_at_ms ?? 0) || 0,
+      }));
+    });
+    setRows(next);
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
+      void refresh();
+    });
+    return () => sub.remove();
+  }, [refresh]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: CoreIntentionRow }) => {
+      return (
+        <View style={[styles.rowCard, neumorphicRaised(theme)]}>
+          <Text style={[styles.rowType, { color: theme.colors.primary }]}>{item.type}</Text>
+          <Text style={[styles.rowTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+            {item.title}
+          </Text>
+          <Text style={[styles.rowBody, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
+            {item.contentRaw}
+          </Text>
+        </View>
+      );
+    },
+    [theme],
+  );
+
+  const keyExtractor = useCallback((item: CoreIntentionRow) => item.id, []);
+
+  const onSubmitText = useCallback(async () => {
+    if (busy) return;
+    const raw = input;
+    const segments = splitBatchInput(raw);
+    if (segments.length === 0) return;
     setBusy(true);
     try {
-      const dueAtMs = dueAt ? new Date(dueAt).getTime() : null;
-      const segments = splitBatchInput(note);
       if (segments.length > 1) {
         console.log(
-          `${ANSI.cyan}${ANSI.bold}[BANC-DE-TEST] 🚀 Lancement d'un batch de ${segments.length} intentions.${ANSI.reset}`
+          `${ANSI.cyan}${ANSI.bold}[BANC-DE-TEST] 🚀 Lancement d'un batch de ${segments.length} intentions.${ANSI.reset}`,
         );
       }
       for (const [idx, segment] of segments.entries()) {
@@ -70,61 +144,94 @@ export function TalkHomeScreen() {
           await orchestrateNewIntention({
             source: 'TEXT',
             content: segment,
-            title: title || t('talk.debugFallbackTitle'),
-            dueAtMs,
           });
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
           console.log(`${ANSI.green}${ANSI.bold}[BANC-DE-TEST] ✅ OK${ANSI.reset}`);
         } catch (e) {
           console.log(
-            `${ANSI.red}${ANSI.bold}[BANC-DE-TEST] ❌ Erreur: ${e instanceof Error ? e.message : String(e)}${ANSI.reset}`
+            `${ANSI.red}${ANSI.bold}[BANC-DE-TEST] ❌ Erreur: ${e instanceof Error ? e.message : String(e)}${ANSI.reset}`,
           );
         }
       }
       if (segments.length > 1) {
         console.log(`${ANSI.yellow}${ANSI.bold}[BANC-DE-TEST] ✅ Fin du batch. Base de données à jour.${ANSI.reset}`);
       }
-      setTitle('');
-      setNote('');
-      setDueAt('');
+      setInput('');
     } finally {
       setBusy(false);
     }
-  }, [dueAt, note, t, title]);
+  }, [busy, input]);
+
+  const keyboardBehavior = useMemo(() => (RPlatform.OS === 'ios' ? 'padding' : undefined), []);
 
   return (
-    <ScrollView contentContainerStyle={styles.pad}>
-      <Text style={styles.h1}>{t('talk.title')}</Text>
-      <Text style={styles.hint}>{t('talk.helper')}</Text>
-      <View style={styles.block}>
-        <Text style={styles.label}>{t('talk.titleLabel')}</Text>
-        <TextInput value={title} onChangeText={setTitle} style={styles.input} />
-        <Text style={styles.label}>{t('talk.noteLabel')}</Text>
-        <TextInput value={note} onChangeText={setNote} style={[styles.input, styles.multiline]} multiline />
-        <Text style={styles.label}>{t('talk.dueLabel')}</Text>
-        <TextInput value={dueAt} onChangeText={setDueAt} style={styles.input} placeholder="2026-05-03 09:00" />
-        <Button mode="contained" onPress={save} loading={busy} disabled={busy}>
-          {t('talk.saveCta')}
-        </Button>
+    <KeyboardAvoidingView
+      style={[styles.flex, { backgroundColor: theme.colors.background }]}
+      behavior={keyboardBehavior}
+      keyboardVerticalOffset={Math.max(0, insets.top + 6)}
+    >
+      <View style={styles.flex}>
+        <FlatList
+          data={rows}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          contentContainerStyle={[styles.listPad, { paddingTop: Math.max(10, insets.top + 10) }]}
+          ListHeaderComponent={
+            <View style={styles.header}>
+              <Text style={[styles.brand, { color: theme.colors.onBackground }]}>{t('talkHome.brandName')}</Text>
+            </View>
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>
+                {t('timeline.empty')}
+              </Text>
+            </View>
+          }
+        />
+        <View style={[styles.bottomArea, { paddingBottom: Math.max(10, insets.bottom + 10) }]}>
+          <View style={[styles.chatBar, neumorphicInset(theme)]}>
+            <TextInput
+              value={input}
+              onChangeText={setInput}
+              editable={!busy}
+              style={[styles.chatInput, { color: theme.colors.onSurface }]}
+              placeholder={t('talkCapture.hintTap')}
+              placeholderTextColor={theme.colors.onSurfaceVariant}
+              returnKeyType="send"
+              blurOnSubmit={false}
+              onSubmitEditing={() => void onSubmitText()}
+            />
+          </View>
+          <View style={styles.micWrap}>
+            <TalkCaptureMicButton disabled={busy} />
+          </View>
+        </View>
       </View>
-    </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  pad: { padding: 16, paddingBottom: 40, gap: 10 },
-  h1: { fontSize: 22, fontWeight: '900', color: '#0f172a' },
-  hint: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-  block: { gap: 10, marginTop: 8 },
-  label: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
-  input: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-    color: '#0f172a',
-    fontSize: 14,
+  flex: { flex: 1 },
+  header: { paddingHorizontal: 16, paddingBottom: 6 },
+  brand: { fontSize: 16, fontWeight: '900' },
+  listPad: { paddingHorizontal: 16, paddingBottom: 180, gap: 10 },
+  rowCard: { padding: 14, borderRadius: 18, gap: 6 },
+  rowType: { fontSize: 11, fontWeight: '900', letterSpacing: 0.6 },
+  rowTitle: { fontSize: 14, fontWeight: '900' },
+  rowBody: { fontSize: 12, fontWeight: '600', lineHeight: 16 },
+  emptyWrap: { paddingHorizontal: 16, paddingTop: 14 },
+  emptyText: { fontSize: 13, fontWeight: '700' },
+  bottomArea: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    gap: 10,
   },
-  multiline: { minHeight: 80, textAlignVertical: 'top' },
+  chatBar: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
+  chatInput: { fontSize: 14, fontWeight: '700' },
+  micWrap: { alignItems: 'center', justifyContent: 'center', paddingBottom: 6 },
 });
