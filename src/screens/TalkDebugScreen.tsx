@@ -1,10 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { randomUUID } from 'expo-crypto';
 import { Button } from 'react-native-paper';
 
-import { withViaDb, getOrCreateViaUserId } from '../services/db/Schema';
+import { orchestrateNewIntention } from '../services/intentionsPipeline';
 
 export function TalkHomeScreen() {
   const { t } = useTranslation();
@@ -16,16 +15,12 @@ export function TalkHomeScreen() {
   const save = useCallback(async () => {
     setBusy(true);
     try {
-      const userId = await getOrCreateViaUserId();
-      const now = Date.now();
       const dueAtMs = dueAt ? new Date(dueAt).getTime() : null;
-      await withViaDb(async (db) => {
-        await db.runAsync(
-          `INSERT INTO core_intentions (
-            id, user_id, type, title, content_raw, due_at_ms, status, metadata_json, created_at_ms, updated_at_ms, is_synced
-          ) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', '{}', ?, ?, 0)`,
-          [randomUUID(), userId, 'NOTE', title || t('talk.debugFallbackTitle'), note, dueAtMs, now, now]
-        );
+      await orchestrateNewIntention({
+        source: 'TEXT',
+        content: note,
+        title: title || t('talk.debugFallbackTitle'),
+        dueAtMs,
       });
       setTitle('');
       setNote('');

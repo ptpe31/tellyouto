@@ -318,6 +318,14 @@ export class TrafficScheduler {
         nowMs,
       });
 
+      console.log(
+        `\u001b[1m\u001b[35m**************** [ NEWTON ] ****************\u001b[0m\n` +
+          `\u001b[35m[NEWTON]\u001b[0m Raw=${sample.trafficDurationSec}s Stabilized=${output.stabilizedTrafficDurationSec}s\n` +
+          `\u001b[35m[NEWTON]\u001b[0m tOpt=${new Date(output.tOptimisteMs).toLocaleTimeString()} tPes=${new Date(
+            output.tPessimisteMs
+          ).toLocaleTimeString()} arrival=${new Date(task.arrivalAtMs).toLocaleTimeString()}`
+      );
+
       const bufferSafetyMin = (output.tPessimisteMs - nowMs) / 60_000;
       const nextVigilanceStatus = output.evaluation.status;
 
