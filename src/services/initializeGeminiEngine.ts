@@ -53,18 +53,42 @@ export async function initializeGeminiEngine(): Promise<void> {
   }
 
   let candidates: string[] = [];
+  const metaById = new Map<string, { inLim: number; outLim: number }>();
   try {
     const listed = await fetchAllGeminiModelsList(apiKey);
     const withGen = listed.filter((m) => (m.supportedGenerationMethods ?? []).includes('generateContent'));
+    const toNumber = (n: unknown) => {
+      const v = Number(n ?? 0);
+      return Number.isFinite(v) ? v : 0;
+    };
     const allIds = [...new Set(withGen.map((m) => shortGeminiModelId(m.name)))];
     const desiredPrefixes = [...new Set(GEMINI_MODEL_SHORTLIST.map((id) => id.replace(/-latest$/i, '')))];
     const matchesDesired = (id: string) => desiredPrefixes.some((p) => id === p || id.startsWith(`${p}-`));
-    candidates = allIds.filter((id) => !isBannedGeminiModelId(id) && matchesDesired(id));
+    const oneTapMinOut = 800;
+    for (const m of withGen) {
+      const id = shortGeminiModelId(m.name);
+      metaById.set(id, { inLim: toNumber(m.inputTokenLimit), outLim: toNumber(m.outputTokenLimit) });
+    }
+
+    for (const id of allIds) {
+      if (isBannedGeminiModelId(id)) continue;
+      const meta = metaById.get(id);
+      const outLim = meta?.outLim ?? 0;
+      const inLim = meta?.inLim ?? 0;
+      const desired = matchesDesired(id);
+      const qualified = outLim >= oneTapMinOut;
+      console.log(
+        `[RECRUTEMENT-AI] 📋 ${id} | In:${inLim || '?'} Out:${outLim || '?'} | Desired:${desired ? 'YES' : 'NO'} | ${qualified ? 'QUALIFIÉ' : 'NON_QUALIFIÉ'}`,
+      );
+      if (desired && qualified) candidates.push(id);
+    }
+
     const rank = (id: string) => {
       const pref = desiredPrefixes.findIndex((p) => id === p || id.startsWith(`${p}-`));
-      const familyBonus = /flash/i.test(id) ? 0 : /pro/i.test(id) ? 1 : 2;
+      const role = /flash/i.test(id) ? 0 : /pro/i.test(id) ? 1 : 2;
       const latestBonus = /-latest$/i.test(id) ? 0 : 1;
-      return pref < 0 ? 999 : pref * 10 + familyBonus * 2 + latestBonus;
+      const outLim = metaById.get(id)?.outLim ?? 0;
+      return pref < 0 ? 9999 : role * 1000 + pref * 10 + latestBonus - Math.min(999, Math.floor(outLim / 1000));
     };
     candidates.sort((a, b) => rank(a) - rank(b));
   } catch {
@@ -91,6 +115,10 @@ export async function initializeGeminiEngine(): Promise<void> {
       } else {
         await persistValidatedGeminiModelId(id);
       }
+      const outLim = metaById.get(id)?.outLim ?? 0;
+      console.log(
+        `[RECRUTEMENT-AI] ✅ Candidat retenu : ${id} (Output limit: ${Number.isFinite(outLim) && outLim > 0 ? outLim : '?'})`,
+      );
       console.log(`[GEMINI-BOOT] 🤖 Modèle validé pour cette session : ${id}`);
       return;
     }

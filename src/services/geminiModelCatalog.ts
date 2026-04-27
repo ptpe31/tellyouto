@@ -13,6 +13,8 @@ export type GeminiListedModel = {
   /** Champ API listModels (ex. "2.0", "001") — utilisé pour le tri récence. */
   version?: string;
   baseModelId?: string;
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
 };
 
 export const GEMINI_MODEL_SHORTLIST = [
