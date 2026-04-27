@@ -24,7 +24,7 @@ async function pingGenerateContent(modelId: string, apiKey: string): Promise<{ o
         topP: 0.1,
         topK: 1,
         candidateCount: 1,
-        maxOutputTokens: 8,
+        maxOutputTokens: 64,
       },
     }),
   });
