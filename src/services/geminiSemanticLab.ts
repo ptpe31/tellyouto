@@ -216,7 +216,8 @@ function buildGenerateUrl(modelId: string, traceOperation?: string): string {
 /**
  * Fusionne une config de génération « légère » (latence / coût) dans le corps `generateContent` / stream.
  */
-function withLightGenerationConfig(body: object): object {
+function withLightGenerationConfig(body: object, traceOperation?: string): object {
+  if (traceOperation?.startsWith('oneTap.wire')) return body;
   const raw = body as { generationConfig?: Record<string, unknown> };
   const generationConfig = raw.generationConfig ?? {};
   return {
@@ -300,7 +301,7 @@ async function postGenerateContent(
   traceOperation = 'generateContent.generic',
   options?: PostGeminiHttpOptions,
 ): Promise<unknown> {
-  const effectiveBody = enforceOneTapMaxOutputTokens(withLightGenerationConfig(body), traceOperation);
+  const effectiveBody = enforceOneTapMaxOutputTokens(withLightGenerationConfig(body, traceOperation), traceOperation);
   const audioKb = sumAudioPayloadKbFromGenerateBody(effectiveBody);
   console.log(`[GeminiLab] Audio Payload Size: ${audioKb.toFixed(2)} KB`);
   const textChars = sumTextPayloadCharsFromGenerateBody(effectiveBody);
@@ -897,11 +898,23 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
 
 const ONETAP_WIRE_SYSTEM_PREFIX =
   'Reply ONLY with lines starting with ">". No comments, no explanations, no markdown. ' +
-  'Format per line: > TYPE | TitleOrContent | DateISO(optional for TASK) | ListUnit(optional for LIST) | ListItems(optional for LIST) ' +
   'Allowed TYPE: TASK, NOTE, LIST, HABIT, TRIP. ' +
-  'TASK example: > TASK | Acheter des frites | 2026-04-27T20:00 ' +
-  'NOTE example: > NOTE | Nourrir le poisson rouge ' +
-  'LIST example: > LIST | Gâteau au yaourt | 6 personnes | farine, oeufs, sucre\n\n';
+  'TASK line: > TASK | TitleOrContent | DateISO (optional, ISO 8601) ' +
+  'NOTE line: > NOTE | TitleOrContent ' +
+  'HABIT line: > HABIT | TitleOrContent | RecurrenceText(optional) ' +
+  'TRIP line: > TRIP | Destination | DateISO(optional) ' +
+  'LIST is multi-line and MUST follow this structure exactly: ' +
+  '> LIST | Title | baseCount | unitLabel ' +
+  'Then one or more item lines: ' +
+  '>> ITEM | Name | baseQuantity | unit | scalable ' +
+  'Important: baseQuantity MUST be the quantity for ONE unit (e.g. for 1 person), even if baseCount is 6. ' +
+  'Set scalable=true for items that scale with baseCount. ' +
+  'Examples:\n' +
+  '> TASK | Acheter des frites | 2026-04-27T20:00\n' +
+  '> NOTE | Nourrir le poisson rouge\n' +
+  '> LIST | Gâteau au yaourt | 6 | personnes\n' +
+  '>> ITEM | farine | 30 | g | true\n' +
+  '>> ITEM | oeufs | 0.5 | piece | true\n\n';
 
 function buildStreamGenerateUrl(modelId: string, traceOperation?: string): string {
   const { base } = traceOperation?.startsWith('oneTap.wire') ? { base: BASE_V1BETA } : getGeminiApiMetaForModel(modelId);
@@ -950,7 +963,7 @@ async function postStreamGenerateContent(
   traceOperation = 'streamGenerateContent.generic',
   options?: PostGeminiHttpOptions,
 ): Promise<string> {
-  const effectiveBody = enforceOneTapMaxOutputTokens(withLightGenerationConfig(body), traceOperation);
+  const effectiveBody = enforceOneTapMaxOutputTokens(withLightGenerationConfig(body, traceOperation), traceOperation);
   const openStream = async (modelId: string) => {
     const url = buildStreamGenerateUrl(modelId, traceOperation);
     const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');

@@ -25,8 +25,14 @@ export const GEMINI_MODEL_SHORTLIST = [
 
 export const BANNED_MODELS_FOR_ONETAP = ['gemini-2.5-flash', 'gemini-2.0-flash'] as const;
 
+export function isShortGeminiAliasModelId(id: string): boolean {
+  const s = String(id || '').trim();
+  return /^gemini-\d+\.\d+-(?:flash|pro)$/i.test(s);
+}
+
 export function isBannedGeminiModelIdForOneTap(id: string): boolean {
   const clean = String(id || '').trim();
+  if (isShortGeminiAliasModelId(clean)) return true;
   if (/-(?:exp|experimental)\b/i.test(clean)) return true;
   for (const base of BANNED_MODELS_FOR_ONETAP) {
     if (clean === base) return true;

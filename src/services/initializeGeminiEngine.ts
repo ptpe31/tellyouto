@@ -10,6 +10,7 @@ import {
 import {
   fetchAllGeminiModelsList,
   isBannedGeminiModelIdForOneTap,
+  isShortGeminiAliasModelId,
   GEMINI_MODEL_SHORTLIST,
   isBannedGeminiModelId,
   shortGeminiModelId,
@@ -26,13 +27,9 @@ async function pingGenerateContent(modelId: string, apiKey: string): Promise<{ o
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: 'ok' }] }],
+      contents: [{ role: 'user', parts: [{ text: 'Bonjour' }] }],
       generationConfig: {
-        temperature: 0,
-        topP: 0.1,
-        topK: 1,
-        candidateCount: 1,
-        maxOutputTokens: 64,
+        maxOutputTokens: 16,
       },
     }),
   });
@@ -69,7 +66,11 @@ export async function initializeGeminiEngine(): Promise<void> {
       metaById.set(id, { inLim: toNumber(m.inputTokenLimit), outLim: toNumber(m.outputTokenLimit) });
     }
 
-    const okOneTapFamily = (id: string) => !isBannedGeminiModelId(id) && !isBannedGeminiModelIdForOneTap(id) && /^gemini-1\.5-/i.test(id);
+    const okOneTapFamily = (id: string) =>
+      !isBannedGeminiModelId(id) &&
+      !isBannedGeminiModelIdForOneTap(id) &&
+      !isShortGeminiAliasModelId(id) &&
+      /^gemini-1\.5-/i.test(id);
     const isFlash15 = (id: string) => /^gemini-1\.5-flash/i.test(id);
     const isPro15 = (id: string) => /^gemini-1\.5-pro/i.test(id);
     const isLatest = (id: string) => /-latest$/i.test(id);

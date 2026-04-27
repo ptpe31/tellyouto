@@ -90,6 +90,32 @@ export type OneTapUniversalResult = {
   data: Record<string, unknown>;
 };
 
+export type OneTapRecurrence = {
+  summary?: string;
+  frequency?: string;
+  byWeekday?: number;
+};
+
+export type OneTapListDraftItem = {
+  name: string;
+  baseQuantity: number;
+  unit: string;
+  scalable: boolean;
+  includeInSave?: boolean;
+};
+
+export type OneTapListDraftCategory = {
+  name: string;
+  items: OneTapListDraftItem[];
+};
+
+export type OneTapListDraftBlock = {
+  title: string;
+  baseCount: number;
+  unitLabel: string;
+  categories: OneTapListDraftCategory[];
+};
+
 function perfNowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
@@ -222,10 +248,12 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
   const parts = s.split('\n');
   const lines = partial && !s.endsWith('\n') ? parts.slice(0, -1) : parts;
   const intents: OneTapIntentJson[] = [];
+  let currentList: OneTapIntentJson | null = null;
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line.startsWith('>')) continue;
-    const body = line.slice(1).trim();
+    const isItem = line.startsWith('>>');
+    const body = isItem ? line.slice(2).trim() : line.slice(1).trim();
     if (!body) continue;
     const segs = body
       .split('|')
@@ -235,6 +263,24 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
     const type = segs[0].toUpperCase();
     const content = segs[1];
     if (!content) continue;
+
+    if (isItem) {
+      if (type !== 'ITEM') continue;
+      if (!currentList || currentList.type !== 'LIST') continue;
+      const qtyRaw = segs.length >= 3 ? segs[2] : '';
+      const unit = segs.length >= 4 ? segs[3] : 'piece';
+      const scalableRaw = segs.length >= 5 ? segs[4] : 'true';
+      const q = Number(String(qtyRaw).replace(',', '.'));
+      const baseQuantity = Number.isFinite(q) && q > 0 ? q : 1;
+      const scalable =
+        String(scalableRaw).trim().toLowerCase() === 'false' ? false : Boolean(String(scalableRaw).trim());
+      const arr = Array.isArray(currentList.items) ? (currentList.items as unknown[]) : [];
+      arr.push({ name: content, baseQuantity, unit, scalable: scalable !== false });
+      currentList.items = arr;
+      continue;
+    }
+
+    currentList = null;
 
     if (type === 'TASK') {
       const due = segs.length >= 3 ? segs[2] : '';
@@ -256,25 +302,13 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
       continue;
     }
     if (type === 'LIST') {
-      const qtySeg = segs.length >= 3 ? segs[2] : '';
-      const itemsSeg = segs.length >= 4 ? segs[3] : segs.length >= 3 ? segs[2] : '';
-      let baseCount = 1;
-      let unitLabel = 'personne';
-      if (qtySeg) {
-        const m = qtySeg.match(/(\d{1,4})/);
-        if (m?.[1]) {
-          baseCount = Math.max(1, parseInt(m[1], 10));
-          const rest = qtySeg.replace(m[1], '').trim();
-          if (rest) unitLabel = rest.slice(0, 40);
-        }
-      }
-      const items =
-        itemsSeg
-          .split(',')
-          .map((x) => x.trim())
-          .filter(Boolean)
-          .slice(0, 48);
-      intents.push({ type: 'LIST', title: content, baseCount, unitLabel, items });
+      const baseCountRaw = segs.length >= 3 ? segs[2] : '1';
+      const unitLabelRaw = segs.length >= 4 ? segs[3] : 'personne';
+      const bc = parseInt(String(baseCountRaw).trim(), 10);
+      const baseCount = Number.isFinite(bc) && bc > 0 ? bc : 1;
+      const unitLabel = String(unitLabelRaw || 'personne').trim().slice(0, 40) || 'personne';
+      currentList = { type: 'LIST', title: content, baseCount, unitLabel, items: [] };
+      intents.push(currentList);
       continue;
     }
   }
@@ -618,12 +652,14 @@ function mergeIntentArrayIntoOneTapSkeleton(
                     baseQuantity: it.baseQuantity,
                     unit: it.unit,
                     scalable: it.scalable,
+                    includeInSave: true,
                   }))
                 : itemsStr.map((name) => ({
                     name,
                     baseQuantity: 1,
                     unit: 'piece',
                     scalable: true,
+                    includeInSave: true,
                   })),
             },
           ],
@@ -778,7 +814,10 @@ ${seedLine}
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
-Reply ONLY with lines starting with ">" and pipe-separated segments. No markdown, no explanations.`;
+Reply ONLY with lines starting with ">" and pipe-separated segments. No markdown, no explanations.
+For LIST use multi-line format:
+> LIST | Title | baseCount | unitLabel
+>> ITEM | Name | baseQuantity | unit | scalable`;
 }
 
 /**
