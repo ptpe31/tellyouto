@@ -181,6 +181,12 @@ export function SasModal({
 
           {summary ? <Text style={styles.summaryText}>{summary}</Text> : null}
 
+          {transcript.trim().length > 0 ? (
+            <View style={styles.transcriptSurface}>
+              <Text style={styles.transcriptText}>{transcript.trim()}</Text>
+            </View>
+          ) : null}
+
           {kind === 'NOTE' ? (
             <TextInput
               multiline
@@ -419,6 +425,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(241,245,249,0.88)',
   },
   summaryText: { color: '#334155', fontSize: 14, fontWeight: '700' },
+  transcriptSurface: {
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(226,232,240,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.18)',
+  },
+  transcriptText: { color: '#0f172a', fontSize: 12, fontWeight: '700', lineHeight: 16 },
   actionsRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   cancelSurface: {
     flex: 1,
