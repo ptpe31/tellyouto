@@ -84,28 +84,8 @@ export type {
   FreeCaptureQuotaSnapshot,
   ListFreeQuotaSnapshot,
 } from './trankilV2Db';
-export {
-  withLocalDatabase,
-  createIntention,
-  insertIntention,
-  listCompletedSessionsBetween,
-  listIntentionsDescending,
-  listRecentCompletedFocusSessions,
-  listUnclusteredPendingIntentions,
-  listUnsyncedIntentions,
-  markIntentionActive,
-  markIntentionSynced,
-  updateIntention,
-} from './localDb';
-export type {
-  IntentionRow,
-  IntentionStatus,
-  UserStatusRow,
-} from './localDb';
-export { getUserStatus, updateUserStatus } from './localDb';
+export { getAppPreference, setAppPreference, clearAllAppPreferences } from './localDb';
 export { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';
 export {
   getOrCreateDeviceId,
-  startConnectivitySyncListener,
-  syncPendingIntentions,
 } from './syncService';

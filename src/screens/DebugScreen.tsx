@@ -15,7 +15,7 @@ import { Button, useTheme } from 'react-native-paper';
 
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
 import { getTrankilV2IntentionTaskCounts } from '../api/trankilV2Db';
-import { INTENTIONS_CHANGED_EVENT_NAME, LOCAL_DB_RESET_EVENT } from '../api/localDb';
+import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { askGeminiExpert } from '../services/GeminiExpert';
@@ -99,7 +99,6 @@ export function DebugScreen() {
         void refreshDbCounts();
       },
     );
-    const subReset = DeviceEventEmitter.addListener(LOCAL_DB_RESET_EVENT, () => void refreshDbCounts());
     const subTalkCapture = DeviceEventEmitter.addListener(
       TALK_CAPTURE_DEBUG_EVENT,
       (payload: TalkCaptureDebugPayload) => {
@@ -108,7 +107,6 @@ export function DebugScreen() {
     );
     return () => {
       subIntentions.remove();
-      subReset.remove();
       subTalkCapture.remove();
     };
   }, [refreshDbCounts]);

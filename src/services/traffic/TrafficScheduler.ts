@@ -1,4 +1,4 @@
-import { withLocalDatabase } from '../../api/localDb';
+import { withTrankilV2Database } from '../../api/trankilV2Db';
 import { getNotifications } from '../notifications';
 import {
   calculateNextJump,
@@ -213,7 +213,7 @@ export class TrafficScheduler {
     vigilanceStatus?: string | null;
   }): Promise<void> {
     await this.ensureSchema();
-    await withLocalDatabase(async (db) => {
+    await withTrankilV2Database(async (db) => {
       await db.runAsync(
         `INSERT OR REPLACE INTO ${this.tableName} (
           id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,
@@ -424,7 +424,7 @@ export class TrafficScheduler {
   }
 
   private async ensureSchema(): Promise<void> {
-    await withLocalDatabase(async (db) => {
+    await withTrankilV2Database(async (db) => {
       await db.execAsync(`
         CREATE TABLE IF NOT EXISTS sentinel_trips (
           id TEXT PRIMARY KEY NOT NULL,
@@ -447,7 +447,7 @@ export class TrafficScheduler {
   }
 
   private async listScannableTasks(): Promise<TripTaskRow[]> {
-    return withLocalDatabase(async (db) => {
+    return withTrankilV2Database(async (db) => {
       const rows = await db.getAllAsync<Record<string, unknown>>(
         `SELECT * FROM ${this.tableName} WHERE status IN ('ACTIVE','PENDING_CONFIRMATION','ERROR')`
       );
@@ -456,7 +456,7 @@ export class TrafficScheduler {
   }
 
   private async getTaskById(taskId: string): Promise<TripTaskRow | null> {
-    return withLocalDatabase(async (db) => {
+    return withTrankilV2Database(async (db) => {
       const row = await db.getFirstAsync<Record<string, unknown>>(
         `SELECT * FROM ${this.tableName} WHERE id = ?`,
         [taskId]
@@ -466,7 +466,7 @@ export class TrafficScheduler {
   }
 
   private async updateTaskStatus(taskId: string, status: TrafficTaskStatus): Promise<void> {
-    await withLocalDatabase(async (db) => {
+    await withTrankilV2Database(async (db) => {
       await db.runAsync(`UPDATE ${this.tableName} SET status = ? WHERE id = ?`, [status, taskId]);
     });
   }
@@ -485,7 +485,7 @@ export class TrafficScheduler {
       vigilanceStatus: string | null;
     }>
   ): Promise<void> {
-    await withLocalDatabase(async (db) => {
+    await withTrankilV2Database(async (db) => {
       await db.runAsync(
         `UPDATE ${this.tableName}
            SET last_traffic_duration = COALESCE(?, last_traffic_duration),

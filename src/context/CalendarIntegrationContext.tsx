@@ -6,14 +6,13 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { AppState, type AppStateStatus, DeviceEventEmitter } from 'react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 
-import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
-import type { BusyInterval } from '../services/agentLogic';
 import {
   getTodayBusyIntervalsSplit,
   listDeviceCalendars,
   requestCalendarPermissions,
+  type BusyIntervalMinutes,
   type DeviceCalendarInfo,
 } from '../services/calendarService';
 import {
@@ -29,15 +28,15 @@ import {
 type CalendarIntegrationValue = {
   connectEnabled: boolean;
   /** Créneaux indisponibles (calendriers connectés) — agent & collisions. */
-  busyIntervals: BusyInterval[];
+  busyIntervals: BusyIntervalMinutes[];
   /** Créneaux à afficher sur le rail (calendriers connectés + visibles). */
-  visibleBusyIntervals: BusyInterval[];
+  visibleBusyIntervals: BusyIntervalMinutes[];
   loading: boolean;
   deviceCalendars: DeviceCalendarInfo[];
   calendarConfigs: Record<string, CalendarDeviceConfig>;
   calendarsListLoading: boolean;
   setConnectEnabled: (v: boolean) => Promise<void>;
-  refreshBusy: () => Promise<BusyInterval[]>;
+  refreshBusy: () => Promise<BusyIntervalMinutes[]>;
   /** Recharge la liste système et fusionne les préférences locales. */
   refreshDeviceCalendars: () => Promise<void>;
   setCalendarConnected: (calendarId: string, connected: boolean) => Promise<void>;
@@ -72,9 +71,9 @@ export function CalendarIntegrationProvider({
   children: React.ReactNode;
 }) {
   const [connectEnabled, setConnectState] = useState(false);
-  const [busyIntervals, setBusyIntervals] = useState<BusyInterval[]>([]);
+  const [busyIntervals, setBusyIntervals] = useState<BusyIntervalMinutes[]>([]);
   const [visibleBusyIntervals, setVisibleBusyIntervals] = useState<
-    BusyInterval[]
+    BusyIntervalMinutes[]
   >([]);
   const [loading, setLoading] = useState(true);
   const [deviceCalendars, setDeviceCalendars] = useState<DeviceCalendarInfo[]>(
@@ -86,7 +85,7 @@ export function CalendarIntegrationProvider({
   const [calendarsListLoading, setCalendarsListLoading] = useState(false);
 
   const applyBusyFromConfigs = useCallback(
-    async (configs: Record<string, CalendarDeviceConfig>): Promise<BusyInterval[]> => {
+    async (configs: Record<string, CalendarDeviceConfig>): Promise<BusyIntervalMinutes[]> => {
       const on = await getCalendarConnectEnabled();
       if (!on) {
         setBusyIntervals([]);
@@ -109,7 +108,7 @@ export function CalendarIntegrationProvider({
     [],
   );
 
-  const refreshBusy = useCallback(async (): Promise<BusyInterval[]> => {
+  const refreshBusy = useCallback(async (): Promise<BusyIntervalMinutes[]> => {
     const configs = await getCalendarDeviceConfigs();
     return applyBusyFromConfigs(configs);
   }, [applyBusyFromConfigs]);
@@ -187,21 +186,6 @@ export function CalendarIntegrationProvider({
     });
     return () => sub.remove();
   }, [refreshBusy]);
-
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(
-      DATABASE_RESET_COMPLETE_EVENT,
-      () => {
-        setConnectState(false);
-        setBusyIntervals([]);
-        setVisibleBusyIntervals([]);
-        setDeviceCalendars([]);
-        setCalendarConfigsState({});
-        setCalendarsListLoading(false);
-      },
-    );
-    return () => sub.remove();
-  }, []);
 
   const setConnectEnabled = useCallback(
     async (v: boolean) => {

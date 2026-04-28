@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { insertIntention, withLocalDatabase } from '../../api/localDb';
+import { insertTrankilV2Intention, withTrankilV2Database } from '../../api/trankilV2Db';
 import i18n from '../../locales/i18n';
 import { getNotifications } from '../notifications';
 
@@ -32,7 +32,7 @@ function newIntentionId(): string {
 }
 
 async function ensureOfflineAudioQueueTable(): Promise<void> {
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS offline_audio_queue (
         id TEXT PRIMARY KEY NOT NULL,
@@ -72,22 +72,16 @@ export async function queueOfflineAudioCapture(params: {
   const targetPath = `${OFFLINE_QUEUE_DIR}/${queueId}.m4a`;
   await FileSystem.copyAsync({ from: params.audioUri, to: targetPath });
   const now = Date.now();
-  await insertIntention({
+  await insertTrankilV2Intention({
     id: intentionId,
+    type: 'NOTE',
     title: params.title,
-    description: params.transcript,
-    status: 'pending',
-    priority: 1,
-    weights: { structure: 0.25, momentum: 0.25, zen: 0.25, stats: 0.25 },
-    platform_type: 'mobile',
-    platform_user_id: 'local',
+    content_raw: params.transcript,
     created_at: now,
-    estimated_duration: 5,
-    raw_transcript: params.transcript,
-    type: 'audio_memo',
-    semantic_tags: ['offline_queue'],
+    metadata_json: JSON.stringify({ source: 'offline_audio_queue', audio_path: targetPath }),
+    is_pending_ai: 1,
   });
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.runAsync(
       `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, status, is_pending_ai, created_at, notified_at)
        VALUES (?, ?, ?, ?, ?, 'pending', 1, ?, NULL)`,
@@ -105,22 +99,16 @@ export async function queueOfflineTextCapture(params: {
   const queueId = newQueueId();
   const intentionId = newIntentionId();
   const now = Date.now();
-  await insertIntention({
+  await insertTrankilV2Intention({
     id: intentionId,
+    type: 'NOTE',
     title: params.title,
-    description: params.transcript,
-    status: 'pending',
-    priority: 1,
-    weights: { structure: 0.25, momentum: 0.25, zen: 0.25, stats: 0.25 },
-    platform_type: 'mobile',
-    platform_user_id: 'local',
+    content_raw: params.transcript,
     created_at: now,
-    estimated_duration: 5,
-    raw_transcript: params.transcript,
-    type: 'text_memo',
-    semantic_tags: ['offline_queue'],
+    metadata_json: JSON.stringify({ source: 'offline_audio_queue' }),
+    is_pending_ai: 1,
   });
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.runAsync(
       `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, status, is_pending_ai, created_at, notified_at)
        VALUES (?, ?, ?, '', ?, 'pending', 1, ?, NULL)`,
@@ -132,7 +120,7 @@ export async function queueOfflineTextCapture(params: {
 
 export async function getLatestPendingOfflineAudio(): Promise<OfflineQueuedAudioRow | null> {
   await ensureOfflineAudioQueueTable();
-  return withLocalDatabase(async (db) => {
+  return withTrankilV2Database(async (db) => {
     const row = await db.getFirstAsync<OfflineQueuedAudioRow>(
       `SELECT * FROM offline_audio_queue WHERE status = 'pending' ORDER BY created_at DESC LIMIT 1`,
     );
@@ -142,7 +130,7 @@ export async function getLatestPendingOfflineAudio(): Promise<OfflineQueuedAudio
 
 export async function getOfflineAudioById(queueId: string): Promise<OfflineQueuedAudioRow | null> {
   await ensureOfflineAudioQueueTable();
-  return withLocalDatabase(async (db) => {
+  return withTrankilV2Database(async (db) => {
     const row = await db.getFirstAsync<OfflineQueuedAudioRow>(
       `SELECT * FROM offline_audio_queue WHERE id = ? LIMIT 1`,
       [queueId],
@@ -165,7 +153,7 @@ async function deleteQueuedAudioFile(queueId: string): Promise<void> {
 export async function markOfflineAudioAsDone(queueId: string): Promise<void> {
   await ensureOfflineAudioQueueTable();
   await deleteQueuedAudioFile(queueId);
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.runAsync(
       `UPDATE offline_audio_queue SET status = 'done', notified_at = COALESCE(notified_at, ?) WHERE id = ?`,
       [Date.now(), queueId],
@@ -176,7 +164,7 @@ export async function markOfflineAudioAsDone(queueId: string): Promise<void> {
 export async function markOfflineAudioAsKept(queueId: string): Promise<void> {
   await ensureOfflineAudioQueueTable();
   await deleteQueuedAudioFile(queueId);
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.runAsync(
       `UPDATE offline_audio_queue SET status = 'kept', notified_at = COALESCE(notified_at, ?) WHERE id = ?`,
       [Date.now(), queueId],
@@ -216,7 +204,7 @@ export async function notifyOfflineAudioPendingAnalysis(): Promise<void> {
     },
     trigger: null,
   });
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.runAsync(`UPDATE offline_audio_queue SET notified_at = ? WHERE id = ?`, [Date.now(), pending.id]);
   });
 }
@@ -224,7 +212,7 @@ export async function notifyOfflineAudioPendingAnalysis(): Promise<void> {
 export async function purgeProcessedQueue(): Promise<number> {
   await ensureOfflineAudioQueueTable();
   const cutoff = Date.now() - PROCESSED_RETENTION_MS;
-  return withLocalDatabase(async (db) => {
+  return withTrankilV2Database(async (db) => {
     const rows = await db.getAllAsync<{ id: string; audio_path: string | null }>(
       `SELECT id, audio_path FROM offline_audio_queue
        WHERE (status = 'done' OR status = 'kept')

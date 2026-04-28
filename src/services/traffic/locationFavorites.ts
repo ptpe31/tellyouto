@@ -1,4 +1,4 @@
-import { withLocalDatabase } from '../../api/localDb';
+import { withTrankilV2Database } from '../../api/trankilV2Db';
 import type { OneTapUniversalResult } from '../oneTapUniversalCapture';
 
 export type LocationFavoriteRow = {
@@ -9,7 +9,7 @@ export type LocationFavoriteRow = {
 };
 
 export async function ensureLocationFavoritesSchema(): Promise<void> {
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS location_favorites (
         alias TEXT PRIMARY KEY NOT NULL,
@@ -23,7 +23,7 @@ export async function ensureLocationFavoritesSchema(): Promise<void> {
 
 export async function upsertLocationFavorite(input: LocationFavoriteRow): Promise<void> {
   await ensureLocationFavoritesSchema();
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.runAsync(
       `INSERT OR REPLACE INTO location_favorites (alias, formatted_address, lat, lng)
        VALUES (?, ?, ?, ?)`,
@@ -36,7 +36,7 @@ export async function getLocationFavoriteByAlias(alias: string): Promise<Locatio
   const key = String(alias || '').trim();
   if (!key) return null;
   await ensureLocationFavoritesSchema();
-  return withLocalDatabase(async (db) => {
+  return withTrankilV2Database(async (db) => {
     const row = await db.getFirstAsync<Record<string, unknown>>(
       `SELECT alias, formatted_address, lat, lng FROM location_favorites WHERE LOWER(alias) = LOWER(?)`,
       [key]

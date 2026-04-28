@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { withLocalDatabase } from '../api/localDb';
 import { ensureFirebaseAnonymousAuth, getFirestoreDb } from '../api/firebase';
 import { sanitizeFirestoreMap } from '../api/firestoreSanitize';
 import { getOrCreateDeviceId } from '../api/syncService';
@@ -11,49 +11,40 @@ export type SentinelQuotaSnapshot = {
   fetchedAtMs: number;
 };
 
-const TABLE = 'sentinel_quota_cache';
 let initInFlight: Promise<void> | null = null;
 
-async function ensureQuotaSchema(): Promise<void> {
-  await withLocalDatabase(async (db) => {
-    await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS ${TABLE} (
-        device_id TEXT PRIMARY KEY NOT NULL,
-        sentinel_trial_balance INTEGER NOT NULL,
-        updated_at_ms INTEGER NOT NULL,
-        synced_at_ms INTEGER
-      );
-    `);
-  });
+type LocalQuotaCache = {
+  balance: number;
+  updatedAtMs: number;
+  syncedAtMs: number | null;
+};
+
+function storageKey(deviceId: string): string {
+  return `@tellyouto/sentinel_quota_cache/${deviceId}`;
 }
 
 async function readLocal(deviceId: string): Promise<SentinelQuotaSnapshot | null> {
-  await ensureQuotaSchema();
-  return withLocalDatabase(async (db) => {
-    const row = await db.getFirstAsync<Record<string, unknown>>(
-      `SELECT sentinel_trial_balance, updated_at_ms FROM ${TABLE} WHERE device_id = ?`,
-      [deviceId]
-    );
-    if (!row) return null;
-    const balance = Number(row.sentinel_trial_balance ?? 0);
+  try {
+    const raw = await AsyncStorage.getItem(storageKey(deviceId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LocalQuotaCache>;
+    const balance = Number(parsed.balance ?? 0);
+    const updatedAtMs = Number(parsed.updatedAtMs ?? 0);
+    if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
     return {
       balance: Number.isFinite(balance) ? Math.max(0, Math.floor(balance)) : 0,
-      fetchedAtMs: Number(row.updated_at_ms ?? 0) || 0,
+      fetchedAtMs: updatedAtMs,
     };
-  });
+  } catch {
+    return null;
+  }
 }
 
 async function writeLocal(deviceId: string, balance: number, syncedAtMs: number | null): Promise<void> {
-  await ensureQuotaSchema();
   const now = Date.now();
   const b = Number.isFinite(balance) ? Math.max(0, Math.floor(balance)) : 0;
-  await withLocalDatabase(async (db) => {
-    await db.runAsync(
-      `INSERT OR REPLACE INTO ${TABLE} (device_id, sentinel_trial_balance, updated_at_ms, synced_at_ms)
-       VALUES (?, ?, ?, ?)`,
-      [deviceId, b, now, syncedAtMs ?? null]
-    );
-  });
+  const payload: LocalQuotaCache = { balance: b, updatedAtMs: now, syncedAtMs };
+  await AsyncStorage.setItem(storageKey(deviceId), JSON.stringify(payload));
 }
 
 async function readRemote(deviceId: string): Promise<number | null> {
@@ -101,7 +92,6 @@ export async function ensureSentinelQuotaInitialized(): Promise<void> {
         void writeRemote(deviceId, balance);
       }
     } catch {
-      /* ignore */
     }
     await writeLocal(deviceId, balance, null);
   })().finally(() => {
@@ -138,10 +128,17 @@ export async function consumeSentinelQuotaOnTripValidation(params: {
   const next = Math.max(0, snap.balance - 1);
   await writeLocal(deviceId, next, null);
   void writeRemote(deviceId, next).then(async () => {
-    await withLocalDatabase(async (db) => {
-      await db.runAsync(`UPDATE ${TABLE} SET synced_at_ms = ? WHERE device_id = ?`, [Date.now(), deviceId]);
-    });
+    try {
+      const raw = await AsyncStorage.getItem(storageKey(deviceId));
+      const parsed = raw ? (JSON.parse(raw) as Partial<LocalQuotaCache>) : {};
+      const payload: LocalQuotaCache = {
+        balance: next,
+        updatedAtMs: Number(parsed.updatedAtMs ?? Date.now()) || Date.now(),
+        syncedAtMs: Date.now(),
+      };
+      await AsyncStorage.setItem(storageKey(deviceId), JSON.stringify(payload));
+    } catch {
+    }
   });
   return { mode: 'SENTINEL', balanceAfter: next };
 }
-

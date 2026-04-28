@@ -3,12 +3,11 @@ import {
 } from '@react-navigation/native-stack';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, InteractionManager, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { ProSubscriptionScreen } from '../screens';
 import { MainStack } from './MainStack';
 import type { RootStackParamList } from './types';
-import { touchLocalDatabaseForStartup } from '../api/localDb';
 import { markAppInteractive } from '../services/performance';
 import { useSaturation } from '../context/SaturationContext';
 
@@ -22,21 +21,6 @@ function RootNavigatorInner() {
   useEffect(() => {
     setReady(true);
   }, []);
-
-  /** SQLite après première frame interactive + léger délai pour ne pas concurrencer le TTI */
-  useEffect(() => {
-    if (!ready) return;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const task = InteractionManager.runAfterInteractions(() => {
-      timeoutId = setTimeout(() => {
-        void touchLocalDatabaseForStartup().catch(() => undefined);
-      }, 500);
-    });
-    return () => {
-      task.cancel();
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-    };
-  }, [ready]);
 
   useEffect(() => {
     if (!ready) return;

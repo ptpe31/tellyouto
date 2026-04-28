@@ -1,11 +1,11 @@
-import { withLocalDatabase } from '../../api/localDb';
+import { withTrankilV2Database } from '../../api/trankilV2Db';
 import { computeNewtonWindow } from './TrafficEngine';
 import { SentinelNotificationManager } from './TrafficNotificationService';
 import i18n from '../../locales/i18n';
 import { upsertViaSentinelTrip } from './viaSentinelDb';
 
 export async function ensureSentinelTripsSchema(): Promise<void> {
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS sentinel_trips (
         id TEXT PRIMARY KEY NOT NULL,
@@ -50,7 +50,7 @@ export async function activateSentinelTrip(input: {
           : 'VIGILANCE_BLUE';
 
   await ensureSentinelTripsSchema();
-  await withLocalDatabase(async (db) => {
+  await withTrankilV2Database(async (db) => {
     await db.runAsync(
       `INSERT OR REPLACE INTO sentinel_trips (
         id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,

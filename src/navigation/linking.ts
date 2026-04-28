@@ -18,20 +18,14 @@ export const appLinking = {
           Tabs: {
             path: '',
             screens: {
-              TalkHome: 'home',
-              Radar: {
-                path: 'radar',
-                parse: {
-                  from: (value: string) => value ?? undefined,
-                },
-              },
+              TalkDebug: 'home',
               Timeline: {
                 path: 'timeline',
                 parse: {
                   from: (value: string) => value ?? undefined,
                 },
               },
-              Recharge: 'recharge',
+              Debug: 'debug',
             },
           },
         },

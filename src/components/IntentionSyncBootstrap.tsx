@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 
 import NetInfo from '@react-native-community/netinfo';
-import { startConnectivitySyncListener } from '../api/syncService';
 import {
   notifyOfflineAudioPendingAnalysis,
   purgeProcessedQueue,
@@ -23,7 +22,7 @@ export function IntentionSyncBootstrap() {
         void notifyOfflineAudioPendingAnalysis();
       }
     });
-    return startConnectivitySyncListener();
+    return undefined;
   }, []);
   return (
     <>

@@ -1,5 +1,5 @@
 import { getFirebaseApp } from '../api/firebase';
-import { withLocalDatabase } from '../api/localDb';
+import { getAppPreference } from '../api/localDb';
 
 import { getNotifications } from './notifications';
 
@@ -29,10 +29,8 @@ export async function runStartupHealthCheck(): Promise<HealthCheckResult> {
 
   let sqliteOk = false;
   try {
-    sqliteOk = await withLocalDatabase(async (db) => {
-      const row = await db.getFirstAsync<{ ok: number }>('SELECT 1 AS ok');
-      return row?.ok === 1;
-    });
+    await getAppPreference('__healthcheck__');
+    sqliteOk = true;
   } catch {
     sqliteOk = false;
   }

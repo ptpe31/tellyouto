@@ -253,6 +253,13 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
+export async function withTrankilV2Database<T>(
+  fn: (db: SQLite.SQLiteDatabase) => Promise<T>,
+): Promise<T> {
+  const db = await getDb();
+  return fn(db);
+}
+
 function notifyIntentionsChanged(payload?: { id?: string; reason?: string }): void {
   DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME, { source: 'trankil_v2', ...payload });
 }

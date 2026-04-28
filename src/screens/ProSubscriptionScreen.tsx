@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { NeumorphicCard } from '../components';
+import { NeumorphicCard } from '../components/NeumorphicCard';
 import {
   ensureFirebaseAnonymousAuth,
   getFirebaseAuth,

@@ -31,7 +31,6 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
-import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
 import {
   consumeFreeCaptureSuccessOnce,
   countTrankilV2RootTodoTasksDueOnLocalDate,
@@ -97,6 +96,7 @@ import {
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { activateSentinelTrip } from '../services/traffic/sentinelActivation';
 import { consumeSentinelQuotaOnTripValidation } from '../services/QuotaManager';
+import { rootNavigationRef } from '../navigation/rootNavigationRef';
 
 function newId(): string {
   try {
@@ -122,7 +122,7 @@ const LAST_CALENDAR_STORAGE_KEY = '@tellyouto/talk_debug_last_calendar_id';
 const CALENDAR_SYNC_PREFS_KEY = '@tellyouto/talk_debug_calendar_sync_prefs';
 const ALARM_SYNC_PREFS_KEY = '@tellyouto/talk_debug_alarm_sync_prefs';
 
-export function TalkHomeScreen() {
+export function TalkDebugScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const intentionFlow = useOptionalIntentionContext();
@@ -205,7 +205,6 @@ export function TalkHomeScreen() {
   useEffect(() => {
     const subs = [
       DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => void refreshPilotHeader()),
-      DeviceEventEmitter.addListener(DATABASE_RESET_COMPLETE_EVENT, () => void refreshPilotHeader()),
     ];
     return () => subs.forEach((s) => s.remove());
   }, [refreshPilotHeader]);
@@ -408,7 +407,9 @@ export function TalkHomeScreen() {
     (kind: 'task' | 'habit' | 'project') => {
       void (async () => {
         if (!spectrum.isProUser) {
-          navigation.navigate('Recharge');
+          if (rootNavigationRef.isReady()) {
+            rootNavigationRef.navigate('ProSubscription');
+          }
           return;
         }
         const next = {
@@ -434,7 +435,9 @@ export function TalkHomeScreen() {
     (kind: 'task' | 'habit' | 'project') => {
       void (async () => {
         if (!spectrum.isProUser) {
-          navigation.navigate('Recharge');
+          if (rootNavigationRef.isReady()) {
+            rootNavigationRef.navigate('ProSubscription');
+          }
           return;
         }
         const next = { ...alarmSyncByType, [kind]: !alarmSyncByType[kind] };
@@ -1105,7 +1108,11 @@ export function TalkHomeScreen() {
           dayOfMonth={new Date().getDate()}
           todayTodoCount={todayTodoCount}
           piggyCount={headerUnorganizedCount}
-          onPressCredits={() => navigation.navigate('Recharge')}
+          onPressCredits={() => {
+            if (rootNavigationRef.isReady()) {
+              rootNavigationRef.navigate('ProSubscription');
+            }
+          }}
           onPressCalendar={() =>
             navigation.navigate('Timeline', {
               initialTimeNav: 'TODAY',
@@ -1409,9 +1416,6 @@ export function TalkHomeScreen() {
     </View>
   );
 }
-
-/** Compat export kept temporarily to avoid import breakage during migration. */
-export const TalkDebugScreen = TalkHomeScreen;
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#111827' },

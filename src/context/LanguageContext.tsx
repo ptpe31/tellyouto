@@ -8,9 +8,7 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Localization from 'expo-localization';
-import { DeviceEventEmitter } from 'react-native';
 
-import { DATABASE_RESET_COMPLETE_EVENT } from '../api/localDb';
 import i18n from '../locales/i18n';
 
 const STORAGE_KEY = '@tellyouto/language';
@@ -101,23 +99,6 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(
-      DATABASE_RESET_COMPLETE_EVENT,
-      () => {
-        const next = normalizeLocale(
-          Localization.getLocales()[0]?.languageTag,
-        );
-        void (async () => {
-          await i18n.changeLanguage(next);
-          setLanguageState(next);
-          setInteractionLanguageState(next);
-        })();
-      },
-    );
-    return () => sub.remove();
   }, []);
 
   const setLanguage = useCallback(async (lang: AppLanguage) => {

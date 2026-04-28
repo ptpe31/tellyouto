@@ -1146,9 +1146,11 @@ export function TimelineScreen() {
     { id: 'ARCHIVES', label: t('timeline.pilot.contextArchives'), emoji: '📦' },
   ];
 
-  const openRecharge = useCallback(() => {
-    navigation.navigate('Recharge');
-  }, [navigation]);
+  const openProSubscription = useCallback(() => {
+    if (rootNavigationRef.isReady()) {
+      rootNavigationRef.navigate('ProSubscription');
+    }
+  }, []);
 
       return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
@@ -1161,7 +1163,7 @@ export function TimelineScreen() {
           dayOfMonth={new Date().getDate()}
           todayTodoCount={headerTodayRootTodoCount}
           piggyCount={unorganizedCount}
-          onPressCredits={openRecharge}
+          onPressCredits={openProSubscription}
           onPressCalendar={() =>
             navigation.navigate('Timeline', {
               initialTimeNav: 'TODAY',

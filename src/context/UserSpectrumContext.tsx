@@ -7,17 +7,14 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AppState, type AppStateStatus, DeviceEventEmitter } from 'react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 
 import { Platform } from '../utils/rnPlatform';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { setAppPreference } from '../api/localDb';
 import {
-  checkpointLocalDatabase,
-  DATABASE_RESET_COMPLETE_EVENT,
-  syncPreferredRailAlarmSoundToSqlite,
-} from '../api/localDb';
-import {
+  APP_PREF_RAIL_ALARM_SOUND_KEY,
   normalizeRailAlarmSoundId,
   type RailAlarmSoundId,
 } from '../services/railAlarmSound';
@@ -306,7 +303,7 @@ export function UserSpectrumProvider({
     spectrumRef.current = merged;
     setSpectrum(merged);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-    await syncPreferredRailAlarmSoundToSqlite(id);
+    await setAppPreference(APP_PREF_RAIL_ALARM_SOUND_KEY, id);
     try {
       const { invalidateRailAlarmChannelCache, refreshRailAlarmsAfterLocalDbChange } =
         await import('../services/alarmManager');
@@ -422,7 +419,8 @@ export function UserSpectrumProvider({
           parsed.preferred_alarm_sound as string | undefined,
         ),
       }));
-      void syncPreferredRailAlarmSoundToSqlite(
+      void setAppPreference(
+        APP_PREF_RAIL_ALARM_SOUND_KEY,
         normalizeRailAlarmSoundId(parsed.preferred_alarm_sound as string | undefined),
       );
     } catch {
@@ -434,31 +432,19 @@ export function UserSpectrumProvider({
     void loadFromStorage();
   }, [loadFromStorage]);
 
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(
-      DATABASE_RESET_COMPLETE_EVENT,
-      () => {
-        setSpectrum(defaultSpectrum());
-      },
-    );
-    return () => sub.remove();
-  }, []);
-
-  /** Sauvegarde automatique du spectre (AsyncStorage) + checkpoint SQLite toutes les 5 min. */
+  /** Sauvegarde automatique du spectre (AsyncStorage) toutes les 5 min. */
   useEffect(() => {
     const id = setInterval(() => {
       void persist();
-      void checkpointLocalDatabase();
     }, 5 * 60 * 1000);
     return () => clearInterval(id);
   }, [persist]);
 
-  /** À la mise en arrière-plan : flush spectre + SQLite avant que l’OS ne suspende le process. */
+  /** À la mise en arrière-plan : flush spectre avant que l’OS ne suspende le process. */
   useEffect(() => {
     const onAppState = (next: AppStateStatus) => {
       if (next === 'background' || next === 'inactive') {
         void persist();
-        void checkpointLocalDatabase();
       }
     };
     const sub = AppState.addEventListener('change', onAppState);
