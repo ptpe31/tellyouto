@@ -20,5 +20,7 @@ export function getDisconnectMessengerUrl(): string {
 }
 
 export function getGeminiProxyStreamUrl(): string {
+  const explicit = process.env.EXPO_PUBLIC_GEMINI_PROXY_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, '');
   return `${getCloudFunctionsBaseUrl()}/geminiProxyStream`;
 }

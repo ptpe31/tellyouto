@@ -6,6 +6,60 @@ Source de vérité côté code :
 - [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts)
 - [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)
 
+## Sécurité & APIs
+
+### Architecture Proxy Gemini (obligatoire)
+
+Le SDK Gemini **côté client** (React Native) est proscrit : il impose d’exposer une clé API dans l’app (donc exfiltrable). Tous les appels Gemini passent par un **proxy serveur** (Firebase Functions Gen2 / Cloud Run) qui détient la clé et applique une validation d’identité.
+
+Flux réseau :
+
+```
+App (Firebase ID Token)
+  -> Gemini Proxy (Cloud Function Gen2, europe-west9)
+    -> Secret Manager (GEMINI_API_KEY)
+      -> Gemini API
+```
+
+Points clés :
+- **Auth obligatoire** : l’app récupère `auth().currentUser?.getIdToken()` (après auth anonyme si besoin) et l’envoie en `Authorization: Bearer <token>`. Le proxy vérifie ce token via `admin.auth().verifyIdToken(...)`.
+- **Streaming low-latency** : le proxy renvoie un flux **SSE** (`text/event-stream`) avec des événements `delta` (fragments de texte) pour maintenir une UI réactive “mot par mot”.
+- **Endpoint configurable** : le client peut pointer vers l’URL Cloud Run directement via `EXPO_PUBLIC_GEMINI_PROXY_URL` (sinon fallback sur la base `EXPO_PUBLIC_CLOUD_FUNCTIONS_BASE`).
+
+Implémentations :
+- Proxy : [functions/src/index.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts) (`geminiProxyStream`)
+- Client streaming : [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts)
+- URL proxy : [cloudFunctions.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/cloudFunctions.ts)
+
+### Gestion des secrets
+
+La clé Gemini n’existe **nulle part** dans le repo (ni `.env`, ni variables publiques Expo). Elle est fournie au runtime Functions via Secret Manager.
+
+Mise à jour du secret :
+
+```bash
+firebase functions:secrets:set GEMINI_API_KEY
+firebase deploy --only functions
+```
+
+### Optimisation latence (cold-starts)
+
+Pour minimiser la latence (surtout au premier token) :
+- Région : `europe-west9` (Paris) au plus proche des utilisateurs ciblés
+- Warm instances : `minInstances: 1` sur la Function Gen2
+
+### Google Maps / Places (client-side)
+
+La clé Google Places est utilisée **côté client** pour des raisons de performance (autocomplete + details, sans proxy).
+
+Implémentation :
+- [GooglePlacesAutocompleteField.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/GooglePlacesAutocompleteField.tsx)
+- Variable attendue : `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
+
+Sécurité attendue (console Google Cloud) :
+- **Application restrictions** : Bundle ID (iOS) + Package Name + SHA-1/256 (Android)
+- **API restrictions** : limiter strictement aux APIs nécessaires (Places API, éventuellement Maps SDK si utilisé)
+
 ## 1) Hiérarchie des modèles
 
 ### Choix par défaut (OneTap / `oneTap.wire.*`)
@@ -192,4 +246,3 @@ export async function geminiGenerateOneTapWithFallback(params: {
 - Sur Cloud Functions, remplace `fetch` par `global.fetch` (Node 18+) ou `undici`.
 - Implémente `listModels()` en appelant `GET https://generativelanguage.googleapis.com/v1beta/models?key=...` et en extrayant `name` (en retirant le préfixe `models/` si besoin).
 - Loggue systématiquement `{ modelId, status, latencyMs }` pour diagnostiquer les comportements transitoires (503).
-
