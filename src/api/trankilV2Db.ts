@@ -41,6 +41,12 @@ export type TrankilV2IntentionRow = {
   remind_to_leave?: number;
   /** Lieu / adresse texte libre (nullable). */
   location_address?: string | null;
+  ai_model_used?: string | null;
+  ai_latency_ms?: number | null;
+  tokens_prompt?: number | null;
+  tokens_completion?: number | null;
+  tokens_total?: number | null;
+  location_id?: number | null;
 };
 
 export type TrankilV2TimelineItemRow = {
@@ -100,7 +106,11 @@ export type UserActivityLogActionType =
   | 'PROJECT_CREATED'
   | 'IA_SPENT'
   | 'ZEN_GAIN'
-  | 'CALENDAR_SYNC_ARCHIVE';
+  | 'CALENDAR_SYNC_ARCHIVE'
+  | 'AI_CALL'
+  | 'SYNC_PUSH'
+  | 'SYNC_PULL'
+  | 'USER_EDIT';
 
 export type UserActivityLogRow = {
   id: string;
@@ -108,6 +118,15 @@ export type UserActivityLogRow = {
   day_key: string;
   action_type: UserActivityLogActionType;
   points_delta: number;
+  intention_id?: string | null;
+  request_id?: string | null;
+  api_name?: string | null;
+  http_status?: number | null;
+  latency_ms?: number | null;
+  ai_model_used?: string | null;
+  tokens_prompt?: number | null;
+  tokens_completion?: number | null;
+  tokens_total?: number | null;
   meta_json: string;
 };
 
@@ -254,6 +273,29 @@ export async function initTrankilV2Schema(): Promise<void> {
   const db = await getDb();
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
+
+    CREATE TABLE IF NOT EXISTS locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      formatted_address TEXT NOT NULL,
+      place_id TEXT,
+      lat REAL,
+      lng REAL,
+      updated_at_ms INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_place_id
+      ON locations (place_id);
+    CREATE INDEX IF NOT EXISTS idx_locations_updated_at
+      ON locations (updated_at_ms DESC);
+
+    CREATE TABLE IF NOT EXISTS location_anchors (
+      anchor TEXT PRIMARY KEY NOT NULL,
+      location_id INTEGER,
+      label TEXT,
+      FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_location_anchors_location_id
+      ON location_anchors (location_id);
 
     CREATE TABLE IF NOT EXISTS intentions (
       id TEXT PRIMARY KEY NOT NULL,
@@ -278,17 +320,80 @@ export async function initTrankilV2Schema(): Promise<void> {
       remind_at INTEGER,
       local_notification_id TEXT,
       recurrence_rrule TEXT
+      ,
+      is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1)),
+      done_at INTEGER,
+      is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1)),
+      archived_at INTEGER,
+      is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1)),
+      remind_to_leave INTEGER NOT NULL DEFAULT 0 CHECK (remind_to_leave IN (0, 1)),
+      location_address TEXT,
+      ai_model_used TEXT,
+      ai_latency_ms INTEGER,
+      tokens_prompt INTEGER,
+      tokens_completion INTEGER,
+      tokens_total INTEGER,
+      location_id INTEGER,
+      FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_intentions_type_status
       ON intentions (type, status);
     CREATE INDEX IF NOT EXISTS idx_intentions_created_at
       ON intentions (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_intentions_location_id
+      ON intentions (location_id);
+    CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used
+      ON intentions (ai_model_used);
 
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY NOT NULL,
       label TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS user_identity (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      firebase_uid TEXT,
+      user_email TEXT,
+      plan_type TEXT NOT NULL DEFAULT 'FREE',
+      subscription_status TEXT NOT NULL DEFAULT 'INACTIVE',
+      sync_enabled INTEGER NOT NULL DEFAULT 0 CHECK (sync_enabled IN (0, 1)),
+      last_sync_at_ms INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identity_firebase_uid
+      ON user_identity (firebase_uid);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identity_user_email
+      ON user_identity (user_email);
+    INSERT OR IGNORE INTO user_identity (id) VALUES (1);
+
+    CREATE TABLE IF NOT EXISTS user_billing_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      daily_intentions_limit INTEGER NOT NULL DEFAULT 0,
+      current_day_intentions_count INTEGER NOT NULL DEFAULT 0,
+      daily_notes_limit INTEGER NOT NULL DEFAULT 0,
+      current_day_notes_count INTEGER NOT NULL DEFAULT 0,
+      trip_credits_balance INTEGER NOT NULL DEFAULT 0,
+      feature_flags_json TEXT NOT NULL DEFAULT '{}'
+    );
+    INSERT OR IGNORE INTO user_billing_state (id) VALUES (1);
+
+    CREATE TABLE IF NOT EXISTS user_knowledge (
+      key TEXT PRIMARY KEY NOT NULL,
+      value_text TEXT NOT NULL DEFAULT '',
+      value_json TEXT NOT NULL DEFAULT '{}',
+      namespace TEXT NOT NULL DEFAULT 'USER' CHECK (namespace IN ('USER', 'IA')),
+      confidence_score REAL NOT NULL DEFAULT 0.0 CHECK (confidence_score >= 0.0 AND confidence_score <= 1.0),
+      updated_at_ms INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_knowledge_namespace
+      ON user_knowledge (namespace);
+    CREATE INDEX IF NOT EXISTS idx_user_knowledge_updated_at
+      ON user_knowledge (updated_at_ms DESC);
+
+    CREATE TABLE IF NOT EXISTS user_context (
+      key TEXT PRIMARY KEY NOT NULL,
+      value_json TEXT NOT NULL DEFAULT '{}'
     );
 
     CREATE TABLE IF NOT EXISTS user_stats (
@@ -328,12 +433,27 @@ export async function initTrankilV2Schema(): Promise<void> {
       day_key TEXT NOT NULL,
       action_type TEXT NOT NULL,
       points_delta INTEGER NOT NULL DEFAULT 0,
+      intention_id TEXT,
+      request_id TEXT,
+      api_name TEXT,
+      http_status INTEGER,
+      latency_ms INTEGER,
+      ai_model_used TEXT,
+      tokens_prompt INTEGER,
+      tokens_completion INTEGER,
+      tokens_total INTEGER,
       meta_json TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_user_activity_logs_day_key
       ON user_activity_logs (day_key);
     CREATE INDEX IF NOT EXISTS idx_user_activity_logs_action_day
       ON user_activity_logs (action_type, day_key);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created_at
+      ON user_activity_logs (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_intention_id
+      ON user_activity_logs (intention_id);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_request_id
+      ON user_activity_logs (request_id);
   `);
   const cols = await db.getAllAsync<{ name: string }>(
     `PRAGMA table_info(intentions)`,
@@ -482,12 +602,27 @@ export async function initTrankilV2Schema(): Promise<void> {
       day_key TEXT NOT NULL,
       action_type TEXT NOT NULL,
       points_delta INTEGER NOT NULL DEFAULT 0,
+      intention_id TEXT,
+      request_id TEXT,
+      api_name TEXT,
+      http_status INTEGER,
+      latency_ms INTEGER,
+      ai_model_used TEXT,
+      tokens_prompt INTEGER,
+      tokens_completion INTEGER,
+      tokens_total INTEGER,
       meta_json TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_user_activity_logs_day_key
       ON user_activity_logs (day_key);
     CREATE INDEX IF NOT EXISTS idx_user_activity_logs_action_day
       ON user_activity_logs (action_type, day_key);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created_at
+      ON user_activity_logs (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_intention_id
+      ON user_activity_logs (intention_id);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_request_id
+      ON user_activity_logs (request_id);
   `);
   await db.execAsync(`UPDATE user_stats SET growth_score = COALESCE(growth_score, zen_points, 0) WHERE id = 1;`);
   await db.execAsync(`UPDATE user_stats SET zen_points = growth_score WHERE id = 1;`);
@@ -526,13 +661,24 @@ export async function initTrankilV2Schema(): Promise<void> {
         is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1)),
         done_at INTEGER,
         is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1)),
-        archived_at INTEGER
+        archived_at INTEGER,
+        is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1)),
+        remind_to_leave INTEGER NOT NULL DEFAULT 0 CHECK (remind_to_leave IN (0, 1)),
+        location_address TEXT,
+        ai_model_used TEXT,
+        ai_latency_ms INTEGER,
+        tokens_prompt INTEGER,
+        tokens_completion INTEGER,
+        tokens_total INTEGER,
+        location_id INTEGER
       );
       INSERT INTO intentions_v2 (
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
         status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
         is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
-        is_done, done_at, is_archived, archived_at
+        is_done, done_at, is_archived, archived_at,
+        is_pending_ai, remind_to_leave, location_address,
+        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, location_id
       )
       SELECT
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
@@ -542,12 +688,16 @@ export async function initTrankilV2Schema(): Promise<void> {
         CASE WHEN status = 'DONE' THEN 1 ELSE 0 END,
         CASE WHEN status = 'DONE' THEN created_at ELSE NULL END,
         CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END,
-        CASE WHEN status = 'ARCHIVED' THEN created_at ELSE NULL END
+        CASE WHEN status = 'ARCHIVED' THEN created_at ELSE NULL END,
+        0, 0, NULL,
+        NULL, NULL, NULL, NULL, NULL, NULL
       FROM intentions;
       DROP TABLE intentions;
       ALTER TABLE intentions_v2 RENAME TO intentions;
       CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);
       CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);
+      CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);
     `);
   }
   const mustCompactUserStats =
@@ -675,13 +825,23 @@ export async function initTrankilV2Schema(): Promise<void> {
         done_at INTEGER,
         is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1)),
         archived_at INTEGER,
-        is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1))
+        is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1)),
+        remind_to_leave INTEGER NOT NULL DEFAULT 0 CHECK (remind_to_leave IN (0, 1)),
+        location_address TEXT,
+        ai_model_used TEXT,
+        ai_latency_ms INTEGER,
+        tokens_prompt INTEGER,
+        tokens_completion INTEGER,
+        tokens_total INTEGER,
+        location_id INTEGER
       );
       INSERT INTO intentions_list_mig (
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
         status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
         is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
-        is_done, done_at, is_archived, archived_at, is_pending_ai
+        is_done, done_at, is_archived, archived_at, is_pending_ai,
+        remind_to_leave, location_address,
+        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, location_id
       )
       SELECT
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
@@ -691,12 +851,16 @@ export async function initTrankilV2Schema(): Promise<void> {
         done_at,
         COALESCE(is_archived, CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END),
         archived_at,
-        COALESCE(is_pending_ai, 0)
+        COALESCE(is_pending_ai, 0),
+        0, NULL,
+        NULL, NULL, NULL, NULL, NULL, NULL
       FROM intentions;
       DROP TABLE intentions;
       ALTER TABLE intentions_list_mig RENAME TO intentions;
       CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);
       CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);
+      CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);
     `);
   }
 
@@ -711,6 +875,60 @@ export async function initTrankilV2Schema(): Promise<void> {
   if (!colsIntentionsLogistics.some((c) => c.name === 'location_address')) {
     await db.execAsync(`ALTER TABLE intentions ADD COLUMN location_address TEXT;`);
   }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'ai_model_used')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN ai_model_used TEXT;`);
+  }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'ai_latency_ms')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN ai_latency_ms INTEGER;`);
+  }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'tokens_prompt')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN tokens_prompt INTEGER;`);
+  }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'tokens_completion')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN tokens_completion INTEGER;`);
+  }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'tokens_total')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN tokens_total INTEGER;`);
+  }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'location_id')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN location_id INTEGER;`);
+  }
+  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);`);
+  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);`);
+
+  const colsUserActivityLogs = await db.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(user_activity_logs)`,
+  );
+  if (!colsUserActivityLogs.some((c) => c.name === 'intention_id')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN intention_id TEXT;`);
+  }
+  if (!colsUserActivityLogs.some((c) => c.name === 'request_id')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN request_id TEXT;`);
+  }
+  if (!colsUserActivityLogs.some((c) => c.name === 'api_name')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN api_name TEXT;`);
+  }
+  if (!colsUserActivityLogs.some((c) => c.name === 'http_status')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN http_status INTEGER;`);
+  }
+  if (!colsUserActivityLogs.some((c) => c.name === 'latency_ms')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN latency_ms INTEGER;`);
+  }
+  if (!colsUserActivityLogs.some((c) => c.name === 'ai_model_used')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN ai_model_used TEXT;`);
+  }
+  if (!colsUserActivityLogs.some((c) => c.name === 'tokens_prompt')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN tokens_prompt INTEGER;`);
+  }
+  if (!colsUserActivityLogs.some((c) => c.name === 'tokens_completion')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN tokens_completion INTEGER;`);
+  }
+  if (!colsUserActivityLogs.some((c) => c.name === 'tokens_total')) {
+    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN tokens_total INTEGER;`);
+  }
+  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created_at ON user_activity_logs (created_at DESC);`);
+  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_intention_id ON user_activity_logs (intention_id);`);
+  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_request_id ON user_activity_logs (request_id);`);
 }
 
 export async function listTrankilV2Intentions(): Promise<TrankilV2IntentionRow[]> {
@@ -1343,6 +1561,137 @@ export async function getTrankilV2UserStats(): Promise<TrankilV2UserStatsRow> {
   );
 }
 
+export type TrankilV2BillingStateRow = {
+  daily_intentions_limit: number;
+  current_day_intentions_count: number;
+  daily_notes_limit: number;
+  current_day_notes_count: number;
+  trip_credits_balance: number;
+  feature_flags_json: string;
+};
+
+export async function getBillingState(): Promise<TrankilV2BillingStateRow> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<TrankilV2BillingStateRow>(
+    `SELECT daily_intentions_limit, current_day_intentions_count, daily_notes_limit, current_day_notes_count, trip_credits_balance, feature_flags_json
+     FROM user_billing_state
+     WHERE id = 1`,
+  );
+  return (
+    row ?? {
+      daily_intentions_limit: 0,
+      current_day_intentions_count: 0,
+      daily_notes_limit: 0,
+      current_day_notes_count: 0,
+      trip_credits_balance: 0,
+      feature_flags_json: '{}',
+    }
+  );
+}
+
+export type TrankilV2KnowledgeNamespace = 'USER' | 'IA';
+
+export type TrankilV2KnowledgeRow = {
+  key: string;
+  value_text: string;
+  value_json: string;
+  namespace: TrankilV2KnowledgeNamespace;
+  confidence_score: number;
+  updated_at_ms: number;
+};
+
+export async function getKnowledge(
+  key: string,
+): Promise<(TrankilV2KnowledgeRow & { value: unknown }) | null> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const k = String(key || '').trim();
+  if (!k) return null;
+  const row = await db.getFirstAsync<TrankilV2KnowledgeRow>(
+    `SELECT key, value_text, value_json, namespace, confidence_score, updated_at_ms
+     FROM user_knowledge
+     WHERE key = ?`,
+    [k],
+  );
+  if (!row) return null;
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(row.value_json || '{}');
+  } catch {
+    parsed = null;
+  }
+  const value = row.value_text?.trim() ? row.value_text : parsed;
+  return { ...row, value };
+}
+
+export async function setKnowledge(
+  key: string,
+  value: unknown,
+  opts?: { namespace?: TrankilV2KnowledgeNamespace; confidence_score?: number; updated_at_ms?: number },
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const k = String(key || '').trim();
+  if (!k) return;
+  const updatedAt =
+    Number.isFinite(opts?.updated_at_ms as number) ? Number(opts?.updated_at_ms) : Date.now();
+  const namespace = opts?.namespace ?? 'USER';
+  const confidence = Number.isFinite(opts?.confidence_score as number)
+    ? Math.max(0, Math.min(1, Number(opts?.confidence_score)))
+    : 1;
+  const valueText = typeof value === 'string' ? value : '';
+  let valueJson = '{}';
+  if (typeof value === 'string') {
+    valueJson = '{}';
+  } else {
+    try {
+      valueJson = JSON.stringify(value ?? {});
+    } catch {
+      valueJson = '{}';
+    }
+  }
+  await db.runAsync(
+    `INSERT OR REPLACE INTO user_knowledge (key, value_text, value_json, namespace, confidence_score, updated_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [k, valueText, valueJson, namespace, confidence, updatedAt],
+  );
+}
+
+export async function getUserContext(key: string): Promise<unknown | null> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const k = String(key || '').trim();
+  if (!k) return null;
+  const row = await db.getFirstAsync<{ value_json: string }>(
+    `SELECT value_json FROM user_context WHERE key = ?`,
+    [k],
+  );
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value_json || '{}');
+  } catch {
+    return null;
+  }
+}
+
+export async function setUserContext(key: string, value: unknown): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const k = String(key || '').trim();
+  if (!k) return;
+  let json = '{}';
+  try {
+    json = JSON.stringify(value ?? {});
+  } catch {
+    json = '{}';
+  }
+  await db.runAsync(
+    `INSERT OR REPLACE INTO user_context (key, value_json) VALUES (?, ?)`,
+    [k, json],
+  );
+}
+
 export async function grantViralBonus(nowMs: number = Date.now()): Promise<{
   granted: boolean;
   nextEligibleAt: number;
@@ -1625,6 +1974,12 @@ export type TrankilV2IntentionInsert = {
   is_pending_ai?: number;
   remind_to_leave?: number;
   location_address?: string | null;
+  ai_model_used?: string | null;
+  ai_latency_ms?: number | null;
+  tokens_prompt?: number | null;
+  tokens_completion?: number | null;
+  tokens_total?: number | null;
+  location_id?: number | null;
 };
 
 function normalizeTitleForLogisticsMatch(title: string): string {
@@ -1678,8 +2033,9 @@ export async function insertTrankilV2Intention(
       id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
       is_pending_ai,
       remind_to_leave, location_address,
+      ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, location_id,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`,
     [
       row.id,
       row.type,
@@ -1706,6 +2062,12 @@ export async function insertTrankilV2Intention(
       row.is_pending_ai ?? 0,
       remindLeave ? 1 : 0,
       locAddr,
+      row.ai_model_used ?? null,
+      Number.isFinite(row.ai_latency_ms as number) ? Number(row.ai_latency_ms) : null,
+      Number.isFinite(row.tokens_prompt as number) ? Number(row.tokens_prompt) : null,
+      Number.isFinite(row.tokens_completion as number) ? Number(row.tokens_completion) : null,
+      Number.isFinite(row.tokens_total as number) ? Number(row.tokens_total) : null,
+      Number.isFinite(row.location_id as number) ? Number(row.location_id) : null,
     ],
   );
   const stats = await getTrankilV2UserStats();
@@ -1746,7 +2108,13 @@ export async function replaceTrankilV2IntentionOneTap(
       complexity_level = ?,
       is_pending_ai = ?,
       remind_to_leave = ?,
-      location_address = ?
+      location_address = ?,
+      ai_model_used = COALESCE(?, ai_model_used),
+      ai_latency_ms = COALESCE(?, ai_latency_ms),
+      tokens_prompt = COALESCE(?, tokens_prompt),
+      tokens_completion = COALESCE(?, tokens_completion),
+      tokens_total = COALESCE(?, tokens_total),
+      location_id = COALESCE(?, location_id)
     WHERE id = ?`,
     [
       patch.type,
@@ -1765,6 +2133,12 @@ export async function replaceTrankilV2IntentionOneTap(
       patch.is_pending_ai ?? 0,
       remindLeave ? 1 : 0,
       locAddr,
+      patch.ai_model_used ?? null,
+      Number.isFinite(patch.ai_latency_ms as number) ? Number(patch.ai_latency_ms) : null,
+      Number.isFinite(patch.tokens_prompt as number) ? Number(patch.tokens_prompt) : null,
+      Number.isFinite(patch.tokens_completion as number) ? Number(patch.tokens_completion) : null,
+      Number.isFinite(patch.tokens_total as number) ? Number(patch.tokens_total) : null,
+      Number.isFinite(patch.location_id as number) ? Number(patch.location_id) : null,
       id,
     ],
   );
