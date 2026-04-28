@@ -153,6 +153,60 @@ async function readProxySse(
   return { text: doneText ?? accumulated, serverLatencyMs, serverModelId };
 }
 
+function contentType(res: Response): string {
+  return String(res.headers.get('content-type') || '').toLowerCase();
+}
+
+function extractTextFromAnyGeminiShape(data: unknown): string {
+  if (typeof data === 'string') return data.trim();
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '';
+  const rec = data as Record<string, unknown>;
+  if (typeof rec.text === 'string') return rec.text.trim();
+  const d = data as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const parts = d?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  let s = '';
+  for (const p of parts) {
+    if (p && typeof p.text === 'string') s += p.text;
+  }
+  return s.trim();
+}
+
+async function readProxyResponse(
+  res: Response,
+  onAccumulatedText?: (full: string) => void,
+): Promise<{ text: string; serverLatencyMs?: number; serverModelId?: string }> {
+  const ct = contentType(res);
+  if (ct.includes('text/event-stream')) {
+    return readProxySse(res, onAccumulatedText);
+  }
+
+  const raw = await readAllTextFromResponse(res);
+  if (!raw.trim()) return { text: '' };
+
+  if (ct.includes('application/json') || raw.trim().startsWith('{') || raw.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const extracted = extractTextFromAnyGeminiShape(parsed);
+      if (extracted) {
+        onAccumulatedText?.(extracted);
+        return { text: extracted };
+      }
+      const fallback = JSON.stringify(parsed);
+      if (fallback && fallback !== 'null') {
+        onAccumulatedText?.(fallback);
+        return { text: fallback };
+      }
+    } catch {}
+  }
+
+  const out = raw.trim();
+  if (out) onAccumulatedText?.(out);
+  return { text: out };
+}
+
 async function callGeminiProxyStream(params: {
   request: object;
   operation: string;
@@ -188,7 +242,7 @@ async function callGeminiProxyStream(params: {
     }
 
     try {
-      const out = await readProxySse(res, params.onAccumulatedText);
+      const out = await readProxyResponse(res, params.onAccumulatedText);
       const t1 = perfNowMs();
       const meta: GeminiHttpSettledMeta = {
         modelId: out.serverModelId ?? modelId,
@@ -222,17 +276,7 @@ async function callGeminiProxyStream(params: {
 }
 
 function extractTextFromGenerateResponse(data: unknown): string {
-  if (typeof data === 'string') return data.trim();
-  const d = data as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  const parts = d?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return '';
-  let s = '';
-  for (const p of parts) {
-    if (p && typeof p.text === 'string') s += p.text;
-  }
-  return s.trim();
+  return extractTextFromAnyGeminiShape(data);
 }
 
 function normalizeOneTapWireText(raw: string): string {
