@@ -18,3 +18,7 @@ export function getDisconnectMessengerUrl(): string {
   if (explicit) return explicit;
   return `${getCloudFunctionsBaseUrl()}/disconnectMessenger`;
 }
+
+export function getGeminiProxyStreamUrl(): string {
+  return `${getCloudFunctionsBaseUrl()}/geminiProxyStream`;
+}

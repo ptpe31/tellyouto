@@ -771,7 +771,7 @@
     "a11yStopQuick": "Stop listening and analyze locally",
     "a11yStopDeep": "Stop recording and send to Gemini",
     "deepNoApiKeyTitle": "Gemini API key",
-    "deepNoApiKeyBody": "Set EXPO_PUBLIC_GEMINI_API_KEY in .env and restart Metro for Deep mode.",
+    "deepNoApiKeyBody": "Gemini proxy not configured. Deploy the Cloud Function and restart the app.",
     "orbital": {
       "hintSlide": "Slide the bead to Task (right) or Project (left), then hold the mic.",
       "holdRelease": "Release to finish",
@@ -867,7 +867,7 @@
     "alertRecordingTitle": "Recording",
     "alertRecordingNoActiveBody": "No active recording — tap START first.",
     "alertApiKeyTitle": "API key",
-    "alertApiKeyBody": "Set EXPO_PUBLIC_GEMINI_API_KEY in .env, then restart Metro.",
+    "alertApiKeyBody": "Gemini proxy not configured. Deploy the Cloud Function and restart the app.",
     "pipelineErrorExpoAvRebuild": "Native expo-av module missing: rebuild required (npx expo prebuild + run:android / run:ios).",
     "errorUriAfterStop": ".m4a file URI missing after stop.",
     "webUnsupportedMessage": "Web not supported — use iOS or Android (expo-av).",

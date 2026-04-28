@@ -1,16 +1,11 @@
-/**
- * Expert Gemini via API REST v1 — un seul modèle (Remote Config), fail-fast.
- * Clé : process.env.EXPO_PUBLIC_GEMINI_API_KEY
- */
-
 import {
   getActiveGeminiModelId,
   getGeminiCandidateModelIds,
   persistValidatedGeminiModelId,
-  recoverGeminiModelViaListModelsExcluding,
 } from './geminiRemoteModelSteering';
 
-const BASE = 'https://generativelanguage.googleapis.com/v1';
+import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
+import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
 
 function log(stage, detail) {
   const line = `[GeminiExpert] ${stage}`;
@@ -20,20 +15,6 @@ function log(stage, detail) {
   } else {
     console.log(line);
   }
-}
-
-function getApiKey() {
-  const k = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
-  log('apiKey.resolve', {
-    fromEnv: Boolean(k),
-    selected: k ? 'env' : 'none',
-  });
-  if (!k) {
-    console.error('[GeminiExpert] API Key missing (EXPO_PUBLIC_GEMINI_API_KEY). Skipping Gemini calls.');
-    log('init.error', { ok: false, reason: 'EXPO_PUBLIC_GEMINI_API_KEY absente' });
-    return null;
-  }
-  return k;
 }
 
 function getModelId() {
@@ -75,28 +56,99 @@ function isModelNotSupported(status, bodyText) {
   );
 }
 
-async function generateContentWithFallback(prompt, generationConfig) {
-  const apiKey = getApiKey();
-  const candidates = getGeminiCandidateModelIds();
-  if (!apiKey) {
-    return { model: candidates[0] ?? 'unknown', rawText: '' };
+async function getFirebaseIdToken() {
+  await ensureFirebaseAnonymousAuth();
+  const auth = getFirebaseAuth();
+  const token = await auth?.currentUser?.getIdToken();
+  if (!token) throw new Error('Missing Firebase ID token');
+  return token;
+}
+
+async function readAllText(res) {
+  try {
+    return await res.text();
+  } catch {
+    return '';
   }
+}
+
+async function readProxySse(res) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let accumulated = '';
+  let doneText = null;
+
+  const processChunkText = (chunkText) => {
+    buffer += chunkText;
+    while (true) {
+      const sepIndex = buffer.indexOf('\n\n');
+      if (sepIndex === -1) break;
+      const rawEvent = buffer.slice(0, sepIndex);
+      buffer = buffer.slice(sepIndex + 2);
+      const lines = rawEvent.split('\n');
+      for (const line of lines) {
+        const trimmed = line.replace(/\r$/, '');
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload) continue;
+        let evt = null;
+        try {
+          evt = JSON.parse(payload);
+        } catch {
+          continue;
+        }
+        if (!evt) continue;
+        if (evt.type === 'delta') {
+          accumulated += evt.text || '';
+        } else if (evt.type === 'done') {
+          doneText = typeof evt.text === 'string' ? evt.text : accumulated;
+        } else if (evt.type === 'error') {
+          throw new Error(evt.error || 'proxy_error');
+        }
+      }
+    }
+  };
+
+  const stream = res.body ?? null;
+  if (!stream || typeof stream.getReader !== 'function') {
+    const text = await readAllText(res);
+    processChunkText(text);
+    return doneText ?? accumulated;
+  }
+
+  const reader = stream.getReader();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value) processChunkText(decoder.decode(value, { stream: true }));
+  }
+  if (buffer) processChunkText('\n\n');
+  return doneText ?? accumulated;
+}
+
+async function generateContentWithFallback(prompt, generationConfig) {
+  const candidates = getGeminiCandidateModelIds();
+  const token = await getFirebaseIdToken();
   const effectiveGenerationConfig = withLightGenerationConfig(generationConfig);
-  const body = JSON.stringify({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: effectiveGenerationConfig,
-  });
 
   const doFetch = async (modelId) => {
-    const url = `${BASE}/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const safeUrl = url.replace(/([?&]key=)[^&]+/, '$1***');
-    log('request.start', { model: modelId, endpoint: safeUrl });
+    const url = getGeminiProxyStreamUrl();
+    log('request.start', { model: modelId, endpoint: url });
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        modelId,
+        request: {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: effectiveGenerationConfig,
+        },
+      }),
     });
-    const text = await res.text();
+    const text = res.ok ? await readProxySse(res) : await readAllText(res);
     log('request.response', {
       model: modelId,
       status: res.status,
@@ -114,21 +166,10 @@ async function generateContentWithFallback(prompt, generationConfig) {
     last = attempt;
     if (attempt.res.ok) {
       void persistValidatedGeminiModelId(attempt.modelId);
-      const parsed = JSON.parse(attempt.text);
-      return { model: attempt.modelId, rawText: extractTextFromGenerateResponse(parsed) };
+      return { model: attempt.modelId, rawText: String(attempt.text || '').trim() };
     }
     if (isModelNotSupported(attempt.res.status, attempt.text)) {
       continue;
-    }
-    throw new Error(`Gemini HTTP ${attempt.res.status}: ${attempt.text.slice(0, 800)}`);
-  }
-  const discovered = await recoverGeminiModelViaListModelsExcluding(usedModels);
-  if (discovered) {
-    const attempt = await doFetch(discovered);
-    if (attempt.res.ok) {
-      void persistValidatedGeminiModelId(attempt.modelId);
-      const parsed = JSON.parse(attempt.text);
-      return { model: attempt.modelId, rawText: extractTextFromGenerateResponse(parsed) };
     }
     throw new Error(`Gemini HTTP ${attempt.res.status}: ${attempt.text.slice(0, 800)}`);
   }

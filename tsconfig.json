@@ -4,5 +4,6 @@
     "allowJs": true,
     "checkJs": false,
     "strict": true
-  }
+  },
+  "exclude": ["functions/**"]
 }

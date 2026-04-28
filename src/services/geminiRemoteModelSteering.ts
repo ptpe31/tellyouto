@@ -27,11 +27,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
-  fetchAllGeminiModelsList,
   GEMINI_MODEL_SHORTLIST,
   isBannedGeminiModelId,
-  pickPreferredGeminiModelId,
-  shortGeminiModelId,
 } from './geminiModelCatalog';
 
 function getConfiguredShortlist(): string[] {
@@ -110,34 +107,6 @@ async function clearPersistedFallbackModel(): Promise<void> {
   }
 }
 
-/**
- * Appelle l’API `listModels`, choisit un id via {@link pickPreferredGeminiModelId}, persiste et met à jour le cache.
- * @internal
- */
-async function tryRecoverFromListModels(apiKey: string): Promise<string | null> {
-  try {
-    const excluded = new Set<string>();
-    const models = await fetchAllGeminiModelsList(apiKey);
-    const filtered = models.filter((m) => {
-      const id = shortGeminiModelId(m.name);
-      return !excluded.has(id);
-    });
-    const picked = pickPreferredGeminiModelId(filtered);
-    if (!picked) return null;
-    await persistFallbackModelFor24h(picked);
-    cachedActiveGeminiModelId = picked;
-    console.log(
-      `[GeminiSteering] 🛠️ SELF_HEALING_TRIGGERED\n| Found: ${models.length} models\n| New Local Choice: ${picked}`,
-    );
-    return picked;
-  } catch (e) {
-    if (__DEV__) {
-      console.warn('[GeminiSteering] listModels échoué', e);
-    }
-    return null;
-  }
-}
-
 function getFallbackListModelsExcluding(excluded: string[]): string[] {
   const ex = new Set(excluded.map((m) => sanitizeRemoteModelId(m) || '').filter(Boolean));
   return GEMINI_FALLBACK_LIST_MODELS.filter((m) => !ex.has(m));
@@ -166,21 +135,7 @@ export async function recoverGeminiModelViaListModels(): Promise<string | null> 
 export async function recoverGeminiModelViaListModelsExcluding(
   excludedModelIds: string[],
 ): Promise<string | null> {
-  try {
-    const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
-    if (!key) return null;
-    const excluded = new Set(excludedModelIds.map((m) => sanitizeRemoteModelId(m) || '').filter(Boolean));
-    const models = await fetchAllGeminiModelsList(key);
-    const filtered = models.filter((m) => {
-      const id = shortGeminiModelId(m.name);
-      return !excluded.has(id);
-    });
-    const picked = pickPreferredGeminiModelId(filtered);
-    if (!picked) return null;
-    return picked;
-  } catch {
-    return null;
-  }
+  return rotateFallbackModel(excludedModelIds);
 }
 
 /** Modèle effectif pour les appels REST Gemini (mis à jour après `ensureGeminiRemoteModelInitialized`). */

@@ -186,15 +186,10 @@ export function DebugScreen() {
   }, [syncModelLabels]);
 
   const onIaHealthCheck = useCallback(async () => {
-    const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
-    if (!key) {
-      Alert.alert(t('debug.pilotTitle'), t('debug.iaHealthNoApiKey'));
-      return;
-    }
     setLastError(null);
     setBusy('iaHealth');
     try {
-      const result = await runGeminiModelHealthCheck(key);
+      const result = await runGeminiModelHealthCheck();
       await applyGeminiLocalModelOverride(result.winnerId);
       syncModelLabels();
       await refreshValidatedModelDisplay();
@@ -230,11 +225,6 @@ export function DebugScreen() {
   }, [refreshValidatedModelDisplay, syncModelLabels]);
 
   const onForce404Test = useCallback(async () => {
-    const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY?.trim();
-    if (!key) {
-      Alert.alert(t('debug.pilotTitle'), t('debug.iaHealthNoApiKey'));
-      return;
-    }
     setIaCacheBusy(true);
     try {
       await applyGeminiLocalModelOverride('gemini-unknown-model');
