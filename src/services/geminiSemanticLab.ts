@@ -78,7 +78,15 @@ type ProxyStreamEvent =
 async function getFirebaseIdToken(): Promise<string> {
   await ensureFirebaseAnonymousAuth();
   const auth = getFirebaseAuth();
-  const token = await auth?.currentUser?.getIdToken();
+  const token = await auth?.currentUser?.getIdToken(false);
+  if (!token) throw new Error('Missing Firebase ID token');
+  return token;
+}
+
+async function refreshFirebaseIdToken(): Promise<string> {
+  await ensureFirebaseAnonymousAuth();
+  const auth = getFirebaseAuth();
+  const token = await auth?.currentUser?.getIdToken(true);
   if (!token) throw new Error('Missing Firebase ID token');
   return token;
 }
@@ -186,6 +194,15 @@ async function readProxyResponse(
   const raw = await readAllTextFromResponse(res);
   if (!raw.trim()) return { text: '' };
 
+  if (raw.trim().startsWith('data:')) {
+    const sseRes = {
+      headers: new Headers({ 'content-type': 'text/event-stream' }),
+      body: null,
+      text: async () => raw,
+    } as unknown as Response;
+    return readProxySse(sseRes, onAccumulatedText);
+  }
+
   if (ct.includes('application/json') || raw.trim().startsWith('{') || raw.trim().startsWith('[')) {
     try {
       const parsed = JSON.parse(raw) as unknown;
@@ -218,7 +235,8 @@ async function callGeminiProxyStream(params: {
     ? [params.modelOverride]
     : getGeminiCandidateModelIds();
 
-  const token = await getFirebaseIdToken();
+  let token = await getFirebaseIdToken();
+  let tokenRefreshed = false;
   const t0 = perfNowMs();
   let lastError: unknown;
 
@@ -226,14 +244,35 @@ async function callGeminiProxyStream(params: {
     const modelId = candidates[i];
     const url = getGeminiProxyStreamUrl();
 
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Accept: 'text/event-stream, application/json',
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ modelId, request: params.request }),
     });
+
+    if ((res.status === 401 || res.status === 403) && !tokenRefreshed) {
+      token = await refreshFirebaseIdToken();
+      tokenRefreshed = true;
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream, application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ modelId, request: params.request }),
+      });
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      const bodyText = await readAllTextFromResponse(res);
+      lastError = new Error(`unauthorized:${res.status}:${bodyText.slice(0, 160)}`);
+      break;
+    }
 
     if (!res.ok) {
       const bodyText = await readAllTextFromResponse(res);
