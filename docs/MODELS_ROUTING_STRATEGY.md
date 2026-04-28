@@ -60,6 +60,66 @@ Sécurité attendue (console Google Cloud) :
 - **Application restrictions** : Bundle ID (iOS) + Package Name + SHA-1/256 (Android)
 - **API restrictions** : limiter strictement aux APIs nécessaires (Places API, éventuellement Maps SDK si utilisé)
 
+## Guide de Compilation Android (Debug)
+
+Ce projet utilise des modules natifs complexes (C++, Whisper, Reanimated). En cas de modification de l’architecture ou de nettoyage des dépendances, suivre ces étapes pour générer l’APK.
+
+### 1. Préparation de l’environnement
+
+Sur macOS, Android Studio et Gradle doivent hériter du `PATH` du terminal (pour localiser Node.js).
+
+- Fermer Android Studio
+- Relancer via le terminal :
+
+```bash
+open /Applications/Android\ Studio.app
+```
+
+### 2. Nettoyage radical (deep clean)
+
+En cas d’erreurs CMake / JNI, supprimer les caches non nettoyés par les commandes standards :
+
+```bash
+rm -rf android/app/.cxx
+rm -rf android/app/build
+rm -rf android/build
+```
+
+### 3. Régénération du code natif (Expo Prebuild)
+
+Avant de compiler, s’assurer que `android/` est synchronisé avec `package.json` et la config Expo :
+
+```bash
+npx expo prebuild --platform android --clean
+```
+
+### 4. Compilation de l’APK
+
+Compiler avec Gradle et `--no-build-cache` pour éviter la réutilisation de caches corrompus :
+
+```bash
+cd android
+./gradlew clean assembleDebug --no-build-cache
+```
+
+### 5. Localisation du binaire
+
+Après `BUILD SUCCESSFUL`, l’APK est ici :
+
+```
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Notes pour le développeur
+
+- Node.js : Node 20+ recommandé. Si Gradle échoue avec `Exec failed (command 'node')`, vérifier le lien :
+
+```bash
+sudo ln -s $(which node) /usr/local/bin/node
+```
+
+- Temps de build : compter ~5 à 10 minutes pour une compilation complète (re-compilation du moteur C++).
+
 ## 1) Hiérarchie des modèles
 
 ### Choix par défaut (OneTap / `oneTap.wire.*`)
