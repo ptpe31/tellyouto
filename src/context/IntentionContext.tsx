@@ -1,8 +1,10 @@
 import * as chrono from 'chrono-node';
 import * as FileSystem from 'expo-file-system/legacy';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, DeviceEventEmitter } from 'react-native';
+import { Alert, DeviceEventEmitter, Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
+import * as Haptics from 'expo-haptics';
+import { useSpeechRecognitionEvent } from 'expo-speech-recognition';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
@@ -12,7 +14,11 @@ import {
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
-import { persistOneTapDraftVentilated } from '../services/oneTapPersist';
+import {
+  finalizeOneTapOptimisticDraft,
+  preSaveOneTapOptimisticDraft,
+  replacePendingOneTapDraft,
+} from '../services/oneTapPersist';
 import { showAppToast } from '../services/appToast';
 import {
   getOfflineAudioById,
@@ -51,6 +57,171 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 
 function newId(): string {
   return `intent_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function readDraftIntents(draft: OneTapUniversalResult): Record<string, unknown>[] {
+  const data = (draft.data ?? {}) as Record<string, unknown>;
+  const raw = (data as { intents?: unknown }).intents;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as Record<string, unknown>[];
+}
+
+function isCompleteIntent(it: Record<string, unknown>): boolean {
+  const type = String(it.type ?? '').trim().toUpperCase();
+  if (!type) return false;
+  if (type === 'LIST') {
+    const items = Array.isArray(it.items) ? it.items : [];
+    return items.length > 0;
+  }
+  if (type === 'TRIP') {
+    const destination = String(it.destination ?? it.content ?? it.title ?? '').trim();
+    return destination.length > 0;
+  }
+  const title = String(it.title ?? it.content ?? '').trim();
+  return title.length > 0;
+}
+
+function buildListDraftBlock(params: {
+  title: string;
+  items: { name: string; baseQuantity?: number; unit?: string; scalable?: boolean; includeInSave?: boolean }[];
+  baseCount: number;
+  unitLabel?: string;
+}): Record<string, unknown> {
+  const baseCount = Math.max(1, Math.round(Number(params.baseCount ?? 1)));
+  const unitLabel = String(params.unitLabel ?? 'personne').trim() || 'personne';
+  return {
+    title: params.title,
+    baseCount,
+    unitLabel,
+    categories: [
+      {
+        name: '—',
+        items: params.items.map((it) => ({
+          name: String(it.name ?? '').trim().slice(0, 120),
+          baseQuantity:
+            it.baseQuantity !== undefined && Number.isFinite(Number(it.baseQuantity)) && Number(it.baseQuantity) > 0
+              ? Number(it.baseQuantity)
+              : 1 / baseCount,
+          unit: String(it.unit ?? 'piece').trim() || 'piece',
+          scalable: it.scalable !== false,
+          includeInSave: it.includeInSave !== false,
+        })),
+      },
+    ],
+  };
+}
+
+function buildOneTapDraftFromIntent(params: {
+  baseDraft: OneTapUniversalResult;
+  intent: Record<string, unknown>;
+}): OneTapUniversalResult | null {
+  const { baseDraft, intent } = params;
+  const type = String(intent.type ?? '').trim().toUpperCase();
+  const categoryTag =
+    (typeof intent.category === 'string' ? intent.category.trim().slice(0, 80) : '') || baseDraft.categoryTag;
+  if (type === 'LIST') {
+    const title = String(intent.title ?? '').trim() || baseDraft.title;
+    const itemsRaw = Array.isArray(intent.items) ? intent.items : [];
+    const baseCount = Number(intent.baseCount ?? 1);
+    const unitLabel = typeof intent.unitLabel === 'string' ? intent.unitLabel : undefined;
+    const items = itemsRaw
+      .map((x) => {
+        if (!x) return null;
+        if (typeof x === 'string') return { name: x.trim(), baseQuantity: 1 / Math.max(1, Math.round(baseCount)) };
+        if (typeof x !== 'object' || Array.isArray(x)) return null;
+        const r = x as Record<string, unknown>;
+        const name = String(r.name ?? '').trim();
+        if (!name) return null;
+        const baseQuantity =
+          r.baseQuantity !== undefined
+            ? Number(r.baseQuantity)
+            : r.qty !== undefined
+              ? Number(r.qty) / Math.max(1, Math.round(baseCount))
+              : 1 / Math.max(1, Math.round(baseCount));
+        return {
+          name,
+          baseQuantity: Number.isFinite(baseQuantity) && baseQuantity > 0 ? baseQuantity : 1 / Math.max(1, Math.round(baseCount)),
+          unit: typeof r.unit === 'string' ? r.unit : undefined,
+          scalable: r.scalable !== false,
+          includeInSave: r.includeInSave !== false,
+        };
+      })
+      .filter(Boolean) as { name: string; baseQuantity?: number; unit?: string; scalable?: boolean; includeInSave?: boolean }[];
+    if (!items.length) return null;
+    const listBlock = buildListDraftBlock({ title, items, baseCount, unitLabel });
+    return {
+      ...baseDraft,
+      categoryTag,
+      title: title.trim().slice(0, 200) || baseDraft.title,
+      predictedType: 'LIST',
+      data: { list: listBlock },
+    };
+  }
+  if (type === 'TASK') {
+    const content = String(intent.content ?? '').trim() || baseDraft.title;
+    const notes = typeof intent.notes === 'string' ? intent.notes.trim() : '';
+    const dueIso = typeof intent.due === 'string' ? intent.due.trim() : '';
+    return {
+      ...baseDraft,
+      categoryTag,
+      title: content.slice(0, 200) || baseDraft.title,
+      predictedType: 'TASK',
+      data: {
+        ...(dueIso ? { dueDateTime: dueIso } : {}),
+        ...(notes ? { notes: notes.slice(0, 2000) } : {}),
+      },
+    };
+  }
+  if (type === 'TRIP') {
+    const destination = String(intent.destination ?? intent.content ?? intent.title ?? '').trim() || String((baseDraft.data as Record<string, unknown>)?.destination_name ?? baseDraft.title);
+    if (!destination) return null;
+    const dueIso =
+      typeof intent.arrivalDue === 'string' ? intent.arrivalDue.trim() : typeof intent.due === 'string' ? intent.due.trim() : '';
+    const addr = String((baseDraft.data as Record<string, unknown>)?.location_address ?? '').trim();
+    return {
+      ...baseDraft,
+      categoryTag,
+      title: destination.slice(0, 200) || baseDraft.title,
+      predictedType: 'TRIP',
+      data: {
+        logisticsPotential: true,
+        destination_name: destination.slice(0, 400),
+        ...(dueIso ? { dueDateTime: dueIso } : {}),
+        location_address: addr,
+        location_place_id: (baseDraft.data as Record<string, unknown>).location_place_id ?? null,
+        location_lat: (baseDraft.data as Record<string, unknown>).location_lat ?? null,
+        location_lng: (baseDraft.data as Record<string, unknown>).location_lng ?? null,
+        remind_to_leave: Boolean((baseDraft.data as Record<string, unknown>).remind_to_leave),
+      },
+    };
+  }
+  if (type === 'HABIT') {
+    const content = String(intent.content ?? '').trim() || baseDraft.title;
+    const rec = typeof intent.recurrence === 'string' ? intent.recurrence.trim() : '';
+    const pref = typeof intent.preferredTime === 'string' ? intent.preferredTime.trim() : '';
+    return {
+      ...baseDraft,
+      categoryTag,
+      title: content.slice(0, 200) || baseDraft.title,
+      predictedType: 'HABIT',
+      data: {
+        ...(rec ? { cadenceDescription: rec.slice(0, 500), recurrence: { summary: rec.slice(0, 500) } } : {}),
+        ...(pref ? { preferredTimeHm: pref } : {}),
+      },
+    };
+  }
+  if (type === 'NOTE') {
+    const content = String(intent.content ?? '').trim() || String((baseDraft.data as Record<string, unknown>)?.memo ?? '');
+    if (!content) return null;
+    return {
+      ...baseDraft,
+      categoryTag,
+      title: baseDraft.title,
+      predictedType: 'NOTE',
+      data: { memo: content.slice(0, 4000) },
+    };
+  }
+  return null;
 }
 
 function parseDueDateFromText(text: string, locale: string): string | null {
@@ -115,18 +286,50 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const userEditedRef = useRef(false);
   const lastCaptureWasMicRef = useRef(false);
+  const lastAudioUriRef = useRef<string | null>(null);
+  const captureActiveRef = useRef(false);
+  const draftRef = useRef<OneTapUniversalResult>(draft);
+  const transcriptRef = useRef(transcript);
+  const streamSeqRef = useRef(0);
+  const streamTimerRef = useRef<number | null>(null);
+  const intentIdByIndexRef = useRef<Record<string, string>>({});
+  const intentReplaceTimersRef = useRef<Record<string, number>>({});
 
   const startCapture = useCallback(() => {
     userEditedRef.current = false;
     lastCaptureWasMicRef.current = false;
+    lastAudioUriRef.current = null;
+    captureActiveRef.current = true;
+    streamSeqRef.current = 0;
+    if (streamTimerRef.current) {
+      clearTimeout(streamTimerRef.current);
+      streamTimerRef.current = null;
+    }
+    for (const k of Object.keys(intentReplaceTimersRef.current)) {
+      clearTimeout(intentReplaceTimersRef.current[k]);
+    }
+    intentReplaceTimersRef.current = {};
+    intentIdByIndexRef.current = {};
+    setTranscript('');
+    setDraft(inferOneTapSkeletonFromTranscript('', { uiLocale: spectrum.locale || 'fr' }));
     setVisible(false);
-    setRefining(false);
+    setRefining(true);
     setBusy(false);
-  }, []);
+  }, [spectrum.locale]);
 
   const cancelCapture = useCallback(() => {
     userEditedRef.current = false;
     lastCaptureWasMicRef.current = false;
+    lastAudioUriRef.current = null;
+    captureActiveRef.current = false;
+    if (streamTimerRef.current) {
+      clearTimeout(streamTimerRef.current);
+      streamTimerRef.current = null;
+    }
+    for (const k of Object.keys(intentReplaceTimersRef.current)) {
+      clearTimeout(intentReplaceTimersRef.current[k]);
+    }
+    intentReplaceTimersRef.current = {};
     setVisible(false);
     setRefining(false);
     setBusy(false);
@@ -168,39 +371,26 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     async ({ transcript: rawTranscript, audioUri }: CapturePayload) => {
       const cleaned = rawTranscript.trim();
       if (!cleaned) return;
+      captureActiveRef.current = false;
+      if (streamTimerRef.current) {
+        clearTimeout(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
       lastCaptureWasMicRef.current = Boolean(audioUri);
+      lastAudioUriRef.current = audioUri;
       userEditedRef.current = false;
       setTranscript(cleaned);
-      const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale: spectrum.locale || 'fr' });
-      setDraft(skeleton);
-      void (async () => {
-        const hydrated = await hydrateOneTapDraftWithFavoriteAlias(skeleton);
-        setDraft(hydrated);
-      })();
       setVisible(true);
-      setRefining(true);
+      setRefining(false);
 
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
       if (!online && audioUri) {
         const title = cleaned.slice(0, 56) || 'Memo audio';
         await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
-        setRefining(false);
         setVisible(false);
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
         return;
-      }
-
-      try {
-        const out = await geminiOneTapUniversalFromTranscript(cleaned, { uiLocale: spectrum.locale || 'fr' });
-        if (!userEditedRef.current) {
-          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(out.parsed);
-          setDraft(hydrated);
-        }
-        setRefining(false);
-      } catch (e) {
-        setRefining(false);
-        proposeOfflineFallback({ transcript: cleaned, audioUri, error: e });
       }
     },
     [proposeOfflineFallback, spectrum.locale],
@@ -212,14 +402,56 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     try {
       const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
       const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
-      const res = await persistOneTapDraftVentilated({
-        deps,
-        draft,
-        transcript,
-        habitsDefaultTitle,
-        birthdayLabel,
-      });
-      if (!res.ok) {
+      const intents = readDraftIntents(draft).filter(isCompleteIntent);
+      if (!intents.length) {
+        const title = transcript.trim().slice(0, 56) || 'Memo';
+        const audioUri = lastAudioUriRef.current;
+        if (audioUri) {
+          await queueOfflineAudioCapture({ transcript: transcript.trim(), audioUri, title });
+        } else {
+          await queueOfflineTextCapture({ transcript: transcript.trim(), title });
+        }
+        setVisible(false);
+        setRefining(false);
+        userEditedRef.current = false;
+        lastCaptureWasMicRef.current = false;
+        lastAudioUriRef.current = null;
+        DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+        if (Platform.OS !== 'web') {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+        return;
+      }
+
+      const successes: boolean[] = [];
+      for (let i = 0; i < intents.length; i++) {
+        const built = buildOneTapDraftFromIntent({ baseDraft: draft, intent: intents[i] });
+        if (!built) continue;
+        const idxKey = String(readDraftIntents(draft).indexOf(intents[i]));
+        let intentionId = intentIdByIndexRef.current[idxKey];
+        if (!intentionId) {
+          const pre = await preSaveOneTapOptimisticDraft({
+            deps,
+            draft: built,
+            transcript,
+            habitsDefaultTitle,
+            birthdayLabel,
+          });
+          if (!pre.ok) continue;
+          intentionId = pre.intentionId;
+          intentIdByIndexRef.current[idxKey] = intentionId;
+        }
+        const fin = await finalizeOneTapOptimisticDraft({
+          deps,
+          intentionId,
+          draft: built,
+          transcript,
+          habitsDefaultTitle,
+          birthdayLabel,
+        });
+        successes.push(fin.ok);
+      }
+      if (!successes.some(Boolean)) {
         showAppToast(i18n.t('talkDebug.oneTapRefineFailedToast', { defaultValue: 'Sauvegarde impossible.' }), 4200);
         return;
       }
@@ -230,13 +462,92 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       setRefining(false);
       userEditedRef.current = false;
       lastCaptureWasMicRef.current = false;
+      lastAudioUriRef.current = null;
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      if (Platform.OS !== 'web') {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
     } catch (e) {
       showAppToast(i18n.t('talkDebug.oneTapRefineFailedToast', { defaultValue: 'Sauvegarde impossible.' }), 4200);
     } finally {
       setBusy(false);
     }
   }, [busy, deps, draft, transcript]);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
+
+  useSpeechRecognitionEvent('result', (event) => {
+    if (!captureActiveRef.current) return;
+    const text = event.results?.[0]?.transcript ?? '';
+    if (!text.trim()) return;
+    setTranscript(text);
+    const seq = (streamSeqRef.current += 1);
+    if (streamTimerRef.current) clearTimeout(streamTimerRef.current);
+    streamTimerRef.current = setTimeout(() => {
+      void (async () => {
+        if (!captureActiveRef.current) return;
+        const snap = text.trim();
+        if (snap.length < 16) return;
+        const net = await NetInfo.fetch();
+        const online = net.isConnected === true && net.isInternetReachable === true;
+        if (!online) return;
+        try {
+          const out = await geminiOneTapUniversalFromTranscript(snap, { uiLocale: spectrum.locale || 'fr' });
+          if (seq !== streamSeqRef.current) return;
+          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(out.parsed);
+          setDraft(hydrated);
+        } catch {}
+      })();
+    }, 850) as unknown as number;
+  });
+
+  useEffect(() => {
+    if (!captureActiveRef.current) return;
+    const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
+    const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
+    const intents = readDraftIntents(draft);
+    void (async () => {
+      for (let idx = 0; idx < intents.length; idx++) {
+        const it = intents[idx];
+        if (!isCompleteIntent(it)) continue;
+        const idxKey = String(idx);
+        const built = buildOneTapDraftFromIntent({ baseDraft: draftRef.current, intent: it });
+        if (!built) continue;
+        const existingId = intentIdByIndexRef.current[idxKey];
+        if (!existingId) {
+          const pre = await preSaveOneTapOptimisticDraft({
+            deps,
+            draft: built,
+            transcript: transcriptRef.current,
+            habitsDefaultTitle,
+            birthdayLabel,
+          });
+          if (pre.ok) {
+            intentIdByIndexRef.current[idxKey] = pre.intentionId;
+          }
+          continue;
+        }
+        if (intentReplaceTimersRef.current[existingId]) continue;
+        intentReplaceTimersRef.current[existingId] = setTimeout(() => {
+          delete intentReplaceTimersRef.current[existingId];
+          void replacePendingOneTapDraft({
+            deps,
+            intentionId: existingId,
+            draft: built,
+            transcript: transcriptRef.current,
+            habitsDefaultTitle,
+            birthdayLabel,
+          });
+        }, 240) as unknown as number;
+      }
+    })();
+  }, [deps, draft]);
 
   const analyzeLatestOfflineAudio = useCallback(
     async (queueId?: string) => {

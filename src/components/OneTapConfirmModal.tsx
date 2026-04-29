@@ -1646,37 +1646,35 @@ export function OneTapConfirmModal({
         </View>
         <ScrollView style={styles.synthScroll} showsVerticalScrollIndicator={false}>
           <View style={styles.intentList}>
-            <Text style={styles.sectionHeader}>{t('talkDebug.oneTapSynthesisSummaryHeader', { defaultValue: 'RÉSUMÉ' })}</Text>
-            <View style={styles.summaryCard}>
-              {intents.map((it, idx) => {
-                const title = intentShortTitle(it, draft.predictedType);
-                const type = String(it?.type ?? draft.predictedType ?? '').trim().toUpperCase();
-                const isLast = idx === intents.length - 1;
-                return (
-                  <View key={`syn-${idx}`} style={[styles.intentItem, !isLast ? styles.intentItemSep : null]}>
-                    <Pressable
-                      style={[styles.intentRow, busy && styles.disabled]}
-                      onPress={() => !busy && openDetail(idx)}
-                      disabled={busy}
-                    >
-                      <View style={styles.intentIcon}>
-                        <IntentIcon type={type} />
+            {intents.length ? (
+              <>
+                <Text style={styles.sectionHeader}>{t('talkDebug.oneTapSynthesisSummaryHeader', { defaultValue: 'RÉSUMÉ' })}</Text>
+                <View style={styles.summaryCard}>
+                  {intents.map((it, idx) => {
+                    const title = intentShortTitle(it, draft.predictedType);
+                    const type = String(it?.type ?? draft.predictedType ?? '').trim().toUpperCase();
+                    const isLast = idx === intents.length - 1;
+                    return (
+                      <View key={`syn-${idx}`} style={[styles.intentItem, !isLast ? styles.intentItemSep : null]}>
+                        <Pressable
+                          style={[styles.intentRow, busy && styles.disabled]}
+                          onPress={() => !busy && openDetail(idx)}
+                          disabled={busy}
+                        >
+                          <View style={styles.intentIcon}>
+                            <IntentIcon type={type} />
+                          </View>
+                          <Text style={styles.intentRowTitle} numberOfLines={1}>
+                            {title}
+                          </Text>
+                          <ChevronRight size={18} color="rgba(15,23,42,0.35)" />
+                        </Pressable>
+                        {type === 'TRIP' ? renderTripSynthesisBlock() : null}
                       </View>
-                      <Text style={styles.intentRowTitle} numberOfLines={1}>
-                        {title}
-                      </Text>
-                      <ChevronRight size={18} color="rgba(15,23,42,0.35)" />
-                    </Pressable>
-                    {type === 'TRIP' ? renderTripSynthesisBlock() : null}
-                  </View>
-                );
-              })}
-            </View>
-            {!intents.length ? (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>{t('talkDebug.oneTapSynthesisEmpty', { defaultValue: 'Analyse en cours…' })}</Text>
-                {isGenerating ? <StreamingIndicator /> : null}
-              </View>
+                    );
+                  })}
+                </View>
+              </>
             ) : null}
           </View>
           <View style={styles.synthBottomPad} />
@@ -1688,7 +1686,9 @@ export function OneTapConfirmModal({
             disabled={busy}
           >
             <Text style={styles.primaryBtnText}>
-              {t('talkDebug.oneTapConfirmAll', { defaultValue: 'TOUT CONFIRMER' })}
+              {intents.length
+                ? t('talkDebug.oneTapConfirmAll', { defaultValue: 'TOUT CONFIRMER' })
+                : t('talkDebug.oneTapSaveForLater', { defaultValue: 'ENREGISTRER' })}
             </Text>
           </Pressable>
           <Pressable style={[styles.secondaryBtn, busy && styles.disabled]} onPress={onDismiss} disabled={busy}>
