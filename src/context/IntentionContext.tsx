@@ -9,8 +9,8 @@ import { useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
 import {
+  geminiOneTapUniversalFromTranscript,
   inferOneTapSkeletonFromTranscript,
-  refineOneTapWithGeminiCompressed,
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
@@ -291,7 +291,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const draftRef = useRef<OneTapUniversalResult>(draft);
   const transcriptRef = useRef(transcript);
   const streamSeqRef = useRef(0);
-  const geminiSeqRef = useRef(0);
   const streamTimerRef = useRef<number | null>(null);
   const intentIdByIndexRef = useRef<Record<string, string>>({});
   const intentReplaceTimersRef = useRef<Record<string, number>>({});
@@ -368,52 +367,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const runGeminiStreamRefine = useCallback(
-    async (params: { transcript: string; openModal: boolean; allowAlert: boolean; audioUri: string | null }) => {
-      const cleaned = params.transcript.trim();
-      if (!cleaned) return;
-      const uiLocale = spectrum.locale || 'fr';
-      const seq = (geminiSeqRef.current += 1);
-      if (params.openModal) {
-        setVisible(true);
-      }
-      setRefining(true);
-      const hasExistingIntents = readDraftIntents(draftRef.current).length > 0;
-      const skeleton = hasExistingIntents
-        ? draftRef.current
-        : inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
-      if (!hasExistingIntents) {
-        setDraft(skeleton);
-      }
-      try {
-        const res = await refineOneTapWithGeminiCompressed(cleaned, skeleton, {
-          uiLocale,
-          useStream: true,
-          onPartial: (partial) => {
-            if (seq !== geminiSeqRef.current) return;
-            if (userEditedRef.current) return;
-            setDraft(partial);
-          },
-        });
-        if (seq !== geminiSeqRef.current) return;
-        if (!userEditedRef.current) {
-          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
-          if (seq !== geminiSeqRef.current) return;
-          setDraft(hydrated);
-        }
-      } catch (e) {
-        if (params.allowAlert) {
-          proposeOfflineFallback({ transcript: cleaned, audioUri: params.audioUri, error: e });
-        }
-      } finally {
-        if (seq === geminiSeqRef.current) {
-          setRefining(false);
-        }
-      }
-    },
-    [proposeOfflineFallback, spectrum.locale],
-  );
-
   const submitCapturePayload = useCallback(
     async ({ transcript: rawTranscript, audioUri }: CapturePayload) => {
       const cleaned = rawTranscript.trim();
@@ -428,6 +381,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       userEditedRef.current = false;
       setTranscript(cleaned);
       setVisible(true);
+      setRefining(false);
 
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
@@ -435,16 +389,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const title = cleaned.slice(0, 56) || 'Memo audio';
         await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
         setVisible(false);
-        setRefining(false);
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
         return;
       }
-
-      if (online) {
-        void runGeminiStreamRefine({ transcript: cleaned, openModal: false, allowAlert: true, audioUri });
-      }
     },
-    [runGeminiStreamRefine],
+    [proposeOfflineFallback, spectrum.locale],
   );
 
   const confirm = useCallback(async () => {
@@ -548,8 +497,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const net = await NetInfo.fetch();
         const online = net.isConnected === true && net.isInternetReachable === true;
         if (!online) return;
-        if (seq !== streamSeqRef.current) return;
-        void runGeminiStreamRefine({ transcript: snap, openModal: false, allowAlert: false, audioUri: null });
+        try {
+          const out = await geminiOneTapUniversalFromTranscript(snap, { uiLocale: spectrum.locale || 'fr' });
+          if (seq !== streamSeqRef.current) return;
+          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(out.parsed);
+          setDraft(hydrated);
+        } catch {}
       })();
     }, 850) as unknown as number;
   });
