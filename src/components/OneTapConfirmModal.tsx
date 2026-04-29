@@ -364,9 +364,12 @@ export function OneTapConfirmModal({
   const insets = useSafeAreaInsets();
   const debugModal = __DEV__ || process.env.EXPO_PUBLIC_ONETAP_MODAL_DEBUG === '1';
   const hapticsFiredRef = useRef(false);
-  const [view, setView] = useState<'SYNTHESIS' | 'DETAIL'>('SYNTHESIS');
   const [detailIndex, setDetailIndex] = useState<number | null>(null);
   const [tripMode, setTripMode] = useState<'FIXED' | 'AI'>('FIXED');
+  const [navIndex, setNavIndex] = useState<0 | 1>(0);
+  const navX = useRef(new Animated.Value(0)).current;
+  const [cardWidth, setCardWidth] = useState(0);
+  const backTimerRef = useRef<number | null>(null);
 
   const runFastLayoutAnim = useCallback(() => {
     LayoutAnimation.configureNext({
@@ -468,18 +471,31 @@ export function OneTapConfirmModal({
   useEffect(() => {
     if (!visible) {
       hapticsFiredRef.current = false;
-      if (view !== 'SYNTHESIS') {
-        setView('SYNTHESIS');
+      if (backTimerRef.current) {
+        clearTimeout(backTimerRef.current);
+        backTimerRef.current = null;
       }
       setDetailIndex(null);
       setTripMode('FIXED');
+      setNavIndex(0);
+      navX.setValue(0);
       return;
     }
     if (!hapticsFiredRef.current && Platform.OS !== 'web') {
       hapticsFiredRef.current = true;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-  }, [view, visible]);
+  }, [navX, visible]);
+
+  useEffect(() => {
+    if (!cardWidth) return;
+    Animated.timing(navX, {
+      toValue: -navIndex * cardWidth,
+      duration: 190,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [cardWidth, navIndex, navX]);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -1587,13 +1603,42 @@ export function OneTapConfirmModal({
   const openDetail = (idx: number) => {
     runFastLayoutAnim();
     setDetailIndex(idx);
-    setView('DETAIL');
+    setNavIndex(1);
   };
 
   const backToSynthesis = () => {
     runFastLayoutAnim();
-    setView('SYNTHESIS');
-    setDetailIndex(null);
+    setNavIndex(0);
+    if (backTimerRef.current) clearTimeout(backTimerRef.current);
+    backTimerRef.current = setTimeout(() => {
+      setDetailIndex(null);
+      backTimerRef.current = null;
+    }, 210) as unknown as number;
+  };
+
+  const intentBadge = (typeRaw: string) => {
+    const type = String(typeRaw || '').trim().toUpperCase();
+    const label =
+      type === 'TASK' || type === 'RECURRING_TASK'
+        ? t('talkDebug.oneTapBadgeTask', { defaultValue: 'Tâche' })
+        : type === 'HABIT'
+          ? t('talkDebug.oneTapBadgeHabit', { defaultValue: 'Routine' })
+          : type === 'LIST'
+            ? t('talkDebug.oneTapBadgeList', { defaultValue: 'Liste' })
+            : type === 'TRIP'
+              ? t('talkDebug.oneTapBadgeTrip', { defaultValue: 'Lieu' })
+              : t('talkDebug.oneTapBadgeNote', { defaultValue: 'Note' });
+    const palette =
+      type === 'TASK' || type === 'RECURRING_TASK'
+        ? { fg: '#0A84FF', bg: 'rgba(10,132,255,0.16)' }
+        : type === 'HABIT'
+          ? { fg: '#34C759', bg: 'rgba(52,199,89,0.16)' }
+          : type === 'LIST'
+            ? { fg: '#FF9F0A', bg: 'rgba(255,159,10,0.18)' }
+            : type === 'TRIP'
+              ? { fg: '#AF52DE', bg: 'rgba(175,82,222,0.16)' }
+              : { fg: '#8E8E93', bg: 'rgba(142,142,147,0.18)' };
+    return { label, ...palette };
   };
 
   const renderTripSynthesisBlock = () => {
@@ -1653,6 +1698,7 @@ export function OneTapConfirmModal({
                   {intents.map((it, idx) => {
                     const title = intentShortTitle(it, draft.predictedType);
                     const type = String(it?.type ?? draft.predictedType ?? '').trim().toUpperCase();
+                    const badge = intentBadge(type);
                     const isLast = idx === intents.length - 1;
                     return (
                       <View key={`syn-${idx}`} style={[styles.intentItem, !isLast ? styles.intentItemSep : null]}>
@@ -1664,9 +1710,14 @@ export function OneTapConfirmModal({
                           <View style={styles.intentIcon}>
                             <IntentIcon type={type} />
                           </View>
-                          <Text style={styles.intentRowTitle} numberOfLines={1}>
-                            {title}
-                          </Text>
+                          <View style={styles.intentCenter}>
+                            <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+                              <Text style={[styles.badgeText, { color: badge.fg }]}>{badge.label}</Text>
+                            </View>
+                            <Text style={styles.intentRowTitle} numberOfLines={1}>
+                              {title}
+                            </Text>
+                          </View>
                           <ChevronRight size={18} color="rgba(15,23,42,0.35)" />
                         </Pressable>
                         {type === 'TRIP' ? renderTripSynthesisBlock() : null}
@@ -1700,7 +1751,9 @@ export function OneTapConfirmModal({
   };
 
   const renderDetailView = () => {
-    if (detailIndex === null) return null;
+    if (detailIndex === null) {
+      return <View style={styles.detailEmpty} />;
+    }
     const it = intents[detailIndex] ?? null;
     const type = String(it?.type ?? draft.predictedType ?? '').trim().toUpperCase();
     const title = intentShortTitle(it, draft.predictedType);
@@ -1807,8 +1860,7 @@ export function OneTapConfirmModal({
             onPress={() => {
               runFastLayoutAnim();
               removeIntentAt(detailIndex);
-              setView('SYNTHESIS');
-              setDetailIndex(null);
+              backToSynthesis();
             }}
             disabled={busy}
           >
@@ -1822,8 +1874,29 @@ export function OneTapConfirmModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
       <View style={[styles.backdrop, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
-        <View style={styles.card}>
-          {view === 'DETAIL' ? renderDetailView() : renderSynthesisView()}
+        <View
+          style={styles.card}
+          onLayout={(e) => {
+            const w = Math.max(0, Math.round(e.nativeEvent.layout.width));
+            if (w && w !== cardWidth) setCardWidth(w);
+          }}
+        >
+          {cardWidth ? (
+            <Animated.View
+              style={[
+                styles.navTrack,
+                {
+                  width: cardWidth * 2,
+                  transform: [{ translateX: navX }],
+                },
+              ]}
+            >
+              <View style={[styles.navPane, { width: cardWidth }]}>{renderSynthesisView()}</View>
+              <View style={[styles.navPane, { width: cardWidth }]}>{renderDetailView()}</View>
+            </Animated.View>
+          ) : (
+            renderSynthesisView()
+          )}
         </View>
       </View>
     </Modal>
@@ -1843,6 +1916,7 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 8,
     maxHeight: '92%',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOpacity: 0.10,
     shadowRadius: 22,
@@ -2070,6 +2144,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(15,23,42,0.06)',
     overflow: 'hidden',
   },
+  navTrack: { flexDirection: 'row' },
+  navPane: { flex: 1 },
   intentItem: {},
   intentItemSep: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(60,60,67,0.18)' },
   intentRow: {
@@ -2087,7 +2163,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  intentRowTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  intentCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  badgeText: { fontSize: 12, fontWeight: '900' },
+  intentRowTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: '#0f172a', minWidth: 0 },
   tripBlock: {
     paddingHorizontal: 14,
     paddingBottom: 14,
@@ -2142,6 +2221,7 @@ const styles = StyleSheet.create({
   primaryBtnText: { fontSize: 15, fontWeight: '900', color: '#fff', letterSpacing: 0.3 },
   secondaryBtn: { alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 10 },
   secondaryBtnText: { fontSize: 13, fontWeight: '700', color: 'rgba(15,23,42,0.55)' },
+  detailEmpty: { flex: 1 },
   detailHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 6 },
   backBtnText: { fontSize: 22, fontWeight: '900', color: '#007AFF', marginTop: -1 },
