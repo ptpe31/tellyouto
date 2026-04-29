@@ -688,17 +688,16 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
 }
 
 const ONETAP_WIRE_SYSTEM_PREFIX =
-  'Output ONLY lines starting with \">\". No markdown, no explanations. ' +
+  'Output ONLY the Bullet-Pipe format specified by the prompt. No markdown, no explanations. ' +
+  'Follow the LANGUAGE CONTRACT in the prompt exactly (do not translate to French unless lang starts with "fr"). ' +
   'NO CALCULATIONS. Do NOT divide by baseCount. ' +
-  'If the dictation mentions a travel/route (going to a place, a station/airport, \"trajet\", \"aller à\", \"chez\"), output a TRIP intent FIRST. ' +
   'Allowed TYPE: TASK, NOTE, LIST, HABIT, TRIP. ' +
-  'TASK: > TASK | TitleOrContent | DateISO(optional ISO 8601). ' +
-  'NOTE: > NOTE | TitleOrContent. ' +
-  'HABIT: > HABIT | TitleOrContent | RecurrenceText(optional). ' +
-  'TRIP: > TRIP | Destination | DateISO(optional). ' +
-  'LIST format: > LIST | Title | baseCount | unitLabel then items: >> ITEM | Name | quantity | unit | scalable. ' +
-  'quantity MUST be the standard recipe quantity for the whole recipe. ' +
-  'baseCount MUST match the user requested baseCount.\n';
+  'TASK: [TASK|Title|DueISOOrEmpty]. ' +
+  'NOTE: [NOTE|Title]. ' +
+  'HABIT: [HABIT|Title|RecurrenceOrEmpty]. ' +
+  'TRIP: [TRIP|Destination|ArrivalDueISOOrEmpty]. ' +
+  'LIST: [LIST|Title|BaseCount] then items lines: >> ItemName|Quantity|Unit. ' +
+  'Stream lines as soon as identified.\n';
 
 export async function geminiGenerateOneTapCompressedLine(
   prompt: string,
