@@ -158,11 +158,17 @@ function normalizeCat(c: string | null | undefined): string {
 }
 
 function matchesHomeCategory(c: string | null | undefined): boolean {
-  return /maison|home|famille/.test(normalizeCat(c));
+  const raw = String(c || '').trim();
+  const up = raw.toUpperCase();
+  if (['HOME', 'PERSO', 'FAMILLE', 'HEALTH', 'SHOP'].includes(up)) return true;
+  return /maison|home|famille|regulier|sans_pression|aujourdhui|demain|cette_semaine|zen/.test(normalizeCat(raw));
 }
 
 function matchesWorkCategory(c: string | null | undefined): boolean {
-  return /travail|work|pro/.test(normalizeCat(c));
+  const raw = String(c || '').trim();
+  const up = raw.toUpperCase();
+  if (['WORK', 'PRO', 'FINANCE'].includes(up)) return true;
+  return /travail|work|pro|finance|projets/.test(normalizeCat(raw));
 }
 
 function filterRowsByContext(rows: TrankilV2TimelineItemRow[], ctx: ContextBubble): TrankilV2TimelineItemRow[] {
@@ -199,6 +205,17 @@ function typeBadge(type: TrankilV2TimelineItemRow['type']): string {
   if (type === 'TASK') return 'timeline.badgeTask';
   if (type === 'LIST') return 'timeline.badgeList';
   return 'timeline.badgeProject';
+}
+
+function categoryLabelKey(raw: string | null | undefined): string | null {
+  const up = String(raw || '').trim().toUpperCase();
+  if (!up) return null;
+  if (up === 'FAMILLE') return 'category.HOME';
+  if (up === 'PRO') return 'category.WORK';
+  if (['HOME', 'WORK', 'PERSO', 'HEALTH', 'FINANCE', 'TRAVEL', 'SOCIAL', 'SHOP', 'LEARN', 'OTHER'].includes(up)) {
+    return `category.${up}`;
+  }
+  return null;
 }
 
 function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: string) => string): string | null {
@@ -1096,6 +1113,10 @@ export function TimelineScreen() {
           : null;
       const offlineChip = offlineAiChipForRow(row, t);
       const showRetry = timelineRowEligibleForOfflineAiRetry(row);
+      const catKey = categoryLabelKey(row.category_id);
+      const catLabel = catKey ? t(catKey) : '';
+      const badgeBase = t(typeBadge(row.type));
+      const badgeLabel = catLabel ? `${badgeBase} • ${catLabel}` : badgeBase;
       return (
         <View style={{ paddingHorizontal: 16, paddingBottom: 2 }}>
           <TimelineCardRow
@@ -1106,7 +1127,7 @@ export function TimelineScreen() {
             spectrumIsPro={spectrum.isProUser}
             anchorDate={anchorDate}
             titleText={titleText}
-            badgeLabel={t(typeBadge(row.type))}
+            badgeLabel={badgeLabel}
             projectSuffix={projectSuffix}
             createdCaption={t('timeline.createdOn', { date: createdLine })}
             progressLookupId={progressLookupId}

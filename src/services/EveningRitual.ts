@@ -41,7 +41,7 @@ export async function applyTomorrowPlanningBonus(rawText: string): Promise<void>
     title,
     content_raw: title,
     metadata_json: JSON.stringify({ planned_for: 'tomorrow', source: 'evening_ritual' }, null, 2),
-    category_id: 'projets',
+    category_id: 'WORK',
     status: 'TODO',
     is_organized: 0,
     created_at: Date.now(),
@@ -62,7 +62,7 @@ export async function saveNightThought(rawText: string): Promise<void> {
       null,
       2,
     ),
-    category_id: 'zen',
+    category_id: 'HEALTH',
     status: 'TODO',
     is_organized: 0,
     created_at: Date.now(),
@@ -72,4 +72,3 @@ export async function saveNightThought(rawText: string): Promise<void> {
 export async function grantChargingStarMaxBonus(): Promise<void> {
   await updateGrowth(10);
 }
-

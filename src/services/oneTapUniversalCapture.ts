@@ -92,6 +92,30 @@ export type OneTapUniversalResult = {
   data: Record<string, unknown>;
 };
 
+export const ONE_TAP_CATEGORY_CODES = [
+  'HOME',
+  'WORK',
+  'PERSO',
+  'HEALTH',
+  'FINANCE',
+  'TRAVEL',
+  'SOCIAL',
+  'SHOP',
+  'LEARN',
+  'OTHER',
+] as const;
+
+export type OneTapCategoryCode = (typeof ONE_TAP_CATEGORY_CODES)[number];
+
+function normalizeOneTapCategoryCode(raw: string | null | undefined): OneTapCategoryCode {
+  const s = String(raw || '').trim().toUpperCase();
+  if (!s) return 'PERSO';
+  if (s === 'FAMILLE') return 'HOME';
+  if (s === 'PRO') return 'WORK';
+  if ((ONE_TAP_CATEGORY_CODES as readonly string[]).includes(s)) return s as OneTapCategoryCode;
+  return 'PERSO';
+}
+
 export type OneTapRecurrence = {
   summary?: string;
   frequency?: string;
@@ -308,7 +332,8 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
         const title = String(segs[1] ?? '').trim();
         if (!title) continue;
         const due = String(segs[2] ?? '').trim();
-        intents.push({ type: 'TASK', content: title, due });
+        const category = normalizeOneTapCategoryCode(segs[3]);
+        intents.push({ type: 'TASK', content: title, due, category });
         currentList = null;
         continue;
       }
@@ -317,7 +342,8 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
         if (!title) continue;
         const bc = parseInt(String(segs[2] ?? '1').trim(), 10);
         const baseCount = Number.isFinite(bc) && bc > 0 ? bc : 1;
-        currentList = { type: 'LIST', title, baseCount, unitLabel: 'personne', items: [] };
+        const category = normalizeOneTapCategoryCode(segs[3]);
+        currentList = { type: 'LIST', title, baseCount, unitLabel: 'personne', items: [], category };
         intents.push(currentList);
         continue;
       }
@@ -325,7 +351,8 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
         const title = String(segs[1] ?? '').trim();
         if (!title) continue;
         const recurrence = String(segs[2] ?? '').trim();
-        intents.push({ type: 'HABIT', content: title, recurrence });
+        const category = normalizeOneTapCategoryCode(segs[3]);
+        intents.push({ type: 'HABIT', content: title, recurrence, category });
         currentList = null;
         continue;
       }
@@ -333,14 +360,16 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
         const title = String(segs[1] ?? '').trim();
         if (!title) continue;
         const due = String(segs[2] ?? '').trim();
-        intents.push({ type: 'TRIP', destination: title, arrivalDue: due });
+        const category = normalizeOneTapCategoryCode(segs[3]);
+        intents.push({ type: 'TRIP', destination: title, arrivalDue: due, category });
         currentList = null;
         continue;
       }
       if (type === 'NOTE') {
         const title = String(segs[1] ?? '').trim();
         if (!title) continue;
-        intents.push({ type: 'NOTE', content: title });
+        const category = normalizeOneTapCategoryCode(segs[2]);
+        intents.push({ type: 'NOTE', content: title, category });
         currentList = null;
         continue;
       }
@@ -941,7 +970,7 @@ export function mergeWireIntoOneTapSkeleton(
   skeleton: OneTapUniversalResult,
   wire: OneTapWireFields,
 ): OneTapUniversalResult {
-  const categoryTag = (wire.K?.trim() || skeleton.categoryTag || 'Personal').slice(0, 80) || 'Personal';
+  const categoryTag = normalizeOneTapCategoryCode(wire.K || skeleton.categoryTag).slice(0, 80);
   const title = (wire.T?.trim() || skeleton.title || 'Note').trim().slice(0, 200);
   const mergedBase = { ...(skeleton.data as Record<string, unknown>) };
   const wirePatch = patchDataFromWire(wire);
@@ -979,6 +1008,11 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string, langP
 - Tu DOIS répondre en français.
 - Ne traduis JAMAIS vers l’anglais sauf si lang commence par "en".
 - Tout texte utilisateur (titres, notes, titres de liste, items) doit être en français.`;
+  const catContract = `CATEGORY CONTRACT (ABSOLUTE):
+- category_id MUST be exactly one of these uppercase codes:
+  HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
+- Use these codes ONLY. Never translate them. Never invent new categories.
+- If unsure, use PERSO.`;
   const now = new Date();
   const tz =
     (() => {
@@ -998,6 +1032,7 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string, langP
       }
     })();
   return `${loc}
+${catContract}
 Current Reference Time: [Locale: ${lang}, Date: ${fullDateString} (${tz})]
 Local heuristic (refine or override if wrong):
 ${seedLine}
@@ -1007,11 +1042,14 @@ Dictation:
 
 Reply ONLY with bracketed lines, one per intent, plus list items. No markdown, no explanations.
 Format:
-[TASK|Title|DueISOOrEmpty]
-[LIST|ListTitle|BaseCount]
+- [TASK|Title|DueISOOrEmpty|category_id]
+- [TRIP|Destination|ArrivalDueISOOrEmpty|category_id]
+- [HABIT|Title|RecurrenceOrEmpty|category_id]
+- [NOTE|Title|category_id]
+- [LIST|ListTitle|BaseCount|category_id]
 >> ItemName|Quantity|Unit
 Examples:
-${isEn ? '[TASK|Buy bread|2026-05-01]\n[LIST|Groceries|1]\n>> Tomatoes|2|piece\n>> Pasta|1|pack' : '[TASK|Acheter du pain|2026-05-01]\n[LIST|Courses|1]\n>> Tomates|2|piece\n>> Pâtes|1|paquet'}`;
+${isEn ? '[TASK|Buy bread|2026-05-01|SHOP]\n[LIST|Groceries|1|SHOP]\n>> Tomatoes|2|piece\n>> Pasta|1|pack' : '[TASK|Acheter du pain|2026-05-01|SHOP]\n[LIST|Courses|1|SHOP]\n>> Tomates|2|piece\n>> Pâtes|1|paquet'}`;
 }
 
 /**
@@ -1054,9 +1092,12 @@ export function inferOneTapSkeletonFromTranscript(
     predictedType = 'TASK';
   }
 
-  let categoryTag = 'Perso';
-  if (/\b(travail|bureau|réunion|client|linkedin|pro)\b/i.test(lower)) categoryTag = 'Travail';
-  else if (/\b(famille|mamie|papa|maman|enfants|couple)\b/i.test(lower)) categoryTag = 'Famille';
+  let categoryTag: OneTapCategoryCode = 'PERSO';
+  if (/\b(dentiste|docteur|médecin|medecin|kine|kiné|hôpital|hopital|sport|gym)\b/i.test(cleaned)) categoryTag = 'HEALTH';
+  else if (/\b(facture|banque|budget|impôt|impot|paiement|payer)\b/i.test(cleaned)) categoryTag = 'FINANCE';
+  else if (/\b(travail|bureau|réunion|reunion|client|linkedin|projet|pro)\b/i.test(lower)) categoryTag = 'WORK';
+  else if (/\b(maison|home|famille|bricolage)\b/i.test(lower)) categoryTag = 'HOME';
+  else if (predictedType === 'LIST') categoryTag = 'SHOP';
 
   const title =
     (options.titleHint || generateSmartTitle(cleaned, options.uiLocale) || cleaned).trim().slice(0, 200) || 'Note';
@@ -1148,13 +1189,14 @@ export function inferOneTapSkeletonFromTranscript(
 
   if (travelHint) {
     predictedType = 'TRIP';
+    categoryTag = 'TRAVEL';
     const nextBase = defaultOneTapDataForType('TRIP');
     base = { ...nextBase, ...base, logisticsPotential: true };
   }
 
   return {
     predictedType,
-    categoryTag,
+    categoryTag: normalizeOneTapCategoryCode(categoryTag),
     title,
     data: normalizeUniversalTemporalInData(base),
   };

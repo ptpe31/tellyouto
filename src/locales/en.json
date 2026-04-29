@@ -14,6 +14,18 @@
     "savedTimeline": "Intention saved to Timeline",
     "savedOfflinePending": "Network unavailable: intention saved for later processing"
   },
+  "category": {
+    "HOME": "Home",
+    "WORK": "Work",
+    "PERSO": "Personal",
+    "HEALTH": "Health",
+    "FINANCE": "Finance",
+    "TRAVEL": "Travel",
+    "SOCIAL": "Social",
+    "SHOP": "Shopping",
+    "LEARN": "Learning",
+    "OTHER": "Other"
+  },
   "capture": {
     "offlineNoteGenericToast": "Saved on this device. Smart sorting will finish when the connection is back.",
     "offlineRetryOkToast": "AI sorting finished — your timeline is up to date.",

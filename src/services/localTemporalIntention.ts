@@ -10,6 +10,7 @@ type CreateLocalTemporalIntentionParams = {
   rawTranscript: string;
   localType: LocalTemporalType;
   dueDateYmd: string | null;
+  categoryIdOverride?: string | null;
   suggestedTags?: string[];
   source: string;
   timeMarker?: string;
@@ -37,12 +38,14 @@ export function buildLocalTemporalIntentionInsertRow(
   const floatingCategory = 'sans_pression';
   const suggested = (params.suggestedTags ?? []).map((tag) => String(tag || '').trim()).filter(Boolean);
   const fallbackCategory = suggested[0]?.toLowerCase() || floatingCategory;
+  const forced = params.categoryIdOverride !== undefined && params.categoryIdOverride !== null ? String(params.categoryIdOverride).trim() : '';
   const categoryId =
-    params.localType === 'HABIT'
+    forced ||
+    (params.localType === 'HABIT'
       ? 'regulier'
       : dueDateYmd
         ? mapHorizonToCategoryId(computeTimeHorizonFromDueDate(dueDateYmd))
-        : fallbackCategory;
+        : fallbackCategory);
   if (!dueDateYmd && categoryId === 'demain') {
     dueDateYmd = computeDueDateForHorizon('TOMORROW');
   }

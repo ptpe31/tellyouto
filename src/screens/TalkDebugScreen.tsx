@@ -771,7 +771,7 @@ export function TalkDebugScreen() {
           2,
         ),
         suggested_tags: JSON.stringify(['sans_pression']),
-        category_id: 'sans_pression',
+        category_id: 'PERSO',
         parent_id: null,
         status: 'TODO',
         is_organized: 0,

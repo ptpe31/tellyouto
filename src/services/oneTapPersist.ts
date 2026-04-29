@@ -66,6 +66,15 @@ function str(d: Record<string, unknown>, key: string): string | null {
   return s.length ? s : null;
 }
 
+function normalizeDomainCategoryId(raw: string | null | undefined): string {
+  const up = String(raw || '').trim().toUpperCase();
+  if (!up) return 'PERSO';
+  if (up === 'FAMILLE') return 'HOME';
+  if (up === 'PRO') return 'WORK';
+  if (['HOME', 'WORK', 'PERSO', 'HEALTH', 'FINANCE', 'TRAVEL', 'SOCIAL', 'SHOP', 'LEARN', 'OTHER'].includes(up)) return up;
+  return 'PERSO';
+}
+
 function logisticsFieldsFromDraft(
   data: Record<string, unknown>,
 ): Pick<TrankilV2IntentionInsert, 'remind_to_leave' | 'location_address'> {
@@ -130,6 +139,7 @@ async function materializeOneTapIntentionRow(params: {
   const title = draft.title.trim() || transcript.trim().slice(0, 200);
   const raw = transcript.trim();
   const created_at = Date.now();
+  const domainCategoryId = normalizeDomainCategoryId(draft.categoryTag);
 
   switch (draft.predictedType) {
     case 'NOTE':
@@ -150,7 +160,7 @@ async function materializeOneTapIntentionRow(params: {
           2,
         ),
         suggested_tags: JSON.stringify(['sans_pression']),
-        category_id: 'sans_pression',
+        category_id: domainCategoryId,
         parent_id: null,
         status: 'TODO',
         is_organized: 0,
@@ -178,6 +188,7 @@ async function materializeOneTapIntentionRow(params: {
         rawTranscript: raw,
         localType: 'TASK',
         dueDateYmd,
+        categoryIdOverride: domainCategoryId,
         suggestedTags: [draft.categoryTag.toLowerCase().replace(/\s+/g, '_')],
         source: 'one_tap_task',
         metadataExtra: metaExtra,
@@ -210,6 +221,7 @@ async function materializeOneTapIntentionRow(params: {
         rawTranscript: raw,
         localType: 'TASK',
         dueDateYmd,
+        categoryIdOverride: domainCategoryId,
         suggestedTags: [draft.categoryTag.toLowerCase().replace(/\s+/g, '_')],
         source: 'one_tap_trip',
         metadataExtra: { source: 'one_tap_universal', categoryTag: draft.categoryTag, trip: draft.data },
@@ -241,7 +253,7 @@ async function materializeOneTapIntentionRow(params: {
           2,
         ),
         suggested_tags: JSON.stringify(['sans_pression']),
-        category_id: 'regulier',
+        category_id: domainCategoryId,
         parent_id: null,
         status: 'TODO',
         is_organized: 0,
@@ -277,7 +289,7 @@ async function materializeOneTapIntentionRow(params: {
         content_raw: raw,
         metadata_json: metadataForSync,
         suggested_tags: JSON.stringify(dueDateYmd ? ['regulier'] : ['sans_pression']),
-        category_id: dueDateYmd ? 'regulier' : 'sans_pression',
+        category_id: domainCategoryId,
         parent_id: null,
         status: 'TODO',
         is_organized: 0,
@@ -305,7 +317,7 @@ async function materializeOneTapIntentionRow(params: {
         content_raw: raw,
         metadata_json: meta,
         suggested_tags: JSON.stringify(['sans_pression']),
-        category_id: null,
+        category_id: domainCategoryId,
         parent_id: null,
         status: 'TODO',
         is_organized: 0,

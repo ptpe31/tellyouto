@@ -56,7 +56,7 @@ export async function executeListInventoryCapture(input: ExecuteListCaptureInput
       content_raw: trimmed,
       metadata_json: meta,
       suggested_tags: JSON.stringify(['sans_pression']),
-      category_id: null,
+      category_id: 'SHOP',
       parent_id: null,
       status: 'TODO',
       is_organized: 0,

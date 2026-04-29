@@ -35,7 +35,7 @@ export async function executeHabitCapture(params: {
         2,
       ),
       suggested_tags: JSON.stringify(['sans_pression']),
-      category_id: 'sans_pression',
+      category_id: 'HEALTH',
       parent_id: null,
       status: 'TODO',
       is_organized: 0,
@@ -103,7 +103,7 @@ export async function executeHabitCapture(params: {
       due_date: ann.dueDateYmd,
       metadata_json: metadataForSync,
       suggested_tags: suggestedTags,
-      category_id: 'regulier',
+      category_id: 'HEALTH',
     });
 
     return {

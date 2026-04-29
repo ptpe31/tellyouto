@@ -86,6 +86,7 @@ export async function queueOfflineAudioCapture(params: {
     content_raw: params.transcript,
     created_at: now,
     metadata_json: JSON.stringify({ source: 'offline_audio_queue', audio_path: targetPath, speech_lang: params.lang || null }),
+    category_id: 'PERSO',
     is_pending_ai: 1,
   });
   await withTrankilV2Database(async (db) => {
@@ -114,6 +115,7 @@ export async function queueOfflineTextCapture(params: {
     content_raw: params.transcript,
     created_at: now,
     metadata_json: JSON.stringify({ source: 'offline_audio_queue', speech_lang: params.lang || null }),
+    category_id: 'PERSO',
     is_pending_ai: 1,
   });
   await withTrankilV2Database(async (db) => {

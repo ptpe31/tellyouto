@@ -206,16 +206,21 @@ export const TIMELINE_PAGE_SIZE = 50;
 function timelineContextWhere(context: TimelineSqlContext, alias = 'i'): string {
   if (context === 'HOME') {
     return ` AND (
-      lower(coalesce(${alias}.category_id, '')) LIKE '%maison%'
+      upper(trim(coalesce(${alias}.category_id, ''))) IN ('HOME','PERSO','FAMILLE','HEALTH','SHOP')
+      OR lower(coalesce(${alias}.category_id, '')) LIKE '%maison%'
       OR lower(coalesce(${alias}.category_id, '')) LIKE '%home%'
       OR lower(coalesce(${alias}.category_id, '')) LIKE '%famille%'
+      OR lower(trim(coalesce(${alias}.category_id, ''))) IN ('sans_pression','aujourdhui','demain','cette_semaine','regulier','zen')
     )`;
   }
   if (context === 'WORK') {
     return ` AND (
-      lower(coalesce(${alias}.category_id, '')) LIKE '%travail%'
+      upper(trim(coalesce(${alias}.category_id, ''))) IN ('WORK','PRO','FINANCE')
+      OR lower(coalesce(${alias}.category_id, '')) LIKE '%travail%'
       OR lower(coalesce(${alias}.category_id, '')) LIKE '%work%'
       OR lower(coalesce(${alias}.category_id, '')) LIKE '%pro%'
+      OR lower(coalesce(${alias}.category_id, '')) LIKE '%finance%'
+      OR lower(coalesce(${alias}.category_id, '')) LIKE '%projets%'
     )`;
   }
   return '';

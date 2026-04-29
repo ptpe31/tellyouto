@@ -14,6 +14,18 @@
     "savedTimeline": "Intention enregistrée dans Timeline",
     "savedOfflinePending": "Indisponibilité réseau : intention enregistrée pour traitement ultérieur"
   },
+  "category": {
+    "HOME": "Maison",
+    "WORK": "Travail",
+    "PERSO": "Perso",
+    "HEALTH": "Santé",
+    "FINANCE": "Finance",
+    "TRAVEL": "Voyage",
+    "SOCIAL": "Social",
+    "SHOP": "Courses",
+    "LEARN": "Apprentissage",
+    "OTHER": "Autre"
+  },
   "capture": {
     "offlineNoteGenericToast": "Note sauvegardée localement. L'organisation intelligente sera finalisée dès le retour du réseau.",
     "offlineRetryOkToast": "Tri IA terminé — ta Timeline est à jour.",
