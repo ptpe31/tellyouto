@@ -312,9 +312,57 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
   const lines = partial && !s.endsWith('\n') ? parts.slice(0, -1) : parts;
   const intents: OneTapIntentJson[] = [];
   let currentList: OneTapIntentJson | null = null;
+
+  const normalizeDueInput = (raw: string): string => {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed || trimmed.toLowerCase() === 'null') return '';
+    if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/.test(trimmed)) {
+      return trimmed.replace(' ', 'T') + ':00';
+    }
+    return trimmed;
+  };
+
+  const normalizeType = (raw: string): 'TASK' | 'TRIP' | 'NOTE' | 'HABIT' | 'LIST' | '' => {
+    const t = String(raw || '').trim().toUpperCase();
+    if (t === 'TASK' || t === 'TRIP' || t === 'NOTE' || t === 'HABIT' || t === 'LIST') return t;
+    return '';
+  };
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) continue;
+
+    if (line.startsWith('>') && !line.startsWith('>>')) {
+      const body = line.slice(1).trim();
+      if (!body) continue;
+      const segs = body
+        .split('|')
+        .map((x) => x.trim())
+        .filter((x) => x.length > 0);
+      if (segs.length < 3) continue;
+      const type = normalizeType(segs[0]);
+      if (!type) continue;
+      const content = String(segs[1] ?? '').trim();
+      if (!content) continue;
+      const category = normalizeOneTapCategoryCode(segs[2]);
+      const due = normalizeDueInput(segs[3] ?? '');
+      if (type === 'TRIP') {
+        intents.push({ type: 'TRIP', destination: content, arrivalDue: due, category });
+      } else if (type === 'TASK') {
+        intents.push({ type: 'TASK', content, due, category });
+      } else if (type === 'NOTE') {
+        intents.push({ type: 'NOTE', content, category });
+      } else if (type === 'HABIT') {
+        intents.push({ type: 'HABIT', content, recurrence: due, category });
+      } else if (type === 'LIST') {
+        const baseCountRaw = parseInt(String(segs[3] ?? '1').trim(), 10);
+        const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
+        currentList = { type: 'LIST', title: content, baseCount, unitLabel: 'personne', items: [], category };
+        intents.push(currentList);
+      }
+      currentList = type === 'LIST' ? currentList : null;
+      continue;
+    }
 
     if (line.startsWith('[')) {
       if (partial && !line.includes(']')) continue;
@@ -391,7 +439,7 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
       const q = Number(qtyRaw.replace(',', '.'));
       const qty = Number.isFinite(q) && q > 0 ? q : 1;
       if (!currentList || currentList.type !== 'LIST') {
-        currentList = { type: 'LIST', title: 'Liste', baseCount: 1, unitLabel: 'personne', items: [] };
+        currentList = { type: 'LIST', title: 'Liste', baseCount: 1, unitLabel: 'personne', items: [], category: 'SHOP' };
         intents.push(currentList);
       }
       const arr = Array.isArray(currentList.items) ? (currentList.items as ListItemDraft[]) : [];
@@ -993,26 +1041,32 @@ function detectLangForOneTapPrompt(transcript: string, fallback: string): string
   return base || 'en-US';
 }
 
+function baseLangFromBcp47(bcp47: string): string {
+  const s = String(bcp47 || '').trim();
+  if (!s) return 'en';
+  return s.split(/[-_]/)[0]?.toLowerCase() || 'en';
+}
+
 function buildCompressedGeminiPrompt(transcript: string, seedLine: string, langParam: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
   const lang = String(langParam || '').trim() ? String(langParam || '').trim() : detectLangForOneTapPrompt(safe, '');
-  const isEn = lang.toLowerCase().startsWith('en');
-  const loc = isEn
-    ? `LANGUAGE CONTRACT (ABSOLUTE):
-- lang = "${lang}"
-- You MUST respond in English.
-- NEVER translate to French unless lang starts with "fr".
-- All user-facing text (titles, notes, list titles, list items) must be in English.`
-    : `CONTRAT DE LANGUE (ABSOLU) :
-- lang = "${lang}"
-- Tu DOIS répondre en français.
-- Ne traduis JAMAIS vers l’anglais sauf si lang commence par "en".
-- Tout texte utilisateur (titres, notes, titres de liste, items) doit être en français.`;
+  const lang2 = baseLangFromBcp47(lang);
+  const isEn = lang2 === 'en';
+  const loc = `LANGUAGE CONTRACT (ABSOLUTE):
+- lang=${lang2}
+- Your output must be in the same language as lang.
+- CRITICAL: ZERO TRANSLATION. Do not translate the user's wording.
+- CRITICAL: If lang=en, every user-facing string MUST be English. Never output French words.
+- CRITICAL: If lang=fr, every user-facing string MUST be French. Never output English words.`;
   const catContract = `CATEGORY CONTRACT (ABSOLUTE):
-- category_id MUST be exactly one of these uppercase codes:
+- CATEGORY_CODE MUST be exactly one of these uppercase codes:
   HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
 - Use these codes ONLY. Never translate them. Never invent new categories.
 - If unsure, use PERSO.`;
+  const tripContract = `TRIP CONTRACT (ABSOLUTE):
+- Any mention of movement or going somewhere MUST be classified as TRIP.
+- This includes: "go to", "going to", "visit", "travel", "head to", "arrive at", "airport", "station", "hotel".
+- TRIP implies logisticsPotential=true (do not mention the boolean, just pick TRIP).`;
   const now = new Date();
   const tz =
     (() => {
@@ -1031,8 +1085,10 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string, langP
         return now.toString();
       }
     })();
-  return `${loc}
+  return `lang=${lang2}
+${loc}
 ${catContract}
+${tripContract}
 Current Reference Time: [Locale: ${lang}, Date: ${fullDateString} (${tz})]
 Local heuristic (refine or override if wrong):
 ${seedLine}
@@ -1040,16 +1096,20 @@ ${seedLine}
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
-Reply ONLY with bracketed lines, one per intent, plus list items. No markdown, no explanations.
-Format:
-- [TASK|Title|DueISOOrEmpty|category_id]
-- [TRIP|Destination|ArrivalDueISOOrEmpty|category_id]
-- [HABIT|Title|RecurrenceOrEmpty|category_id]
-- [NOTE|Title|category_id]
-- [LIST|ListTitle|BaseCount|category_id]
->> ItemName|Quantity|Unit
+Reply ONLY with Bullet-Pipe lines starting with ">".
+No JSON. No markdown. No explanations.
+
+Output format (one line per intent):
+> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE
+
+Constraints:
+- TYPE: TRIP or TASK (prefer TRIP when movement/location is mentioned)
+- CONTENT: keep the user's content in lang (do not translate)
+- CATEGORY_CODE: one of the 10 codes above (uppercase)
+- DUE_DATE: "YYYY-MM-DD HH:mm" or null
+
 Examples:
-${isEn ? '[TASK|Buy bread|2026-05-01|SHOP]\n[LIST|Groceries|1|SHOP]\n>> Tomatoes|2|piece\n>> Pasta|1|pack' : '[TASK|Acheter du pain|2026-05-01|SHOP]\n[LIST|Courses|1|SHOP]\n>> Tomates|2|piece\n>> Pâtes|1|paquet'}`;
+${isEn ? '> TRIP | go to the Atman team | WORK | null' : '> TRIP | aller voir l’équipe Atman | WORK | null'}`;
 }
 
 /**
@@ -1185,6 +1245,7 @@ export function inferOneTapSkeletonFromTranscript(
     /\b(aller|rendez-vous|rdv|chez|déplacement|déplacer|à la|a la|au |à l'|a l'|en train|avion|gare|aéroport|hôpital|hopital|dentiste|kiné|kine|piscine|tennis|foot|gym|salle de sport|séance|salle)\b/i.test(
       cleaned,
     ) ||
+    /\b(go to|going to|visit|travel|head to|arrive at|airport|station|hotel)\b/i.test(lower) ||
     /\b(pêche|peche|étang|cabane)\b/i.test(lower);
 
   if (travelHint) {

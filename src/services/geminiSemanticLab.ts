@@ -687,20 +687,6 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
   return raw;
 }
 
-const ONETAP_WIRE_SYSTEM_PREFIX =
-  'Output ONLY the Bullet-Pipe format specified by the prompt. No markdown, no explanations. ' +
-  'Follow the LANGUAGE CONTRACT in the prompt exactly (do not translate to French unless lang starts with "fr"). ' +
-  'CATEGORY CONTRACT: category_id MUST be one of HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER (uppercase). ' +
-  'Never translate category_id. ' +
-  'NO CALCULATIONS. Do NOT divide by baseCount. ' +
-  'Allowed TYPE: TASK, NOTE, LIST, HABIT, TRIP. ' +
-  'TASK: [TASK|Title|DueISOOrEmpty|category_id]. ' +
-  'NOTE: [NOTE|Title|category_id]. ' +
-  'HABIT: [HABIT|Title|RecurrenceOrEmpty|category_id]. ' +
-  'TRIP: [TRIP|Destination|ArrivalDueISOOrEmpty|category_id]. ' +
-  'LIST: [LIST|Title|BaseCount|category_id] then items lines: >> ItemName|Quantity|Unit. ' +
-  'Stream lines as soon as identified.\n';
-
 export async function geminiGenerateOneTapCompressedLine(
   prompt: string,
   pathBLog?: GeminiPathBLogAnchor,
@@ -710,7 +696,7 @@ export async function geminiGenerateOneTapCompressedLine(
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const { text } = await callGeminiProxyStream({
     request: {
-      contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
+      contents: [{ parts: [{ text: trimmed }] }],
       generationConfig: { maxOutputTokens: 2048 },
     },
     operation: 'oneTap.wire.nonstream',
@@ -738,7 +724,7 @@ export async function geminiStreamOneTapCompressedLine(
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const { text } = await callGeminiProxyStream({
     request: {
-      contents: [{ parts: [{ text: `${ONETAP_WIRE_SYSTEM_PREFIX}${trimmed}` }] }],
+      contents: [{ parts: [{ text: trimmed }] }],
       generationConfig: { maxOutputTokens: 2048 },
     },
     operation: 'oneTap.wire.stream',
