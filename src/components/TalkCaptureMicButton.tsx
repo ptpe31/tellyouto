@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from 'react-native-paper';
+import NetInfo from '@react-native-community/netinfo';
 
 import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
 import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
@@ -195,12 +196,20 @@ export function TalkCaptureMicButton({
     } finally {
       setIsRecording(false);
       setIsPaused(false);
-      resetInternal();
+      const cleaned = String(transcript || '').trim();
+      const net = await NetInfo.fetch();
+      const online = net.isConnected === true && net.isInternetReachable === true;
+      if (cleaned) {
+        setRawTranscript(
+          online ? `${cleaned}... Audio en cours de traitement` : `${cleaned} ⚠️ Audio enregistré (traitement ultérieur)`,
+        );
+      }
       if (intentionFlow) {
-        await intentionFlow.submitCapturePayload({ transcript, audioUri: uri });
+        await intentionFlow.submitCapturePayload({ transcript: cleaned, audioUri: uri });
       }
       await onCaptureEnd?.({ transcript, audioUri: uri });
-      if (RPlatform.OS !== 'web') {
+      resetInternal();
+      if (!intentionFlow && RPlatform.OS !== 'web') {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     }
