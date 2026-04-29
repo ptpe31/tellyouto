@@ -21,6 +21,7 @@ import { useOptionalIntentionContext } from '../context/IntentionContext';
 export type TalkCaptureEndPayload = {
   transcript: string;
   audioUri: string | null;
+  lang: string;
 };
 
 export type TalkCaptureMicButtonProps = {
@@ -68,6 +69,7 @@ export function TalkCaptureMicButton({
   const [meteringDb, setMeteringDb] = useState(-100);
   const recRef = useRef<Audio.Recording | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
+  const sttLangRef = useRef<string>(resolveSpeechLangForSession(i18n.language));
   const successScale = useRef(new Animated.Value(0.8)).current;
   const successOpacity = useRef(new Animated.Value(1)).current;
 
@@ -170,8 +172,10 @@ export function TalkCaptureMicButton({
         80,
       );
       recRef.current = recording;
+      const speechLang = resolveSpeechLangForSession(i18n.language);
+      sttLangRef.current = speechLang;
       await ExpoSpeechRecognitionModule.start({
-        lang: resolveSpeechLangForSession(i18n.language),
+        lang: speechLang,
         interimResults: true,
         continuous: true,
       });
@@ -246,9 +250,9 @@ export function TalkCaptureMicButton({
             }),
       );
       if (intentionFlow) {
-        void intentionFlow.submitCapturePayload({ transcript: cleaned, audioUri: uri });
+        void intentionFlow.submitCapturePayload({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current });
       }
-      await onCaptureEnd?.({ transcript: cleaned, audioUri: uri });
+      await onCaptureEnd?.({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current });
       if (RPlatform.OS !== 'web') {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }

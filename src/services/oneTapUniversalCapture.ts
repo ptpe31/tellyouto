@@ -964,9 +964,9 @@ function detectLangForOneTapPrompt(transcript: string, fallback: string): string
   return base || 'en-US';
 }
 
-function buildCompressedGeminiPrompt(transcript: string, seedLine: string, uiLocale: string): string {
+function buildCompressedGeminiPrompt(transcript: string, seedLine: string, langParam: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
-  const lang = detectLangForOneTapPrompt(safe, String(uiLocale || '').trim());
+  const lang = String(langParam || '').trim() ? String(langParam || '').trim() : detectLangForOneTapPrompt(safe, '');
   const isEn = lang.toLowerCase().startsWith('en');
   const loc = isEn
     ? `LANGUAGE CONTRACT (ABSOLUTE):
@@ -1162,6 +1162,7 @@ export function inferOneTapSkeletonFromTranscript(
 
 export type OneTapRefineOptions = {
   uiLocale: string;
+  lang?: string;
   /** Si défini, appelé à chaque chunk utile (streaming). */
   onPartial?: (draft: OneTapUniversalResult) => void;
   /** false = un seul aller-retour HTTP (ex. machine à intentions). */
@@ -1203,7 +1204,7 @@ export async function refineOneTapWithGeminiCompressed(
   console.log(`[OneTap] 🎤 TRANSCRIPTION: ${JSON.stringify(transcript)}`);
 
   const seed = wireLineFromSkeleton(skeleton);
-  const prompt = buildCompressedGeminiPrompt(transcript, seed, options.uiLocale);
+  const prompt = buildCompressedGeminiPrompt(transcript, seed, options.lang || options.uiLocale);
   const useStream = options.useStream !== false;
   const pathBGeminiStart = perfNowMs();
 

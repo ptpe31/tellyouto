@@ -14,6 +14,7 @@ type OfflineQueuedAudioRow = {
   transcript: string;
   audio_path: string;
   title: string;
+  speech_lang?: string;
   status: 'pending' | 'analyzing' | 'kept' | 'done';
   created_at: number;
   notified_at: number | null;
@@ -40,6 +41,7 @@ async function ensureOfflineAudioQueueTable(): Promise<void> {
         transcript TEXT NOT NULL,
         audio_path TEXT NOT NULL,
         title TEXT NOT NULL,
+        speech_lang TEXT,
         status TEXT NOT NULL DEFAULT 'pending',
         is_pending_ai INTEGER NOT NULL DEFAULT 1,
         created_at INTEGER NOT NULL,
@@ -53,6 +55,10 @@ async function ensureOfflineAudioQueueTable(): Promise<void> {
     if (!hasPending) {
       await db.execAsync(`ALTER TABLE offline_audio_queue ADD COLUMN is_pending_ai INTEGER NOT NULL DEFAULT 1;`);
     }
+    const hasLang = cols.some((c) => c.name === 'speech_lang');
+    if (!hasLang) {
+      await db.execAsync(`ALTER TABLE offline_audio_queue ADD COLUMN speech_lang TEXT;`);
+    }
   });
 }
 
@@ -64,6 +70,7 @@ export async function queueOfflineAudioCapture(params: {
   transcript: string;
   audioUri: string;
   title: string;
+  lang?: string;
 }): Promise<{ intentionId: string; queueId: string; storedPath: string }> {
   await ensureOfflineAudioQueueTable();
   await ensureOfflineQueueDirectory();
@@ -78,14 +85,14 @@ export async function queueOfflineAudioCapture(params: {
     title: params.title,
     content_raw: params.transcript,
     created_at: now,
-    metadata_json: JSON.stringify({ source: 'offline_audio_queue', audio_path: targetPath }),
+    metadata_json: JSON.stringify({ source: 'offline_audio_queue', audio_path: targetPath, speech_lang: params.lang || null }),
     is_pending_ai: 1,
   });
   await withTrankilV2Database(async (db) => {
     await db.runAsync(
-      `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, status, is_pending_ai, created_at, notified_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', 1, ?, NULL)`,
-      [queueId, intentionId, params.transcript, targetPath, params.title, now],
+      `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, speech_lang, status, is_pending_ai, created_at, notified_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', 1, ?, NULL)`,
+      [queueId, intentionId, params.transcript, targetPath, params.title, params.lang || null, now],
     );
   });
   return { intentionId, queueId, storedPath: targetPath };
@@ -94,6 +101,7 @@ export async function queueOfflineAudioCapture(params: {
 export async function queueOfflineTextCapture(params: {
   transcript: string;
   title: string;
+  lang?: string;
 }): Promise<{ intentionId: string; queueId: string }> {
   await ensureOfflineAudioQueueTable();
   const queueId = newQueueId();
@@ -105,14 +113,14 @@ export async function queueOfflineTextCapture(params: {
     title: params.title,
     content_raw: params.transcript,
     created_at: now,
-    metadata_json: JSON.stringify({ source: 'offline_audio_queue' }),
+    metadata_json: JSON.stringify({ source: 'offline_audio_queue', speech_lang: params.lang || null }),
     is_pending_ai: 1,
   });
   await withTrankilV2Database(async (db) => {
     await db.runAsync(
-      `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, status, is_pending_ai, created_at, notified_at)
-       VALUES (?, ?, ?, '', ?, 'pending', 1, ?, NULL)`,
-      [queueId, intentionId, params.transcript, params.title, now],
+      `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, speech_lang, status, is_pending_ai, created_at, notified_at)
+       VALUES (?, ?, ?, '', ?, ?, 'pending', 1, ?, NULL)`,
+      [queueId, intentionId, params.transcript, params.title, params.lang || null, now],
     );
   });
   return { intentionId, queueId };

@@ -929,14 +929,14 @@ export function TalkDebugScreen() {
     setPhoenixSubmitting(true);
     try {
       intentionFlow.startCapture();
-      await intentionFlow.submitCapturePayload({ transcript, audioUri: null });
+      await intentionFlow.submitCapturePayload({ transcript, audioUri: null, lang: resolveSpeechLangForSession(i18n.language) });
       setPhoenixInput('');
     } catch (e) {
       Alert.alert('Capture', e instanceof Error ? e.message : String(e));
     } finally {
       setPhoenixSubmitting(false);
     }
-  }, [intentionFlow, phoenixInput]);
+  }, [i18n.language, intentionFlow, phoenixInput]);
 
   return (
     <View style={styles.root}>

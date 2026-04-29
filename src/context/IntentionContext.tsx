@@ -38,7 +38,7 @@ import i18n from '../locales/i18n';
 import { formatYmdLocal } from '../services/TimeSorter';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
 
-type CapturePayload = { transcript: string; audioUri: string | null };
+type CapturePayload = { transcript: string; audioUri: string | null; lang?: string };
 
 type IntentionContextValue = {
   startCapture: () => void;
@@ -382,7 +382,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   }, [cancelCapture]);
 
   const proposeOfflineFallback = useCallback(
-    (params: { transcript: string; audioUri: string | null; error: unknown }) => {
+    (params: { transcript: string; audioUri: string | null; error: unknown; lang?: string }) => {
       const message = params.error instanceof Error ? params.error.message : String(params.error);
       Alert.alert(
         i18n.t('capture.errorTitle', { defaultValue: 'Capture' }),
@@ -397,9 +397,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               void (async () => {
                 const title = params.transcript.slice(0, 56) || 'Memo';
                 if (params.audioUri) {
-                  await queueOfflineAudioCapture({ transcript: params.transcript, audioUri: params.audioUri, title });
+                  await queueOfflineAudioCapture({ transcript: params.transcript, audioUri: params.audioUri, title, lang: params.lang });
                 } else {
-                  await queueOfflineTextCapture({ transcript: params.transcript, title });
+                  await queueOfflineTextCapture({ transcript: params.transcript, title, lang: params.lang });
                 }
                 setRefining(false);
                 setVisible(false);
@@ -417,6 +417,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     async (params: {
       transcript: string;
       audioUri: string | null;
+      lang?: string;
       openOnFirstIntent: boolean;
       onFirstIntent?: () => void;
       allowAlert: boolean;
@@ -424,7 +425,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       const cleaned = params.transcript.trim();
       if (!cleaned) return;
       const persistTranscript = cleaned;
-      const uiLocale = spectrum.locale || 'fr';
+      const uiLocale = params.lang || spectrum.locale || 'fr-FR';
       const seq = (geminiSeqRef.current += 1);
       let fired = false;
       setRefining(true);
@@ -434,6 +435,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await refineOneTapWithGeminiCompressed(cleaned, skeleton, {
           uiLocale,
+          lang: params.lang,
           useStream: true,
           onPartial: (partial) => {
             if (seq !== geminiSeqRef.current) return;
@@ -534,13 +536,13 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const title = cleaned.slice(0, 56) || 'Memo audio';
         try {
           if (params.audioUri) {
-            await queueOfflineAudioCapture({ transcript: cleaned, audioUri: params.audioUri, title });
+            await queueOfflineAudioCapture({ transcript: cleaned, audioUri: params.audioUri, title, lang: params.lang });
           } else {
-            await queueOfflineTextCapture({ transcript: cleaned, title });
+            await queueOfflineTextCapture({ transcript: cleaned, title, lang: params.lang });
           }
           DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
         } catch {}
-        if (params.allowAlert) proposeOfflineFallback({ transcript: cleaned, audioUri: params.audioUri, error: e });
+        if (params.allowAlert) proposeOfflineFallback({ transcript: cleaned, audioUri: params.audioUri, error: e, lang: params.lang });
       } finally {
         if (seq === geminiSeqRef.current) setRefining(false);
       }
@@ -549,7 +551,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const submitCapturePayload = useCallback(
-    async ({ transcript: rawTranscript, audioUri }: CapturePayload) => {
+    async ({ transcript: rawTranscript, audioUri, lang }: CapturePayload) => {
       const cleaned = rawTranscript.trim();
       if (!cleaned) return;
       captureActiveRef.current = false;
@@ -570,8 +572,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       const online = net.isConnected === true && net.isInternetReachable === true;
       if (!online) {
         const title = cleaned.slice(0, 56) || 'Memo audio';
-        if (audioUri) await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
-        else await queueOfflineTextCapture({ transcript: cleaned, title });
+        if (audioUri) await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title, lang });
+        else await queueOfflineTextCapture({ transcript: cleaned, title, lang });
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
         return;
       }
@@ -581,6 +583,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         void runGeminiStreamRefine({
           transcript: cleaned,
           audioUri,
+          lang,
           allowAlert: true,
           openOnFirstIntent: false,
         });
@@ -706,7 +709,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       const t0 = String(pending.transcript || '').trim();
       if (!t0) return;
       await markOfflineAudioAsDone(pending.id);
-      await submitCapturePayload({ transcript: t0, audioUri: pending.audio_path || null });
+      await submitCapturePayload({ transcript: t0, audioUri: pending.audio_path || null, lang: pending.speech_lang });
     },
     [submitCapturePayload],
   );
