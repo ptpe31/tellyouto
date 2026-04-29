@@ -153,8 +153,8 @@ function intentLabel(it: Record<string, unknown> | null, predictedType: OneTapPr
 function intentShortTitle(it: Record<string, unknown> | null, predictedType: OneTapPredictedType): string {
   const type = String(it?.type ?? predictedType ?? '').trim().toUpperCase();
   if (type === 'LIST') return String(it?.title ?? it?.content ?? '').trim() || 'Liste';
-  if (type === 'TASK') return String(it?.content ?? it?.title ?? it?.label ?? '').trim() || 'Tâche';
-  if (type === 'HABIT') return String(it?.content ?? it?.title ?? it?.label ?? '').trim() || 'Habitude';
+  if (type === 'TASK') return String(it?.content ?? it?.title ?? '').trim() || 'Tâche';
+  if (type === 'HABIT') return String(it?.content ?? it?.title ?? '').trim() || 'Habitude';
   if (type === 'TRIP') return String(it?.destination ?? it?.content ?? it?.title ?? '').trim() || 'Trajet';
   const s = String(it?.content ?? it?.memo ?? it?.title ?? '').trim();
   return s || 'Note';
@@ -193,15 +193,6 @@ function isRenderableSynthesisIntent(it: Record<string, unknown>): boolean {
   }
   const title = String(it.content ?? it.title ?? '').trim();
   return title.length > 0;
-}
-
-function cleanTranscriptForModal(raw: string): string {
-  const s = String(raw || '').trim();
-  if (!s) return '';
-  return s
-    .replace(/\.\.\.\s*Audio en cours de traitement\s*$/i, '')
-    .replace(/⚠️\s*Audio enregistré\s*\(traitement ultérieur\)\s*$/i, '')
-    .trim();
 }
 
 function hasStreamedIntents(draft: OneTapUniversalResult): boolean {
@@ -413,8 +404,14 @@ export function OneTapConfirmModal({
   const revealAnimRef = useRef<Record<string, Animated.Value>>({});
   const revealTimersRef = useRef<Record<string, number>>({});
   const itemRevealTimersRef = useRef<Record<string, number>>({});
-  const stageDelayMs = 0;
-  const itemRevealDelayMs = 0;
+  const stageDelayMs = Math.max(
+    300,
+    Math.min(3000, Number(process.env.EXPO_PUBLIC_ONETAP_STAGE_DELAY_MS ?? 1400) || 1400),
+  );
+  const itemRevealDelayMs = Math.max(
+    40,
+    Math.min(600, Number(process.env.EXPO_PUBLIC_ONETAP_ITEM_REVEAL_DELAY_MS ?? 120) || 120),
+  );
   const listDebugSigRef = useRef<Record<string, string>>({});
 
   const showRefiningBanner = refinePhase === 'streaming' || refinePhase === 'local';
@@ -624,7 +621,6 @@ export function OneTapConfirmModal({
 
   useEffect(() => {
     if (!visible) return;
-    if (minimalUi) return;
     const intents = getWorkingIntents();
     const targetCount = intents.length || (isGenerating ? 1 : 0);
     setStagedIntents((prev) => {
@@ -655,19 +651,24 @@ export function OneTapConfirmModal({
 
   useEffect(() => {
     if (!visible) return;
-    if (minimalUi) return;
     for (const st of stagedIntents) {
       if (st.phase !== 'loading') continue;
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setStagedIntents((prev) =>
-        prev.map((p) => (p.id === st.id ? { ...p, phase: 'shown', revealedItemsCount: 0 } : p)),
-      );
+      if (revealTimersRef.current[st.id]) continue;
+      if (debugModal) console.log('[OneTapModal][stage.timer.schedule]', { id: st.id });
+      const elapsed = Date.now() - (st.createdAtMs || Date.now());
+      const waitMs = Math.max(0, stageDelayMs - elapsed);
+      revealTimersRef.current[st.id] = setTimeout(() => {
+        if (debugModal) console.log('[OneTapModal][stage.timer.fire]', { id: st.id });
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setStagedIntents((prev) =>
+          prev.map((p) => (p.id === st.id ? { ...p, phase: 'shown', revealedItemsCount: 0 } : p)),
+        );
+      }, waitMs) as unknown as number;
     }
   }, [debugModal, stagedIntents, stageDelayMs, visible]);
 
   useEffect(() => {
     if (!visible) return;
-    if (minimalUi) return;
     for (const st of stagedIntents) {
       if (st.phase !== 'shown') continue;
       const it = st.intent ?? {};
@@ -676,17 +677,33 @@ export function OneTapConfirmModal({
       const items = Array.isArray(it.items) ? (it.items as unknown[]) : [];
       const revealed = Math.max(0, Math.round(Number(st.revealedItemsCount ?? 0)));
       if (revealed >= items.length) continue;
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setStagedIntents((prev) =>
-        prev.map((p) =>
-          p.id === st.id
-            ? {
-                ...p,
-                revealedItemsCount: Math.min(items.length, Math.max(0, Math.round(Number(p.revealedItemsCount ?? 0))) + 1),
-              }
-            : p,
-        ),
-      );
+      if (itemRevealTimersRef.current[st.id]) continue;
+      if (debugModal) {
+        console.log('[OneTapModal][items.timer.schedule]', {
+          id: st.id,
+          itemsLen: items.length,
+          revealed,
+          delayMs: itemRevealDelayMs,
+        });
+      }
+      itemRevealTimersRef.current[st.id] = setTimeout(() => {
+        delete itemRevealTimersRef.current[st.id];
+        if (debugModal) {
+          console.log('[OneTapModal][items.timer.fire]', {
+            id: st.id,
+            itemsLen: items.length,
+            revealed,
+          });
+        }
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setStagedIntents((prev) =>
+          prev.map((p) =>
+            p.id === st.id
+              ? { ...p, revealedItemsCount: Math.min(items.length, Math.max(0, Math.round(Number(p.revealedItemsCount ?? 0))) + 1) }
+              : p,
+          ),
+        );
+      }, itemRevealDelayMs) as unknown as number;
     }
   }, [itemRevealDelayMs, stagedIntents, visible]);
 
@@ -1658,14 +1675,13 @@ export function OneTapConfirmModal({
   };
 
   const renderSynthesisView = () => {
-    const cleanTranscript = cleanTranscriptForModal(transcript);
     return (
       <>
         <View style={styles.synthHeader}>
           <Text style={styles.synthTitle}>{t('talkDebug.oneTapSynthesisTitle', { defaultValue: 'Synthèse' })}</Text>
-          {cleanTranscript ? (
+          {transcript.trim() ? (
             <View style={styles.transcriptCard}>
-              <Text style={styles.transcriptText}>{cleanTranscript}</Text>
+              <Text style={styles.transcriptText}>{transcript.trim()}</Text>
             </View>
           ) : null}
         </View>
@@ -1717,7 +1733,9 @@ export function OneTapConfirmModal({
             disabled={busy}
           >
             <Text style={styles.primaryBtnText}>
-              {t('talkDebug.oneTapConfirmAll', { defaultValue: 'TOUT CONFIRMER' })}
+              {intents.length
+                ? t('talkDebug.oneTapConfirmAll', { defaultValue: 'TOUT CONFIRMER' })
+                : t('talkDebug.oneTapSaveForLater', { defaultValue: 'ENREGISTRER' })}
             </Text>
           </Pressable>
           <Pressable style={[styles.secondaryBtn, busy && styles.disabled]} onPress={onDismiss} disabled={busy}>

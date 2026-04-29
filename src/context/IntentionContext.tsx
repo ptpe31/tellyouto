@@ -293,7 +293,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const streamSeqRef = useRef(0);
   const geminiSeqRef = useRef(0);
   const streamTimerRef = useRef<number | null>(null);
-  const modalOpenFallbackTimerRef = useRef<number | null>(null);
   const intentIdByIndexRef = useRef<Record<string, string>>({});
   const intentReplaceTimersRef = useRef<Record<string, number>>({});
 
@@ -306,10 +305,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     if (streamTimerRef.current) {
       clearTimeout(streamTimerRef.current);
       streamTimerRef.current = null;
-    }
-    if (modalOpenFallbackTimerRef.current) {
-      clearTimeout(modalOpenFallbackTimerRef.current);
-      modalOpenFallbackTimerRef.current = null;
     }
     for (const k of Object.keys(intentReplaceTimersRef.current)) {
       clearTimeout(intentReplaceTimersRef.current[k]);
@@ -331,10 +326,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     if (streamTimerRef.current) {
       clearTimeout(streamTimerRef.current);
       streamTimerRef.current = null;
-    }
-    if (modalOpenFallbackTimerRef.current) {
-      clearTimeout(modalOpenFallbackTimerRef.current);
-      modalOpenFallbackTimerRef.current = null;
     }
     for (const k of Object.keys(intentReplaceTimersRef.current)) {
       clearTimeout(intentReplaceTimersRef.current[k]);
@@ -378,19 +369,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const runGeminiStreamRefine = useCallback(
-    async (params: {
-      transcript: string;
-      openModal: boolean;
-      allowAlert: boolean;
-      audioUri: string | null;
-      openOnFirstIntent?: boolean;
-      onFirstIntent?: () => void;
-    }) => {
+    async (params: { transcript: string; openModal: boolean; allowAlert: boolean; audioUri: string | null }) => {
       const cleaned = params.transcript.trim();
       if (!cleaned) return;
       const uiLocale = spectrum.locale || 'fr';
       const seq = (geminiSeqRef.current += 1);
-      let didOpen = false;
       if (params.openModal) {
         setVisible(true);
       }
@@ -410,14 +393,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             if (seq !== geminiSeqRef.current) return;
             if (userEditedRef.current) return;
             setDraft(partial);
-            if (!didOpen && params.openOnFirstIntent === true && readDraftIntents(partial).length > 0) {
-              didOpen = true;
-              if (modalOpenFallbackTimerRef.current) {
-                clearTimeout(modalOpenFallbackTimerRef.current);
-                modalOpenFallbackTimerRef.current = null;
-              }
-              params.onFirstIntent?.();
-            }
           },
         });
         if (seq !== geminiSeqRef.current) return;
@@ -448,87 +423,25 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(streamTimerRef.current);
         streamTimerRef.current = null;
       }
-      if (modalOpenFallbackTimerRef.current) {
-        clearTimeout(modalOpenFallbackTimerRef.current);
-        modalOpenFallbackTimerRef.current = null;
-      }
       lastCaptureWasMicRef.current = Boolean(audioUri);
       lastAudioUriRef.current = audioUri;
       userEditedRef.current = false;
-      const onlineSuffix = '... Audio en cours de traitement';
-      const offlineSuffix = ' ⚠️ Audio enregistré (traitement ultérieur)';
+      setTranscript(cleaned);
+      setVisible(true);
 
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
-      if (!online) {
-        setTranscript(`${cleaned}${offlineSuffix}`);
+      if (!online && audioUri) {
         const title = cleaned.slice(0, 56) || 'Memo audio';
-        if (audioUri) {
-          await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
-        } else {
-          await queueOfflineTextCapture({ transcript: cleaned, title });
-        }
+        await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
+        setVisible(false);
         setRefining(false);
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-        if (Platform.OS !== 'web') {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
-        await new Promise<void>((r) => setTimeout(r, 1200));
         return;
       }
 
       if (online) {
-        setTranscript(`${cleaned}${onlineSuffix}`);
-        const already = readDraftIntents(draftRef.current).length > 0;
-        if (already) {
-          setVisible(true);
-          void runGeminiStreamRefine({
-            transcript: cleaned,
-            openModal: false,
-            allowAlert: true,
-            audioUri,
-            openOnFirstIntent: false,
-          });
-          return;
-        }
-        const title = cleaned.slice(0, 56) || 'Memo audio';
-        const gate = await new Promise<'opened' | 'silent' | 'skip'>((resolve) => {
-          modalOpenFallbackTimerRef.current = setTimeout(() => {
-            modalOpenFallbackTimerRef.current = null;
-            void (async () => {
-              geminiSeqRef.current += 1;
-              setRefining(false);
-              setTranscript(`${cleaned}${offlineSuffix}`);
-              if (audioUri) {
-                await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
-              } else {
-                await queueOfflineTextCapture({ transcript: cleaned, title });
-              }
-              DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-              if (Platform.OS !== 'web') {
-                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              }
-              await new Promise<void>((r) => setTimeout(r, 1200));
-              resolve('silent');
-            })();
-          }, 1500) as unknown as number;
-          void runGeminiStreamRefine({
-            transcript: cleaned,
-            openModal: false,
-            allowAlert: true,
-            audioUri,
-            openOnFirstIntent: true,
-            onFirstIntent: () => {
-              if (modalOpenFallbackTimerRef.current) {
-                clearTimeout(modalOpenFallbackTimerRef.current);
-                modalOpenFallbackTimerRef.current = null;
-              }
-              setVisible(true);
-              resolve('opened');
-            },
-          });
-        });
-        if (gate === 'silent') return;
+        void runGeminiStreamRefine({ transcript: cleaned, openModal: false, allowAlert: true, audioUri });
       }
     },
     [runGeminiStreamRefine],
@@ -636,13 +549,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const online = net.isConnected === true && net.isInternetReachable === true;
         if (!online) return;
         if (seq !== streamSeqRef.current) return;
-        void runGeminiStreamRefine({
-          transcript: snap,
-          openModal: false,
-          allowAlert: false,
-          audioUri: null,
-          openOnFirstIntent: false,
-        });
+        void runGeminiStreamRefine({ transcript: snap, openModal: false, allowAlert: false, audioUri: null });
       })();
     }, 850) as unknown as number;
   });

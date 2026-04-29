@@ -1117,13 +1117,7 @@ export async function refineOneTapWithGeminiCompressed(
     const intents = parseBulletPipeIntentsFromBuffer(buf, useStream);
     const derived = intents.length ? intents : parseJsonIntentStubsFromBuffer(buf);
     if (!derived.length) return;
-    const sig = derived
-      .map((it) => {
-        const t = String(it.type ?? '').toUpperCase();
-        const title = String((it as Record<string, unknown>).title ?? (it as Record<string, unknown>).content ?? (it as Record<string, unknown>).destination ?? '');
-        return `${t}:${title.trim()}`;
-      })
-      .join('|');
+    const sig = JSON.stringify(derived);
     if (sig === lastPartialSig) return;
     lastPartialSig = sig;
     const merged = mergeIntentArrayIntoOneTapSkeleton(skeleton, derived);
@@ -1221,50 +1215,8 @@ export function parseOneTapUniversalJson(raw: string): OneTapUniversalResult {
   const categoryTag = String(obj.categoryTag || 'Perso').trim() || 'Perso';
   const rawData =
     obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data) ? (obj.data as Record<string, unknown>) : {};
-  const rawEntities =
-    obj.entities && typeof obj.entities === 'object' && !Array.isArray(obj.entities)
-      ? (obj.entities as Record<string, unknown>)
-      : {};
-  const rawIntents =
-    (obj.intents as unknown) ??
-    (rawData.intents as unknown) ??
-    (rawEntities.intents as unknown) ??
-    (rawEntities.entities && typeof rawEntities.entities === 'object' && !Array.isArray(rawEntities.entities)
-      ? (rawEntities.entities as Record<string, unknown>).intents
-      : undefined);
-  const intents: OneTapIntentJson[] = Array.isArray(rawIntents)
-    ? (rawIntents
-        .filter((x) => x && typeof x === 'object' && !Array.isArray(x))
-        .map((x) => {
-          const r = x as Record<string, unknown>;
-          const type = String(r.type ?? '').trim().toUpperCase();
-          if (!type) return null;
-          if (type === 'LIST') {
-            const t = String(r.title ?? r.content ?? '').trim();
-            return t ? ({ type: 'LIST', title: t, items: Array.isArray(r.items) ? r.items : undefined } as OneTapIntentJson) : null;
-          }
-          if (type === 'TRIP') {
-            const dest = String(r.destination ?? r.content ?? r.title ?? '').trim();
-            return dest ? ({ type: 'TRIP', destination: dest, arrivalDue: r.arrivalDue ?? r.due } as OneTapIntentJson) : null;
-          }
-          if (type === 'HABIT') {
-            const content = String(r.content ?? r.title ?? '').trim();
-            return content ? ({ type: 'HABIT', content, recurrence: r.recurrence } as OneTapIntentJson) : null;
-          }
-          if (type === 'TASK' || type === 'RECURRING_TASK') {
-            const content = String(r.content ?? r.title ?? '').trim();
-            return content ? ({ type: 'TASK', content, due: r.due } as OneTapIntentJson) : null;
-          }
-          if (type === 'NOTE') {
-            const content = String(r.content ?? r.memo ?? r.title ?? '').trim();
-            return content ? ({ type: 'NOTE', content } as OneTapIntentJson) : null;
-          }
-          return null;
-        })
-        .filter(Boolean) as OneTapIntentJson[])
-    : [];
   const defaults = defaultOneTapDataForType(predictedType as OneTapPredictedType);
-  const data = normalizeUniversalTemporalInData({ ...defaults, ...rawData, ...(intents.length ? { intents } : {}) });
+  const data = normalizeUniversalTemporalInData({ ...defaults, ...rawData });
   return {
     predictedType: predictedType as OneTapPredictedType,
     categoryTag,
