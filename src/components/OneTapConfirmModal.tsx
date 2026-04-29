@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { Checkbox, Menu, Button as PaperButton } from 'react-native-paper';
 import { Bell, ChevronDown } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 
 import { TimelineDatePickerLazy } from './TimelineDatePickerLazy';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
@@ -128,6 +129,25 @@ function intentLabel(it: Record<string, unknown> | null, predictedType: OneTapPr
   if (type === 'TRIP') return 'Trajet…';
   if (type === 'NOTE') return 'Note…';
   return 'Analyse…';
+}
+
+function intentShortTitle(it: Record<string, unknown> | null, predictedType: OneTapPredictedType): string {
+  const type = String(it?.type ?? predictedType ?? '').trim().toUpperCase();
+  if (type === 'LIST') return String(it?.title ?? it?.content ?? '').trim() || 'Liste';
+  if (type === 'TASK') return String(it?.content ?? it?.title ?? '').trim() || 'Tâche';
+  if (type === 'HABIT') return String(it?.content ?? it?.title ?? '').trim() || 'Habitude';
+  if (type === 'TRIP') return String(it?.destination ?? it?.content ?? it?.title ?? '').trim() || 'Trajet';
+  const s = String(it?.content ?? it?.memo ?? it?.title ?? '').trim();
+  return s || 'Note';
+}
+
+function intentEmoji(it: Record<string, unknown> | null, predictedType: OneTapPredictedType): string {
+  const type = String(it?.type ?? predictedType ?? '').trim().toUpperCase();
+  if (type === 'TRIP') return '🚗';
+  if (type === 'LIST') return '🛒';
+  if (type === 'TASK' || type === 'RECURRING_TASK') return '✅';
+  if (type === 'HABIT') return '🔁';
+  return '📝';
 }
 
 function hasStreamedIntents(draft: OneTapUniversalResult): boolean {
@@ -313,6 +333,20 @@ export function OneTapConfirmModal({
   const { spectrum } = useUserSpectrum();
   const insets = useSafeAreaInsets();
   const debugModal = __DEV__ || process.env.EXPO_PUBLIC_ONETAP_MODAL_DEBUG === '1';
+  const hapticsFiredRef = useRef(false);
+  const [view, setView] = useState<'SYNTHESIS' | 'DETAIL'>('SYNTHESIS');
+  const [detailIndex, setDetailIndex] = useState<number | null>(null);
+  const [tripMode, setTripMode] = useState<'FIXED' | 'AI'>('FIXED');
+
+  const runFastLayoutAnim = useCallback(() => {
+    LayoutAnimation.configureNext({
+      duration: 140,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
+  }, []);
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [dateTarget, setDateTarget] = useState<'TASK_DUE' | 'RECUR_NEXT' | 'UNIVERSAL_REMINDER' | null>(null);
   const [sentinelQuotaBalance, setSentinelQuotaBalance] = useState<number | null>(null);
@@ -402,6 +436,22 @@ export function OneTapConfirmModal({
   );
 
   useEffect(() => {
+    if (!visible) {
+      hapticsFiredRef.current = false;
+      if (view !== 'SYNTHESIS') {
+        setView('SYNTHESIS');
+      }
+      setDetailIndex(null);
+      setTripMode('FIXED');
+      return;
+    }
+    if (!hapticsFiredRef.current && Platform.OS !== 'web') {
+      hapticsFiredRef.current = true;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [view, visible]);
+
+  useEffect(() => {
     if (Platform.OS === 'android') {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
@@ -461,6 +511,19 @@ export function OneTapConfirmModal({
     if (direct.length) return direct;
     return deriveFallbackIntentFromDraft(draft);
   }, [displayedIntents, draft]);
+
+  const updateIntentAt = useCallback(
+    (intentIndex: number, patch: Record<string, unknown>) => {
+      markUserEdited();
+      const intents = [...getWorkingIntents()];
+      const base = { ...((intents[intentIndex] as Record<string, unknown>) ?? {}) };
+      const nextIntent = { ...base, ...patch };
+      intents[intentIndex] = nextIntent;
+      setDisplayedIntents(intents);
+      patchDraftIntents(intents);
+    },
+    [getWorkingIntents, markUserEdited, patchDraftIntents],
+  );
 
   const logisticsMemoryKeyRef = useRef<string>('');
   useEffect(() => {
@@ -1480,132 +1543,247 @@ export function OneTapConfirmModal({
     }
   };
 
+  const intents = getWorkingIntents();
+
+  const openDetail = (idx: number) => {
+    runFastLayoutAnim();
+    setDetailIndex(idx);
+    setView('DETAIL');
+  };
+
+  const backToSynthesis = () => {
+    runFastLayoutAnim();
+    setView('SYNTHESIS');
+    setDetailIndex(null);
+  };
+
+  const renderTripSynthesisBlock = () => {
+    const addr = strData(draft.data as Record<string, unknown>, 'location_address');
+    return (
+      <View style={styles.tripBlock}>
+        <Text style={styles.tripLabel}>{t('talkDebug.oneTapTripAddressLabel', { defaultValue: 'Adresse' })}</Text>
+        <TextInput
+          value={addr}
+          onChangeText={(text) => onChangeDraft(patchData(draft, { logisticsPotential: true, location_address: text }))}
+          style={styles.tripAddressInput}
+          editable={!busy}
+          placeholder={t('talkDebug.oneTapTripAddressPlaceholder', { defaultValue: 'Adresse' })}
+          placeholderTextColor="rgba(15,23,42,0.35)"
+        />
+        <View style={styles.tripSegmentWrap}>
+          <Pressable
+            style={[styles.tripSegment, tripMode === 'FIXED' ? styles.tripSegmentActive : null, busy && styles.disabled]}
+            onPress={() => setTripMode('FIXED')}
+            disabled={busy}
+          >
+            <Text style={[styles.tripSegmentText, tripMode === 'FIXED' ? styles.tripSegmentTextActive : null]}>
+              {t('talkDebug.oneTapTripModeFixed', { defaultValue: '🕓 Fixe' })}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.tripSegment, tripMode === 'AI' ? styles.tripSegmentActive : null, busy && styles.disabled]}
+            onPress={() => setTripMode('AI')}
+            disabled={busy}
+          >
+            <Text style={[styles.tripSegmentText, tripMode === 'AI' ? styles.tripSegmentTextActive : null]}>
+              {t('talkDebug.oneTapTripModeAi', { defaultValue: '🚀 Créneau de départ IA' })}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  };
+
+  const renderSynthesisView = () => {
+    const hasTrip = intents.some((it) => String(it?.type ?? '').trim().toUpperCase() === 'TRIP');
+    return (
+      <>
+        <View style={styles.synthHeader}>
+          <Text style={styles.synthTitle}>{t('talkDebug.oneTapSynthesisTitle', { defaultValue: 'Synthèse' })}</Text>
+          {transcript.trim() ? (
+            <View style={styles.transcriptCard}>
+              <Text style={styles.transcriptText}>{transcript.trim()}</Text>
+            </View>
+          ) : null}
+        </View>
+        <ScrollView style={styles.synthScroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.intentList}>
+            {intents.map((it, idx) => {
+              const title = intentShortTitle(it, draft.predictedType);
+              const emoji = intentEmoji(it, draft.predictedType);
+              const type = String(it?.type ?? draft.predictedType ?? '').trim().toUpperCase();
+              return (
+                <View key={`syn-${idx}`} style={styles.intentBlock}>
+                  <Pressable
+                    style={[styles.intentRow, busy && styles.disabled]}
+                    onPress={() => !busy && openDetail(idx)}
+                    disabled={busy}
+                  >
+                    <View style={styles.intentIcon}>
+                      <Text style={styles.intentIconText}>{emoji}</Text>
+                    </View>
+                    <Text style={styles.intentRowTitle} numberOfLines={1}>
+                      {title}
+                    </Text>
+                    <Text style={styles.intentChevron}>›</Text>
+                  </Pressable>
+                  {type === 'TRIP' ? renderTripSynthesisBlock() : null}
+                </View>
+              );
+            })}
+            {!intents.length ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>{t('talkDebug.oneTapSynthesisEmpty', { defaultValue: 'Analyse en cours…' })}</Text>
+                {isGenerating ? <StreamingIndicator /> : null}
+              </View>
+            ) : null}
+            {hasTrip && draft.data?.logisticsPotential === true ? null : null}
+          </View>
+          <View style={styles.synthBottomPad} />
+        </ScrollView>
+        <View style={styles.synthFooter}>
+          <Pressable
+            style={[styles.primaryBtn, busy && styles.disabled]}
+            onPress={onConfirm}
+            disabled={busy}
+          >
+            <Text style={styles.primaryBtnText}>
+              {t('talkDebug.oneTapConfirmAll', { defaultValue: 'TOUT CONFIRMER' })}
+            </Text>
+          </Pressable>
+          <Pressable style={[styles.secondaryBtn, busy && styles.disabled]} onPress={onDismiss} disabled={busy}>
+            <Text style={styles.secondaryBtnText}>{t('common.cancel', { defaultValue: 'Annuler' })}</Text>
+          </Pressable>
+        </View>
+      </>
+    );
+  };
+
+  const renderDetailView = () => {
+    if (detailIndex === null) return null;
+    const it = intents[detailIndex] ?? null;
+    const type = String(it?.type ?? draft.predictedType ?? '').trim().toUpperCase();
+    const title = intentShortTitle(it, draft.predictedType);
+    const destination = String((it as Record<string, unknown> | null)?.destination ?? '').trim();
+    const addr = strData(draft.data as Record<string, unknown>, 'location_address');
+    const listItems = Array.isArray((it as Record<string, unknown> | null)?.items)
+      ? ((it as Record<string, unknown>).items as unknown[])
+      : [];
+
+    return (
+      <>
+        <View style={styles.detailHeader}>
+          <Pressable style={styles.backBtn} onPress={backToSynthesis} disabled={busy}>
+            <Text style={styles.backBtnText}>‹</Text>
+            <Text style={styles.backBtnLabel}>{t('common.back', { defaultValue: 'Retour' })}</Text>
+          </Pressable>
+          <Text style={styles.detailTitle} numberOfLines={1}>
+            {title}
+          </Text>
+          <View style={styles.detailHeaderSpacer} />
+        </View>
+        <ScrollView style={styles.detailScroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.detailCard}>
+            <Text style={styles.detailLabel}>{t('talkDebug.oneTapIntentType', { defaultValue: 'Type' })}</Text>
+            <Text style={styles.detailValue}>{type || '—'}</Text>
+          </View>
+
+          <View style={styles.detailCard}>
+            <Text style={styles.detailLabel}>{t('talkDebug.oneTapIntentTitle', { defaultValue: 'Titre' })}</Text>
+            <TextInput
+              value={type === 'TRIP' ? destination : String((it as Record<string, unknown> | null)?.title ?? (it as Record<string, unknown> | null)?.content ?? '').trim()}
+              onChangeText={(text) => {
+                if (type === 'LIST') updateIntentAt(detailIndex, { title: text });
+                else if (type === 'TRIP') updateIntentAt(detailIndex, { destination: text });
+                else if (type === 'NOTE') updateIntentAt(detailIndex, { content: text });
+                else updateIntentAt(detailIndex, { content: text });
+              }}
+              style={styles.detailInput}
+              editable={!busy}
+              placeholder={t('talkDebug.oneTapIntentTitlePlaceholder', { defaultValue: 'Titre' })}
+              placeholderTextColor="rgba(15,23,42,0.35)"
+            />
+          </View>
+
+          {type === 'TRIP' ? (
+            <View style={styles.detailCard}>
+              <Text style={styles.detailLabel}>{t('talkDebug.oneTapTripAddressLabel', { defaultValue: 'Adresse' })}</Text>
+              <TextInput
+                value={addr}
+                onChangeText={(text) =>
+                  onChangeDraft(
+                    patchData(draft, {
+                      logisticsPotential: true,
+                      location_address: text,
+                    }),
+                  )
+                }
+                style={styles.detailInput}
+                editable={!busy}
+                placeholder={t('talkDebug.oneTapTripAddressPlaceholder', { defaultValue: 'Adresse' })}
+                placeholderTextColor="rgba(15,23,42,0.35)"
+              />
+            </View>
+          ) : null}
+
+          {type === 'LIST' ? (
+            <View style={styles.detailCard}>
+              <Text style={styles.detailLabel}>{t('talkDebug.oneTapListItems', { defaultValue: 'Éléments' })}</Text>
+              <View style={styles.listDetailWrap}>
+                {listItems.map((raw, ii) => {
+                  const ir = raw as Record<string, unknown>;
+                  const label = String(ir.name ?? '').trim() || '—';
+                  const included = ir.includeInSave !== false;
+                  return (
+                    <View key={`li-${detailIndex}-${ii}`} style={styles.listDetailRow}>
+                      <Pressable
+                        style={[styles.listCheck, included ? styles.listCheckOn : null]}
+                        onPress={() => !busy && toggleIntentListItemInclude(detailIndex, ii)}
+                        disabled={busy}
+                      >
+                        <Text style={[styles.listCheckText, included ? styles.listCheckTextOn : null]}>{included ? '✓' : ''}</Text>
+                      </Pressable>
+                      <Text style={styles.listDetailLabel} numberOfLines={1}>
+                        {label}
+                      </Text>
+                      <Pressable
+                        style={[styles.listDeleteBtn, busy && styles.disabled]}
+                        onPress={() => !busy && removeIntentListItem(detailIndex, ii)}
+                        disabled={busy}
+                      >
+                        <Text style={styles.listDeleteText}>Suppr.</Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+        </ScrollView>
+
+        <View style={styles.detailFooter}>
+          <Pressable
+            style={[styles.dangerBtn, busy && styles.disabled]}
+            onPress={() => {
+              runFastLayoutAnim();
+              removeIntentAt(detailIndex);
+              setView('SYNTHESIS');
+              setDetailIndex(null);
+            }}
+            disabled={busy}
+          >
+            <Text style={styles.dangerBtnText}>{t('common.delete', { defaultValue: 'Supprimer' })}</Text>
+          </Pressable>
+        </View>
+      </>
+    );
+  };
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
       <View style={[styles.backdrop, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
         <View style={styles.card}>
-          {!minimalUi ? <Text style={styles.cardTitle}>{t('talkDebug.oneTapResultTitle')}</Text> : null}
-          {!minimalUi && showRefiningBanner ? (
-            <View style={styles.refineBanner} accessibilityRole="progressbar">
-              <ActivityIndicator size="small" color="#0f766e" />
-              <Text style={styles.refineBannerText}>{t('talkDebug.oneTapRefiningHint')}</Text>
-            </View>
-          ) : null}
-
-          {!minimalUi ? (
-            <>
-              <Text style={styles.label}>{t('talkDebug.oneTapTypeField')}</Text>
-              <Menu
-                visible={menuOpen}
-                onDismiss={() => setMenuOpen(false)}
-                anchor={
-                  <Pressable
-                    style={[styles.typeAnchor, busy && styles.disabled]}
-                    onPress={() => !busy && setMenuOpen(true)}
-                    disabled={busy}
-                  >
-                    <Text style={styles.typeAnchorText}>{typeLabels[draft.predictedType]}</Text>
-                    <ChevronDown size={20} color="#0f172a" />
-                  </Pressable>
-                }
-              >
-                {ONE_TAP_PREDICTED_TYPES.map((opt) => (
-                  <Menu.Item key={opt} onPress={() => applyType(opt)} title={typeLabels[opt]} />
-                ))}
-              </Menu>
-            </>
-          ) : null}
-
-          <ScrollView
-            style={styles.scroll}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {minimalUi ? (
-              <>
-                {transcript.trim() ? <Text style={styles.chatTranscript}>{transcript.trim()}</Text> : null}
-                <View style={styles.chatDivider} />
-              </>
-            ) : null}
-            {!minimalUi ? renderUniversalReminderSection() : null}
-            {renderTypeBody()}
-
-            {!minimalUi ? (
-              <>
-                <Text style={styles.label}>{t('talkDebug.oneTapTranscriptLabel')}</Text>
-                <TextInput
-                  value={transcript}
-                  onChangeText={onChangeTranscript}
-                  style={[styles.input, styles.multiline]}
-                  multiline
-                  editable={!busy}
-                />
-
-                <Text style={styles.label}>{t('talkDebug.oneTapTitleLabel')}</Text>
-                <TextInput
-                  value={draft.title}
-                  onChangeText={(title) => {
-                    if (draft.predictedType === 'LIST') {
-                      const list = {
-                        ...((draft.data.list && typeof draft.data.list === 'object'
-                          ? draft.data.list
-                          : {}) as Record<string, unknown>),
-                        title,
-                      };
-                      onChangeDraft({ ...draft, title, data: { ...draft.data, list } });
-                    } else {
-                      onChangeDraft({ ...draft, title });
-                    }
-                  }}
-                  style={styles.input}
-                  editable={!busy}
-                />
-
-                <Text style={styles.label}>{t('talkDebug.oneTapCategoryTag')}</Text>
-                <TextInput
-                  value={draft.categoryTag}
-                  onChangeText={(categoryTag) => onChangeDraft({ ...draft, categoryTag })}
-                  style={styles.input}
-                  editable={!busy}
-                />
-              </>
-            ) : null}
-          </ScrollView>
-
-          {isGenerating && hasStreamedIntents(draft) ? <StreamingIndicator /> : null}
-
-          <View style={[styles.actions, draft.predictedType === 'LIST' ? styles.actionsWithPrint : null]}>
-            {draft.predictedType === 'LIST' ? (
-              <PaperButton mode="outlined" onPress={() => void onPrintList()} disabled={busy}>
-                {t('talkDebug.oneTapPrintList')}
-              </PaperButton>
-            ) : null}
-            <View style={styles.actionsSpacer} />
-            <PaperButton mode="text" onPress={onDismiss} disabled={busy}>
-              {t('common.cancel')}
-            </PaperButton>
-            <Pressable
-              style={[styles.btn, styles.btnPrimary]}
-              onPress={onConfirm}
-              disabled={
-                busy ||
-                (draft.data.logisticsPotential === true &&
-                  !(
-                    String(draft.data.location_place_id ?? '').trim().length > 0 &&
-                    typeof draft.data.location_lat === 'number' &&
-                    Number.isFinite(draft.data.location_lat) &&
-                    typeof draft.data.location_lng === 'number' &&
-                    Number.isFinite(draft.data.location_lng)
-                  ))
-              }
-            >
-              <Text style={styles.btnPrimaryText}>
-                {draft.data.logisticsPotential === true
-                  ? t('sentinel.activateCta')
-                  : t('talkDebug.oneTapConfirm')}
-              </Text>
-            </Pressable>
-          </View>
+          {view === 'DETAIL' ? renderDetailView() : renderSynthesisView()}
         </View>
       </View>
     </Modal>
@@ -1825,5 +2003,158 @@ const styles = StyleSheet.create({
   btn: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: 18 },
   btnPrimary: { backgroundColor: '#007AFF' },
   btnPrimaryText: { fontWeight: '800', color: '#fff' },
+  synthHeader: { gap: 10 },
+  synthTitle: { fontSize: 20, fontWeight: '900', color: '#0f172a' },
+  transcriptCard: {
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(241,245,249,0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.06)',
+  },
+  transcriptText: { fontSize: 13, fontWeight: '600', color: '#0f172a', lineHeight: 18 },
+  synthScroll: { flex: 1 },
+  intentList: { gap: 10, marginTop: 8 },
+  intentBlock: {
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.06)',
+    overflow: 'hidden',
+  },
+  intentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  intentIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  intentIconText: { fontSize: 16 },
+  intentRowTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  intentChevron: { fontSize: 18, fontWeight: '900', color: 'rgba(15,23,42,0.35)' },
+  tripBlock: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    paddingTop: 2,
+    gap: 10,
+    backgroundColor: 'rgba(241,245,249,0.55)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(15,23,42,0.06)',
+  },
+  tripLabel: { fontSize: 12, fontWeight: '800', color: 'rgba(15,23,42,0.60)' },
+  tripAddressInput: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    color: '#0f172a',
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.08)',
+  },
+  tripSegmentWrap: {
+    flexDirection: 'row',
+    borderRadius: 14,
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    padding: 3,
+    gap: 4,
+  },
+  tripSegment: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tripSegmentActive: { backgroundColor: '#fff' },
+  tripSegmentText: { fontSize: 12, fontWeight: '800', color: 'rgba(15,23,42,0.55)', textAlign: 'center' },
+  tripSegmentTextActive: { color: '#0f172a' },
+  emptyState: {
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(241,245,249,0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.06)',
+  },
+  emptyText: { fontSize: 14, fontWeight: '700', color: 'rgba(15,23,42,0.70)' },
+  synthBottomPad: { height: 10 },
+  synthFooter: { gap: 10, marginTop: 10 },
+  primaryBtn: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 18,
+    backgroundColor: '#007AFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryBtnText: { fontSize: 15, fontWeight: '900', color: '#fff', letterSpacing: 0.3 },
+  secondaryBtn: { alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 10 },
+  secondaryBtnText: { fontSize: 13, fontWeight: '700', color: 'rgba(15,23,42,0.55)' },
+  detailHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 6 },
+  backBtnText: { fontSize: 22, fontWeight: '900', color: '#007AFF', marginTop: -1 },
+  backBtnLabel: { fontSize: 14, fontWeight: '800', color: '#007AFF' },
+  detailTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '900', color: '#0f172a' },
+  detailHeaderSpacer: { width: 56 },
+  detailScroll: { flex: 1 },
+  detailCard: {
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(241,245,249,0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.06)',
+    marginTop: 10,
+    gap: 8,
+  },
+  detailLabel: { fontSize: 12, fontWeight: '800', color: 'rgba(15,23,42,0.60)' },
+  detailValue: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  detailInput: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    color: '#0f172a',
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.08)',
+  },
+  listDetailWrap: { gap: 10, marginTop: 2 },
+  listDetailRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  listCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.20)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  listCheckOn: { backgroundColor: '#007AFF', borderColor: '#007AFF' },
+  listCheckText: { fontSize: 13, fontWeight: '900', color: 'transparent' },
+  listCheckTextOn: { color: '#fff' },
+  listDetailLabel: { flex: 1, fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  listDeleteBtn: { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 10, backgroundColor: 'rgba(255,59,48,0.10)' },
+  listDeleteText: { fontSize: 12, fontWeight: '900', color: '#ff3b30' },
+  detailFooter: { marginTop: 10 },
+  dangerBtn: {
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,59,48,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dangerBtnText: { fontSize: 14, fontWeight: '900', color: '#ff3b30' },
   disabled: { opacity: 0.45 },
 });
