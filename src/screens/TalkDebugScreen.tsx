@@ -609,7 +609,6 @@ export function TalkDebugScreen() {
         return;
       }
       try {
-        intentionFlow.startCapture();
         await intentionFlow.submitCapturePayload({ transcript: cleanedTranscript, audioUri: uri });
       } finally {
         setCaptureStep('idle');

@@ -180,6 +180,21 @@ function IntentIcon({ type }: { type: string }) {
   return <StickyNote size={size} color={color} />;
 }
 
+function isRenderableSynthesisIntent(it: Record<string, unknown>): boolean {
+  const type = String(it.type ?? '').trim().toUpperCase();
+  if (!type) return false;
+  if (type === 'LIST') {
+    const title = String(it.title ?? it.content ?? '').trim();
+    return title.length > 0;
+  }
+  if (type === 'TRIP') {
+    const destination = String(it.destination ?? it.content ?? it.title ?? '').trim();
+    return destination.length > 0;
+  }
+  const title = String(it.content ?? it.title ?? '').trim();
+  return title.length > 0;
+}
+
 function hasStreamedIntents(draft: OneTapUniversalResult): boolean {
   return readDraftIntents(draft).length > 0;
 }
@@ -503,10 +518,8 @@ export function OneTapConfirmModal({
     }
   }, []);
 
-  const didBootstrapIntentsRef = useRef(false);
   useEffect(() => {
     if (!visible) {
-      didBootstrapIntentsRef.current = false;
       hasLocalEditsRef.current = false;
       setStagedIntents([]);
       for (const k of Object.keys(revealTimersRef.current)) {
@@ -525,17 +538,6 @@ export function OneTapConfirmModal({
   useEffect(() => {
     if (!visible) return;
     const next = readDraftIntents(draft);
-    if (!next.length && !displayedIntents.length && !didBootstrapIntentsRef.current) {
-      const derived = deriveFallbackIntentFromDraft(draft);
-      if (derived.length) {
-        didBootstrapIntentsRef.current = true;
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        const normalized = normalizeIncomingIntents(derived);
-        setDisplayedIntents(normalized);
-        patchDraftIntents(normalized);
-        return;
-      }
-    }
     if (next.length > displayedIntents.length) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
@@ -550,12 +552,10 @@ export function OneTapConfirmModal({
   const getWorkingIntents = useCallback((): Record<string, unknown>[] => {
     const direct = readDraftIntents(draft);
     if (!hasLocalEditsRef.current) {
-      if (direct.length) return normalizeIncomingIntents(direct);
-      return normalizeIncomingIntents(deriveFallbackIntentFromDraft(draft));
+      return normalizeIncomingIntents(direct);
     }
     if (displayedIntents.length) return displayedIntents;
-    if (direct.length) return direct;
-    return deriveFallbackIntentFromDraft(draft);
+    return direct;
   }, [displayedIntents, draft]);
 
   const updateIntentAt = useCallback(
@@ -1590,12 +1590,8 @@ export function OneTapConfirmModal({
   };
 
   const getSynthesisIntents = useCallback((): Record<string, unknown>[] => {
-    if (hasLocalEditsRef.current) {
-      return displayedIntents.length ? displayedIntents : normalizeIncomingIntentsPreserveOrder(readDraftIntents(draft));
-    }
-    const direct = readDraftIntents(draft);
-    if (direct.length) return normalizeIncomingIntentsPreserveOrder(direct);
-    return normalizeIncomingIntentsPreserveOrder(deriveFallbackIntentFromDraft(draft));
+    const src = hasLocalEditsRef.current ? displayedIntents : readDraftIntents(draft);
+    return normalizeIncomingIntentsPreserveOrder(src).filter(isRenderableSynthesisIntent);
   }, [displayedIntents, draft]);
 
   const intents = getSynthesisIntents();
