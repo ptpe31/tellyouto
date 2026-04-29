@@ -332,6 +332,69 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
   return intents;
 }
 
+function unescapeJsonStringValue(raw: string): string {
+  return String(raw || '')
+    .replace(/\\\\/g, '\\')
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r');
+}
+
+function parseJsonIntentStubsFromBuffer(buffer: string): OneTapIntentJson[] {
+  const s = String(buffer || '');
+  if (!s.includes('"intents"') && !s.includes('"type"')) return [];
+  const out: OneTapIntentJson[] = [];
+  const seen = new Set<string>();
+  const re = /"type"\s*:\s*"([A-Z_]+)"/g;
+  for (;;) {
+    const m = re.exec(s);
+    if (!m) break;
+    const type = String(m[1] || '').trim().toUpperCase();
+    if (!type) continue;
+    const window = s.slice(m.index, Math.min(s.length, m.index + 520));
+    const field = type === 'TRIP' ? 'destination' : type === 'LIST' ? 'title' : 'content';
+    const mf = new RegExp(`"${field}"\\s*:\\s*"([^"]{1,260})"`);
+    const fm = window.match(mf);
+    const title = fm ? unescapeJsonStringValue(fm[1]) : '';
+    if (!title.trim()) continue;
+    const key = `${type}|${title.trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (type === 'TRIP') {
+      const due = window.match(/"arrivalDue"\s*:\s*"([^"]{1,64})"/) ?? window.match(/"due"\s*:\s*"([^"]{1,64})"/);
+      out.push({ type: 'TRIP', destination: title.trim(), arrivalDue: due ? String(due[1]) : undefined });
+      continue;
+    }
+    if (type === 'LIST') {
+      const baseCount = window.match(/"baseCount"\s*:\s*(\d{1,3})/);
+      const unitLabel = window.match(/"unitLabel"\s*:\s*"([^"]{1,40})"/);
+      out.push({
+        type: 'LIST',
+        title: title.trim(),
+        baseCount: baseCount ? parseInt(baseCount[1], 10) : undefined,
+        unitLabel: unitLabel ? unescapeJsonStringValue(unitLabel[1]).trim() : undefined,
+      });
+      continue;
+    }
+    if (type === 'HABIT') {
+      const rec = window.match(/"recurrence"\s*:\s*"([^"]{1,160})"/);
+      out.push({ type: 'HABIT', content: title.trim(), recurrence: rec ? unescapeJsonStringValue(rec[1]).trim() : undefined });
+      continue;
+    }
+    if (type === 'TASK' || type === 'RECURRING_TASK') {
+      const due = window.match(/"due"\s*:\s*"([^"]{1,64})"/);
+      out.push({ type: 'TASK', content: title.trim(), due: due ? unescapeJsonStringValue(due[1]).trim() : undefined });
+      continue;
+    }
+    if (type === 'NOTE') {
+      out.push({ type: 'NOTE', content: title.trim() });
+      continue;
+    }
+  }
+  return out;
+}
+
 /**
  * Sérialise le squelette Path A en une **seule ligne** `KEY:value|KEY:value` consommée par Gemini Path B.
  *
@@ -1049,10 +1112,15 @@ export async function refineOneTapWithGeminiCompressed(
     pathAData: { ...skeleton.data },
   };
 
+  let lastPartialSig = '';
   const applyBuffer = (buf: string) => {
     const intents = parseBulletPipeIntentsFromBuffer(buf, useStream);
-    if (!intents.length) return;
-    const merged = mergeIntentArrayIntoOneTapSkeleton(skeleton, intents);
+    const derived = intents.length ? intents : parseJsonIntentStubsFromBuffer(buf);
+    if (!derived.length) return;
+    const sig = JSON.stringify(derived);
+    if (sig === lastPartialSig) return;
+    lastPartialSig = sig;
+    const merged = mergeIntentArrayIntoOneTapSkeleton(skeleton, derived);
     options.onPartial?.(merged);
   };
 

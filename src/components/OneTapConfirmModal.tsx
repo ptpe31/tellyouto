@@ -1758,6 +1758,7 @@ export function OneTapConfirmModal({
     const listItems = Array.isArray((it as Record<string, unknown> | null)?.items)
       ? ((it as Record<string, unknown>).items as unknown[])
       : [];
+    const showDetailLoading = refinePhase === 'streaming' || refinePhase === 'local';
 
     return (
       <>
@@ -1771,6 +1772,11 @@ export function OneTapConfirmModal({
           </Text>
           <View style={styles.detailHeaderSpacer} />
         </View>
+        {showDetailLoading ? (
+          <View style={styles.detailLoadingRow}>
+            <StreamingIndicator />
+          </View>
+        ) : null}
         <ScrollView style={styles.detailScroll} showsVerticalScrollIndicator={false}>
           <View style={styles.detailCard}>
             <Text style={styles.detailLabel}>{t('talkDebug.oneTapIntentType', { defaultValue: 'Type' })}</Text>
@@ -2218,6 +2224,7 @@ const styles = StyleSheet.create({
   secondaryBtn: { alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 10 },
   secondaryBtnText: { fontSize: 13, fontWeight: '700', color: 'rgba(15,23,42,0.55)' },
   detailEmpty: { flex: 1 },
+  detailLoadingRow: { marginBottom: 6 },
   detailHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 6 },
   backBtnText: { fontSize: 22, fontWeight: '900', color: '#007AFF', marginTop: -1 },
