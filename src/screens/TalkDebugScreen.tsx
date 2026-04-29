@@ -1,14 +1,10 @@
 import { randomUUID } from 'expo-crypto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Audio } from 'expo-av';
 import * as Calendar from 'expo-calendar';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as chrono from 'chrono-node';
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -24,7 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Bell, Check, Lock, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
+import { Bell, Check, Lock } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -45,10 +41,9 @@ import {
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
-import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
 import { PassProModal } from '../components/PassProModal';
-import { VoiceMeteringWaveform } from '../components/VoiceMeteringWaveform';
+import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import type { GeminiExpertIntention } from '../services/GeminiExpert';
 import {
@@ -133,8 +128,6 @@ export function TalkDebugScreen() {
   const [phoenixInput, setPhoenixInput] = useState('');
   const [phoenixSubmitting, setPhoenixSubmitting] = useState(false);
   const [captureStep, setCaptureStep] = useState<'idle' | 'recording'>('idle');
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
   const [transcriptDraft, setTranscriptDraft] = useState('');
   const [lockedTitle, setLockedTitle] = useState('');
@@ -172,9 +165,6 @@ export function TalkDebugScreen() {
     selectedTaskIndexes: number[];
     taskAlarmIndexes: number[];
   }>(null);
-  const recRef = useRef<Audio.Recording | null>(null);
-  const [meteringDb, setMeteringDb] = useState(-100);
-  const liveScrollRef = useRef<ScrollView | null>(null);
   const deadlineCaptureActiveRef = useRef(false);
   const projectShellIdRef = useRef<string | null>(null);
   const [todayTodoCount, setTodayTodoCount] = useState(0);
@@ -270,28 +260,16 @@ export function TalkDebugScreen() {
         }
         return;
       }
-      setRawTranscript(text);
-      if (!isTitleLocked && shouldLockSmartTitle(text)) {
-        const smart = generateSmartTitle(cleanTranscriptText(text), spectrum.locale);
-        if (smart) {
-          setLockedTitle(smart);
-          setIsTitleLocked(true);
-          if (!hasManualTitleEdit) setTitleDraft(smart);
-        }
-      }
     }
   });
 
   const hardResetToIdle = useCallback(() => {
-    recRef.current = null;
     deadlineCaptureActiveRef.current = false;
     try {
       ExpoSpeechRecognitionModule.stop();
     } catch {
       // ignore
     }
-    setIsPaused(false);
-    setIsRecording(false);
     setCaptureStep('idle');
     setRawTranscript('');
     setTranscriptDraft('');
@@ -306,7 +284,6 @@ export function TalkDebugScreen() {
     setDeadlineError('');
     setIsGeneratingPlan(false);
     setProjectPlanPreview(null);
-    setMeteringDb(-100);
   }, []);
 
   const pushSuccessFeedback = useCallback((message: string) => {
@@ -481,191 +458,57 @@ export function TalkDebugScreen() {
     ],
   );
 
-  const ensureMicrophoneReady = useCallback(async (): Promise<boolean> => {
-    const audioPerm = await Audio.requestPermissionsAsync();
-    if (!audioPerm.granted) {
-      Alert.alert(
-        t('talkHome.microphonePermissionTitle'),
-        t('talkHome.microphonePermissionDeniedBody'),
-        [
-          { text: t('channelSwitch.cancel'), style: 'cancel' },
-          { text: t('ally.openSettings'), onPress: () => void Linking.openSettings() },
-        ],
-      );
+  const micLocked = !spectrum.isProUser && (freeQuotaSnapshot?.remaining ?? 1) <= 0;
+
+  const beforeStartCapture = useCallback(async (): Promise<boolean> => {
+    if (busy) return false;
+    if (micLocked) {
+      setPassProVisible(true);
       return false;
     }
-    try {
-      let speechPerm = await ExpoSpeechRecognitionModule.getPermissionsAsync();
-      if (!speechPerm.granted) {
-        speechPerm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      }
-      if (!speechPerm.granted) {
-        Alert.alert(
-          t('talkHome.microphonePermissionTitle'),
-          t('talkHome.microphonePermissionDeniedBody'),
-          [
-            { text: t('channelSwitch.cancel'), style: 'cancel' },
-            { text: t('ally.openSettings'), onPress: () => void Linking.openSettings() },
-          ],
-        );
-        return false;
-      }
-    } catch {
-      // Some runtimes may not expose this API; keep audio permission as source of truth.
-    }
     return true;
-  }, [t]);
+  }, [busy, micLocked]);
 
-  const startCapture = useCallback(async () => {
-    if (isRecording || busy) return;
-    intentionFlow?.startCapture();
-    if (!spectrum.isProUser) {
-      const snap = await getFreeCaptureQuotaSnapshot();
-      if (snap.remaining <= 0) {
-        setPassProVisible(true);
-        return;
+  const onMicTranscript = useCallback(
+    (text: string) => {
+      setRawTranscript(text);
+      if (!isTitleLocked && shouldLockSmartTitle(text)) {
+        const smart = generateSmartTitle(cleanTranscriptText(text), spectrum.locale);
+        if (smart) {
+          setLockedTitle(smart);
+          setIsTitleLocked(true);
+          if (!hasManualTitleEdit) setTitleDraft(smart);
+        }
       }
-    }
+    },
+    [hasManualTitleEdit, isTitleLocked, spectrum.locale],
+  );
+
+  const onMicStart = useCallback(() => {
+    setCaptureStep('recording');
     setRawTranscript('');
     setLockedTitle('');
     setIsTitleLocked(false);
     setTitleDraft('');
     setHasManualTitleEdit(false);
     setAudioUri(null);
-    setMeteringDb(-100);
-    try {
-      const ready = await ensureMicrophoneReady();
-      if (!ready) return;
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const { recording } = await Audio.Recording.createAsync(
-        VOICE_MEMO_LIGHT_RECORDING_OPTIONS,
-        (status) => {
-          if (typeof status.metering === 'number' && Number.isFinite(status.metering)) {
-            setMeteringDb(status.metering);
-          }
-        },
-        80,
-      );
-      recRef.current = recording;
-      await ExpoSpeechRecognitionModule.start({
-        lang: resolveSpeechLangForSession(i18n.language),
-        interimResults: true,
-        continuous: true,
-      });
-      setIsRecording(true);
-      setIsPaused(false);
-      setCaptureStep('recording');
-    } catch (e) {
-      if (isLikelyMissingNativeModuleError(e)) {
-        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
-      } else {
-        Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
-      }
-    }
-  }, [busy, captureStep, ensureMicrophoneReady, i18n.language, isRecording, navigation, spectrum.isProUser, t]);
+  }, []);
 
-  const micLocked = !spectrum.isProUser && (freeQuotaSnapshot?.remaining ?? 1) <= 0;
+  const onMicEnd = useCallback((payload: { transcript: string; audioUri: string | null }) => {
+    const t0 = perfNowMs();
+    logOneTapCaptureCycleStartBanner();
+    console.log(`[OneTapPerf] T0_CAPTURE_END${ONE_TAP_DEBUG_LOG_CONT}t0_ms: ${Math.round(t0)}`);
+    setAudioUri(payload.audioUri);
+    setTranscriptDraft(payload.transcript);
+  }, []);
 
-  const stopCapture = useCallback(async () => {
-    if (captureStep !== 'recording' || !isRecording) return;
-    let uri: string | null = null;
-    try {
-      ExpoSpeechRecognitionModule.stop();
-      const rec = recRef.current;
-      recRef.current = null;
-      if (rec) {
-        await rec.stopAndUnloadAsync();
-        uri = rec.getURI() ?? null;
-        setAudioUri(uri);
-      }
-    } catch (e) {
-      if (isLikelyMissingNativeModuleError(e)) {
-        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
-      } else {
-        Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      const t0 = perfNowMs();
-      logOneTapCaptureCycleStartBanner();
-      console.log(
-        `[OneTapPerf] T0_CAPTURE_END${ONE_TAP_DEBUG_LOG_CONT}t0_ms: ${Math.round(t0)}`,
-      );
-      setIsRecording(false);
-      setIsPaused(false);
-      const nextTranscript = rawTranscript;
-      setTranscriptDraft(nextTranscript);
-      const cleanedTranscript = cleanTranscriptText(nextTranscript);
-      if (!cleanedTranscript.trim()) {
-        setCaptureStep('idle');
-        Alert.alert(t('talkDebug.captureTitle'), t('talkDebug.oneTapEmptyTranscript'));
-        return;
-      }
-      if (!intentionFlow) {
-        setCaptureStep('idle');
-        Alert.alert('Capture', 'IntentionProvider manquant (Dev Client requis).');
-        return;
-      }
-      try {
-        await intentionFlow.submitCapturePayload({ transcript: cleanedTranscript, audioUri: uri });
-      } finally {
-        setCaptureStep('idle');
-      }
-    }
-  }, [
-    captureStep,
-    i18n.language,
-    isRecording,
-    isTitleLocked,
-    lockedTitle,
-    rawTranscript,
-    spectrum.locale,
-    t,
-    intentionFlow,
-  ]);
+  const onMicValidated = useCallback(() => {
+    setCaptureStep('idle');
+  }, []);
 
-  const cancelCapture = useCallback(async () => {
-    try {
-      ExpoSpeechRecognitionModule.stop();
-      const rec = recRef.current;
-      if (rec) {
-        await rec.stopAndUnloadAsync();
-      }
-    } catch {
-      // Best effort cancel.
-    } finally {
-      hardResetToIdle();
-    }
+  const onMicCancel = useCallback(async () => {
+    hardResetToIdle();
   }, [hardResetToIdle]);
-
-  const togglePauseCapture = useCallback(async () => {
-    if (captureStep !== 'recording') return;
-    const rec = recRef.current;
-    if (!rec || !isRecording) return;
-    try {
-      if (isPaused) {
-        await rec.startAsync();
-        await ExpoSpeechRecognitionModule.start({
-          lang: resolveSpeechLangForSession(i18n.language),
-          interimResults: true,
-          continuous: true,
-        });
-        setIsPaused(false);
-      } else {
-        ExpoSpeechRecognitionModule.stop();
-        await rec.pauseAsync();
-        setIsPaused(true);
-      }
-    } catch (e) {
-      if (isLikelyMissingNativeModuleError(e)) {
-        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
-      } else {
-        Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
-      }
-    }
-  }, [captureStep, i18n.language, isPaused, isRecording, t]);
 
   const onChooseAction = useCallback(
     async (action: 'note' | 'task' | 'habit' | 'project' | 'audio' | 'list' | 'cancel') => {
@@ -841,6 +684,29 @@ export function TalkDebugScreen() {
     ],
   );
 
+  const ensureDeadlineSpeechReady = useCallback(async (): Promise<boolean> => {
+    try {
+      let speechPerm = await ExpoSpeechRecognitionModule.getPermissionsAsync();
+      if (!speechPerm.granted) {
+        speechPerm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      }
+      if (!speechPerm.granted) {
+        Alert.alert(
+          t('talkHome.microphonePermissionTitle'),
+          t('talkHome.microphonePermissionDeniedBody'),
+          [
+            { text: t('channelSwitch.cancel'), style: 'cancel' },
+            { text: t('ally.openSettings'), onPress: () => void Linking.openSettings() },
+          ],
+        );
+        return false;
+      }
+    } catch {
+      return true;
+    }
+    return true;
+  }, [t]);
+
   const toggleDeadlineDictation = useCallback(async () => {
     if (isDeadlineListening) {
       deadlineCaptureActiveRef.current = false;
@@ -853,7 +719,7 @@ export function TalkDebugScreen() {
       return;
     }
     try {
-      const ready = await ensureMicrophoneReady();
+      const ready = await ensureDeadlineSpeechReady();
       if (!ready) return;
       deadlineCaptureActiveRef.current = true;
       setIsDeadlineListening(true);
@@ -872,7 +738,7 @@ export function TalkDebugScreen() {
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
     }
-  }, [ensureMicrophoneReady, i18n.language, isDeadlineListening, t]);
+  }, [ensureDeadlineSpeechReady, i18n.language, isDeadlineListening, t]);
 
   useEffect(() => {
     if (!projectPlanPreview) return;
@@ -1167,92 +1033,20 @@ export function TalkDebugScreen() {
           },
         ]}
       >
-        {captureStep === 'recording' ? (
-          <View style={styles.captureTranscriptShell}>
-            <ScrollView
-              ref={(ref) => {
-                liveScrollRef.current = ref;
-              }}
-              style={[styles.captureTranscriptScroll, { maxHeight: Math.min(240, windowH * 0.3) }]}
-              contentContainerStyle={styles.liveTranscriptContent}
-              showsVerticalScrollIndicator={false}
-              onContentSizeChange={() => {
-                liveScrollRef.current?.scrollToEnd({ animated: true });
-              }}
-            >
-              <Text style={styles.liveTranscript}>{rawTranscript.trim() ? rawTranscript : ' '}</Text>
-            </ScrollView>
-            {!isPaused ? (
-              <VoiceMeteringWaveform meteringDb={meteringDb} accessibilityLabel={t('talkDebug.voiceWaveformA11y')} />
-            ) : null}
-            <LinearGradient
-              pointerEvents="none"
-              colors={['#111827', 'rgba(17,24,39,0)']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={styles.transcriptFadeTop}
-            />
-            <LinearGradient
-              pointerEvents="none"
-              colors={['rgba(17,24,39,0)', '#111827']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={styles.transcriptFadeBottom}
-            />
-          </View>
-        ) : null}
-        {captureStep === 'idle' ? (
-          <View style={styles.micShell}>
-            {micLocked ? (
-              <Pressable
-                onPress={() => setPassProVisible(true)}
-                disabled={false}
-                style={styles.micHintPress}
-              >
-                <Text style={styles.micHintText}>{t('talkDebug.micQuotaUpsellHint')}</Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              onPress={() => {
-                if (micLocked) {
-                  setPassProVisible(true);
-                  return;
-                }
-                void startCapture();
-              }}
-              disabled={busy && !micLocked}
-              style={[
-                styles.micBtn,
-                micLocked ? styles.micBtnLocked : null,
-                busy && !micLocked ? styles.disabled : null,
-              ]}
-            >
-              <Mic size={24} color={micLocked ? '#e2e8f0' : '#fff'} />
-              {micLocked ? (
-                <View style={styles.micLockBadge}>
-                  <Lock size={14} color="#fff" />
-                </View>
-              ) : null}
-            </Pressable>
-          </View>
-        ) : null}
-        {captureStep === 'recording' ? (
-          <View style={styles.pilotRowDocked}>
-            <Pressable style={styles.ctrlBtn} onPress={() => void cancelCapture()} disabled={busy}>
-              <Trash2 size={18} color="#fff" />
-            </Pressable>
-            <Pressable style={styles.ctrlBtn} onPress={() => void togglePauseCapture()} disabled={busy}>
-              {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
-            </Pressable>
-            <Pressable
-              style={[styles.micBtn, styles.ctrlBtnPrimary, busy ? styles.disabled : null]}
-              onPress={() => void stopCapture()}
-              disabled={busy}
-            >
-              <SendHorizontal size={22} color="#fff" />
-            </Pressable>
-          </View>
-        ) : null}
+        <TalkCaptureMicButton
+          variant="talkDebug"
+          disabled={busy}
+          locked={micLocked}
+          lockedHintText={t('talkDebug.micQuotaUpsellHint')}
+          waveformA11yLabel={t('talkDebug.voiceWaveformA11y')}
+          onLockedPress={() => setPassProVisible(true)}
+          beforeStart={beforeStartCapture}
+          onCaptureStart={onMicStart}
+          onCaptureEnd={onMicEnd}
+          onCaptureCancel={onMicCancel}
+          onValidated={onMicValidated}
+          onTranscriptChange={onMicTranscript}
+        />
       </View>
 
       {deadlineModalVisible ? (
@@ -1502,6 +1296,21 @@ const styles = StyleSheet.create({
   captureDock: { paddingHorizontal: 20, paddingTop: 10, minHeight: 120 },
   captureTranscriptShell: { width: '100%', position: 'relative', marginBottom: 14 },
   captureTranscriptScroll: { width: '100%' },
+  validationCanvas: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: '#111827',
+  },
+  validationText: {
+    marginTop: 20,
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 24,
+    color: '#E3F2FD',
+  },
   pilotRowDocked: {
     flexDirection: 'row',
     alignItems: 'center',

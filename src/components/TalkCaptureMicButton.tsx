@@ -1,15 +1,18 @@
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
-import { Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
+import { Check, Lock, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Dimensions, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from 'react-native-paper';
+import NetInfo from '@react-native-community/netinfo';
 
 import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
+import { VoiceMeteringWaveform } from '../components/VoiceMeteringWaveform';
 import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
+import { cleanTranscriptText } from '../services/smartTitle';
 import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../utils/nativeModuleErrorAlert';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import { Platform as RPlatform } from '../utils/rnPlatform';
@@ -26,9 +29,16 @@ export type TalkCaptureMicButtonProps = {
   onCaptureStart?: () => void;
   onCaptureEnd?: (payload: TalkCaptureEndPayload) => void | Promise<void>;
   onCaptureCancel?: () => void | Promise<void>;
+  onValidated?: () => void;
+  onTranscriptChange?: (text: string) => void;
   disabled?: boolean;
   /** Variante compacte pour barre basse (Timeline). */
   compact?: boolean;
+  variant?: 'timeline' | 'talkDebug';
+  locked?: boolean;
+  lockedHintText?: string;
+  waveformA11yLabel?: string;
+  onLockedPress?: () => void;
 };
 
 export function TalkCaptureMicButton({
@@ -36,24 +46,36 @@ export function TalkCaptureMicButton({
   onCaptureStart,
   onCaptureEnd,
   onCaptureCancel,
+  onValidated,
+  onTranscriptChange,
   disabled,
   compact,
+  variant = 'timeline',
+  locked,
+  lockedHintText,
+  waveformA11yLabel,
+  onLockedPress,
 }: TalkCaptureMicButtonProps) {
   const intentionFlow = useOptionalIntentionContext();
   const { t, i18n } = useTranslation();
   const theme = useTheme();
-  const [phase, setPhase] = useState<'idle' | 'recording'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'recording' | 'success'>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
+  const [successLabel, setSuccessLabel] = useState('');
+  const [successTone, setSuccessTone] = useState<'online' | 'offline'>('online');
   const [meteringDb, setMeteringDb] = useState(-100);
   const recRef = useRef<Audio.Recording | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
+  const successScale = useRef(new Animated.Value(0.8)).current;
+  const successOpacity = useRef(new Animated.Value(1)).current;
 
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results?.[0]?.transcript ?? '';
     if (text.trim().length > 0) {
       setRawTranscript(text);
+      onTranscriptChange?.(text);
     }
   });
 
@@ -77,6 +99,8 @@ export function TalkCaptureMicButton({
     setIsRecording(false);
     setPhase('idle');
     setRawTranscript('');
+    setSuccessLabel('');
+    setSuccessTone('online');
     setMeteringDb(-100);
   }, []);
 
@@ -116,6 +140,10 @@ export function TalkCaptureMicButton({
   }, [t]);
 
   const startRecording = useCallback(async () => {
+    if (locked) {
+      onLockedPress?.();
+      return;
+    }
     if (isRecording || disabled) return;
     if (beforeStart) {
       const ok = await beforeStart();
@@ -167,7 +195,9 @@ export function TalkCaptureMicButton({
     ensureMicrophoneReady,
     i18n.language,
     isRecording,
+    locked,
     intentionFlow,
+    onLockedPress,
     onCaptureStart,
     resetInternal,
     t,
@@ -195,16 +225,56 @@ export function TalkCaptureMicButton({
     } finally {
       setIsRecording(false);
       setIsPaused(false);
-      resetInternal();
-      if (intentionFlow) {
-        await intentionFlow.submitCapturePayload({ transcript, audioUri: uri });
+      const cleaned = cleanTranscriptText(String(transcript || '')).trim();
+      if (!cleaned) {
+        resetInternal();
+        Alert.alert(
+          t('talkDebug.captureTitle', { defaultValue: 'Capture' }),
+          t('talkDebug.oneTapEmptyTranscript', { defaultValue: 'Aucun texte détecté.' }),
+        );
+        return;
       }
-      await onCaptureEnd?.({ transcript, audioUri: uri });
+      const net = await NetInfo.fetch();
+      const online = net.isConnected === true && net.isInternetReachable === true;
+      setPhase('success');
+      setSuccessTone(online ? 'online' : 'offline');
+      setSuccessLabel(
+        online
+          ? t('talkCapture.savedTimeline', { defaultValue: 'Intention enregistrée dans Timeline' })
+          : t('talkCapture.savedOfflinePending', {
+              defaultValue: 'Indisponibilité réseau : intention enregistrée pour traitement ultérieur',
+            }),
+      );
+      if (intentionFlow) {
+        void intentionFlow.submitCapturePayload({ transcript: cleaned, audioUri: uri });
+      }
+      await onCaptureEnd?.({ transcript: cleaned, audioUri: uri });
       if (RPlatform.OS !== 'web') {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     }
   }, [intentionFlow, isRecording, onCaptureEnd, rawTranscript, resetInternal, t]);
+
+  useEffect(() => {
+    if (phase !== 'success') return;
+    successScale.setValue(0.8);
+    successOpacity.setValue(1);
+    const anim = Animated.sequence([
+      Animated.timing(successScale, { toValue: 1.1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(successScale, { toValue: 1.0, duration: 120, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.delay(1200),
+      Animated.timing(successOpacity, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]);
+    anim.start(({ finished }) => {
+      if (finished) {
+        onValidated?.();
+        resetInternal();
+      }
+    });
+    return () => {
+      anim.stop();
+    };
+  }, [onValidated, phase, resetInternal, successOpacity, successScale]);
 
   const cancelRecording = useCallback(async () => {
     try {
@@ -266,6 +336,97 @@ export function TalkCaptureMicButton({
     };
   }, []);
 
+  const isTalkDebug = variant === 'talkDebug';
+
+  if (isTalkDebug) {
+    const canvasH = Math.round(Dimensions.get('window').height * 0.4);
+    const accent = successTone === 'offline' ? '#FFB300' : '#4CAF50';
+    if (phase === 'idle') {
+      return (
+        <View style={tdStyles.micShell}>
+          {locked && lockedHintText ? (
+            <Pressable style={tdStyles.micHintPress} onPress={onLockedPress} disabled={!onLockedPress}>
+              <Text style={tdStyles.micHintText}>{lockedHintText}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={() => void startRecording()}
+            disabled={disabled && !locked}
+            style={[tdStyles.micBtn, locked ? tdStyles.micBtnLocked : null, disabled && !locked ? tdStyles.disabled : null]}
+          >
+            <Mic size={24} color={locked ? '#e2e8f0' : '#fff'} />
+            {locked ? (
+              <View style={tdStyles.micLockBadge}>
+                <Lock size={14} color="#fff" />
+              </View>
+            ) : null}
+          </Pressable>
+        </View>
+      );
+    }
+
+    if (phase === 'success') {
+      return (
+        <View style={tdStyles.captureTranscriptShell}>
+          <View style={[tdStyles.validationCanvas, { height: canvasH }]}>
+            <Animated.View style={{ transform: [{ scale: successScale }], opacity: successOpacity, alignItems: 'center' }}>
+              <Check size={140} color={accent} />
+              <Text style={tdStyles.validationText}>{successLabel}</Text>
+            </Animated.View>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <>
+        <View style={tdStyles.captureTranscriptShell}>
+          <ScrollView
+            ref={(ref) => {
+              liveScrollRef.current = ref;
+            }}
+            style={tdStyles.captureTranscriptScroll}
+            contentContainerStyle={tdStyles.liveTranscriptContent}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={() => {
+              liveScrollRef.current?.scrollToEnd({ animated: true });
+            }}
+          >
+            <Text style={tdStyles.liveTranscript}>{rawTranscript.trim() ? rawTranscript : ' '}</Text>
+          </ScrollView>
+          {!isPaused ? (
+            <VoiceMeteringWaveform meteringDb={meteringDb} accessibilityLabel={waveformA11yLabel} />
+          ) : null}
+          <LinearGradient
+            pointerEvents="none"
+            colors={['#111827', 'rgba(17,24,39,0)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={tdStyles.transcriptFadeTop}
+          />
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(17,24,39,0)', '#111827']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={tdStyles.transcriptFadeBottom}
+          />
+        </View>
+        <View style={tdStyles.pilotRowDocked}>
+          <Pressable style={tdStyles.ctrlBtn} onPress={() => void cancelRecording()} disabled={disabled}>
+            <Trash2 size={18} color="#fff" />
+          </Pressable>
+          <Pressable style={tdStyles.ctrlBtn} onPress={() => void togglePause()} disabled={disabled}>
+            {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
+          </Pressable>
+          <Pressable style={[tdStyles.micBtn, tdStyles.ctrlBtnPrimary, disabled ? tdStyles.disabled : null]} onPress={() => void stopRecording()} disabled={disabled}>
+            <SendHorizontal size={22} color="#fff" />
+          </Pressable>
+        </View>
+      </>
+    );
+  }
+
   if (phase === 'idle') {
     return (
       <View style={[styles.idleWrap, compact && styles.idleWrapCompact]}>
@@ -286,6 +447,28 @@ export function TalkCaptureMicButton({
         {compact ? null : (
           <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>{t('talkCapture.hintTap')}</Text>
         )}
+      </View>
+    );
+  }
+
+  if (phase === 'success') {
+    const canvasH = Math.round(Dimensions.get('window').height * 0.4);
+    const accent = successTone === 'offline' ? '#FFB300' : '#4CAF50';
+    return (
+      <View style={[styles.recordingCard, neumorphicInset(theme), compact && styles.recordingCardCompact]}>
+        <View style={styles.waveRow}>
+          {waveHeights.map((h, idx) => (
+            <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused ? 8 : h }]} />
+          ))}
+        </View>
+        <View style={[styles.liveTranscriptWrap, { minHeight: canvasH, maxHeight: canvasH }]}>
+          <View style={styles.successCanvas}>
+            <Animated.View style={{ transform: [{ scale: successScale }], opacity: successOpacity, alignItems: 'center' }}>
+              <Check size={140} color={accent} />
+              <Text style={styles.successText}>{successLabel}</Text>
+            </Animated.View>
+          </View>
+        </View>
       </View>
     );
   }
@@ -384,6 +567,8 @@ const styles = StyleSheet.create({
   liveTranscriptScroll: { flex: 1 },
   liveTranscriptContent: { paddingHorizontal: 10, paddingVertical: 8 },
   liveTranscript: { color: '#f9fafb', fontSize: 14, lineHeight: 20 },
+  successCanvas: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  successText: { marginTop: 20, fontSize: 18, fontWeight: '600', textAlign: 'center', lineHeight: 24, color: '#E3F2FD' },
   transcriptFadeTop: { position: 'absolute', left: 0, right: 0, top: 0, height: 18 },
   transcriptFadeBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 22 },
   ctrlRow: { flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 12 },
@@ -395,4 +580,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+});
+
+const tdStyles = StyleSheet.create({
+  captureTranscriptShell: { width: '100%', position: 'relative', marginBottom: 14 },
+  captureTranscriptScroll: { width: '100%' },
+  liveTranscriptContent: { paddingHorizontal: 10, paddingVertical: 8 },
+  liveTranscript: { color: '#BDC3C7', fontSize: 16, textAlign: 'center', paddingHorizontal: 10, lineHeight: 22 },
+  transcriptFadeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 16 },
+  transcriptFadeBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 16 },
+  pilotRowDocked: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginTop: 4 },
+  ctrlBtn: { width: 52, height: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f766e' },
+  ctrlBtnPrimary: { width: 72, height: 72, borderRadius: 999, backgroundColor: '#008080' },
+  micShell: { alignSelf: 'center', width: '100%', alignItems: 'center', gap: 10, marginBottom: 8 },
+  micBtn: {
+    alignSelf: 'center',
+    marginBottom: 8,
+    width: 72,
+    height: 72,
+    borderRadius: 999,
+    backgroundColor: '#008080',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  micHintPress: { maxWidth: 320, paddingHorizontal: 14, paddingVertical: 8 },
+  micHintText: { color: 'rgba(226, 232, 240, 0.92)', fontSize: 12, lineHeight: 16, textAlign: 'center', fontWeight: '700' },
+  micBtnLocked: { backgroundColor: '#475569' },
+  micLockBadge: {
+    position: 'absolute',
+    right: -6,
+    top: -6,
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: 'rgba(226,232,240,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  disabled: { opacity: 0.5 },
+  validationCanvas: { width: '100%', alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#111827' },
+  validationText: { marginTop: 20, fontSize: 18, fontWeight: '600', textAlign: 'center', lineHeight: 24, color: '#E3F2FD' },
 });

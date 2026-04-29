@@ -7,7 +7,6 @@ import * as Haptics from 'expo-haptics';
 import { useSpeechRecognitionEvent } from 'expo-speech-recognition';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
-import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
 import {
   inferOneTapSkeletonFromTranscript,
   refineOneTapWithGeminiCompressed,
@@ -20,6 +19,7 @@ import {
   replacePendingOneTapDraft,
 } from '../services/oneTapPersist';
 import { showAppToast } from '../services/appToast';
+import { deleteTrankilV2IntentionById } from '../api/trankilV2Db';
 import {
   getOfflineAudioById,
   getLatestPendingOfflineAudio,
@@ -79,6 +79,15 @@ function isCompleteIntent(it: Record<string, unknown>): boolean {
   }
   const title = String(it.title ?? it.content ?? '').trim();
   return title.length > 0;
+}
+
+function cleanTranscriptForPersist(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  return s
+    .replace(/\.\.\.\s*Audio en cours de traitement\s*$/i, '')
+    .replace(/⚠️\s*Audio enregistré\s*\(traitement ultérieur\)\s*$/i, '')
+    .trim();
 }
 
 function buildListDraftBlock(params: {
@@ -294,8 +303,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const streamTimerRef = useRef<number | null>(null);
   const geminiSeqRef = useRef(0);
   const modalOpenTimerRef = useRef<number | null>(null);
+  const geminiStartedRef = useRef(false);
+  const firstSavedResolveRef = useRef<(() => void) | null>(null);
+  const firstSavedFiredRef = useRef(false);
   const intentIdByIndexRef = useRef<Record<string, string>>({});
   const intentReplaceTimersRef = useRef<Record<string, number>>({});
+  const finalizedIdsRef = useRef<Record<string, true>>({});
 
   const startCapture = useCallback(() => {
     userEditedRef.current = false;
@@ -311,6 +324,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(modalOpenTimerRef.current);
       modalOpenTimerRef.current = null;
     }
+    geminiStartedRef.current = false;
+    firstSavedFiredRef.current = false;
+    firstSavedResolveRef.current = null;
+    finalizedIdsRef.current = {};
     for (const k of Object.keys(intentReplaceTimersRef.current)) {
       clearTimeout(intentReplaceTimersRef.current[k]);
     }
@@ -328,6 +345,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     lastCaptureWasMicRef.current = false;
     lastAudioUriRef.current = null;
     captureActiveRef.current = false;
+    geminiSeqRef.current += 1;
     if (streamTimerRef.current) {
       clearTimeout(streamTimerRef.current);
       streamTimerRef.current = null;
@@ -336,6 +354,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(modalOpenTimerRef.current);
       modalOpenTimerRef.current = null;
     }
+    geminiStartedRef.current = false;
+    firstSavedFiredRef.current = false;
+    firstSavedResolveRef.current = null;
+    finalizedIdsRef.current = {};
     for (const k of Object.keys(intentReplaceTimersRef.current)) {
       clearTimeout(intentReplaceTimersRef.current[k]);
     }
@@ -344,6 +366,20 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     setRefining(false);
     setBusy(false);
   }, []);
+
+  const cancelBlueModal = useCallback(async () => {
+    geminiSeqRef.current += 1;
+    const ids = Object.values(intentIdByIndexRef.current).filter(Boolean);
+    intentIdByIndexRef.current = {};
+    if (ids.length) {
+      for (const id of ids) {
+        try {
+          await deleteTrankilV2IntentionById(id);
+        } catch {}
+      }
+    }
+    cancelCapture();
+  }, [cancelCapture]);
 
   const proposeOfflineFallback = useCallback(
     (params: { transcript: string; audioUri: string | null; error: unknown }) => {
@@ -387,6 +423,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     }) => {
       const cleaned = params.transcript.trim();
       if (!cleaned) return;
+      const persistTranscript = cleaned;
       const uiLocale = spectrum.locale || 'fr';
       const seq = (geminiSeqRef.current += 1);
       let fired = false;
@@ -402,22 +439,108 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             if (seq !== geminiSeqRef.current) return;
             if (userEditedRef.current) return;
             setDraft(partial);
-            if (!fired && params.openOnFirstIntent && readDraftIntents(partial).length > 0) {
-              fired = true;
-              params.onFirstIntent?.();
-            }
+            void (async () => {
+              try {
+                const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
+                const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
+                const intents = readDraftIntents(partial);
+                for (let idx = 0; idx < intents.length; idx++) {
+                  const it = intents[idx];
+                  if (!isCompleteIntent(it)) continue;
+                  const idxKey = String(idx);
+                  const built = buildOneTapDraftFromIntent({ baseDraft: partial, intent: it });
+                  if (!built) continue;
+                  const existingId = intentIdByIndexRef.current[idxKey];
+                  if (!existingId) {
+                    const pre = await preSaveOneTapOptimisticDraft({
+                      deps,
+                      draft: built,
+                      transcript: persistTranscript,
+                      habitsDefaultTitle,
+                      birthdayLabel,
+                    });
+                    if (pre.ok) {
+                      intentIdByIndexRef.current[idxKey] = pre.intentionId;
+                      if (!firstSavedFiredRef.current) {
+                        firstSavedFiredRef.current = true;
+                        firstSavedResolveRef.current?.();
+                      }
+                    if (built.predictedType !== 'LIST') {
+                      finalizedIdsRef.current[pre.intentionId] = true;
+                      await finalizeOneTapOptimisticDraft({
+                        deps,
+                        intentionId: pre.intentionId,
+                        draft: built,
+                        transcript: persistTranscript,
+                        habitsDefaultTitle,
+                        birthdayLabel,
+                      });
+                    }
+                      if (!fired && params.openOnFirstIntent) {
+                        fired = true;
+                        params.onFirstIntent?.();
+                      }
+                    }
+                    continue;
+                  }
+                if (finalizedIdsRef.current[existingId]) continue;
+                  if (intentReplaceTimersRef.current[existingId]) continue;
+                  intentReplaceTimersRef.current[existingId] = setTimeout(() => {
+                    delete intentReplaceTimersRef.current[existingId];
+                    void replacePendingOneTapDraft({
+                      deps,
+                      intentionId: existingId,
+                      draft: built,
+                      transcript: persistTranscript,
+                      habitsDefaultTitle,
+                      birthdayLabel,
+                    });
+                  }, 120) as unknown as number;
+                }
+              } catch {}
+            })();
           },
         });
         if (seq !== geminiSeqRef.current) return;
-        if (!userEditedRef.current) {
-          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
-          if (seq !== geminiSeqRef.current) return;
-          setDraft(hydrated);
-        }
+        const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
+        if (seq !== geminiSeqRef.current) return;
+        setDraft(hydrated);
+        void (async () => {
+          try {
+            const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
+            const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
+            const intents = readDraftIntents(hydrated).filter(isCompleteIntent);
+            for (let idx = 0; idx < intents.length; idx++) {
+              const it = intents[idx];
+              const idxKey = String(idx);
+              const intentionId = intentIdByIndexRef.current[idxKey];
+              if (!intentionId) continue;
+              if (finalizedIdsRef.current[intentionId]) continue;
+              const built = buildOneTapDraftFromIntent({ baseDraft: hydrated, intent: it });
+              if (!built) continue;
+              await finalizeOneTapOptimisticDraft({
+                deps,
+                intentionId,
+                draft: built,
+                transcript: persistTranscript,
+                habitsDefaultTitle,
+                birthdayLabel,
+              });
+              finalizedIdsRef.current[intentionId] = true;
+            }
+          } catch {}
+        })();
       } catch (e) {
-        if (params.allowAlert) {
-          proposeOfflineFallback({ transcript: cleaned, audioUri: params.audioUri, error: e });
-        }
+        const title = cleaned.slice(0, 56) || 'Memo audio';
+        try {
+          if (params.audioUri) {
+            await queueOfflineAudioCapture({ transcript: cleaned, audioUri: params.audioUri, title });
+          } else {
+            await queueOfflineTextCapture({ transcript: cleaned, title });
+          }
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+        } catch {}
+        if (params.allowAlert) proposeOfflineFallback({ transcript: cleaned, audioUri: params.audioUri, error: e });
       } finally {
         if (seq === geminiSeqRef.current) setRefining(false);
       }
@@ -446,7 +569,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
       if (!online) {
-        setTranscript(`${cleaned} ⚠️ Audio enregistré (traitement ultérieur)`);
         const title = cleaned.slice(0, 56) || 'Memo audio';
         if (audioUri) await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
         else await queueOfflineTextCapture({ transcript: cleaned, title });
@@ -454,24 +576,15 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      setTranscript(`${cleaned}... Audio en cours de traitement`);
-      modalOpenTimerRef.current = setTimeout(() => {
-        modalOpenTimerRef.current = null;
-        setVisible(true);
-      }, 1500) as unknown as number;
-      void runGeminiStreamRefine({
-        transcript: cleaned,
-        audioUri,
-        allowAlert: true,
-        openOnFirstIntent: true,
-        onFirstIntent: () => {
-          if (modalOpenTimerRef.current) {
-            clearTimeout(modalOpenTimerRef.current);
-            modalOpenTimerRef.current = null;
-          }
-          setVisible(true);
-        },
-      });
+      if (!geminiStartedRef.current) {
+        geminiStartedRef.current = true;
+        void runGeminiStreamRefine({
+          transcript: cleaned,
+          audioUri,
+          allowAlert: true,
+          openOnFirstIntent: false,
+        });
+      }
     },
     [runGeminiStreamRefine],
   );
@@ -483,13 +596,14 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
       const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
       const intents = readDraftIntents(draft).filter(isCompleteIntent);
+      const persistTranscript = cleanTranscriptForPersist(transcript);
       if (!intents.length) {
-        const title = transcript.trim().slice(0, 56) || 'Memo';
+        const title = persistTranscript.slice(0, 56) || 'Memo';
         const audioUri = lastAudioUriRef.current;
         if (audioUri) {
-          await queueOfflineAudioCapture({ transcript: transcript.trim(), audioUri, title });
+          await queueOfflineAudioCapture({ transcript: persistTranscript, audioUri, title });
         } else {
-          await queueOfflineTextCapture({ transcript: transcript.trim(), title });
+          await queueOfflineTextCapture({ transcript: persistTranscript, title });
         }
         setVisible(false);
         setRefining(false);
@@ -513,7 +627,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           const pre = await preSaveOneTapOptimisticDraft({
             deps,
             draft: built,
-            transcript,
+            transcript: persistTranscript,
             habitsDefaultTitle,
             birthdayLabel,
           });
@@ -525,7 +639,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           deps,
           intentionId,
           draft: built,
-          transcript,
+          transcript: persistTranscript,
           habitsDefaultTitle,
           birthdayLabel,
         });
@@ -578,57 +692,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const online = net.isConnected === true && net.isInternetReachable === true;
         if (!online) return;
         if (seq !== streamSeqRef.current) return;
-        void runGeminiStreamRefine({
-          transcript: snap,
-          audioUri: null,
-          allowAlert: false,
-          openOnFirstIntent: false,
-        });
+        if (geminiStartedRef.current) return;
+        geminiStartedRef.current = true;
+        void runGeminiStreamRefine({ transcript: snap, audioUri: null, allowAlert: false, openOnFirstIntent: false });
       })();
     }, 850) as unknown as number;
   });
-
-  useEffect(() => {
-    if (!captureActiveRef.current) return;
-    const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
-    const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
-    const intents = readDraftIntents(draft);
-    void (async () => {
-      for (let idx = 0; idx < intents.length; idx++) {
-        const it = intents[idx];
-        if (!isCompleteIntent(it)) continue;
-        const idxKey = String(idx);
-        const built = buildOneTapDraftFromIntent({ baseDraft: draftRef.current, intent: it });
-        if (!built) continue;
-        const existingId = intentIdByIndexRef.current[idxKey];
-        if (!existingId) {
-          const pre = await preSaveOneTapOptimisticDraft({
-            deps,
-            draft: built,
-            transcript: transcriptRef.current,
-            habitsDefaultTitle,
-            birthdayLabel,
-          });
-          if (pre.ok) {
-            intentIdByIndexRef.current[idxKey] = pre.intentionId;
-          }
-          continue;
-        }
-        if (intentReplaceTimersRef.current[existingId]) continue;
-        intentReplaceTimersRef.current[existingId] = setTimeout(() => {
-          delete intentReplaceTimersRef.current[existingId];
-          void replacePendingOneTapDraft({
-            deps,
-            intentionId: existingId,
-            draft: built,
-            transcript: transcriptRef.current,
-            habitsDefaultTitle,
-            birthdayLabel,
-          });
-        }, 240) as unknown as number;
-      }
-    })();
-  }, [deps, draft]);
 
   const analyzeLatestOfflineAudio = useCallback(
     async (queueId?: string) => {
@@ -645,11 +714,14 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsub = NetInfo.addEventListener((s) => {
       if (s.isConnected === true && s.isInternetReachable === true) {
-        void notifyOfflineAudioPendingAnalysis();
+        void (async () => {
+          await notifyOfflineAudioPendingAnalysis();
+          await analyzeLatestOfflineAudio();
+        })();
       }
     });
     return () => unsub();
-  }, []);
+  }, [analyzeLatestOfflineAudio]);
 
   useEffect(() => {
     const n = getNotifications();
@@ -681,24 +753,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   return (
     <IntentionContext.Provider value={value}>
       {children}
-      <OneTapConfirmModal
-        visible={visible}
-        draft={draft}
-        transcript={transcript}
-        refinePhase={refining ? 'streaming' : 'done'}
-        busy={busy}
-        onUserEdited={() => {
-          userEditedRef.current = true;
-        }}
-        onChangeDraft={(next) => {
-          setDraft(next);
-        }}
-        onChangeTranscript={(next) => {
-          setTranscript(next);
-        }}
-        onConfirm={() => void confirm()}
-        onDismiss={cancelCapture}
-      />
     </IntentionContext.Provider>
   );
 }

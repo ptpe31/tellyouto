@@ -4,7 +4,7 @@
  */
 export async function transcribeWithWhisperLocal(audioPath: string): Promise<string | null> {
   try {
-    const mod: any = await import('whisper.rn');
+    const mod: any = await import('whisper.rn/index');
     const fn =
       mod?.transcribe ??
       mod?.default?.transcribe ??
@@ -21,4 +21,3 @@ export async function transcribeWithWhisperLocal(audioPath: string): Promise<str
     return null;
   }
 }
-

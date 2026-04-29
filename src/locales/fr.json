@@ -10,7 +10,9 @@
     "cancel": "Annuler"
   },
   "talkCapture": {
-    "hintTap": "Appuie pour capturer une piste vocale"
+    "hintTap": "Appuie pour capturer une piste vocale",
+    "savedTimeline": "Intention enregistrée dans Timeline",
+    "savedOfflinePending": "Indisponibilité réseau : intention enregistrée pour traitement ultérieur"
   },
   "capture": {
     "offlineNoteGenericToast": "Note sauvegardée localement. L'organisation intelligente sera finalisée dès le retour du réseau.",

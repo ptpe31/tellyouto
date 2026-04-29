@@ -195,6 +195,15 @@ function isRenderableSynthesisIntent(it: Record<string, unknown>): boolean {
   return title.length > 0;
 }
 
+function cleanTranscriptForModal(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  return s
+    .replace(/\.\.\.\s*Audio en cours de traitement\s*$/i, '')
+    .replace(/⚠️\s*Audio enregistré\s*\(traitement ultérieur\)\s*$/i, '')
+    .trim();
+}
+
 function hasStreamedIntents(draft: OneTapUniversalResult): boolean {
   return readDraftIntents(draft).length > 0;
 }
@@ -285,14 +294,6 @@ function buildListBlockFromIntent(it: Record<string, unknown>): Record<string, u
   };
 }
 
-type StagedIntent = {
-  id: string;
-  intent: Record<string, unknown> | null;
-  phase: 'loading' | 'shown';
-  createdAtMs: number;
-  revealedItemsCount?: number;
-};
-
 function ymdFromDate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -374,6 +375,7 @@ export function OneTapConfirmModal({
   onConfirm,
   onDismiss,
 }: OneTapConfirmModalProps) {
+  if (!draft) return null;
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const insets = useSafeAreaInsets();
@@ -398,22 +400,12 @@ export function OneTapConfirmModal({
   const [menuOpen, setMenuOpen] = useState(false);
   const [dateTarget, setDateTarget] = useState<'TASK_DUE' | 'RECUR_NEXT' | 'UNIVERSAL_REMINDER' | null>(null);
   const [sentinelQuotaBalance, setSentinelQuotaBalance] = useState<number | null>(null);
-  const [displayedIntents, setDisplayedIntents] = useState<Record<string, unknown>[]>([]);
-  const [stagedIntents, setStagedIntents] = useState<StagedIntent[]>([]);
-  const hasLocalEditsRef = useRef(false);
-  const revealAnimRef = useRef<Record<string, Animated.Value>>({});
-  const revealTimersRef = useRef<Record<string, number>>({});
-  const itemRevealTimersRef = useRef<Record<string, number>>({});
-  const stageDelayMs = 0;
-  const itemRevealDelayMs = 0;
-  const listDebugSigRef = useRef<Record<string, string>>({});
 
   const showRefiningBanner = refinePhase === 'streaming' || refinePhase === 'local';
   const isGenerating = refinePhase === 'streaming' || refinePhase === 'local';
   const minimalUi = variant === 'minimal';
 
   const markUserEdited = useCallback(() => {
-    hasLocalEditsRef.current = true;
     onUserEdited?.();
   }, [onUserEdited]);
 
@@ -459,8 +451,6 @@ export function OneTapConfirmModal({
       setSentinelQuotaBalance(snap.balance);
     })();
   }, [draft, visible]);
-
-  if (!draft) return null;
 
   const patchDraftIntents = useCallback(
     (next: Record<string, unknown>[]) => {
@@ -512,57 +502,16 @@ export function OneTapConfirmModal({
     }
   }, []);
 
-  useEffect(() => {
-    if (!visible) {
-      hasLocalEditsRef.current = false;
-      setStagedIntents([]);
-      for (const k of Object.keys(revealTimersRef.current)) {
-        clearTimeout(revealTimersRef.current[k]);
-      }
-      revealTimersRef.current = {};
-      for (const k of Object.keys(itemRevealTimersRef.current)) {
-        clearTimeout(itemRevealTimersRef.current[k]);
-      }
-      itemRevealTimersRef.current = {};
-      revealAnimRef.current = {};
-      listDebugSigRef.current = {};
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    if (!visible) return;
-    const next = readDraftIntents(draft);
-    if (next.length > displayedIntents.length) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    }
-    if (!hasLocalEditsRef.current) {
-      const normalized = normalizeIncomingIntents(next);
-      if (JSON.stringify(normalized) !== JSON.stringify(displayedIntents)) {
-        setDisplayedIntents(normalized);
-      }
-    }
-  }, [displayedIntents, draft, visible]);
-
-  const getWorkingIntents = useCallback((): Record<string, unknown>[] => {
-    const direct = readDraftIntents(draft);
-    if (!hasLocalEditsRef.current) {
-      return normalizeIncomingIntents(direct);
-    }
-    if (displayedIntents.length) return displayedIntents;
-    return direct;
-  }, [displayedIntents, draft]);
-
   const updateIntentAt = useCallback(
     (intentIndex: number, patch: Record<string, unknown>) => {
       markUserEdited();
-      const intents = [...getWorkingIntents()];
+      const src = readDraftIntents(draft);
+      const intents = [...src];
       const base = { ...((intents[intentIndex] as Record<string, unknown>) ?? {}) };
-      const nextIntent = { ...base, ...patch };
-      intents[intentIndex] = nextIntent;
-      setDisplayedIntents(intents);
+      intents[intentIndex] = { ...base, ...patch };
       patchDraftIntents(intents);
     },
-    [getWorkingIntents, markUserEdited, patchDraftIntents],
+    [draft, markUserEdited, patchDraftIntents],
   );
 
   const logisticsMemoryKeyRef = useRef<string>('');
@@ -593,17 +542,14 @@ export function OneTapConfirmModal({
   const lastDebugSigRef = useRef<string>('');
   useEffect(() => {
     if (!debugModal || !visible) return;
-    const working = getWorkingIntents();
+    const working = readDraftIntents(draft);
     const sig = JSON.stringify({
       visible,
       refinePhase,
       isGenerating,
       predictedType: draft.predictedType,
-      displayedIntentsLen: displayedIntents.length,
       draftIntentsLen: readDraftIntents(draft).length,
       workingLen: working.length,
-      stagedLen: stagedIntents.length,
-      stagedPhases: stagedIntents.map((s) => s.phase),
       firstWorkingType: String(working[0]?.type ?? ''),
       firstWorkingTitle: String(working[0]?.title ?? working[0]?.content ?? ''),
     });
@@ -611,108 +557,17 @@ export function OneTapConfirmModal({
       lastDebugSigRef.current = sig;
       console.log('[OneTapModal][debug]', JSON.parse(sig));
     }
-  }, [debugModal, displayedIntents.length, draft, getWorkingIntents, isGenerating, refinePhase, stagedIntents, visible]);
-
-  useEffect(() => {
-    if (!visible) return;
-    const intents = getWorkingIntents();
-    const targetCount = intents.length || (isGenerating ? 1 : 0);
-    setStagedIntents((prev) => {
-      if (targetCount === 0) return prev;
-      const next: StagedIntent[] = [];
-      for (let i = 0; i < targetCount; i++) {
-        const it = intents[i] ?? null;
-        const base = `${i}`;
-        const existing = prev.find((p) => p.id === base);
-        if (existing) {
-          next.push({ ...existing, intent: it });
-        } else {
-          if (debugModal) {
-            console.log('[OneTapModal][stage.add]', {
-              id: base,
-              idx: i,
-              type: String(it?.type ?? draft.predictedType ?? ''),
-              title: String(it?.title ?? it?.content ?? ''),
-              phase: 'loading',
-            });
-          }
-          next.push({ id: base, intent: it, phase: 'loading', createdAtMs: Date.now() });
-        }
-      }
-      return next;
-    });
-  }, [draft.predictedType, getWorkingIntents, isGenerating, visible]);
-
-  useEffect(() => {
-    if (!visible) return;
-    for (const st of stagedIntents) {
-      if (st.phase !== 'loading') continue;
-      if (revealTimersRef.current[st.id]) continue;
-      if (debugModal) console.log('[OneTapModal][stage.timer.schedule]', { id: st.id });
-      const elapsed = Date.now() - (st.createdAtMs || Date.now());
-      const waitMs = Math.max(0, stageDelayMs - elapsed);
-      revealTimersRef.current[st.id] = setTimeout(() => {
-        if (debugModal) console.log('[OneTapModal][stage.timer.fire]', { id: st.id });
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setStagedIntents((prev) =>
-          prev.map((p) => (p.id === st.id ? { ...p, phase: 'shown', revealedItemsCount: 0 } : p)),
-        );
-      }, waitMs) as unknown as number;
-    }
-  }, [debugModal, stagedIntents, stageDelayMs, visible]);
-
-  useEffect(() => {
-    if (!visible) return;
-    for (const st of stagedIntents) {
-      if (st.phase !== 'shown') continue;
-      const it = st.intent ?? {};
-      const type = String(it.type ?? '').trim().toUpperCase();
-      if (type !== 'LIST') continue;
-      const items = Array.isArray(it.items) ? (it.items as unknown[]) : [];
-      const revealed = Math.max(0, Math.round(Number(st.revealedItemsCount ?? 0)));
-      if (revealed >= items.length) continue;
-      if (itemRevealTimersRef.current[st.id]) continue;
-      if (debugModal) {
-        console.log('[OneTapModal][items.timer.schedule]', {
-          id: st.id,
-          itemsLen: items.length,
-          revealed,
-          delayMs: itemRevealDelayMs,
-        });
-      }
-      itemRevealTimersRef.current[st.id] = setTimeout(() => {
-        delete itemRevealTimersRef.current[st.id];
-        if (debugModal) {
-          console.log('[OneTapModal][items.timer.fire]', {
-            id: st.id,
-            itemsLen: items.length,
-            revealed,
-          });
-        }
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setStagedIntents((prev) =>
-          prev.map((p) =>
-            p.id === st.id
-              ? { ...p, revealedItemsCount: Math.min(items.length, Math.max(0, Math.round(Number(p.revealedItemsCount ?? 0))) + 1) }
-              : p,
-          ),
-        );
-      }, itemRevealDelayMs) as unknown as number;
-    }
-  }, [itemRevealDelayMs, stagedIntents, visible]);
+  }, [debugModal, draft, isGenerating, refinePhase, visible]);
 
   const removeIntentAt = (intentIndex: number) => {
     markUserEdited();
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const src = getWorkingIntents();
-    const next = src.filter((_, i) => i !== intentIndex);
-    setDisplayedIntents(next);
-    patchDraftIntents(next);
+    const src = readDraftIntents(draft);
+    patchDraftIntents(src.filter((_, i) => i !== intentIndex));
   };
 
   const toggleIntentListItemInclude = (intentIndex: number, itemIndex: number) => {
     markUserEdited();
-    const intents = [...getWorkingIntents()];
+    const intents = [...readDraftIntents(draft)];
     const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
     const itemsRaw = intent.items;
     const items = Array.isArray(itemsRaw) ? [...itemsRaw] : [];
@@ -722,34 +577,29 @@ export function OneTapConfirmModal({
     items[itemIndex] = it;
     intent.items = items;
     intents[intentIndex] = intent;
-    setDisplayedIntents(intents);
     patchDraftIntents(intents);
   };
 
   const removeIntentListItem = (intentIndex: number, itemIndex: number) => {
     markUserEdited();
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const intents = [...getWorkingIntents()];
+    const intents = [...readDraftIntents(draft)];
     const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
     const itemsRaw = intent.items;
     const items = Array.isArray(itemsRaw) ? [...itemsRaw] : [];
     items.splice(itemIndex, 1);
     intent.items = items;
     intents[intentIndex] = intent;
-    setDisplayedIntents(intents);
     patchDraftIntents(intents);
   };
 
   const adjustIntentListBaseCount = (intentIndex: number, delta: number) => {
     markUserEdited();
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const intents = [...getWorkingIntents()];
+    const intents = [...readDraftIntents(draft)];
     const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
     const before = Math.max(1, Math.round(Number(intent.baseCount ?? 1)));
     const n = Math.max(1, Math.min(999, before + delta));
     intent.baseCount = n;
     intents[intentIndex] = intent;
-    setDisplayedIntents(intents);
     patchDraftIntents(intents);
     if (debugModal) {
       console.log('[OneTapModal][stepper]', { intentIndex, delta, before, after: n });
@@ -758,11 +608,10 @@ export function OneTapConfirmModal({
 
   const setIntentListUnitLabel = (intentIndex: number, unitLabel: string) => {
     markUserEdited();
-    const intents = [...getWorkingIntents()];
+    const intents = [...readDraftIntents(draft)];
     const intent = { ...(intents[intentIndex] as Record<string, unknown>) };
     intent.unitLabel = unitLabel;
     intents[intentIndex] = intent;
-    setDisplayedIntents(intents);
     patchDraftIntents(intents);
   };
 
@@ -891,322 +740,10 @@ export function OneTapConfirmModal({
     );
   };
 
-  const renderIntentCards = () => {
-    if (!stagedIntents.length) return null;
-    return (
-      <View style={styles.section}>
-        {stagedIntents.map((st, idx) => {
-          const it = st.intent ?? {};
-          const type = String(it.type ?? '').trim().toUpperCase();
-          if (st.phase === 'loading') {
-            const loadingType = String((st.intent as Record<string, unknown> | null)?.type ?? draft.predictedType ?? '')
-              .trim()
-              .toUpperCase();
-            return (
-              <View key={st.id} style={styles.intentLoadingRow}>
-                <Text style={styles.intentType}>{loadingType || '...'}</Text>
-                <View style={styles.loadingTitleRow}>
-                  <Text style={styles.intentLoadingText}>{intentLabel(st.intent, draft.predictedType)}</Text>
-                  <StreamingIndicator />
-                </View>
-              </View>
-            );
-          }
-          const anim = revealAnimRef.current[st.id] ?? new Animated.Value(0);
-          if (!revealAnimRef.current[st.id]) {
-            revealAnimRef.current[st.id] = anim;
-            Animated.timing(anim, {
-              toValue: 1,
-              duration: 220,
-              easing: Easing.out(Easing.cubic),
-              useNativeDriver: true,
-            }).start();
-          }
-          const cardStyle = {
-            opacity: anim,
-            transform: [
-              {
-                translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
-              },
-            ],
-          };
-          if (type === 'TASK') {
-            const title = String(it.content ?? it.title ?? '').trim() || '—';
-            const dueIso = String(it.due ?? '').trim();
-            let badge = '';
-            if (dueIso) {
-              try {
-                const dt = new Date(dueIso);
-                badge = Number.isNaN(dt.getTime())
-                  ? dueIso
-                  : dt.toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' });
-              } catch {
-                badge = dueIso;
-              }
-            }
-            return (
-              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
-                <View style={styles.intentHeadRow}>
-                  <Pressable
-                    style={styles.intentDeleteBtn}
-                    onPress={() => !busy && removeIntentAt(idx)}
-                    disabled={busy}
-                    accessibilityRole="button"
-                    accessibilityLabel="Supprimer"
-                  >
-                    <View style={styles.intentDeleteMinus} />
-                  </Pressable>
-                  <Text style={styles.intentType}>TASK</Text>
-                  {badge ? <Text style={styles.intentBadge}>{badge}</Text> : null}
-                </View>
-                <Text style={styles.intentTitle}>{title}</Text>
-              </Animated.View>
-            );
-          }
-          if (type === 'NOTE') {
-            const title = String(it.content ?? it.title ?? '').trim() || '—';
-            return (
-              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
-                <View style={styles.intentHeadRow}>
-                  <Pressable
-                    style={styles.intentDeleteBtn}
-                    onPress={() => !busy && removeIntentAt(idx)}
-                    disabled={busy}
-                    accessibilityRole="button"
-                    accessibilityLabel="Supprimer"
-                  >
-                    <View style={styles.intentDeleteMinus} />
-                  </Pressable>
-                  <Text style={styles.intentType}>NOTE</Text>
-                </View>
-                <Text style={styles.intentTitle}>{title}</Text>
-              </Animated.View>
-            );
-          }
-          if (type === 'LIST') {
-            const title = String(it.title ?? it.content ?? '').trim() || 'Liste';
-            const numberOfPeople = Math.max(1, Math.round(Number(it.baseCount ?? 1)));
-            const unitLabel = String(it.unitLabel ?? 'personne');
-            const items = Array.isArray(it.items) ? (it.items as unknown[]) : [];
-            const revealed = Math.max(0, Math.round(Number(st.revealedItemsCount ?? items.length)));
-            const shownItems = items.slice(0, revealed);
-            const showControls = items.length > 0 && revealed >= items.length;
-            if (debugModal) {
-              const sample = items.slice(0, 3).map((raw) => {
-                const ir = raw as Record<string, unknown>;
-                const derivedBaseQuantity =
-                  ir.baseQuantity !== undefined
-                    ? Number(ir.baseQuantity)
-                    : ir.qty !== undefined
-                      ? Number(ir.qty) / numberOfPeople
-                      : 1 / numberOfPeople;
-                const displayRef: Record<string, unknown> = {
-                  ...ir,
-                  baseQuantity: Number.isFinite(derivedBaseQuantity) ? derivedBaseQuantity : 1 / numberOfPeople,
-                };
-                const name = String(ir.name ?? '').trim();
-                const unit = String(ir.unit ?? '').trim();
-                const q = listItemDisplayQuantity(displayRef, numberOfPeople);
-                return `${name}:${q}${unit ? ` ${unit}` : ''}`;
-              });
-              const sig = JSON.stringify({
-                id: st.id,
-                phase: st.phase,
-                isGenerating,
-                title,
-                baseCount: numberOfPeople,
-                unitLabel,
-                itemsLen: items.length,
-                revealed,
-                shownLen: shownItems.length,
-                firstItem: items.length ? String((items[0] as Record<string, unknown>)?.name ?? '') : '',
-                sample,
-              });
-              if (listDebugSigRef.current[st.id] !== sig) {
-                listDebugSigRef.current[st.id] = sig;
-                console.log('[OneTapModal][list.render]', JSON.parse(sig));
-              }
-            }
-            return (
-              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
-                <View style={styles.intentHeadRow}>
-                  <Pressable
-                    style={styles.intentDeleteBtn}
-                    onPress={() => !busy && removeIntentAt(idx)}
-                    disabled={busy}
-                    accessibilityRole="button"
-                    accessibilityLabel="Supprimer"
-                  >
-                    <View style={styles.intentDeleteMinus} />
-                  </Pressable>
-                  <Text style={styles.intentType}>LIST</Text>
-                </View>
-
-                <View style={styles.listTitleRow}>
-                  <Text style={styles.intentTitle} numberOfLines={1}>
-                    {title}
-                  </Text>
-                  {!showControls ? <StreamingIndicator /> : null}
-                </View>
-
-                {showControls ? (
-                  <View style={styles.listControlsBelow}>
-                    <Text style={styles.intentBadge}>{`${numberOfPeople} ${unitLabel}`.trim()}</Text>
-                    <View style={styles.listStepperInline}>
-                      <Pressable
-                        style={[styles.stepBtn, busy && styles.disabled]}
-                        disabled={busy}
-                        onPress={() => adjustIntentListBaseCount(idx, -1)}
-                      >
-                        <Text style={styles.stepBtnText}>−</Text>
-                      </Pressable>
-                      <Text style={styles.countText}>{numberOfPeople}</Text>
-                      <Pressable
-                        style={[styles.stepBtn, busy && styles.disabled]}
-                        disabled={busy}
-                        onPress={() => adjustIntentListBaseCount(idx, 1)}
-                      >
-                        <Text style={styles.stepBtnText}>+</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ) : null}
-
-                {isGenerating && !items.length ? (
-                  <View style={styles.intentLoadingInline}>
-                    <Text style={styles.intentLoadingInlineText}>Ingrédients…</Text>
-                  </View>
-                ) : null}
-                <View style={styles.catBlock}>
-                  {shownItems.map((raw, ii) => {
-                    const ir = raw as Record<string, unknown>;
-                    const derivedBaseQuantity =
-                      ir.baseQuantity !== undefined
-                        ? Number(ir.baseQuantity)
-                        : ir.qty !== undefined
-                          ? Number(ir.qty) / numberOfPeople
-                          : 1 / numberOfPeople;
-                    const displayRef: Record<string, unknown> = {
-                      ...ir,
-                      baseQuantity: Number.isFinite(derivedBaseQuantity) ? derivedBaseQuantity : 1 / numberOfPeople,
-                    };
-                    const label = String(ir.name ?? '').trim() || '—';
-                    const displayQty = listItemDisplayQuantity(displayRef, numberOfPeople);
-                    const unit = String(ir.unit ?? '');
-                    const sub = displayQty > 0 ? `${displayQty}${unit ? ` ${unit}` : ''}` : '';
-                    return (
-                      <Pressable
-                        key={`it-${idx}-${ii}`}
-                        style={styles.listItemRow}
-                        onPress={() => !busy && toggleIntentListItemInclude(idx, ii)}
-                      >
-                        <Pressable
-                          style={[styles.ingredientDeleteBtn, busy && styles.disabled]}
-                          disabled={busy}
-                          onPress={() => !busy && removeIntentListItem(idx, ii)}
-                          accessibilityRole="button"
-                          accessibilityLabel="Supprimer ingrédient"
-                        >
-                          <View style={styles.intentDeleteMinus} />
-                        </Pressable>
-                        <Text style={styles.listBullet}>•</Text>
-                        <Text style={styles.listItemLabel} numberOfLines={1}>
-                          {label}
-                        </Text>
-                        <Text style={styles.listItemQty}>{sub}</Text>
-                      </Pressable>
-                    );
-                  })}
-                  {items.length > 0 && revealed < items.length ? <StreamingIndicator /> : null}
-                </View>
-              </Animated.View>
-            );
-          }
-          if (type === 'HABIT') {
-            const title = String(it.content ?? it.title ?? '').trim() || '—';
-            const rec = String(it.recurrence ?? '').trim();
-            return (
-              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
-                <View style={styles.intentHeadRow}>
-                  <Pressable
-                    style={styles.intentDeleteBtn}
-                    onPress={() => !busy && removeIntentAt(idx)}
-                    disabled={busy}
-                    accessibilityRole="button"
-                    accessibilityLabel="Supprimer"
-                  >
-                    <View style={styles.intentDeleteMinus} />
-                  </Pressable>
-                  <Text style={styles.intentType}>HABIT</Text>
-                  {rec ? <Text style={styles.intentBadge}>{rec}</Text> : null}
-                </View>
-                <Text style={styles.intentTitle}>{title}</Text>
-              </Animated.View>
-            );
-          }
-          if (type === 'TRIP') {
-            const detected = String(it.destination ?? it.content ?? '').trim() || strData(draft.data as Record<string, unknown>, 'destination_name') || '—';
-            const addr = strData(draft.data as Record<string, unknown>, 'location_address');
-            return (
-              <Animated.View key={st.id} style={[styles.intentCard, cardStyle]}>
-                <View style={styles.intentHeadRow}>
-                  <Pressable
-                    style={styles.intentDeleteBtn}
-                    onPress={() => !busy && removeIntentAt(idx)}
-                    disabled={busy}
-                    accessibilityRole="button"
-                    accessibilityLabel="Supprimer"
-                  >
-                    <View style={styles.intentDeleteMinus} />
-                  </Pressable>
-                  <Text style={styles.intentType}>TRIP</Text>
-                </View>
-                <Text style={styles.intentTitle}>{detected}</Text>
-                <View style={styles.tripAddressRow}>
-                  <GooglePlacesAutocompleteField
-                    value={addr}
-                    onChangeText={(text) =>
-                      onChangeDraft(
-                        patchData(draft, {
-                          logisticsPotential: true,
-                          destination_name: detected,
-                          location_address: text,
-                          location_place_id: null,
-                          location_lat: null,
-                          location_lng: null,
-                        }),
-                      )
-                    }
-                    onSelect={(p) =>
-                      onChangeDraft(
-                        patchData(draft, {
-                          logisticsPotential: true,
-                          destination_name: detected,
-                          location_address: p.formattedAddress,
-                          location_place_id: p.placeId,
-                          location_lat: p.lat,
-                          location_lng: p.lng,
-                        }),
-                      )
-                    }
-                    disabled={busy}
-                    placeholder={t('sentinel.addressPlaceholder')}
-                    missingKeyLabel={t('sentinel.placesMissingKey')}
-                  />
-                </View>
-              </Animated.View>
-            );
-          }
-          return null;
-        })}
-      </View>
-    );
-  };
+  const renderIntentCards = () => null;
 
   const renderTypeBody = () => {
-    const streamed = renderIntentCards();
-    if (minimalUi) return streamed;
-    if (streamed) return streamed;
+    if (minimalUi) return null;
     const d = draft.data;
     const logisticsBlock = () => {
       if (d.logisticsPotential !== true) return null;
@@ -1583,12 +1120,9 @@ export function OneTapConfirmModal({
     }
   };
 
-  const getSynthesisIntents = useCallback((): Record<string, unknown>[] => {
-    const src = hasLocalEditsRef.current ? displayedIntents : readDraftIntents(draft);
-    return normalizeIncomingIntentsPreserveOrder(src).filter(isRenderableSynthesisIntent);
-  }, [displayedIntents, draft]);
-
-  const intents = getSynthesisIntents();
+  const intents = useMemo(() => {
+    return normalizeIncomingIntentsPreserveOrder(readDraftIntents(draft)).filter(isRenderableSynthesisIntent);
+  }, [draft]);
 
   const openDetail = (idx: number) => {
     runFastLayoutAnim();
@@ -1669,13 +1203,14 @@ export function OneTapConfirmModal({
   };
 
   const renderSynthesisView = () => {
+    const cleanTranscript = cleanTranscriptForModal(transcript);
     return (
       <>
         <View style={styles.synthHeader}>
           <Text style={styles.synthTitle}>{t('talkDebug.oneTapSynthesisTitle', { defaultValue: 'Synthèse' })}</Text>
-          {transcript.trim() ? (
+          {cleanTranscript ? (
             <View style={styles.transcriptCard}>
-              <Text style={styles.transcriptText}>{transcript.trim()}</Text>
+              <Text style={styles.transcriptText}>{cleanTranscript}</Text>
             </View>
           ) : null}
         </View>

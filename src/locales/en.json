@@ -10,7 +10,9 @@
     "cancel": "Cancel"
   },
   "talkCapture": {
-    "hintTap": "Tap to capture a voice thread"
+    "hintTap": "Tap to capture a voice note",
+    "savedTimeline": "Intention saved to Timeline",
+    "savedOfflinePending": "Network unavailable: intention saved for later processing"
   },
   "capture": {
     "offlineNoteGenericToast": "Saved on this device. Smart sorting will finish when the connection is back.",

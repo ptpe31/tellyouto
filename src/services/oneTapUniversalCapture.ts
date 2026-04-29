@@ -227,6 +227,7 @@ export type OneTapWireFields = Record<string, string>;
 
 export type OneTapIntentJson = {
   type: string;
+  incomplete?: boolean;
   category?: string;
   content?: string;
   notes?: string;
@@ -245,14 +246,131 @@ export type OneTapIntentJson = {
   arrivalDue?: string;
 };
 
+function shouldSuggestDueFromTranscript(transcript: string): boolean {
+  const t = String(transcript || '').toLowerCase();
+  if (!t.trim()) return false;
+  if (/\b(demain|aujourd'hui|ce soir|après-demain|avant\s+\d{1,2}h|\bà\s*\d{1,2}(?::\d{2})?)\b/i.test(t)) return true;
+  if (/\b(rdv|rendez-vous|meeting|réunion)\b/i.test(t)) return true;
+  if (/\b\d{4}-\d{2}-\d{2}\b/.test(t)) return true;
+  if (/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/.test(t)) return true;
+  return false;
+}
+
+function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, skeleton: OneTapUniversalResult): OneTapIntentJson[] {
+  const suggestDue = shouldSuggestDueFromTranscript(transcript);
+  const skData = (skeleton.data ?? {}) as Record<string, unknown>;
+  const skAddr = String(skData.location_address ?? '').trim();
+  return intents.map((it) => {
+    const type = String(it.type ?? '').trim().toUpperCase();
+    if (type === 'HABIT' || type === 'RECURRING_TASK') {
+      const recurrence = String(it.recurrence ?? '').trim();
+      return { ...it, incomplete: !recurrence };
+    }
+    if (type === 'TRIP') {
+      const addr = String(it.address ?? '').trim();
+      return { ...it, incomplete: !addr && !skAddr };
+    }
+    if (type === 'TASK') {
+      const due = String(it.due ?? '').trim();
+      return { ...it, incomplete: suggestDue && !due };
+    }
+    if (type === 'LIST') {
+      const itemsLen = Array.isArray(it.items) ? (it.items as unknown[]).length : 0;
+      return { ...it, incomplete: itemsLen <= 0 };
+    }
+    return { ...it, incomplete: false };
+  });
+}
+
 function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
   const s = String(buffer || '');
   const parts = s.split('\n');
-  const lines = parts;
+  const lines = partial && !s.endsWith('\n') ? parts.slice(0, -1) : parts;
   const intents: OneTapIntentJson[] = [];
   let currentList: OneTapIntentJson | null = null;
   for (const rawLine of lines) {
     const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith('[')) {
+      if (partial && !line.includes(']')) continue;
+      const closeIdx = line.indexOf(']');
+      if (closeIdx <= 1) continue;
+      const body = line.slice(1, closeIdx).trim();
+      const segs = body
+        .split('|')
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (segs.length < 2) continue;
+      const type = String(segs[0] ?? '').trim().toUpperCase();
+      if (!type) continue;
+      if (type === 'TASK') {
+        const title = String(segs[1] ?? '').trim();
+        if (!title) continue;
+        const due = String(segs[2] ?? '').trim();
+        intents.push({ type: 'TASK', content: title, due });
+        currentList = null;
+        continue;
+      }
+      if (type === 'LIST') {
+        const title = String(segs[1] ?? '').trim();
+        if (!title) continue;
+        const bc = parseInt(String(segs[2] ?? '1').trim(), 10);
+        const baseCount = Number.isFinite(bc) && bc > 0 ? bc : 1;
+        currentList = { type: 'LIST', title, baseCount, unitLabel: 'personne', items: [] };
+        intents.push(currentList);
+        continue;
+      }
+      if (type === 'HABIT') {
+        const title = String(segs[1] ?? '').trim();
+        if (!title) continue;
+        const recurrence = String(segs[2] ?? '').trim();
+        intents.push({ type: 'HABIT', content: title, recurrence });
+        currentList = null;
+        continue;
+      }
+      if (type === 'TRIP') {
+        const title = String(segs[1] ?? '').trim();
+        if (!title) continue;
+        const due = String(segs[2] ?? '').trim();
+        intents.push({ type: 'TRIP', destination: title, arrivalDue: due });
+        currentList = null;
+        continue;
+      }
+      if (type === 'NOTE') {
+        const title = String(segs[1] ?? '').trim();
+        if (!title) continue;
+        intents.push({ type: 'NOTE', content: title });
+        currentList = null;
+        continue;
+      }
+      continue;
+    }
+
+    if (line.startsWith('>>')) {
+      const body = line.slice(2).trim();
+      if (!body) continue;
+      const segs = body
+        .split('|')
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (segs.length < 1) continue;
+      const name = String(segs[0] ?? '').trim();
+      if (!name) continue;
+      const qtyRaw = String(segs[1] ?? '').trim();
+      const unit = String(segs[2] ?? 'piece').trim() || 'piece';
+      const q = Number(qtyRaw.replace(',', '.'));
+      const qty = Number.isFinite(q) && q > 0 ? q : 1;
+      if (!currentList || currentList.type !== 'LIST') {
+        currentList = { type: 'LIST', title: 'Liste', baseCount: 1, unitLabel: 'personne', items: [] };
+        intents.push(currentList);
+      }
+      const arr = Array.isArray(currentList.items) ? (currentList.items as ListItemDraft[]) : [];
+      arr.push({ name, qty, unit, scalable: true, includeInSave: true });
+      currentList.items = arr;
+      continue;
+    }
+
     if (!line.startsWith('>')) continue;
     const isItem = line.startsWith('>>');
     const body = isItem ? line.slice(2).trim() : line.slice(1).trim();
@@ -864,15 +982,16 @@ ${seedLine}
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
-Reply ONLY with lines starting with ">" and pipe-separated segments. No markdown, no explanations.
-Use tagged segments KEY:VALUE.
+Reply ONLY with bracketed lines, one per intent, plus list items. No markdown, no explanations.
+Format:
+[TASK|Title|DueISOOrEmpty]
+[LIST|ListTitle|BaseCount]
+>> ItemName|Quantity|Unit
 Examples:
-> TYPE:TASK | TITLE: Acheter du pain | DUE: 2026-05-01
-> TYPE:HABIT | TITLE: Méditer | RECURRENCE: Quotidien
-> TYPE:TRIP | TITLE: Aller chez Mamie | DUE: 2026-05-01T18:00
-For LIST use multi-line format:
-> TYPE:LIST | TITLE: Courses | BASECOUNT: 1 | UNITLABEL: personne
->> TYPE:ITEM | TITLE: Tomates | QUANTITY: 2 | UNIT: piece | SCALABLE: true`;
+[TASK|Acheter du pain|2026-05-01]
+[LIST|Courses|1]
+>> Tomates|2|piece
+>> Pâtes|1|paquet`;
 }
 
 /**
@@ -1074,11 +1193,43 @@ export async function refineOneTapWithGeminiCompressed(
     pathAData: { ...skeleton.data },
   };
 
+  let lastEmittedCount = 0;
+  let lastPartialSig = '';
   const applyBuffer = (buf: string) => {
-    const intents = parseBulletPipeIntentsFromBuffer(buf, useStream);
-    if (!intents.length) return;
-    const merged = mergeIntentArrayIntoOneTapSkeleton(skeleton, intents);
-    options.onPartial?.(merged);
+    const parsedIntents = parseBulletPipeIntentsFromBuffer(buf, useStream);
+    if (!parsedIntents.length) return;
+    const intents = annotateIncompletes(parsedIntents, transcript, skeleton);
+    const sig = intents
+      .map((it) => {
+        const t = String(it.type ?? '').toUpperCase();
+        const title = String(
+          (it as Record<string, unknown>).title ??
+            (it as Record<string, unknown>).content ??
+            (it as Record<string, unknown>).destination ??
+            '',
+        );
+        const itemsLen = Array.isArray((it as Record<string, unknown>).items)
+          ? ((it as Record<string, unknown>).items as unknown[]).length
+          : 0;
+        return `${t}:${title.trim()}:${itemsLen}:${it.incomplete === true ? 1 : 0}`;
+      })
+      .join('|');
+
+    if (intents.length > lastEmittedCount) {
+      for (let i = lastEmittedCount; i < intents.length; i++) {
+        const merged = mergeIntentArrayIntoOneTapSkeleton(skeleton, intents.slice(0, i + 1));
+        options.onPartial?.(merged);
+      }
+      lastEmittedCount = intents.length;
+      lastPartialSig = sig;
+      return;
+    }
+
+    if (sig !== lastPartialSig) {
+      lastPartialSig = sig;
+      const merged = mergeIntentArrayIntoOneTapSkeleton(skeleton, intents);
+      options.onPartial?.(merged);
+    }
   };
 
   let rawModelText: string;
@@ -1097,7 +1248,7 @@ export async function refineOneTapWithGeminiCompressed(
   let parsed = skeleton;
   const bp = parseBulletPipeIntentsFromBuffer(rawModelText, false);
   if (bp.length) {
-    parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, bp);
+    parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, annotateIncompletes(bp, transcript, skeleton));
   } else {
     for (const w of parseOneTapWireLineBlocks(rawModelText)) {
       parsed = mergeWireIntoOneTapSkeleton(parsed, w);
