@@ -941,7 +941,7 @@ export function mergeWireIntoOneTapSkeleton(
   skeleton: OneTapUniversalResult,
   wire: OneTapWireFields,
 ): OneTapUniversalResult {
-  const categoryTag = (wire.K?.trim() || skeleton.categoryTag || 'Perso').slice(0, 80) || 'Perso';
+  const categoryTag = (wire.K?.trim() || skeleton.categoryTag || 'Personal').slice(0, 80) || 'Personal';
   const title = (wire.T?.trim() || skeleton.title || 'Note').trim().slice(0, 200);
   const mergedBase = { ...(skeleton.data as Record<string, unknown>) };
   const wirePatch = patchDataFromWire(wire);
@@ -950,12 +950,35 @@ export function mergeWireIntoOneTapSkeleton(
   return { ...skeleton, categoryTag, title, data };
 }
 
+function detectLangForOneTapPrompt(transcript: string, fallback: string): string {
+  const raw = String(transcript || '');
+  const t = raw.toLowerCase();
+  const scoreEn = (t.match(/\b(the|a|an|to|for|with|without|today|tomorrow|please|meeting|call|buy)\b/g) ?? []).length;
+  const scoreFr = (t.match(/\b(le|la|les|des|un|une|je|tu|vous|pour|avec|sans|aujourd'hui|demain|réunion|rdv)\b/g) ?? [])
+    .length;
+  const hasAccents = /[àâäçéèêëîïôöùûüÿœ]/i.test(raw);
+  const base = String(fallback || '').trim();
+  const norm = base.toLowerCase();
+  if (scoreEn > scoreFr && !hasAccents) return norm.startsWith('en') ? base : 'en-US';
+  if (scoreFr > scoreEn || hasAccents) return norm.startsWith('fr') ? base : 'fr-FR';
+  return base || 'en-US';
+}
+
 function buildCompressedGeminiPrompt(transcript: string, seedLine: string, uiLocale: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
-  const lang = String(uiLocale || 'fr').trim() || 'fr';
-  const loc = lang.toLowerCase().startsWith('en')
-    ? 'Prefer English for K, T, N, C, R text when natural.'
-    : 'Préfère le français pour K, T, N, C, R quand c’est naturel.';
+  const lang = detectLangForOneTapPrompt(safe, String(uiLocale || '').trim());
+  const isEn = lang.toLowerCase().startsWith('en');
+  const loc = isEn
+    ? `LANGUAGE CONTRACT (ABSOLUTE):
+- lang = "${lang}"
+- You MUST respond in English.
+- NEVER translate to French unless lang starts with "fr".
+- All user-facing text (titles, notes, list titles, list items) must be in English.`
+    : `CONTRAT DE LANGUE (ABSOLU) :
+- lang = "${lang}"
+- Tu DOIS répondre en français.
+- Ne traduis JAMAIS vers l’anglais sauf si lang commence par "en".
+- Tout texte utilisateur (titres, notes, titres de liste, items) doit être en français.`;
   const now = new Date();
   const tz =
     (() => {
@@ -988,10 +1011,7 @@ Format:
 [LIST|ListTitle|BaseCount]
 >> ItemName|Quantity|Unit
 Examples:
-[TASK|Acheter du pain|2026-05-01]
-[LIST|Courses|1]
->> Tomates|2|piece
->> Pâtes|1|paquet`;
+${isEn ? '[TASK|Buy bread|2026-05-01]\n[LIST|Groceries|1]\n>> Tomatoes|2|piece\n>> Pasta|1|pack' : '[TASK|Acheter du pain|2026-05-01]\n[LIST|Courses|1]\n>> Tomates|2|piece\n>> Pâtes|1|paquet'}`;
 }
 
 /**
