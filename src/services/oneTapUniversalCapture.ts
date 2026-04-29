@@ -248,7 +248,7 @@ export type OneTapIntentJson = {
 function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
   const s = String(buffer || '');
   const parts = s.split('\n');
-  const lines = partial && !s.endsWith('\n') ? parts.slice(0, -1) : parts;
+  const lines = parts;
   const intents: OneTapIntentJson[] = [];
   let currentList: OneTapIntentJson | null = null;
   for (const rawLine of lines) {
@@ -262,9 +262,29 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
       .map((x) => x.trim())
       .filter(Boolean);
     if (segs.length < 2) continue;
-    const type = segs[0].toUpperCase();
-    const content = segs[1];
-    if (!content) continue;
+
+    const kv: Record<string, string> = {};
+    for (const seg of segs) {
+      const idx = seg.indexOf(':');
+      if (idx <= 0) continue;
+      const k = seg.slice(0, idx).trim().toUpperCase();
+      const v = seg.slice(idx + 1).trim();
+      if (!k || !v) continue;
+      kv[k] = v;
+    }
+
+    const looksLikeKv = Boolean(kv.TYPE || kv.TITLE || kv.CONTENT || kv.DUE || kv.RECURRENCE);
+    const type = (looksLikeKv ? kv.TYPE : segs[0])?.toUpperCase?.() ?? '';
+    const content =
+      looksLikeKv
+        ? String(kv.TITLE ?? kv.CONTENT ?? kv.DESTINATION ?? '')
+        : String(segs[1] ?? '');
+
+    if (!type || !content) continue;
+    if (partial) {
+      const lastSeg = segs[segs.length - 1] ?? '';
+      if (looksLikeKv && /:\s*$/.test(lastSeg)) continue;
+    }
 
     if (isItem) {
       if (type !== 'ITEM') continue;
@@ -278,9 +298,9 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
         };
         intents.push(currentList);
       }
-      const qtyRaw = segs.length >= 3 ? segs[2] : '';
-      const unit = segs.length >= 4 ? segs[3] : 'piece';
-      const scalableRaw = segs.length >= 5 ? segs[4] : 'true';
+      const qtyRaw = looksLikeKv ? String(kv.QUANTITY ?? kv.QTY ?? '') : segs.length >= 3 ? segs[2] : '';
+      const unit = looksLikeKv ? String(kv.UNIT ?? 'piece') : segs.length >= 4 ? segs[3] : 'piece';
+      const scalableRaw = looksLikeKv ? String(kv.SCALABLE ?? 'true') : segs.length >= 5 ? segs[4] : 'true';
       const q = Number(String(qtyRaw).replace(',', '.'));
       const qty = Number.isFinite(q) && q > 0 ? q : 1;
       const sraw = String(scalableRaw).trim().toLowerCase();
@@ -300,7 +320,7 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
     currentList = null;
 
     if (type === 'TASK') {
-      const due = segs.length >= 3 ? segs[2] : '';
+      const due = looksLikeKv ? String(kv.DUE ?? '') : segs.length >= 3 ? segs[2] : '';
       intents.push({ type: 'TASK', content, due });
       continue;
     }
@@ -309,18 +329,18 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
       continue;
     }
     if (type === 'HABIT') {
-      const recurrence = segs.length >= 3 ? segs[2] : '';
+      const recurrence = looksLikeKv ? String(kv.RECURRENCE ?? '') : segs.length >= 3 ? segs[2] : '';
       intents.push({ type: 'HABIT', content, recurrence });
       continue;
     }
     if (type === 'TRIP') {
-      const due = segs.length >= 3 ? segs[2] : '';
+      const due = looksLikeKv ? String(kv.DUE ?? kv.ARRIVALDUE ?? '') : segs.length >= 3 ? segs[2] : '';
       intents.push({ type: 'TRIP', destination: content, arrivalDue: due });
       continue;
     }
     if (type === 'LIST') {
-      const baseCountRaw = segs.length >= 3 ? segs[2] : '1';
-      const unitLabelRaw = segs.length >= 4 ? segs[3] : 'personne';
+      const baseCountRaw = looksLikeKv ? String(kv.BASECOUNT ?? '1') : segs.length >= 3 ? segs[2] : '1';
+      const unitLabelRaw = looksLikeKv ? String(kv.UNITLABEL ?? 'personne') : segs.length >= 4 ? segs[3] : 'personne';
       const bc = parseInt(String(baseCountRaw).trim(), 10);
       const baseCount = Number.isFinite(bc) && bc > 0 ? bc : 1;
       const unitLabel = String(unitLabelRaw || 'personne').trim().slice(0, 40) || 'personne';
@@ -845,9 +865,14 @@ Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
 Reply ONLY with lines starting with ">" and pipe-separated segments. No markdown, no explanations.
+Use tagged segments KEY:VALUE.
+Examples:
+> TYPE:TASK | TITLE: Acheter du pain | DUE: 2026-05-01
+> TYPE:HABIT | TITLE: Méditer | RECURRENCE: Quotidien
+> TYPE:TRIP | TITLE: Aller chez Mamie | DUE: 2026-05-01T18:00
 For LIST use multi-line format:
-> LIST | Title | baseCount | unitLabel
->> ITEM | Name | quantity | unit | scalable`;
+> TYPE:LIST | TITLE: Courses | BASECOUNT: 1 | UNITLABEL: personne
+>> TYPE:ITEM | TITLE: Tomates | QUANTITY: 2 | UNIT: piece | SCALABLE: true`;
 }
 
 /**

@@ -404,14 +404,8 @@ export function OneTapConfirmModal({
   const revealAnimRef = useRef<Record<string, Animated.Value>>({});
   const revealTimersRef = useRef<Record<string, number>>({});
   const itemRevealTimersRef = useRef<Record<string, number>>({});
-  const stageDelayMs = Math.max(
-    300,
-    Math.min(3000, Number(process.env.EXPO_PUBLIC_ONETAP_STAGE_DELAY_MS ?? 1400) || 1400),
-  );
-  const itemRevealDelayMs = Math.max(
-    40,
-    Math.min(600, Number(process.env.EXPO_PUBLIC_ONETAP_ITEM_REVEAL_DELAY_MS ?? 120) || 120),
-  );
+  const stageDelayMs = 0;
+  const itemRevealDelayMs = 0;
   const listDebugSigRef = useRef<Record<string, string>>({});
 
   const showRefiningBanner = refinePhase === 'streaming' || refinePhase === 'local';

@@ -9,8 +9,8 @@ import { useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { OneTapConfirmModal } from '../components/OneTapConfirmModal';
 import {
-  geminiOneTapUniversalFromTranscript,
   inferOneTapSkeletonFromTranscript,
+  refineOneTapWithGeminiCompressed,
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
@@ -292,6 +292,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const transcriptRef = useRef(transcript);
   const streamSeqRef = useRef(0);
   const streamTimerRef = useRef<number | null>(null);
+  const geminiSeqRef = useRef(0);
+  const modalOpenTimerRef = useRef<number | null>(null);
   const intentIdByIndexRef = useRef<Record<string, string>>({});
   const intentReplaceTimersRef = useRef<Record<string, number>>({});
 
@@ -304,6 +306,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     if (streamTimerRef.current) {
       clearTimeout(streamTimerRef.current);
       streamTimerRef.current = null;
+    }
+    if (modalOpenTimerRef.current) {
+      clearTimeout(modalOpenTimerRef.current);
+      modalOpenTimerRef.current = null;
     }
     for (const k of Object.keys(intentReplaceTimersRef.current)) {
       clearTimeout(intentReplaceTimersRef.current[k]);
@@ -325,6 +331,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     if (streamTimerRef.current) {
       clearTimeout(streamTimerRef.current);
       streamTimerRef.current = null;
+    }
+    if (modalOpenTimerRef.current) {
+      clearTimeout(modalOpenTimerRef.current);
+      modalOpenTimerRef.current = null;
     }
     for (const k of Object.keys(intentReplaceTimersRef.current)) {
       clearTimeout(intentReplaceTimersRef.current[k]);
@@ -367,6 +377,54 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const runGeminiStreamRefine = useCallback(
+    async (params: {
+      transcript: string;
+      audioUri: string | null;
+      openOnFirstIntent: boolean;
+      onFirstIntent?: () => void;
+      allowAlert: boolean;
+    }) => {
+      const cleaned = params.transcript.trim();
+      if (!cleaned) return;
+      const uiLocale = spectrum.locale || 'fr';
+      const seq = (geminiSeqRef.current += 1);
+      let fired = false;
+      setRefining(true);
+      const hasExisting = readDraftIntents(draftRef.current).length > 0;
+      const skeleton = hasExisting ? draftRef.current : inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
+      if (!hasExisting) setDraft(skeleton);
+      try {
+        const res = await refineOneTapWithGeminiCompressed(cleaned, skeleton, {
+          uiLocale,
+          useStream: true,
+          onPartial: (partial) => {
+            if (seq !== geminiSeqRef.current) return;
+            if (userEditedRef.current) return;
+            setDraft(partial);
+            if (!fired && params.openOnFirstIntent && readDraftIntents(partial).length > 0) {
+              fired = true;
+              params.onFirstIntent?.();
+            }
+          },
+        });
+        if (seq !== geminiSeqRef.current) return;
+        if (!userEditedRef.current) {
+          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
+          if (seq !== geminiSeqRef.current) return;
+          setDraft(hydrated);
+        }
+      } catch (e) {
+        if (params.allowAlert) {
+          proposeOfflineFallback({ transcript: cleaned, audioUri: params.audioUri, error: e });
+        }
+      } finally {
+        if (seq === geminiSeqRef.current) setRefining(false);
+      }
+    },
+    [proposeOfflineFallback, spectrum.locale],
+  );
+
   const submitCapturePayload = useCallback(
     async ({ transcript: rawTranscript, audioUri }: CapturePayload) => {
       const cleaned = rawTranscript.trim();
@@ -376,24 +434,46 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(streamTimerRef.current);
         streamTimerRef.current = null;
       }
+      if (modalOpenTimerRef.current) {
+        clearTimeout(modalOpenTimerRef.current);
+        modalOpenTimerRef.current = null;
+      }
       lastCaptureWasMicRef.current = Boolean(audioUri);
       lastAudioUriRef.current = audioUri;
       userEditedRef.current = false;
-      setTranscript(cleaned);
-      setVisible(true);
-      setRefining(false);
+      setVisible(false);
 
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
-      if (!online && audioUri) {
+      if (!online) {
+        setTranscript(`${cleaned} ⚠️ Audio enregistré (traitement ultérieur)`);
         const title = cleaned.slice(0, 56) || 'Memo audio';
-        await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
-        setVisible(false);
+        if (audioUri) await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title });
+        else await queueOfflineTextCapture({ transcript: cleaned, title });
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
         return;
       }
+
+      setTranscript(`${cleaned}... Audio en cours de traitement`);
+      modalOpenTimerRef.current = setTimeout(() => {
+        modalOpenTimerRef.current = null;
+        setVisible(true);
+      }, 1500) as unknown as number;
+      void runGeminiStreamRefine({
+        transcript: cleaned,
+        audioUri,
+        allowAlert: true,
+        openOnFirstIntent: true,
+        onFirstIntent: () => {
+          if (modalOpenTimerRef.current) {
+            clearTimeout(modalOpenTimerRef.current);
+            modalOpenTimerRef.current = null;
+          }
+          setVisible(true);
+        },
+      });
     },
-    [proposeOfflineFallback, spectrum.locale],
+    [runGeminiStreamRefine],
   );
 
   const confirm = useCallback(async () => {
@@ -497,12 +577,13 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const net = await NetInfo.fetch();
         const online = net.isConnected === true && net.isInternetReachable === true;
         if (!online) return;
-        try {
-          const out = await geminiOneTapUniversalFromTranscript(snap, { uiLocale: spectrum.locale || 'fr' });
-          if (seq !== streamSeqRef.current) return;
-          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(out.parsed);
-          setDraft(hydrated);
-        } catch {}
+        if (seq !== streamSeqRef.current) return;
+        void runGeminiStreamRefine({
+          transcript: snap,
+          audioUri: null,
+          allowAlert: false,
+          openOnFirstIntent: false,
+        });
       })();
     }, 850) as unknown as number;
   });
