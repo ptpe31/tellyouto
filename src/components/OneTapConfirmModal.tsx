@@ -18,7 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { Checkbox, Menu, Button as PaperButton } from 'react-native-paper';
-import { Bell, ChevronDown } from 'lucide-react-native';
+import { Bell, CalendarCheck, ChevronDown, ChevronRight, MapPin, Repeat, ShoppingCart, StickyNote } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 import { TimelineDatePickerLazy } from './TimelineDatePickerLazy';
@@ -118,6 +118,25 @@ function normalizeIncomingIntents(intents: Record<string, unknown>[]): Record<st
     .map((x) => x.it);
 }
 
+function normalizeIncomingIntentsPreserveOrder(intents: Record<string, unknown>[]): Record<string, unknown>[] {
+  return intents.map((it) => {
+    const type = String(it.type ?? '').trim().toUpperCase();
+    if (type !== 'LIST') return it;
+    const baseCount = Math.max(1, Math.round(Number(it.baseCount ?? 1)));
+    const itemsRaw = it.items;
+    const items = Array.isArray(itemsRaw) ? itemsRaw : [];
+    const nextItems = items.map((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+      const r = raw as Record<string, unknown>;
+      if (r.baseQuantity !== undefined) return raw;
+      const qty = Number(r.qty);
+      if (!Number.isFinite(qty)) return raw;
+      return { ...r, baseQuantity: qty / baseCount, includeInSave: r.includeInSave !== false };
+    });
+    return { ...it, baseCount, items: nextItems };
+  });
+}
+
 function intentLabel(it: Record<string, unknown> | null, predictedType: OneTapPredictedType): string {
   const type = String(it?.type ?? predictedType ?? '').trim().toUpperCase();
   if (type === 'LIST') {
@@ -148,6 +167,17 @@ function intentEmoji(it: Record<string, unknown> | null, predictedType: OneTapPr
   if (type === 'TASK' || type === 'RECURRING_TASK') return '✅';
   if (type === 'HABIT') return '🔁';
   return '📝';
+}
+
+function IntentIcon({ type }: { type: string }) {
+  const t = String(type || '').trim().toUpperCase();
+  const color = '#0f172a';
+  const size = 18;
+  if (t === 'TRIP') return <MapPin size={size} color={color} />;
+  if (t === 'LIST') return <ShoppingCart size={size} color={color} />;
+  if (t === 'HABIT') return <Repeat size={size} color={color} />;
+  if (t === 'TASK' || t === 'RECURRING_TASK') return <CalendarCheck size={size} color={color} />;
+  return <StickyNote size={size} color={color} />;
 }
 
 function hasStreamedIntents(draft: OneTapUniversalResult): boolean {
@@ -1543,7 +1573,16 @@ export function OneTapConfirmModal({
     }
   };
 
-  const intents = getWorkingIntents();
+  const getSynthesisIntents = useCallback((): Record<string, unknown>[] => {
+    if (hasLocalEditsRef.current) {
+      return displayedIntents.length ? displayedIntents : normalizeIncomingIntentsPreserveOrder(readDraftIntents(draft));
+    }
+    const direct = readDraftIntents(draft);
+    if (direct.length) return normalizeIncomingIntentsPreserveOrder(direct);
+    return normalizeIncomingIntentsPreserveOrder(deriveFallbackIntentFromDraft(draft));
+  }, [displayedIntents, draft]);
+
+  const intents = getSynthesisIntents();
 
   const openDetail = (idx: number) => {
     runFastLayoutAnim();
@@ -1595,7 +1634,6 @@ export function OneTapConfirmModal({
   };
 
   const renderSynthesisView = () => {
-    const hasTrip = intents.some((it) => String(it?.type ?? '').trim().toUpperCase() === 'TRIP');
     return (
       <>
         <View style={styles.synthHeader}>
@@ -1608,36 +1646,38 @@ export function OneTapConfirmModal({
         </View>
         <ScrollView style={styles.synthScroll} showsVerticalScrollIndicator={false}>
           <View style={styles.intentList}>
-            {intents.map((it, idx) => {
-              const title = intentShortTitle(it, draft.predictedType);
-              const emoji = intentEmoji(it, draft.predictedType);
-              const type = String(it?.type ?? draft.predictedType ?? '').trim().toUpperCase();
-              return (
-                <View key={`syn-${idx}`} style={styles.intentBlock}>
-                  <Pressable
-                    style={[styles.intentRow, busy && styles.disabled]}
-                    onPress={() => !busy && openDetail(idx)}
-                    disabled={busy}
-                  >
-                    <View style={styles.intentIcon}>
-                      <Text style={styles.intentIconText}>{emoji}</Text>
-                    </View>
-                    <Text style={styles.intentRowTitle} numberOfLines={1}>
-                      {title}
-                    </Text>
-                    <Text style={styles.intentChevron}>›</Text>
-                  </Pressable>
-                  {type === 'TRIP' ? renderTripSynthesisBlock() : null}
-                </View>
-              );
-            })}
+            <Text style={styles.sectionHeader}>{t('talkDebug.oneTapSynthesisSummaryHeader', { defaultValue: 'RÉSUMÉ' })}</Text>
+            <View style={styles.summaryCard}>
+              {intents.map((it, idx) => {
+                const title = intentShortTitle(it, draft.predictedType);
+                const type = String(it?.type ?? draft.predictedType ?? '').trim().toUpperCase();
+                const isLast = idx === intents.length - 1;
+                return (
+                  <View key={`syn-${idx}`} style={[styles.intentItem, !isLast ? styles.intentItemSep : null]}>
+                    <Pressable
+                      style={[styles.intentRow, busy && styles.disabled]}
+                      onPress={() => !busy && openDetail(idx)}
+                      disabled={busy}
+                    >
+                      <View style={styles.intentIcon}>
+                        <IntentIcon type={type} />
+                      </View>
+                      <Text style={styles.intentRowTitle} numberOfLines={1}>
+                        {title}
+                      </Text>
+                      <ChevronRight size={18} color="rgba(15,23,42,0.35)" />
+                    </Pressable>
+                    {type === 'TRIP' ? renderTripSynthesisBlock() : null}
+                  </View>
+                );
+              })}
+            </View>
             {!intents.length ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>{t('talkDebug.oneTapSynthesisEmpty', { defaultValue: 'Analyse en cours…' })}</Text>
                 {isGenerating ? <StreamingIndicator /> : null}
               </View>
             ) : null}
-            {hasTrip && draft.data?.logisticsPotential === true ? null : null}
           </View>
           <View style={styles.synthBottomPad} />
         </ScrollView>
@@ -2015,14 +2055,23 @@ const styles = StyleSheet.create({
   },
   transcriptText: { fontSize: 13, fontWeight: '600', color: '#0f172a', lineHeight: 18 },
   synthScroll: { flex: 1 },
-  intentList: { gap: 10, marginTop: 8 },
-  intentBlock: {
+  intentList: { marginTop: 14, gap: 10 },
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    color: 'rgba(60,60,67,0.60)',
+    paddingHorizontal: 2,
+  },
+  summaryCard: {
     borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.96)',
     borderWidth: 1,
     borderColor: 'rgba(15,23,42,0.06)',
     overflow: 'hidden',
   },
+  intentItem: {},
+  intentItemSep: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(60,60,67,0.18)' },
   intentRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2038,27 +2087,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  intentIconText: { fontSize: 16 },
   intentRowTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: '#0f172a' },
-  intentChevron: { fontSize: 18, fontWeight: '900', color: 'rgba(15,23,42,0.35)' },
   tripBlock: {
     paddingHorizontal: 14,
     paddingBottom: 14,
-    paddingTop: 2,
+    paddingTop: 0,
     gap: 10,
-    backgroundColor: 'rgba(241,245,249,0.55)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(15,23,42,0.06)',
   },
   tripLabel: { fontSize: 12, fontWeight: '800', color: 'rgba(15,23,42,0.60)' },
   tripAddressInput: {
-    borderRadius: 14,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: '#F2F2F7',
     color: '#0f172a',
-    borderWidth: 1,
-    borderColor: 'rgba(15,23,42,0.08)',
   },
   tripSegmentWrap: {
     flexDirection: 'row',
