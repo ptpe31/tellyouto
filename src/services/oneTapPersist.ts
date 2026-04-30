@@ -59,11 +59,7 @@ export type PersistOneTapVentilatedResult =
   | { ok: true; outcomes: PersistOneTapSuccess[] }
   | { ok: false; error: unknown; code?: 'LIST_QUOTA' | 'LIST_SELECTION' };
 
-const DEBUG_MODE_DOUANE = true;
-
-function waitConfirm(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 2000));
-}
+export const DEBUG_MODE_DOUANE = true;
 
 function str(d: Record<string, unknown>, key: string): string | null {
   const v = d[key];
@@ -916,7 +912,6 @@ export async function persistOneTapDraftVentilated(params: {
       if (DEBUG_MODE_DOUANE) {
         console.log(`[DOUANE] 📦 JSON_BRUT_AVANT_TRAITEMENT: ${JSON.stringify(r)}`);
         console.log(`[DOUANE] 🛂 Intention ${i + 1}/${total} détectée : [${previewType || '?'}] ${previewTitle}`.trim());
-        await waitConfirm();
       }
       try {
         const type = String(r.type ?? '').trim().toUpperCase();

@@ -14,8 +14,10 @@ import {
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
 import {
+  DEBUG_MODE_DOUANE,
   finalizeOneTapOptimisticDraft,
   preSaveOneTapOptimisticDraft,
+  persistOneTapDraftVentilated,
   replacePendingOneTapDraft,
 } from '../services/oneTapPersist';
 import { showAppToast } from '../services/appToast';
@@ -450,6 +452,37 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                   const it = intents[idx];
                   if (!isCompleteIntent(it)) continue;
                   const idxKey = String(idx);
+                  if (DEBUG_MODE_DOUANE) {
+                    if (intentIdByIndexRef.current[idxKey]) continue;
+                    const ventDraft: OneTapUniversalResult = {
+                      ...partial,
+                      data: { ...((partial.data ?? {}) as Record<string, unknown>), intents: [it] },
+                    };
+                    const vr = await persistOneTapDraftVentilated({
+                      deps,
+                      draft: ventDraft,
+                      transcript: persistTranscript,
+                      habitsDefaultTitle,
+                      birthdayLabel,
+                    });
+                    if (vr.ok && vr.outcomes.length > 0) {
+                      const outcome = vr.outcomes[0] as unknown as { intentionId?: unknown };
+                      const savedId = typeof outcome.intentionId === 'string' ? outcome.intentionId : null;
+                      if (savedId) {
+                        intentIdByIndexRef.current[idxKey] = savedId;
+                        finalizedIdsRef.current[savedId] = true;
+                        if (!firstSavedFiredRef.current) {
+                          firstSavedFiredRef.current = true;
+                          firstSavedResolveRef.current?.();
+                        }
+                        if (!fired && params.openOnFirstIntent) {
+                          fired = true;
+                          params.onFirstIntent?.();
+                        }
+                      }
+                    }
+                    continue;
+                  }
                   const built = buildOneTapDraftFromIntent({ baseDraft: partial, intent: it });
                   if (!built) continue;
                   const existingId = intentIdByIndexRef.current[idxKey];
@@ -516,6 +549,29 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               const it = intents[idx];
               const idxKey = String(idx);
               const intentionId = intentIdByIndexRef.current[idxKey];
+              if (DEBUG_MODE_DOUANE) {
+                if (intentionId) continue;
+                const ventDraft: OneTapUniversalResult = {
+                  ...hydrated,
+                  data: { ...((hydrated.data ?? {}) as Record<string, unknown>), intents: [it] },
+                };
+                const vr = await persistOneTapDraftVentilated({
+                  deps,
+                  draft: ventDraft,
+                  transcript: persistTranscript,
+                  habitsDefaultTitle,
+                  birthdayLabel,
+                });
+                if (vr.ok && vr.outcomes.length > 0) {
+                  const outcome = vr.outcomes[0] as unknown as { intentionId?: unknown };
+                  const savedId = typeof outcome.intentionId === 'string' ? outcome.intentionId : null;
+                  if (savedId) {
+                    intentIdByIndexRef.current[idxKey] = savedId;
+                    finalizedIdsRef.current[savedId] = true;
+                  }
+                }
+                continue;
+              }
               if (!intentionId) continue;
               if (finalizedIdsRef.current[intentionId]) continue;
               const built = buildOneTapDraftFromIntent({ baseDraft: hydrated, intent: it });
@@ -622,10 +678,29 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
 
       const successes: boolean[] = [];
       for (let i = 0; i < intents.length; i++) {
-        const built = buildOneTapDraftFromIntent({ baseDraft: draft, intent: intents[i] });
-        if (!built) continue;
         const idxKey = String(readDraftIntents(draft).indexOf(intents[i]));
         let intentionId = intentIdByIndexRef.current[idxKey];
+        if (DEBUG_MODE_DOUANE) {
+          if (!intentionId) {
+            const ventDraft: OneTapUniversalResult = {
+              ...draft,
+              data: { ...((draft.data ?? {}) as Record<string, unknown>), intents: [intents[i]] },
+            };
+            const vr = await persistOneTapDraftVentilated({
+              deps,
+              draft: ventDraft,
+              transcript: persistTranscript,
+              habitsDefaultTitle,
+              birthdayLabel,
+            });
+            successes.push(vr.ok);
+          } else {
+            successes.push(true);
+          }
+          continue;
+        }
+        const built = buildOneTapDraftFromIntent({ baseDraft: draft, intent: intents[i] });
+        if (!built) continue;
         if (!intentionId) {
           const pre = await preSaveOneTapOptimisticDraft({
             deps,

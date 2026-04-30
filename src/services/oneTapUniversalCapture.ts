@@ -309,7 +309,7 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
 
 function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
   const s = String(buffer || '');
-  const rawBlocks = s.split('**');
+  const rawBlocks = s.split('[[NEXT]]');
   const validatedBlocks = partial ? rawBlocks.slice(0, -1) : rawBlocks;
   const intents: OneTapIntentJson[] = [];
   let currentList: OneTapIntentJson | null = null;
@@ -330,7 +330,7 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
   };
 
   for (const rawBlock of validatedBlocks) {
-    const line = rawBlock.trim();
+    const line = rawBlock.replace('[[COMPLETE]]', '').replace(/\*\*/g, '').trim();
     if (!line) continue;
 
     if (!line.startsWith('>') || line.startsWith('>>')) continue;
@@ -1029,13 +1029,14 @@ ${seed}
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
-CRITICAL: Every intent MUST start with ">" and end with "**". Structure:
-> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE **
+CRITICAL: Every intent MUST start with ">" and end with "** [[NEXT]]". Structure:
+> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE ** [[NEXT]]
+CRITICAL: After the last intent, output [[COMPLETE]] on its own line.
 Reply ONLY with Bullet-Pipe intents.
 No JSON. No markdown. No explanations.
 
 Output format (one line per intent):
-> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE **
+> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE ** [[NEXT]]
 
 Constraints:
 - TYPE: TRIP or TASK (prefer TRIP when movement/location is mentioned)
@@ -1044,7 +1045,8 @@ Constraints:
 - DUE_DATE: "YYYY-MM-DD HH:mm" or null
 
 Examples:
-> TRIP | <CONTENT> | TRAVEL | null **`;
+> TRIP | <CONTENT> | TRAVEL | null ** [[NEXT]]
+[[COMPLETE]]`;
 }
 
 /**
@@ -1254,9 +1256,22 @@ export async function refineOneTapWithGeminiCompressed(
 
   let lastEmittedCount = 0;
   let lastPartialSig = '';
+  let lastNextCount = 0;
+  let completeSeen = false;
   const applyBuffer = (buf: string) => {
-    const parsedIntents = parseBulletPipeIntentsFromBuffer(buf, useStream);
-    const extractedIntents = parsedIntents.length ? parsedIntents : parseJsonIntentsFromBuffer(buf, useStream);
+    if (completeSeen) return;
+    const hasComplete = buf.includes('[[COMPLETE]]');
+    const nextCount = buf.split('[[NEXT]]').length - 1;
+    if (nextCount > lastNextCount) {
+      for (let i = lastNextCount; i < nextCount; i++) {
+        console.log('[FLOW] 🚦 Signal NEXT détecté, libération d\'une intention.');
+      }
+      lastNextCount = nextCount;
+    }
+    if (hasComplete) completeSeen = true;
+    const partial = useStream && !hasComplete;
+    const parsedIntents = parseBulletPipeIntentsFromBuffer(buf, partial);
+    const extractedIntents = parsedIntents.length ? parsedIntents : parseJsonIntentsFromBuffer(buf, partial);
     if (!extractedIntents.length) return;
     const intents = annotateIncompletes(extractedIntents, transcript, skeleton);
     const sig = intents
