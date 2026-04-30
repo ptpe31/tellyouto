@@ -310,7 +310,7 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
 function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
   const s = String(buffer || '');
   const rawBlocks = s.split('**');
-  const validatedBlocks = partial || !s.endsWith('**') ? rawBlocks.slice(0, -1) : rawBlocks;
+  const validatedBlocks = partial ? rawBlocks.slice(0, -1) : rawBlocks;
   const intents: OneTapIntentJson[] = [];
   let currentList: OneTapIntentJson | null = null;
 
@@ -371,9 +371,11 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
 }
 
 function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
-  const s = String(buffer || '').trim();
-  if (!s) return [];
-  if (partial && !s.endsWith('}')) return [];
+  const base = String(buffer || '').trim();
+  if (!base) return [];
+  if (partial && !base.endsWith('}')) return [];
+  const startIdx = base.indexOf('{');
+  const s = startIdx >= 0 ? base.slice(startIdx) : base;
   const obj = tryParseJsonObjectBestEffort(s);
   if (!obj) return [];
   const intentsRaw = (obj as { intents?: unknown }).intents;
@@ -1312,13 +1314,23 @@ export async function refineOneTapWithGeminiCompressed(
   if (extractedFinal.length) {
     parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, annotateIncompletes(extractedFinal, transcript, skeleton));
   } else {
-    if (VERBOSE_DEBUG) {
+    if (rawModelText.includes('"intents"')) {
+      const forced = parseJsonIntentsFromBuffer(rawModelText, false);
+      if (forced.length) {
+        parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, annotateIncompletes(forced, transcript, skeleton));
+      } else if (VERBOSE_DEBUG) {
+        console.log('[GeminiDebug] ⚠️ INVALID_BULLET_PIPE_OUTPUT:', rawModelText.slice(0, 600));
+      }
+    } else if (VERBOSE_DEBUG) {
       console.log('[GeminiDebug] ⚠️ INVALID_BULLET_PIPE_OUTPUT:', rawModelText.slice(0, 600));
     }
   }
   if (!parsed.title.trim()) {
     parsed = { ...parsed, title: skeleton.title };
   }
+  const intentsDispatchRaw = ((parsed.data ?? {}) as Record<string, unknown>).intents;
+  const intentsDispatchLen = Array.isArray(intentsDispatchRaw) ? intentsDispatchRaw.length : 0;
+  console.log(`[DEBUG-FLOW] 📡 Envoi vers la Douane : ${intentsDispatchLen} intentions trouvées.`);
   const parseEnd = perfNowMs();
   console.log('[GeminiPerf] ⏱️ TIMING:', {
     network_ms: Math.round(netEnd - netStart),
