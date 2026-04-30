@@ -59,6 +59,12 @@ export type PersistOneTapVentilatedResult =
   | { ok: true; outcomes: PersistOneTapSuccess[] }
   | { ok: false; error: unknown; code?: 'LIST_QUOTA' | 'LIST_SELECTION' };
 
+const DEBUG_MODE_DOUANE = true;
+
+function waitConfirm(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 2000));
+}
+
 function str(d: Record<string, unknown>, key: string): string | null {
   const v = d[key];
   if (v === null || v === undefined) return null;
@@ -900,9 +906,18 @@ export async function persistOneTapDraftVentilated(params: {
 
   const intentsRaw = (data as { intents?: unknown }).intents;
   if (Array.isArray(intentsRaw) && intentsRaw.length > 0) {
-    for (const raw of intentsRaw) {
+    const total = intentsRaw.length;
+    for (let i = 0; i < total; i++) {
+      const raw = intentsRaw[i];
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
       const r = raw as Record<string, unknown>;
+      const previewType = String(r.type ?? '').trim().toUpperCase();
+      const previewTitle = String(r.title ?? r.content ?? r.destination ?? '').trim();
+      if (DEBUG_MODE_DOUANE) {
+        console.log(`[DOUANE] 📦 JSON_BRUT_AVANT_TRAITEMENT: ${JSON.stringify(r)}`);
+        console.log(`[DOUANE] 🛂 Intention ${i + 1}/${total} détectée : [${previewType || '?'}] ${previewTitle}`.trim());
+        await waitConfirm();
+      }
       try {
         const type = String(r.type ?? '').trim().toUpperCase();
         const categoryTag = (typeof r.category === 'string' ? r.category.trim().slice(0, 80) : '') || draft.categoryTag;
@@ -936,11 +951,14 @@ export async function persistOneTapDraftVentilated(params: {
               birthdayLabel,
               entityLabel: 'LIST',
             });
+            if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
             if (pr.ok) outcomes.push(pr.outcome);
             else {
               firstError = firstError ?? pr.error;
               firstCode = firstCode ?? pr.code;
             }
+          } else if (DEBUG_MODE_DOUANE) {
+            console.log('[DOUANE] ❌ Refoulé');
           }
           continue;
         }
@@ -968,6 +986,7 @@ export async function persistOneTapDraftVentilated(params: {
             birthdayLabel,
             entityLabel: 'TASK',
           });
+          if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
@@ -1005,6 +1024,7 @@ export async function persistOneTapDraftVentilated(params: {
             birthdayLabel,
             entityLabel: 'TRIP',
           });
+          if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
@@ -1034,6 +1054,7 @@ export async function persistOneTapDraftVentilated(params: {
             birthdayLabel,
             entityLabel: 'HABIT',
           });
+          if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
@@ -1058,6 +1079,7 @@ export async function persistOneTapDraftVentilated(params: {
             birthdayLabel,
             entityLabel: 'NOTE',
           });
+          if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
@@ -1098,6 +1120,7 @@ export async function persistOneTapDraftVentilated(params: {
             birthdayLabel,
             entityLabel: 'TRIP_TASK',
           });
+          if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (pr.ok) {
             outcomes.push(pr.outcome);
             if (pr.outcome.kind === 'persisted_temporal' && pr.outcome.mirrorType === 'TASK') {
@@ -1131,6 +1154,7 @@ export async function persistOneTapDraftVentilated(params: {
         }
       } catch (e) {
         firstError = firstError ?? e;
+        if (DEBUG_MODE_DOUANE) console.log('[DOUANE] ❌ Refoulé');
       }
     }
 

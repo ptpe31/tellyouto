@@ -370,6 +370,63 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
   return intents;
 }
 
+function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
+  const s = String(buffer || '').trim();
+  if (!s) return [];
+  if (partial && !s.endsWith('}')) return [];
+  const obj = tryParseJsonObjectBestEffort(s);
+  if (!obj) return [];
+  const intentsRaw = (obj as { intents?: unknown }).intents;
+  if (!Array.isArray(intentsRaw) || intentsRaw.length === 0) return [];
+  const out: OneTapIntentJson[] = [];
+  for (const it of intentsRaw) {
+    if (!it || typeof it !== 'object' || Array.isArray(it)) continue;
+    const r = it as Record<string, unknown>;
+    const type = normalizeIntentType(String(r.type ?? ''));
+    if (!type) continue;
+    const category = typeof r.category === 'string' ? normalizeOneTapCategoryCode(r.category) : '';
+    if (type === 'LIST') {
+      const title = String(r.title ?? r.content ?? '').trim();
+      if (!title) continue;
+      const baseCountRaw = Number(r.baseCount ?? 1);
+      const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
+      const unitLabel = typeof r.unitLabel === 'string' ? r.unitLabel.trim().slice(0, 40) : 'personne';
+      out.push({ type: 'LIST', title, baseCount, unitLabel: unitLabel || 'personne', items: r.items, category });
+      continue;
+    }
+    if (type === 'TASK') {
+      const content = String(r.content ?? r.title ?? '').trim();
+      if (!content) continue;
+      const due = typeof r.due === 'string' ? String(r.due).trim() : '';
+      const notes = typeof r.notes === 'string' ? r.notes.trim() : '';
+      out.push({ type: 'TASK', content, due, ...(notes ? { notes } : {}), category });
+      continue;
+    }
+    if (type === 'TRIP') {
+      const destination = String(r.destination ?? r.content ?? r.title ?? '').trim();
+      if (!destination) continue;
+      const arrivalDue = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : typeof r.due === 'string' ? r.due.trim() : '';
+      out.push({ type: 'TRIP', destination, arrivalDue, category });
+      continue;
+    }
+    if (type === 'NOTE') {
+      const content = String(r.content ?? r.title ?? '').trim();
+      if (!content) continue;
+      out.push({ type: 'NOTE', content, category });
+      continue;
+    }
+    if (type === 'HABIT') {
+      const content = String(r.content ?? r.title ?? '').trim();
+      if (!content) continue;
+      const recurrence = typeof r.recurrence === 'string' ? r.recurrence.trim() : '';
+      const preferredTime = typeof r.preferredTime === 'string' ? r.preferredTime.trim() : '';
+      out.push({ type: 'HABIT', content, recurrence, ...(preferredTime ? { preferredTime } : {}), category });
+      continue;
+    }
+  }
+  return out;
+}
+
 /**
  * Sérialise le squelette Path A en une **seule ligne** `KEY:value|KEY:value` consommée par Gemini Path B.
  *
@@ -1197,8 +1254,9 @@ export async function refineOneTapWithGeminiCompressed(
   let lastPartialSig = '';
   const applyBuffer = (buf: string) => {
     const parsedIntents = parseBulletPipeIntentsFromBuffer(buf, useStream);
-    if (!parsedIntents.length) return;
-    const intents = annotateIncompletes(parsedIntents, transcript, skeleton);
+    const extractedIntents = parsedIntents.length ? parsedIntents : parseJsonIntentsFromBuffer(buf, useStream);
+    if (!extractedIntents.length) return;
+    const intents = annotateIncompletes(extractedIntents, transcript, skeleton);
     const sig = intents
       .map((it) => {
         const t = String(it.type ?? '').toUpperCase();
@@ -1250,8 +1308,9 @@ export async function refineOneTapWithGeminiCompressed(
   const parseStart = perfNowMs();
   let parsed = skeleton;
   const bp = parseBulletPipeIntentsFromBuffer(rawModelText, false);
-  if (bp.length) {
-    parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, annotateIncompletes(bp, transcript, skeleton));
+  const extractedFinal = bp.length ? bp : parseJsonIntentsFromBuffer(rawModelText, false);
+  if (extractedFinal.length) {
+    parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, annotateIncompletes(extractedFinal, transcript, skeleton));
   } else {
     if (VERBOSE_DEBUG) {
       console.log('[GeminiDebug] ⚠️ INVALID_BULLET_PIPE_OUTPUT:', rawModelText.slice(0, 600));
