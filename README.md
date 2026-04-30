@@ -40,9 +40,12 @@ npm run start
 
 Voir : [MODELS_ROUTING_STRATEGY.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/docs/MODELS_ROUTING_STRATEGY.md) → “Guide de Compilation Android (Debug)”.
 
+### OneTap (contrat stabilité)
+
+Voir : [STABILITY_SPEC_ONETAP_GEMINI.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/docs/STABILITY_SPEC_ONETAP_GEMINI.md).
+
 ## Gemini (Proxy sécurisé)
 
 La clé Gemini n’est jamais dans l’app. Le client appelle un proxy (Functions Gen2 / Cloud Run) avec un Firebase ID token, et le proxy détient `GEMINI_API_KEY` via Secret Manager.
 
 Voir : [MODELS_ROUTING_STRATEGY.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/docs/MODELS_ROUTING_STRATEGY.md) → “Sécurité & APIs”.
-

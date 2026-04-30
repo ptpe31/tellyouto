@@ -1,4 +1,5 @@
 import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
+import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
 import { getGeminiCandidateModelIds } from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
@@ -709,7 +710,9 @@ export async function geminiGenerateOneTapCompressedLine(
         }
       : undefined,
   });
-  const raw = normalizeOneTapWireText(extractTextFromGenerateResponse(text));
+  const rawText = extractTextFromGenerateResponse(text);
+  if (VERBOSE_DEBUG) console.log('[GeminiDebug] 📥 RAW_MODEL_OUTPUT:', rawText);
+  const raw = normalizeOneTapWireText(rawText);
   if (!raw) throw new Error('Gemini: réponse filaire vide');
   return { raw, httpMeta };
 }
@@ -725,7 +728,7 @@ export async function geminiStreamOneTapCompressedLine(
   const { text } = await callGeminiProxyStream({
     request: {
       contents: [{ parts: [{ text: trimmed }] }],
-      generationConfig: { maxOutputTokens: 2048 },
+      generationConfig: { temperature: 0, maxOutputTokens: 2048 },
     },
     operation: 'oneTap.wire.stream',
     onAccumulatedText,
@@ -738,7 +741,9 @@ export async function geminiStreamOneTapCompressedLine(
         }
       : undefined,
   });
-  const raw = normalizeOneTapWireText(extractTextFromGenerateResponse(text));
+  const rawText = extractTextFromGenerateResponse(text);
+  if (VERBOSE_DEBUG) console.log('[GeminiDebug] 📥 RAW_MODEL_OUTPUT:', rawText);
+  const raw = normalizeOneTapWireText(rawText);
   if (!raw) throw new Error('Gemini: réponse filaire vide');
   return { raw, httpMeta };
 }

@@ -6,6 +6,9 @@ Source de vérité côté code :
 - [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts)
 - [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)
 
+Contrat de stabilité (OneTap / Bullet‑Pipe / Lang / TRIP / Observabilité) :
+- [STABILITY_SPEC_ONETAP_GEMINI.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/docs/STABILITY_SPEC_ONETAP_GEMINI.md)
+
 ## Sécurité & APIs
 
 ### Architecture Proxy Gemini (obligatoire)

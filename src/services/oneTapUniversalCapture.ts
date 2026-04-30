@@ -40,6 +40,7 @@
 
 import * as chrono from 'chrono-node';
 
+import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
 import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
 import type { ListItemDraft } from './listIntentionModel';
@@ -332,217 +333,39 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
     const line = rawLine.trim();
     if (!line) continue;
 
-    if (line.startsWith('>') && !line.startsWith('>>')) {
-      const body = line.slice(1).trim();
-      if (!body) continue;
-      const segs = body
-        .split('|')
-        .map((x) => x.trim())
-        .filter((x) => x.length > 0);
-      if (segs.length < 3) continue;
-      const type = normalizeType(segs[0]);
-      if (!type) continue;
-      const content = String(segs[1] ?? '').trim();
-      if (!content) continue;
-      const category = normalizeOneTapCategoryCode(segs[2]);
-      const due = normalizeDueInput(segs[3] ?? '');
-      if (type === 'TRIP') {
-        intents.push({ type: 'TRIP', destination: content, arrivalDue: due, category });
-      } else if (type === 'TASK') {
-        intents.push({ type: 'TASK', content, due, category });
-      } else if (type === 'NOTE') {
-        intents.push({ type: 'NOTE', content, category });
-      } else if (type === 'HABIT') {
-        intents.push({ type: 'HABIT', content, recurrence: due, category });
-      } else if (type === 'LIST') {
-        const baseCountRaw = parseInt(String(segs[3] ?? '1').trim(), 10);
-        const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
-        currentList = { type: 'LIST', title: content, baseCount, unitLabel: 'personne', items: [], category };
-        intents.push(currentList);
-      }
-      currentList = type === 'LIST' ? currentList : null;
-      continue;
-    }
-
-    if (line.startsWith('[')) {
-      if (partial && !line.includes(']')) continue;
-      const closeIdx = line.indexOf(']');
-      if (closeIdx <= 1) continue;
-      const body = line.slice(1, closeIdx).trim();
-      const segs = body
-        .split('|')
-        .map((x) => x.trim())
-        .filter(Boolean);
-      if (segs.length < 2) continue;
-      const type = String(segs[0] ?? '').trim().toUpperCase();
-      if (!type) continue;
-      if (type === 'TASK') {
-        const title = String(segs[1] ?? '').trim();
-        if (!title) continue;
-        const due = String(segs[2] ?? '').trim();
-        const category = normalizeOneTapCategoryCode(segs[3]);
-        intents.push({ type: 'TASK', content: title, due, category });
-        currentList = null;
-        continue;
-      }
-      if (type === 'LIST') {
-        const title = String(segs[1] ?? '').trim();
-        if (!title) continue;
-        const bc = parseInt(String(segs[2] ?? '1').trim(), 10);
-        const baseCount = Number.isFinite(bc) && bc > 0 ? bc : 1;
-        const category = normalizeOneTapCategoryCode(segs[3]);
-        currentList = { type: 'LIST', title, baseCount, unitLabel: 'personne', items: [], category };
-        intents.push(currentList);
-        continue;
-      }
-      if (type === 'HABIT') {
-        const title = String(segs[1] ?? '').trim();
-        if (!title) continue;
-        const recurrence = String(segs[2] ?? '').trim();
-        const category = normalizeOneTapCategoryCode(segs[3]);
-        intents.push({ type: 'HABIT', content: title, recurrence, category });
-        currentList = null;
-        continue;
-      }
-      if (type === 'TRIP') {
-        const title = String(segs[1] ?? '').trim();
-        if (!title) continue;
-        const due = String(segs[2] ?? '').trim();
-        const category = normalizeOneTapCategoryCode(segs[3]);
-        intents.push({ type: 'TRIP', destination: title, arrivalDue: due, category });
-        currentList = null;
-        continue;
-      }
-      if (type === 'NOTE') {
-        const title = String(segs[1] ?? '').trim();
-        if (!title) continue;
-        const category = normalizeOneTapCategoryCode(segs[2]);
-        intents.push({ type: 'NOTE', content: title, category });
-        currentList = null;
-        continue;
-      }
-      continue;
-    }
-
-    if (line.startsWith('>>')) {
-      const body = line.slice(2).trim();
-      if (!body) continue;
-      const segs = body
-        .split('|')
-        .map((x) => x.trim())
-        .filter(Boolean);
-      if (segs.length < 1) continue;
-      const name = String(segs[0] ?? '').trim();
-      if (!name) continue;
-      const qtyRaw = String(segs[1] ?? '').trim();
-      const unit = String(segs[2] ?? 'piece').trim() || 'piece';
-      const q = Number(qtyRaw.replace(',', '.'));
-      const qty = Number.isFinite(q) && q > 0 ? q : 1;
-      if (!currentList || currentList.type !== 'LIST') {
-        currentList = { type: 'LIST', title: 'Liste', baseCount: 1, unitLabel: 'personne', items: [], category: 'SHOP' };
-        intents.push(currentList);
-      }
-      const arr = Array.isArray(currentList.items) ? (currentList.items as ListItemDraft[]) : [];
-      arr.push({ name, qty, unit, scalable: true, includeInSave: true });
-      currentList.items = arr;
-      continue;
-    }
-
-    if (!line.startsWith('>')) continue;
-    const isItem = line.startsWith('>>');
-    const body = isItem ? line.slice(2).trim() : line.slice(1).trim();
+    if (!line.startsWith('>') || line.startsWith('>>')) continue;
+    const body = line.slice(1).trim();
     if (!body) continue;
     const segs = body
       .split('|')
       .map((x) => x.trim())
-      .filter(Boolean);
-    if (segs.length < 2) continue;
-
-    const kv: Record<string, string> = {};
-    for (const seg of segs) {
-      const idx = seg.indexOf(':');
-      if (idx <= 0) continue;
-      const k = seg.slice(0, idx).trim().toUpperCase();
-      const v = seg.slice(idx + 1).trim();
-      if (!k || !v) continue;
-      kv[k] = v;
+      .filter((x) => x.length > 0);
+    if (segs.length < 3) continue;
+    const type = normalizeType(segs[0]);
+    if (!type) continue;
+    const content = String(segs[1] ?? '').trim();
+    if (!content) continue;
+    const segmentCategory = segs[2];
+    const categoryId = normalizeOneTapCategoryCode(segmentCategory);
+    if (VERBOSE_DEBUG) {
+      console.log('[GeminiDebug] 🗺️ MAPPING_CHECK:', { segmentCategory, resolvedCategoryId: categoryId });
     }
-
-    const looksLikeKv = Boolean(kv.TYPE || kv.TITLE || kv.CONTENT || kv.DUE || kv.RECURRENCE);
-    const type = (looksLikeKv ? kv.TYPE : segs[0])?.toUpperCase?.() ?? '';
-    const content =
-      looksLikeKv
-        ? String(kv.TITLE ?? kv.CONTENT ?? kv.DESTINATION ?? '')
-        : String(segs[1] ?? '');
-
-    if (!type || !content) continue;
-    if (partial) {
-      const lastSeg = segs[segs.length - 1] ?? '';
-      if (looksLikeKv && /:\s*$/.test(lastSeg)) continue;
-    }
-
-    if (isItem) {
-      if (type !== 'ITEM') continue;
-      if (!currentList || currentList.type !== 'LIST') {
-        currentList = {
-          type: 'LIST',
-          title: 'Liste',
-          baseCount: 1,
-          unitLabel: 'personne',
-          items: [],
-        };
-        intents.push(currentList);
-      }
-      const qtyRaw = looksLikeKv ? String(kv.QUANTITY ?? kv.QTY ?? '') : segs.length >= 3 ? segs[2] : '';
-      const unit = looksLikeKv ? String(kv.UNIT ?? 'piece') : segs.length >= 4 ? segs[3] : 'piece';
-      const scalableRaw = looksLikeKv ? String(kv.SCALABLE ?? 'true') : segs.length >= 5 ? segs[4] : 'true';
-      const q = Number(String(qtyRaw).replace(',', '.'));
-      const qty = Number.isFinite(q) && q > 0 ? q : 1;
-      const sraw = String(scalableRaw).trim().toLowerCase();
-      const scalable = !(sraw === 'false' || sraw === '0' || sraw === 'no' || sraw === 'non');
-      const arr = Array.isArray(currentList.items) ? (currentList.items as ListItemDraft[]) : [];
-      arr.push({
-        name: content,
-        qty,
-        unit,
-        scalable,
-        includeInSave: true,
-      });
-      currentList.items = arr;
-      continue;
-    }
-
-    currentList = null;
-
-    if (type === 'TASK') {
-      const due = looksLikeKv ? String(kv.DUE ?? '') : segs.length >= 3 ? segs[2] : '';
-      intents.push({ type: 'TASK', content, due });
-      continue;
-    }
-    if (type === 'NOTE') {
-      intents.push({ type: 'NOTE', content });
-      continue;
-    }
-    if (type === 'HABIT') {
-      const recurrence = looksLikeKv ? String(kv.RECURRENCE ?? '') : segs.length >= 3 ? segs[2] : '';
-      intents.push({ type: 'HABIT', content, recurrence });
-      continue;
-    }
+    const due = normalizeDueInput(segs[3] ?? '');
     if (type === 'TRIP') {
-      const due = looksLikeKv ? String(kv.DUE ?? kv.ARRIVALDUE ?? '') : segs.length >= 3 ? segs[2] : '';
-      intents.push({ type: 'TRIP', destination: content, arrivalDue: due });
-      continue;
-    }
-    if (type === 'LIST') {
-      const baseCountRaw = looksLikeKv ? String(kv.BASECOUNT ?? '1') : segs.length >= 3 ? segs[2] : '1';
-      const unitLabelRaw = looksLikeKv ? String(kv.UNITLABEL ?? 'personne') : segs.length >= 4 ? segs[3] : 'personne';
-      const bc = parseInt(String(baseCountRaw).trim(), 10);
-      const baseCount = Number.isFinite(bc) && bc > 0 ? bc : 1;
-      const unitLabel = String(unitLabelRaw || 'personne').trim().slice(0, 40) || 'personne';
-      currentList = { type: 'LIST', title: content, baseCount, unitLabel, items: [] };
+      intents.push({ type: 'TRIP', destination: content, arrivalDue: due, category: categoryId });
+    } else if (type === 'TASK') {
+      intents.push({ type: 'TASK', content, due, category: categoryId });
+    } else if (type === 'NOTE') {
+      intents.push({ type: 'NOTE', content, category: categoryId });
+    } else if (type === 'HABIT') {
+      intents.push({ type: 'HABIT', content, recurrence: due, category: categoryId });
+    } else if (type === 'LIST') {
+      const baseCountRaw = parseInt(String(segs[3] ?? '1').trim(), 10);
+      const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
+      currentList = { type: 'LIST', title: content, baseCount, unitLabel: 'personne', items: [], category: categoryId };
       intents.push(currentList);
-      continue;
     }
+    currentList = type === 'LIST' ? currentList : null;
   }
   return intents;
 }
@@ -1037,25 +860,83 @@ function detectLangForOneTapPrompt(transcript: string, fallback: string): string
   const base = String(fallback || '').trim();
   const norm = base.toLowerCase();
   if (scoreEn > scoreFr && !hasAccents) return norm.startsWith('en') ? base : 'en-US';
+  if (scoreEn > 0 && scoreFr === 0 && !hasAccents) return 'en-US';
   if (scoreFr > scoreEn || hasAccents) return norm.startsWith('fr') ? base : 'fr-FR';
-  return base || 'en-US';
+  return base || 'auto';
 }
 
 function baseLangFromBcp47(bcp47: string): string {
   const s = String(bcp47 || '').trim();
-  if (!s) return 'en';
-  return s.split(/[-_]/)[0]?.toLowerCase() || 'en';
+  if (!s || s === 'und') return 'auto';
+  return s.split(/[-_]/)[0]?.toLowerCase() || 'auto';
 }
 
-function buildCompressedGeminiPrompt(transcript: string, seedLine: string, langParam: string): string {
+const TRIP_TRIGGER_TERMS_FR = [
+  'aller',
+  'rendez-vous',
+  'rdv',
+  'chez',
+  'déplacement',
+  'deplacement',
+  'déplacer',
+  'deplacer',
+  'en train',
+  'avion',
+  'gare',
+  'aéroport',
+  'aeroport',
+  'hôpital',
+  'hopital',
+  'dentiste',
+  'kiné',
+  'kine',
+  'piscine',
+  'tennis',
+  'foot',
+  'gym',
+  'salle de sport',
+  'séance',
+  'seance',
+  'salle',
+] as const;
+
+const TRIP_TRIGGER_TERMS_EN = [
+  'go to',
+  'going to',
+  'visit',
+  'travel',
+  'head to',
+  'arrive at',
+  'airport',
+  'station',
+  'hotel',
+] as const;
+
+const TRIP_TRIGGER_TERMS_EXTRA = ['pêche', 'peche', 'étang', 'etang', 'cabane', 'school'] as const;
+
+const TRIP_TRIGGER_PATTERN_FR = new RegExp(`\\b(${TRIP_TRIGGER_TERMS_FR.join('|')})\\b`, 'i');
+const TRIP_TRIGGER_PATTERN_EN = new RegExp(`\\b(${TRIP_TRIGGER_TERMS_EN.join('|')})\\b`, 'i');
+const TRIP_TRIGGER_PATTERN_EXTRA = new RegExp(`\\b(${TRIP_TRIGGER_TERMS_EXTRA.join('|')})\\b`, 'i');
+
+function shouldForceTripFromTranscript(cleaned: string): boolean {
+  const lower = String(cleaned || '').toLowerCase();
+  return (
+    TRIP_TRIGGER_PATTERN_FR.test(cleaned) ||
+    TRIP_TRIGGER_PATTERN_EN.test(lower) ||
+    TRIP_TRIGGER_PATTERN_EXTRA.test(lower)
+  );
+}
+
+function buildCompressedGeminiPrompt(transcript: string, seedLine: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
-  const lang = String(langParam || '').trim() ? String(langParam || '').trim() : detectLangForOneTapPrompt(safe, '');
+  const lang = detectLangForOneTapPrompt(safe, '');
   const lang2 = baseLangFromBcp47(lang);
-  const isEn = lang2 === 'en';
+  const seed = seedLine;
   const loc = `LANGUAGE CONTRACT (ABSOLUTE):
 - lang=${lang2}
-- Your output must be in the same language as lang.
+- Your output must be in the same language as lang=${lang2}.
 - CRITICAL: ZERO TRANSLATION. Do not translate the user's wording.
+- If lang=auto, infer the language from the dictation, then follow this contract.
 - CRITICAL: If lang=en, every user-facing string MUST be English. Never output French words.
 - CRITICAL: If lang=fr, every user-facing string MUST be French. Never output English words.`;
   const catContract = `CATEGORY CONTRACT (ABSOLUTE):
@@ -1065,7 +946,7 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string, langP
 - If unsure, use PERSO.`;
   const tripContract = `TRIP CONTRACT (ABSOLUTE):
 - Any mention of movement or going somewhere MUST be classified as TRIP.
-- This includes: "go to", "going to", "visit", "travel", "head to", "arrive at", "airport", "station", "hotel".
+- Trigger dictionary: ${[...TRIP_TRIGGER_TERMS_EN, ...TRIP_TRIGGER_TERMS_FR, ...TRIP_TRIGGER_TERMS_EXTRA].join(', ')}.
 - TRIP implies logisticsPotential=true (do not mention the boolean, just pick TRIP).`;
   const now = new Date();
   const tz =
@@ -1077,21 +958,14 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string, langP
         return 'local';
       }
     })();
-  const fullDateString =
-    (() => {
-      try {
-        return now.toLocaleString(lang, { dateStyle: 'full', timeStyle: 'long' });
-      } catch {
-        return now.toString();
-      }
-    })();
+  const fullDateString = now.toISOString();
   return `lang=${lang2}
 ${loc}
 ${catContract}
 ${tripContract}
-Current Reference Time: [Locale: ${lang}, Date: ${fullDateString} (${tz})]
+Current Reference Time: [ISO: ${fullDateString} (${tz})]
 Local heuristic (refine or override if wrong):
-${seedLine}
+${seed}
 
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
@@ -1109,7 +983,7 @@ Constraints:
 - DUE_DATE: "YYYY-MM-DD HH:mm" or null
 
 Examples:
-${isEn ? '> TRIP | go to the Atman team | WORK | null' : '> TRIP | aller voir l’équipe Atman | WORK | null'}`;
+> TRIP | <CONTENT> | TRAVEL | null`;
 }
 
 /**
@@ -1241,12 +1115,7 @@ export function inferOneTapSkeletonFromTranscript(
     base = { ...base, memo: cleaned.slice(0, 4000) };
   }
 
-  const travelHint =
-    /\b(aller|rendez-vous|rdv|chez|déplacement|déplacer|à la|a la|au |à l'|a l'|en train|avion|gare|aéroport|hôpital|hopital|dentiste|kiné|kine|piscine|tennis|foot|gym|salle de sport|séance|salle)\b/i.test(
-      cleaned,
-    ) ||
-    /\b(go to|going to|visit|travel|head to|arrive at|airport|station|hotel)\b/i.test(lower) ||
-    /\b(pêche|peche|étang|cabane)\b/i.test(lower);
+  const travelHint = shouldForceTripFromTranscript(cleaned);
 
   if (travelHint) {
     predictedType = 'TRIP';
@@ -1304,12 +1173,17 @@ export async function refineOneTapWithGeminiCompressed(
   if (getDebugUserTierOverrideCached() === 'force_free') {
     console.log('[OneTap] Mode FREE actif : Limitation simulée');
   }
-  console.log(`[OneTap] 🎤 TRANSCRIPTION: ${JSON.stringify(transcript)}`);
+  if (VERBOSE_DEBUG) console.log(`[OneTap] 🎤 TRANSCRIPTION: ${JSON.stringify(transcript)}`);
 
   const seed = wireLineFromSkeleton(skeleton);
-  const prompt = buildCompressedGeminiPrompt(transcript, seed, options.lang || options.uiLocale);
+  const prompt = buildCompressedGeminiPrompt(transcript, seed);
   const useStream = options.useStream !== false;
   const pathBGeminiStart = perfNowMs();
+  const lang2 = baseLangFromBcp47(detectLangForOneTapPrompt(transcript, ''));
+  if (VERBOSE_DEBUG) {
+    console.log('[GeminiDebug] 🛡️ PROMPT_PARAMS:', { lang2, transcriptHead: transcript.slice(0, 20) });
+    console.log('[GeminiDebug] 📝 FULL_PROMPT_SENT:', prompt);
+  }
 
   const pathBLog: GeminiPathBLogAnchor = {
     pathACategoryTag: skeleton.categoryTag,
@@ -1358,6 +1232,7 @@ export async function refineOneTapWithGeminiCompressed(
 
   let rawModelText: string;
   let httpMeta: GeminiHttpSettledMeta | undefined;
+  const netStart = perfNowMs();
   if (useStream) {
     const r = await geminiStreamOneTapCompressedLine(prompt, (acc) => applyBuffer(acc), pathBLog);
     rawModelText = r.raw;
@@ -1368,27 +1243,26 @@ export async function refineOneTapWithGeminiCompressed(
     httpMeta = r.httpMeta;
     applyBuffer(rawModelText);
   }
+  const netEnd = perfNowMs();
 
+  const parseStart = perfNowMs();
   let parsed = skeleton;
   const bp = parseBulletPipeIntentsFromBuffer(rawModelText, false);
   if (bp.length) {
     parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, annotateIncompletes(bp, transcript, skeleton));
   } else {
-    for (const w of parseOneTapWireLineBlocks(rawModelText)) {
-      parsed = mergeWireIntoOneTapSkeleton(parsed, w);
-    }
-    const jsonObj = tryParseJsonObjectBestEffort(rawModelText);
-    if (jsonObj) {
-      try {
-        parsed = parseOneTapUniversalJson(JSON.stringify(jsonObj));
-      } catch {
-        /* keep wire merge */
-      }
+    if (VERBOSE_DEBUG) {
+      console.log('[GeminiDebug] ⚠️ INVALID_BULLET_PIPE_OUTPUT:', rawModelText.slice(0, 600));
     }
   }
   if (!parsed.title.trim()) {
     parsed = { ...parsed, title: skeleton.title };
   }
+  const parseEnd = perfNowMs();
+  console.log('[GeminiPerf] ⏱️ TIMING:', {
+    network_ms: Math.round(netEnd - netStart),
+    parsing_ms: Math.round(parseEnd - parseStart),
+  });
 
   const skLabel = `${String(skeleton.data.destination_name ?? '').trim()}|${String(skeleton.data.location_address ?? '').trim()}`;
   const pdDest = typeof parsed.data.destination_name === 'string' ? parsed.data.destination_name.trim() : '';
@@ -1510,7 +1384,7 @@ export async function geminiOneTapUniversalFromTranscript(
   });
   const geminiEndMs = perfNowMs();
   const parseEndMs = perfNowMs();
-  const promptLen = buildCompressedGeminiPrompt(transcript, wireLineFromSkeleton(skeleton), options.uiLocale).length;
+  const promptLen = buildCompressedGeminiPrompt(transcript, wireLineFromSkeleton(skeleton)).length;
   console.log(
     `[OneTapPerf] prompt.metrics${OT_LOG}promptChars: ${promptLen}${OT_LOG}geminiMs: ${Math.round(geminiEndMs - geminiStartMs)}${OT_LOG}parseMs: ${Math.round(parseEndMs - geminiEndMs)}`,
   );
