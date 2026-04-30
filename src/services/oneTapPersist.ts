@@ -903,229 +903,234 @@ export async function persistOneTapDraftVentilated(params: {
     for (const raw of intentsRaw) {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
       const r = raw as Record<string, unknown>;
-      const type = String(r.type ?? '').trim().toUpperCase();
-      const categoryTag = (typeof r.category === 'string' ? r.category.trim().slice(0, 80) : '') || draft.categoryTag;
-      if (type === 'LIST') {
-        const title = String(r.title ?? '').trim() || draft.title;
-        const items =
-          Array.isArray(r.items) && r.items.length > 0 && typeof r.items[0] === 'object'
-            ? (r.items as { name: string; baseQuantity?: number; unit?: string; scalable?: boolean }[])
-            : Array.isArray(r.items)
-              ? r.items.map((x) => String(x ?? '').trim()).filter(Boolean)
-              : [];
-        if (items.length > 0) {
-          const listBlock = buildListDraftBlock({
-            title,
-            items,
-            baseCount: Number(r.baseCount ?? 1),
-            unitLabel: typeof r.unitLabel === 'string' ? r.unitLabel : undefined,
-          });
-          const listDraft: OneTapUniversalResult = {
+      try {
+        const type = String(r.type ?? '').trim().toUpperCase();
+        const categoryTag = (typeof r.category === 'string' ? r.category.trim().slice(0, 80) : '') || draft.categoryTag;
+        if (type === 'LIST') {
+          const title = String(r.title ?? '').trim() || draft.title;
+          const items =
+            Array.isArray(r.items) && r.items.length > 0 && typeof r.items[0] === 'object'
+              ? (r.items as { name: string; baseQuantity?: number; unit?: string; scalable?: boolean }[])
+              : Array.isArray(r.items)
+                ? r.items.map((x) => String(x ?? '').trim()).filter(Boolean)
+                : [];
+          if (items.length > 0) {
+            const listBlock = buildListDraftBlock({
+              title,
+              items,
+              baseCount: Number(r.baseCount ?? 1),
+              unitLabel: typeof r.unitLabel === 'string' ? r.unitLabel : undefined,
+            });
+            const listDraft: OneTapUniversalResult = {
+              ...draft,
+              categoryTag,
+              title: title.trim().slice(0, 200) || draft.title,
+              predictedType: 'LIST',
+              data: { list: listBlock },
+            };
+            const pr = await persistAndDualWrite({
+              deps,
+              draft: listDraft,
+              transcript,
+              habitsDefaultTitle,
+              birthdayLabel,
+              entityLabel: 'LIST',
+            });
+            if (pr.ok) outcomes.push(pr.outcome);
+            else {
+              firstError = firstError ?? pr.error;
+              firstCode = firstCode ?? pr.code;
+            }
+          }
+          continue;
+        }
+        if (type === 'TASK') {
+          const content = String(r.content ?? '').trim() || draft.title;
+          const notes = typeof r.notes === 'string' ? r.notes.trim() : '';
+          const dueIso = typeof r.due === 'string' ? r.due.trim() : '';
+          const patch = dueIso ? parseIsoToYmdHm(dueIso) : null;
+          const taskDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
-            title: title.trim().slice(0, 200) || draft.title,
-            predictedType: 'LIST',
-            data: { list: listBlock },
+            title: content.slice(0, 200) || draft.title,
+            predictedType: 'TASK',
+            data: {
+              ...(dueIso ? { dueDateTime: dueIso } : {}),
+              ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
+              ...(notes ? { notes: notes.slice(0, 2000) } : {}),
+            },
           };
           const pr = await persistAndDualWrite({
             deps,
-            draft: listDraft,
+            draft: taskDraft,
             transcript,
             habitsDefaultTitle,
             birthdayLabel,
-            entityLabel: 'LIST',
+            entityLabel: 'TASK',
           });
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
           }
+          continue;
         }
-        continue;
-      }
-      if (type === 'TASK') {
-        const content = String(r.content ?? '').trim() || draft.title;
-        const notes = typeof r.notes === 'string' ? r.notes.trim() : '';
-        const dueIso = typeof r.due === 'string' ? r.due.trim() : '';
-        const patch = dueIso ? parseIsoToYmdHm(dueIso) : null;
-        const taskDraft: OneTapUniversalResult = {
-          ...draft,
-          categoryTag,
-          title: content.slice(0, 200) || draft.title,
-          predictedType: 'TASK',
-          data: {
-            ...(dueIso ? { dueDateTime: dueIso } : {}),
-            ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
-            ...(notes ? { notes: notes.slice(0, 2000) } : {}),
-          },
-        };
-        const pr = await persistAndDualWrite({
-          deps,
-          draft: taskDraft,
-          transcript,
-          habitsDefaultTitle,
-          birthdayLabel,
-          entityLabel: 'TASK',
-        });
-        if (pr.ok) outcomes.push(pr.outcome);
-        else {
-          firstError = firstError ?? pr.error;
-          firstCode = firstCode ?? pr.code;
-        }
-        continue;
-      }
-      if (type === 'TRIP') {
-        const destination = String(r.destination ?? r.content ?? r.title ?? '').trim() || str(draft.data, 'destination_name') || draft.title;
-        const dueIso = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : typeof r.due === 'string' ? r.due.trim() : '';
-        const patch = dueIso ? parseIsoToYmdHm(dueIso) : null;
-        const tripDraft: OneTapUniversalResult = {
-          ...draft,
-          categoryTag,
-          title: destination.slice(0, 200) || draft.title,
-          predictedType: 'TRIP',
-          data: {
-            logisticsPotential: true,
-            destination_name: destination.slice(0, 400),
-            ...(dueIso ? { dueDateTime: dueIso } : {}),
-            ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
-            location_address: str(draft.data, 'location_address') ?? '',
-            location_place_id: (draft.data as Record<string, unknown>).location_place_id ?? null,
-            location_lat: (draft.data as Record<string, unknown>).location_lat ?? null,
-            location_lng: (draft.data as Record<string, unknown>).location_lng ?? null,
-            remind_to_leave: Boolean((draft.data as Record<string, unknown>).remind_to_leave),
-          },
-        };
-        const pr = await persistAndDualWrite({
-          deps,
-          draft: tripDraft,
-          transcript,
-          habitsDefaultTitle,
-          birthdayLabel,
-          entityLabel: 'TRIP',
-        });
-        if (pr.ok) outcomes.push(pr.outcome);
-        else {
-          firstError = firstError ?? pr.error;
-          firstCode = firstCode ?? pr.code;
-        }
-        continue;
-      }
-      if (type === 'HABIT') {
-        const content = String(r.content ?? '').trim() || draft.title;
-        const rec = typeof r.recurrence === 'string' ? r.recurrence.trim() : '';
-        const pref = typeof r.preferredTime === 'string' ? r.preferredTime.trim() : '';
-        const habitDraft: OneTapUniversalResult = {
-          ...draft,
-          categoryTag,
-          title: content.slice(0, 200) || draft.title,
-          predictedType: 'HABIT',
-          data: {
-            ...(rec ? { cadenceDescription: rec.slice(0, 500), recurrence: { summary: rec.slice(0, 500) } } : {}),
-            ...(pref ? { preferredTimeHm: pref } : {}),
-          },
-        };
-        const pr = await persistAndDualWrite({
-          deps,
-          draft: habitDraft,
-          transcript,
-          habitsDefaultTitle,
-          birthdayLabel,
-          entityLabel: 'HABIT',
-        });
-        if (pr.ok) outcomes.push(pr.outcome);
-        else {
-          firstError = firstError ?? pr.error;
-          firstCode = firstCode ?? pr.code;
-        }
-        continue;
-      }
-      if (type === 'NOTE') {
-        const content = String(r.content ?? '').trim() || transcript.trim();
-        const noteDraft: OneTapUniversalResult = {
-          ...draft,
-          categoryTag,
-          title: draft.title,
-          predictedType: 'NOTE',
-          data: { memo: content.slice(0, 4000) },
-        };
-        const pr = await persistAndDualWrite({
-          deps,
-          draft: noteDraft,
-          transcript,
-          habitsDefaultTitle,
-          birthdayLabel,
-          entityLabel: 'NOTE',
-        });
-        if (pr.ok) outcomes.push(pr.outcome);
-        else {
-          firstError = firstError ?? pr.error;
-          firstCode = firstCode ?? pr.code;
-        }
-        continue;
-      }
-      if (type === 'TRIP') {
-        const destination = String(r.destination ?? '').trim();
-        if (!destination) continue;
-        const addr = typeof r.address === 'string' ? r.address.trim() : '';
-        const placeId = typeof r.placeId === 'string' ? r.placeId.trim() : '';
-        const lat = Number(r.lat);
-        const lng = Number(r.lng);
-        const arrivalIso = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : '';
-        const patch = arrivalIso ? parseIsoToYmdHm(arrivalIso) : null;
-        const taskDraft: OneTapUniversalResult = {
-          ...draft,
-          categoryTag,
-          title: destination.slice(0, 200) || draft.title,
-          predictedType: 'TASK',
-          data: {
-            logisticsPotential: true,
-            destination_name: destination.slice(0, 400),
-            ...(addr ? { location_address: addr.slice(0, 500) } : {}),
-            ...(placeId ? { location_place_id: placeId.slice(0, 200) } : {}),
-            ...(Number.isFinite(lat) ? { location_lat: lat } : {}),
-            ...(Number.isFinite(lng) ? { location_lng: lng } : {}),
-            ...(arrivalIso ? { dueDateTime: arrivalIso } : {}),
-            ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
-          },
-        };
-        const pr = await persistAndDualWrite({
-          deps,
-          draft: taskDraft,
-          transcript,
-          habitsDefaultTitle,
-          birthdayLabel,
-          entityLabel: 'TRIP_TASK',
-        });
-        if (pr.ok) {
-          outcomes.push(pr.outcome);
-          if (pr.outcome.kind === 'persisted_temporal' && pr.outcome.mirrorType === 'TASK') {
-            const taskOutcomeId = pr.outcome.intentionId;
-            const arrivalMs = arrivalIso ? parseArrivalMsFromData(taskDraft.data as Record<string, unknown>) : null;
-            const sentinelReady =
-              addr.length > 0 &&
-              placeId.length > 0 &&
-              Number.isFinite(lat) &&
-              Number.isFinite(lng) &&
-              Number.isFinite(arrivalMs) &&
-              (arrivalMs ?? 0) > 0;
-            if (sentinelReady && arrivalMs) {
-              const quota = await consumeSentinelQuotaOnTripValidation({ isProUser: deps.spectrum.isProUser });
-              await activateSentinelTrip({
-                tripTaskId: taskOutcomeId,
-                formattedAddress: addr,
-                targetArrivalMs: arrivalMs,
-                lat,
-                lng,
-                sentinelMode: quota.mode,
-              });
-              console.log(`[VENTILATION-WRITE] ✅ TRIP_SENTINEL | ID: ${taskOutcomeId}`);
-            }
+        if (type === 'TRIP') {
+          const destination =
+            String(r.destination ?? r.content ?? r.title ?? '').trim() || str(draft.data, 'destination_name') || draft.title;
+          const dueIso = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : typeof r.due === 'string' ? r.due.trim() : '';
+          const patch = dueIso ? parseIsoToYmdHm(dueIso) : null;
+          const tripDraft: OneTapUniversalResult = {
+            ...draft,
+            categoryTag,
+            title: destination.slice(0, 200) || draft.title,
+            predictedType: 'TRIP',
+            data: {
+              logisticsPotential: true,
+              destination_name: destination.slice(0, 400),
+              ...(dueIso ? { dueDateTime: dueIso } : {}),
+              ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
+              location_address: str(draft.data, 'location_address') ?? '',
+              location_place_id: (draft.data as Record<string, unknown>).location_place_id ?? null,
+              location_lat: (draft.data as Record<string, unknown>).location_lat ?? null,
+              location_lng: (draft.data as Record<string, unknown>).location_lng ?? null,
+              remind_to_leave: Boolean((draft.data as Record<string, unknown>).remind_to_leave),
+            },
+          };
+          const pr = await persistAndDualWrite({
+            deps,
+            draft: tripDraft,
+            transcript,
+            habitsDefaultTitle,
+            birthdayLabel,
+            entityLabel: 'TRIP',
+          });
+          if (pr.ok) outcomes.push(pr.outcome);
+          else {
+            firstError = firstError ?? pr.error;
+            firstCode = firstCode ?? pr.code;
           }
-        } else {
-          firstError = firstError ?? pr.error;
-          firstCode = firstCode ?? pr.code;
+          continue;
         }
-        continue;
+        if (type === 'HABIT') {
+          const content = String(r.content ?? '').trim() || draft.title;
+          const rec = typeof r.recurrence === 'string' ? r.recurrence.trim() : '';
+          const pref = typeof r.preferredTime === 'string' ? r.preferredTime.trim() : '';
+          const habitDraft: OneTapUniversalResult = {
+            ...draft,
+            categoryTag,
+            title: content.slice(0, 200) || draft.title,
+            predictedType: 'HABIT',
+            data: {
+              ...(rec ? { cadenceDescription: rec.slice(0, 500), recurrence: { summary: rec.slice(0, 500) } } : {}),
+              ...(pref ? { preferredTimeHm: pref } : {}),
+            },
+          };
+          const pr = await persistAndDualWrite({
+            deps,
+            draft: habitDraft,
+            transcript,
+            habitsDefaultTitle,
+            birthdayLabel,
+            entityLabel: 'HABIT',
+          });
+          if (pr.ok) outcomes.push(pr.outcome);
+          else {
+            firstError = firstError ?? pr.error;
+            firstCode = firstCode ?? pr.code;
+          }
+          continue;
+        }
+        if (type === 'NOTE') {
+          const content = String(r.content ?? '').trim() || transcript.trim();
+          const noteDraft: OneTapUniversalResult = {
+            ...draft,
+            categoryTag,
+            title: draft.title,
+            predictedType: 'NOTE',
+            data: { memo: content.slice(0, 4000) },
+          };
+          const pr = await persistAndDualWrite({
+            deps,
+            draft: noteDraft,
+            transcript,
+            habitsDefaultTitle,
+            birthdayLabel,
+            entityLabel: 'NOTE',
+          });
+          if (pr.ok) outcomes.push(pr.outcome);
+          else {
+            firstError = firstError ?? pr.error;
+            firstCode = firstCode ?? pr.code;
+          }
+          continue;
+        }
+        if (type === 'TRIP') {
+          const destination = String(r.destination ?? '').trim();
+          if (!destination) continue;
+          const addr = typeof r.address === 'string' ? r.address.trim() : '';
+          const placeId = typeof r.placeId === 'string' ? r.placeId.trim() : '';
+          const lat = Number(r.lat);
+          const lng = Number(r.lng);
+          const arrivalIso = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : '';
+          const patch = arrivalIso ? parseIsoToYmdHm(arrivalIso) : null;
+          const taskDraft: OneTapUniversalResult = {
+            ...draft,
+            categoryTag,
+            title: destination.slice(0, 200) || draft.title,
+            predictedType: 'TASK',
+            data: {
+              logisticsPotential: true,
+              destination_name: destination.slice(0, 400),
+              ...(addr ? { location_address: addr.slice(0, 500) } : {}),
+              ...(placeId ? { location_place_id: placeId.slice(0, 200) } : {}),
+              ...(Number.isFinite(lat) ? { location_lat: lat } : {}),
+              ...(Number.isFinite(lng) ? { location_lng: lng } : {}),
+              ...(arrivalIso ? { dueDateTime: arrivalIso } : {}),
+              ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
+            },
+          };
+          const pr = await persistAndDualWrite({
+            deps,
+            draft: taskDraft,
+            transcript,
+            habitsDefaultTitle,
+            birthdayLabel,
+            entityLabel: 'TRIP_TASK',
+          });
+          if (pr.ok) {
+            outcomes.push(pr.outcome);
+            if (pr.outcome.kind === 'persisted_temporal' && pr.outcome.mirrorType === 'TASK') {
+              const taskOutcomeId = pr.outcome.intentionId;
+              const arrivalMs = arrivalIso ? parseArrivalMsFromData(taskDraft.data as Record<string, unknown>) : null;
+              const sentinelReady =
+                addr.length > 0 &&
+                placeId.length > 0 &&
+                Number.isFinite(lat) &&
+                Number.isFinite(lng) &&
+                Number.isFinite(arrivalMs) &&
+                (arrivalMs ?? 0) > 0;
+              if (sentinelReady && arrivalMs) {
+                const quota = await consumeSentinelQuotaOnTripValidation({ isProUser: deps.spectrum.isProUser });
+                await activateSentinelTrip({
+                  tripTaskId: taskOutcomeId,
+                  formattedAddress: addr,
+                  targetArrivalMs: arrivalMs,
+                  lat,
+                  lng,
+                  sentinelMode: quota.mode,
+                });
+                console.log(`[VENTILATION-WRITE] ✅ TRIP_SENTINEL | ID: ${taskOutcomeId}`);
+              }
+            }
+          } else {
+            firstError = firstError ?? pr.error;
+            firstCode = firstCode ?? pr.code;
+          }
+          continue;
+        }
+      } catch (e) {
+        firstError = firstError ?? e;
       }
     }
 

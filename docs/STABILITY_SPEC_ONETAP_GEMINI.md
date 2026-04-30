@@ -11,10 +11,10 @@ Avant toute modification sur l’un de ces fichiers, vérifier la conformité av
 ### Unique Output Format
 Le modèle Gemini MUST exclusivement répondre en Bullet‑Pipe :
 
-> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE
+> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE **
 
 ### Zero‑Footprint Parsing
-Le parser applicatif MUST uniquement lire les lignes commençant par `>`.
+Le parser applicatif MUST uniquement lire les blocs clôturés par `**` dont le contenu commence par `>`.
 Tout autre output du modèle (JSON, Markdown, prose) est strictement interdit et ne doit jamais être parsé.
 
 ### Latency Target

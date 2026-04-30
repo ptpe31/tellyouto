@@ -309,8 +309,8 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
 
 function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
   const s = String(buffer || '');
-  const parts = s.split('\n');
-  const lines = partial && !s.endsWith('\n') ? parts.slice(0, -1) : parts;
+  const rawBlocks = s.split('**');
+  const validatedBlocks = partial || !s.endsWith('**') ? rawBlocks.slice(0, -1) : rawBlocks;
   const intents: OneTapIntentJson[] = [];
   let currentList: OneTapIntentJson | null = null;
 
@@ -329,8 +329,8 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
     return '';
   };
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
+  for (const rawBlock of validatedBlocks) {
+    const line = rawBlock.trim();
     if (!line) continue;
 
     if (!line.startsWith('>') || line.startsWith('>>')) continue;
@@ -970,11 +970,13 @@ ${seed}
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
-Reply ONLY with Bullet-Pipe lines starting with ">".
+CRITICAL: Every intent MUST start with ">" and end with "**". Structure:
+> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE **
+Reply ONLY with Bullet-Pipe intents.
 No JSON. No markdown. No explanations.
 
 Output format (one line per intent):
-> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE
+> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE **
 
 Constraints:
 - TYPE: TRIP or TASK (prefer TRIP when movement/location is mentioned)
@@ -983,7 +985,7 @@ Constraints:
 - DUE_DATE: "YYYY-MM-DD HH:mm" or null
 
 Examples:
-> TRIP | <CONTENT> | TRAVEL | null`;
+> TRIP | <CONTENT> | TRAVEL | null **`;
 }
 
 /**
