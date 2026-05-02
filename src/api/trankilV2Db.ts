@@ -137,8 +137,8 @@ export type BonusEventType =
 
 const DB_NAME = 'trankil_v2.db';
 const SQLITE_OP_TIMEOUT_MS = 12000;
-const DISABLE_TRANKIL_V2_SQL_SERIALIZATION = false;
-const DISABLE_TRANKIL_V2_PRAGMAS = false;
+const DISABLE_TRANKIL_V2_SQL_SERIALIZATION = true;
+const DISABLE_TRANKIL_V2_PRAGMAS = true;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let v2SqlQueue: Promise<void> = Promise.resolve();

@@ -51,6 +51,8 @@ Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la p
 
 - Schéma : la source de vérité est la table SQLite `intentions` (Trankil‑v2). Les noms de colonnes sont stabilisés, notamment `due_date` (à utiliser partout côté Douane / insertions pour éviter tout conflit futur).
 - Mode de persistance : l’écriture est locale (SQLite `trankil_v2.db`) et une réplication systématique est effectuée dans `via_production.db` (table `core_intentions`) après succès.
+- Stabilité Android (New Architecture) : le bootstrap SQLite ne doit jamais bloquer l’UI. En cas de stall SQLite au démarrage, l’app continue à afficher l’interface, et l’initialisation DB reste best-effort en arrière-plan.
+- Stratégie anti-deadlock : désactiver le wrapper de sérialisation et les PRAGMA agressifs lorsque la pile SQLite présente des symptômes de deadlock (`prepareAsync`/`execAsync` qui ne résolvent pas).
 
 ### 3) Feedback utilisateur (UI/UX)
 

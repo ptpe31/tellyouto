@@ -53,14 +53,31 @@ function AppNavigation() {
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
   useEffect(() => {
+    void initializeGeminiEngine();
+    void configureCaptureBackgroundTask();
+    void requestBackgroundExecutionPermissions();
+
+    let disposed = false;
+    const fallbackTimer = setTimeout(() => {
+      if (!disposed) setDbReady(true);
+    }, 1200);
+
     void (async () => {
-      await bootstrapTrankilV2Database();
+      try {
+        await bootstrapTrankilV2Database();
+      } catch {}
+      if (disposed) return;
+      clearTimeout(fallbackTimer);
       setDbReady(true);
-      await initializeGeminiEngine();
-      await configureCaptureBackgroundTask();
-      await requestBackgroundExecutionPermissions();
-      await cleanOldArchives();
+      try {
+        await cleanOldArchives();
+      } catch {}
     })();
+
+    return () => {
+      disposed = true;
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   if (!dbReady) {
