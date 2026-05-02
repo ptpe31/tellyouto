@@ -137,66 +137,16 @@ export type BonusEventType =
   | 'super_bonus_local_streak';
 
 const DB_NAME = 'trankil_v2.db';
-const SQLITE_OP_TIMEOUT_MS = 12000;
-const DISABLE_TRANKIL_V2_SQL_SERIALIZATION = true;
 const DISABLE_TRANKIL_V2_PRAGMAS = true;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
-let v2SqlQueue: Promise<void> = Promise.resolve();
 let pragmasApplied = false;
 let schemaInitPromise: Promise<void> | null = null;
 let schemaReady = false;
 let bootstrapPromise: Promise<void> | null = null;
 
-type SqliteAsyncMethodName = 'execAsync' | 'runAsync' | 'getFirstAsync' | 'getAllAsync' | 'prepareAsync';
-
-function withSqlTimeout<T>(label: string, p: Promise<T>): Promise<T> {
-  if (DISABLE_TRANKIL_V2_SQL_SERIALIZATION) return p;
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => {
-        console.log(`[DATABASE] ❌ SQLITE_TIMEOUT ${label} (${SQLITE_OP_TIMEOUT_MS}ms)`);
-        reject(new Error(`SQLITE_TIMEOUT:${label}`));
-      }, SQLITE_OP_TIMEOUT_MS),
-    ),
-  ]);
-}
-
-function runSerializedTrankilV2<T>(fn: () => Promise<T>): Promise<T> {
-  const p = v2SqlQueue.then(fn, fn);
-  v2SqlQueue = p.then(
-    () => undefined,
-    () => undefined,
-  );
-  return p;
-}
-
-function wrapDbWithSerialization(database: SQLite.SQLiteDatabase): SQLite.SQLiteDatabase {
-  if (DISABLE_TRANKIL_V2_SQL_SERIALIZATION) return database;
-  const dbAny = database as unknown as {
-    __trankilV2Serialized?: boolean;
-    execAsync?: (...args: unknown[]) => Promise<unknown>;
-    runAsync?: (...args: unknown[]) => Promise<unknown>;
-    getFirstAsync?: (...args: unknown[]) => Promise<unknown>;
-    getAllAsync?: (...args: unknown[]) => Promise<unknown>;
-    prepareAsync?: (...args: unknown[]) => Promise<unknown>;
-  };
-  if (dbAny.__trankilV2Serialized) return database;
-  dbAny.__trankilV2Serialized = true;
-  (['execAsync', 'runAsync', 'getFirstAsync', 'getAllAsync', 'prepareAsync'] as SqliteAsyncMethodName[]).forEach(
-    (name) => {
-      const orig = (dbAny[name] as unknown as ((...args: unknown[]) => Promise<unknown>) | undefined)?.bind(database);
-      if (!orig) return;
-      dbAny[name] = (...args: unknown[]) => runSerializedTrankilV2(() => withSqlTimeout(name, orig(...args)));
-    },
-  );
-  return database;
-}
-
 function resetTrankilV2RuntimeState(): void {
   dbPromise = null;
-  v2SqlQueue = Promise.resolve();
   pragmasApplied = false;
   schemaInitPromise = null;
   schemaReady = false;
@@ -277,17 +227,16 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = SQLite.openDatabaseAsync(DB_NAME).then(async (db) => {
       if (VERBOSE_DEBUG) console.log('[SQL_TRACE] 🏁 openDatabaseAsync terminé');
-      const wrapped = wrapDbWithSerialization(db);
       if (!DISABLE_TRANKIL_V2_PRAGMAS && !pragmasApplied) {
         try {
-          await wrapped.execAsync('PRAGMA journal_mode=WAL;');
-          await wrapped.execAsync('PRAGMA busy_timeout=8000;');
+          await db.execAsync('PRAGMA journal_mode=WAL;');
+          await db.execAsync('PRAGMA busy_timeout=8000;');
         } catch {
           /* ignore */
         }
         pragmasApplied = true;
       }
-      return wrapped;
+      return db;
     });
   }
   return dbPromise;

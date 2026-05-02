@@ -56,7 +56,7 @@ Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la p
 - Mode de persistance : l’écriture est locale (SQLite `trankil_v2.db`) et une réplication systématique est effectuée dans `via_production.db` (table `core_intentions`) après succès.
 - Sécurité production : aucune suppression du fichier DB (ex. `deleteDatabaseAsync`) n’est exécutée au démarrage. Toute purge de données éventuelle doit rester une action explicite (debug/outils), jamais un comportement automatique.
 - Stabilité Android (New Architecture) : le bootstrap SQLite ne doit jamais bloquer l’UI. En cas de stall SQLite au démarrage, l’app continue à afficher l’interface, et l’initialisation DB reste best-effort en arrière-plan.
-- Stratégie anti-deadlock : désactiver le wrapper de sérialisation et les PRAGMA agressifs lorsque la pile SQLite présente des symptômes de deadlock (`prepareAsync`/`execAsync` qui ne résolvent pas).
+- Stratégie anti-deadlock : aucune file d’attente JS de sérialisation SQLite (pas de verrou sur un verrou). La sérialisation est laissée à la couche native expo-sqlite ; les accès DB côté JS restent directs.
 
 ### 3) Feedback utilisateur (UI/UX)
 
