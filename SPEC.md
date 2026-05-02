@@ -38,6 +38,7 @@ Mode de traitement : boucle asynchrone séquentielle, une intention à la fois.
 - Isolation : chaque chunk est envoyé à Gemini comme une requête atomique (Path B standard). Objectif : fiabilité maximale du format JSON/structuré et réduction du risque de sorties trop longues, tronquées ou ambiguës.
 - Mécanisme de survie : un échec sur un chunk est logué et ne bloque pas le traitement des chunks restants.
 - Fallback NOTE automatique : si Gemini ne parvient pas à extraire d’intentions structurées d’un chunk (réponse vide ou malformée), le système garantit la création d’une intention de type `NOTE_FALLBACK` afin de ne perdre aucune donnée utilisateur.
+- Verrouillage de progression : en mode bulk, l’index de progression (ex. 2/5) est mis à jour immédiatement après le succès DB afin de refléter l’état réel de la persistance (et non l’état de l’appel réseau).
 
 #### Verrou de persistance (Persistence Lock)
 
