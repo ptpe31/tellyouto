@@ -875,23 +875,14 @@ async function persistAndDualWrite(params: {
 }): Promise<PersistOneTapResult> {
   const { entityLabel, ...persistParams } = params;
   const persistStart = Date.now();
-  const resOrNull = await params.deps.withTimeout(persistOneTapDraft(persistParams), 15_000);
-  if (resOrNull === null) {
-    console.log(`[DATABASE] ❌ Persistance timeout (${entityLabel})`);
-    return { ok: false, error: new Error('PERSIST_TIMEOUT') };
-  }
-  const res = resOrNull;
+  const res = await persistOneTapDraft(persistParams);
   if (res.ok) {
     const id = 'intentionId' in res.outcome ? String((res.outcome as { intentionId?: unknown }).intentionId ?? '') : '';
     if (id) console.log(`[DATABASE] ✅ Persistance confirmée pour ${id}`);
     console.log(`[DATABASE] ⏱️ Persistance ${entityLabel} en ${Date.now() - persistStart}ms`);
     console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
     try {
-      const dw = await params.deps.withTimeout(
-        dualWriteViaCoreIntention({ draft: params.draft, transcript: params.transcript, outcome: res.outcome, entityLabel }),
-        8_000,
-      );
-      if (dw === null) console.log(`[VIA-CORE-WRITE] ⚠️ Timeout dual-write${entityLabel ? ` | Entity: ${entityLabel}` : ''}`);
+      await dualWriteViaCoreIntention({ draft: params.draft, transcript: params.transcript, outcome: res.outcome, entityLabel });
     } catch {
       /* ignore */
     }
