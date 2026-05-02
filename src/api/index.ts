@@ -70,6 +70,7 @@ export {
   updateTrankilV2IntentionAlarmFields,
   listTrankilV2PendingAlarmIntentions,
   getTrankilV2IntentionById,
+  bootstrapTrankilV2Database,
 } from './trankilV2Db';
 export type {
   TrankilIntentStatus,

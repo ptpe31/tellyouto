@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import * as FileSystem from 'expo-file-system/legacy';
 import { DeviceEventEmitter } from 'react-native';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
@@ -136,12 +137,32 @@ export type BonusEventType =
   | 'super_bonus_local_streak';
 
 const DB_NAME = 'trankil_v2.db';
+const SQLITE_OP_TIMEOUT_MS = 12000;
+const DISABLE_TRANKIL_V2_SQL_SERIALIZATION = true;
+const DISABLE_TRANKIL_V2_PRAGMAS = true;
+const TRANKIL_V2_MINIMAL_SCHEMA_ONLY = true;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let v2SqlQueue: Promise<void> = Promise.resolve();
 let pragmasApplied = false;
+let schemaInitPromise: Promise<void> | null = null;
+let schemaReady = false;
+let bootstrapPromise: Promise<void> | null = null;
 
 type SqliteAsyncMethodName = 'execAsync' | 'runAsync' | 'getFirstAsync' | 'getAllAsync' | 'prepareAsync';
+
+function withSqlTimeout<T>(label: string, p: Promise<T>): Promise<T> {
+  if (DISABLE_TRANKIL_V2_SQL_SERIALIZATION) return p;
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => {
+        console.log(`[DATABASE] ❌ SQLITE_TIMEOUT ${label} (${SQLITE_OP_TIMEOUT_MS}ms)`);
+        reject(new Error(`SQLITE_TIMEOUT:${label}`));
+      }, SQLITE_OP_TIMEOUT_MS),
+    ),
+  ]);
+}
 
 function runSerializedTrankilV2<T>(fn: () => Promise<T>): Promise<T> {
   const p = v2SqlQueue.then(fn, fn);
@@ -153,6 +174,7 @@ function runSerializedTrankilV2<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function wrapDbWithSerialization(database: SQLite.SQLiteDatabase): SQLite.SQLiteDatabase {
+  if (DISABLE_TRANKIL_V2_SQL_SERIALIZATION) return database;
   const dbAny = database as unknown as {
     __trankilV2Serialized?: boolean;
     execAsync?: (...args: unknown[]) => Promise<unknown>;
@@ -167,10 +189,45 @@ function wrapDbWithSerialization(database: SQLite.SQLiteDatabase): SQLite.SQLite
     (name) => {
       const orig = (dbAny[name] as unknown as ((...args: unknown[]) => Promise<unknown>) | undefined)?.bind(database);
       if (!orig) return;
-      dbAny[name] = (...args: unknown[]) => runSerializedTrankilV2(() => orig(...args));
+      dbAny[name] = (...args: unknown[]) => runSerializedTrankilV2(() => withSqlTimeout(name, orig(...args)));
     },
   );
   return database;
+}
+
+async function purgeTrankilV2DatabaseFile(): Promise<void> {
+  console.log('[DATABASE] 🧹 Purge trankil_v2.db');
+  try {
+    const anySqlite = SQLite as unknown as { deleteDatabaseAsync?: (name: string) => Promise<void> };
+    if (typeof anySqlite.deleteDatabaseAsync === 'function') {
+      await anySqlite.deleteDatabaseAsync(DB_NAME);
+      return;
+    }
+  } catch {}
+  try {
+    const root = FileSystem.documentDirectory;
+    if (!root) return;
+    const candidates = [`${root}SQLite/${DB_NAME}`, `${root}${DB_NAME}`];
+    for (const p of candidates) {
+      try {
+        const info = await FileSystem.getInfoAsync(p);
+        if (info.exists) await FileSystem.deleteAsync(p, { idempotent: true });
+      } catch {}
+    }
+  } catch {}
+}
+
+function resetTrankilV2RuntimeState(): void {
+  dbPromise = null;
+  v2SqlQueue = Promise.resolve();
+  pragmasApplied = false;
+  schemaInitPromise = null;
+  schemaReady = false;
+}
+
+function isNativePrepareAsyncRejected(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return msg.includes('NativeDatabase.prepareAsync') || msg.includes('NullPointerException');
 }
 
 const DEFAULT_HORIZON_CATEGORIES: Array<{ id: string; label: string; sort_order: number }> = [
@@ -242,8 +299,9 @@ function appendTimelinePaging(
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = SQLite.openDatabaseAsync(DB_NAME).then(async (db) => {
+      console.log('[SQL_TRACE] 🏁 openDatabaseAsync terminé');
       const wrapped = wrapDbWithSerialization(db);
-      if (!pragmasApplied) {
+      if (!DISABLE_TRANKIL_V2_PRAGMAS && !pragmasApplied) {
         try {
           await wrapped.execAsync('PRAGMA journal_mode=WAL;');
           await wrapped.execAsync('PRAGMA busy_timeout=8000;');
@@ -258,11 +316,29 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
+export async function bootstrapTrankilV2Database(): Promise<void> {
+  if (bootstrapPromise) return bootstrapPromise;
+  bootstrapPromise = (async () => {
+    resetTrankilV2RuntimeState();
+    await purgeTrankilV2DatabaseFile();
+    await initTrankilV2Schema();
+  })();
+  return bootstrapPromise;
+}
+
 export async function withTrankilV2Database<T>(
   fn: (db: SQLite.SQLiteDatabase) => Promise<T>,
 ): Promise<T> {
   const db = await getDb();
-  return fn(db);
+  try {
+    return await fn(db);
+  } catch (e) {
+    if (!isNativePrepareAsyncRejected(e)) throw e;
+    console.log('[DATABASE] ♻️ Reset connexion SQLite (NativeDatabase.prepareAsync rejected)');
+    resetTrankilV2RuntimeState();
+    const next = await getDb();
+    return fn(next);
+  }
 }
 
 function notifyIntentionsChanged(payload?: { id?: string; reason?: string }): void {
@@ -271,8 +347,20 @@ function notifyIntentionsChanged(payload?: { id?: string; reason?: string }): vo
 
 async function syncAfterIntentionWrite(reason: string): Promise<void> {
   try {
-    const { syncNativeRailAlarmsAfterIntentionWrite } = await import('./intentionHardwareSync');
-    await syncNativeRailAlarmsAfterIntentionWrite(reason);
+    const timeoutMs = 2500;
+    const job = (async () => {
+      const { syncNativeRailAlarmsAfterIntentionWrite } = await import('./intentionHardwareSync');
+      await syncNativeRailAlarmsAfterIntentionWrite(reason);
+    })();
+    await Promise.race([
+      job,
+      new Promise<void>((resolve) =>
+        setTimeout(() => {
+          console.log(`[DATABASE] ⚠️ syncAfterIntentionWrite timeout (${timeoutMs}ms): ${reason}`);
+          resolve();
+        }, timeoutMs),
+      ),
+    ]);
   } catch {
     /* ignore */
   }
@@ -282,6 +370,42 @@ async function syncAfterIntentionWrite(reason: string): Promise<void> {
  * Schéma SQLite de base Trankil-v2.
  */
 export async function initTrankilV2Schema(): Promise<void> {
+  if (schemaReady) return;
+  if (schemaInitPromise) return schemaInitPromise;
+  schemaInitPromise = (async () => {
+    const db = await getDb();
+    if (TRANKIL_V2_MINIMAL_SCHEMA_ONLY) {
+      console.log('[SQL_TRACE] 🏁 Tentative de création de table intentions...');
+      await db.execAsync(`CREATE TABLE IF NOT EXISTS intentions (
+        id TEXT PRIMARY KEY NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );`);
+      console.log('[SQL_TRACE] ✅ Réussite création table intentions.');
+    } else {
+      console.log('[SQL_TRACE] 🏁 Tentative de création schéma complet...');
+      await db.execAsync(`CREATE TABLE IF NOT EXISTS intentions (
+        id TEXT PRIMARY KEY NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );`);
+      console.log('[SQL_TRACE] ✅ Réussite création schéma complet.');
+    }
+    const testId = `system_ready_${Date.now()}`;
+    await db.runAsync(`INSERT OR REPLACE INTO intentions (id, type, title, created_at) VALUES (?, 'NOTE', 'System Ready', ?)`, [
+      testId,
+      Date.now(),
+    ]);
+    const check = await db.getFirstAsync<{ title: string }>(`SELECT title FROM intentions WHERE id = ? LIMIT 1`, [testId]);
+    if (check?.title === 'System Ready') {
+      console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
+    }
+    schemaReady = true;
+  })();
+  await schemaInitPromise;
+  return;
   const db = await getDb();
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
@@ -2038,50 +2162,60 @@ export async function insertTrankilV2Intention(
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
+  console.log('[DEBUG_DB] Statut de l instance DB:', !!db);
   const remindLeave = row.remind_to_leave ?? 0;
   const locAddr = row.location_address?.trim() ? row.location_address.trim() : null;
-  await db.runAsync(
+  const sql =
     `INSERT INTO intentions (
       id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
       is_pending_ai,
       remind_to_leave, location_address,
       ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, location_id,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`,
-    [
-      row.id,
-      row.type,
-      row.title,
-      normalizeDueDate(row.due_date),
-      row.content_raw,
-      row.metadata_json ?? '{}',
-      row.suggested_tags ?? '[]',
-      row.category_id ?? null,
-      row.category_id ?? null,
-      row.parent_id ?? null,
-      row.status ?? 'TODO',
-      row.is_organized ?? 0,
-      row.is_local_processed ?? 0,
-      row.complexity_level ?? 1,
-      row.created_at ?? Date.now(),
-      row.calendar_event_id ?? null,
-      row.calendar_name ?? null,
-      row.is_synced_calendar ?? 0,
-      row.alarm_enabled ?? 0,
-      row.remind_at ?? null,
-      row.local_notification_id ?? null,
-      row.recurrence_rrule ?? null,
-      row.is_pending_ai ?? 0,
-      remindLeave ? 1 : 0,
-      locAddr,
-      row.ai_model_used ?? null,
-      Number.isFinite(row.ai_latency_ms as number) ? Number(row.ai_latency_ms) : null,
-      Number.isFinite(row.tokens_prompt as number) ? Number(row.tokens_prompt) : null,
-      Number.isFinite(row.tokens_completion as number) ? Number(row.tokens_completion) : null,
-      Number.isFinite(row.tokens_total as number) ? Number(row.tokens_total) : null,
-      Number.isFinite(row.location_id as number) ? Number(row.location_id) : null,
-    ],
-  );
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
+  const args = [
+    row.id,
+    row.type,
+    row.title,
+    normalizeDueDate(row.due_date),
+    row.content_raw,
+    row.metadata_json ?? '{}',
+    row.suggested_tags ?? '[]',
+    row.category_id ?? null,
+    row.category_id ?? null,
+    row.parent_id ?? null,
+    row.status ?? 'TODO',
+    row.is_organized ?? 0,
+    row.is_local_processed ?? 0,
+    row.complexity_level ?? 1,
+    row.created_at ?? Date.now(),
+    row.calendar_event_id ?? null,
+    row.calendar_name ?? null,
+    row.is_synced_calendar ?? 0,
+    row.alarm_enabled ?? 0,
+    row.remind_at ?? null,
+    row.local_notification_id ?? null,
+    row.recurrence_rrule ?? null,
+    row.is_pending_ai ?? 0,
+    remindLeave ? 1 : 0,
+    locAddr,
+    row.ai_model_used ?? null,
+    Number.isFinite(row.ai_latency_ms as number) ? Number(row.ai_latency_ms) : null,
+    Number.isFinite(row.tokens_prompt as number) ? Number(row.tokens_prompt) : null,
+    Number.isFinite(row.tokens_completion as number) ? Number(row.tokens_completion) : null,
+    Number.isFinite(row.tokens_total as number) ? Number(row.tokens_total) : null,
+    Number.isFinite(row.location_id as number) ? Number(row.location_id) : null,
+  ];
+  try {
+    await db.runAsync(sql, args);
+  } catch (e) {
+    if (!isNativePrepareAsyncRejected(e)) throw e;
+    console.log('[DATABASE] ♻️ Re-open SQLite (prepareAsync rejected)');
+    resetTrankilV2RuntimeState();
+    const nextDb = await getDb();
+    console.log('[DEBUG_DB] Statut de l instance DB (reopen):', !!nextDb);
+    await nextDb.runAsync(sql, args);
+  }
   const stats = await getTrankilV2UserStats();
   void stats;
   await syncAfterIntentionWrite('insertTrankilV2Intention');

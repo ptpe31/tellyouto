@@ -1,13 +1,13 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { LogBox, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTheme } from 'react-native-paper';
 
-import { cleanOldArchives } from './src/api';
+import { bootstrapTrankilV2Database, cleanOldArchives } from './src/api';
 import { AvailabilityNudgeModal } from './src/components/AvailabilityNudgeModal';
 import { EveningStarModal } from './src/components/EveningStarModal';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
@@ -51,12 +51,27 @@ function AppNavigation() {
 }
 
 export default function App() {
+  const [dbReady, setDbReady] = useState(false);
   useEffect(() => {
-    void initializeGeminiEngine();
-    void configureCaptureBackgroundTask();
-    void requestBackgroundExecutionPermissions();
-    void cleanOldArchives();
+    void (async () => {
+      await bootstrapTrankilV2Database();
+      setDbReady(true);
+      await initializeGeminiEngine();
+      await configureCaptureBackgroundTask();
+      await requestBackgroundExecutionPermissions();
+      await cleanOldArchives();
+    })();
   }, []);
+
+  if (!dbReady) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <View style={{ flex: 1, backgroundColor: '#ffffff' }} />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

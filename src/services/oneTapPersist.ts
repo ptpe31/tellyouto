@@ -874,13 +874,24 @@ async function persistAndDualWrite(params: {
   entityLabel: string;
 }): Promise<PersistOneTapResult> {
   const { entityLabel, ...persistParams } = params;
-  const res = await persistOneTapDraft(persistParams);
+  const persistStart = Date.now();
+  const resOrNull = await params.deps.withTimeout(persistOneTapDraft(persistParams), 15_000);
+  if (resOrNull === null) {
+    console.log(`[DATABASE] ❌ Persistance timeout (${entityLabel})`);
+    return { ok: false, error: new Error('PERSIST_TIMEOUT') };
+  }
+  const res = resOrNull;
   if (res.ok) {
     const id = 'intentionId' in res.outcome ? String((res.outcome as { intentionId?: unknown }).intentionId ?? '') : '';
     if (id) console.log(`[DATABASE] ✅ Persistance confirmée pour ${id}`);
+    console.log(`[DATABASE] ⏱️ Persistance ${entityLabel} en ${Date.now() - persistStart}ms`);
     console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
     try {
-      await dualWriteViaCoreIntention({ draft: params.draft, transcript: params.transcript, outcome: res.outcome, entityLabel });
+      const dw = await params.deps.withTimeout(
+        dualWriteViaCoreIntention({ draft: params.draft, transcript: params.transcript, outcome: res.outcome, entityLabel }),
+        8_000,
+      );
+      if (dw === null) console.log(`[VIA-CORE-WRITE] ⚠️ Timeout dual-write${entityLabel ? ` | Entity: ${entityLabel}` : ''}`);
     } catch {
       /* ignore */
     }
@@ -894,8 +905,10 @@ export async function persistOneTapDraftVentilated(params: {
   transcript: string;
   habitsDefaultTitle: string;
   birthdayLabel: string;
+  allowNoteFallback?: boolean;
 }): Promise<PersistOneTapVentilatedResult> {
   const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
+  const allowNoteFallback = params.allowNoteFallback !== false;
   const data = (draft.data ?? {}) as Record<string, unknown>;
   const outcomes: PersistOneTapSuccess[] = [];
   let firstError: unknown = null;
@@ -948,6 +961,7 @@ export async function persistOneTapDraftVentilated(params: {
               entityLabel: 'LIST',
             });
             if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
+            if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
             if (pr.ok) outcomes.push(pr.outcome);
             else {
               firstError = firstError ?? pr.error;
@@ -983,6 +997,7 @@ export async function persistOneTapDraftVentilated(params: {
             entityLabel: 'TASK',
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
+          if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
@@ -1021,6 +1036,7 @@ export async function persistOneTapDraftVentilated(params: {
             entityLabel: 'TRIP',
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
+          if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
@@ -1051,6 +1067,7 @@ export async function persistOneTapDraftVentilated(params: {
             entityLabel: 'HABIT',
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
+          if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
@@ -1076,6 +1093,7 @@ export async function persistOneTapDraftVentilated(params: {
             entityLabel: 'NOTE',
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
+          if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
           if (pr.ok) outcomes.push(pr.outcome);
           else {
             firstError = firstError ?? pr.error;
@@ -1117,6 +1135,7 @@ export async function persistOneTapDraftVentilated(params: {
             entityLabel: 'TRIP_TASK',
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
+          if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
           if (pr.ok) {
             outcomes.push(pr.outcome);
             if (pr.outcome.kind === 'persisted_temporal' && pr.outcome.mirrorType === 'TASK') {
@@ -1155,6 +1174,9 @@ export async function persistOneTapDraftVentilated(params: {
     }
 
     if (outcomes.length > 0) return { ok: true, outcomes };
+    if (!allowNoteFallback) {
+      return { ok: false, error: firstError ?? new Error('VENTILATION_EMPTY'), code: firstCode };
+    }
     const noteDraft: OneTapUniversalResult = {
       ...draft,
       predictedType: 'NOTE',

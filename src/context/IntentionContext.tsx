@@ -603,7 +603,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               transcript: chunk,
               habitsDefaultTitle,
               birthdayLabel,
+              allowNoteFallback: false,
             });
+            console.log('[SEQUENCER] 🔒 Retour persistance:', vr.ok ? 'OK' : 'FAIL');
             if (vr.ok) {
               savedAny = true;
               DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
