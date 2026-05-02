@@ -877,6 +877,7 @@ async function persistAndDualWrite(params: {
   const res = await persistOneTapDraft(persistParams);
   if (res.ok) {
     const id = 'intentionId' in res.outcome ? String((res.outcome as { intentionId?: unknown }).intentionId ?? '') : '';
+    if (id) console.log(`[DATABASE] ✅ Persistance confirmée pour ${id}`);
     console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
     try {
       await dualWriteViaCoreIntention({ draft: params.draft, transcript: params.transcript, outcome: res.outcome, entityLabel });

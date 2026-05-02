@@ -311,6 +311,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const intentIdByIndexRef = useRef<Record<string, string>>({});
   const intentReplaceTimersRef = useRef<Record<string, number>>({});
   const finalizedIdsRef = useRef<Record<string, true>>({});
+  const bulkProcessingRef = useRef(false);
+  const bulkProgressIndexRef = useRef(-1);
 
   const startCapture = useCallback(() => {
     userEditedRef.current = false;
@@ -554,80 +556,90 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
 
   const runGeminiBulkSequence = useCallback(
     async (params: { transcript: string; audioUri: string | null; lang?: string; allowAlert: boolean }) => {
+      if (bulkProcessingRef.current) return;
+      bulkProcessingRef.current = true;
       const base = String(params.transcript || '').trim();
-      const chunks = splitBulkTranscript(base);
-      if (chunks.length <= 1) {
-        void runGeminiStreamRefine({
-          transcript: base,
-          audioUri: params.audioUri,
-          lang: params.lang,
-          allowAlert: params.allowAlert,
-          openOnFirstIntent: false,
-        });
-        return;
-      }
-      const uiLocale = params.lang || spectrum.locale || 'fr-FR';
-      const seq = (geminiSeqRef.current += 1);
-      setRefining(true);
-      let savedAny = false;
-      const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
-      const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
-      const total = chunks.length;
-      for (let i = 0; i < chunks.length; i++) {
-        if (seq !== geminiSeqRef.current) return;
-        const chunk = chunks[i];
-        console.log('********* CHUNK ' + (i + 1) + '/' + total + ' *********');
-        console.log('[SEQUENCER] 🚀 Envoi : "' + chunks[i] + '"');
-        const progressLabel = `Création de ${i + 1}/${chunks.length}...`;
-        setTranscript(progressLabel);
-        showAppToast(progressLabel, 1200);
-        try {
-          const skeleton = inferOneTapSkeletonFromTranscript(chunk, { uiLocale });
-          const res = await refineOneTapWithGeminiCompressed(chunk, skeleton, {
-            uiLocale,
+      try {
+        const chunks = splitBulkTranscript(base);
+        if (chunks.length <= 1) {
+          void runGeminiStreamRefine({
+            transcript: base,
+            audioUri: params.audioUri,
             lang: params.lang,
-            useStream: false,
+            allowAlert: params.allowAlert,
+            openOnFirstIntent: false,
           });
-          if (seq !== geminiSeqRef.current) return;
-          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
-          if (seq !== geminiSeqRef.current) return;
-          const vr = await persistOneTapDraftVentilated({
-            deps,
-            draft: hydrated,
-            transcript: chunk,
-            habitsDefaultTitle,
-            birthdayLabel,
-          });
-          if (vr.ok) {
-            savedAny = true;
-            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-            console.log('[SEQUENCER] ✅ Terminé pour : "' + chunks[i] + '"');
-            console.log('************************************');
-          } else {
-            console.log('[BulkSequence] ❌ CHUNK_FAILED:', { idx: i + 1, total: chunks.length });
-          }
-        } catch (e) {
-          console.log('[BulkSequence] ❌ CHUNK_EXCEPTION:', { idx: i + 1, total: chunks.length });
+          return;
         }
+        const uiLocale = params.lang || spectrum.locale || 'fr-FR';
+        const seq = (geminiSeqRef.current += 1);
+        setRefining(true);
+        let savedAny = false;
+        const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
+        const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
+        const total = chunks.length;
+        for (let i = 0; i < chunks.length; i++) {
+          bulkProgressIndexRef.current = i;
+          try {
+            if (seq !== geminiSeqRef.current) return;
+            const chunk = chunks[i];
+            console.log('********* CHUNK ' + (i + 1) + '/' + total + ' *********');
+            console.log('[SEQUENCER] 🚀 Envoi : "' + chunks[i] + '"');
+            const progressLabel = `Création de ${i + 1}/${chunks.length}...`;
+            setTranscript(progressLabel);
+            showAppToast(progressLabel, 1200);
+            const skeleton = inferOneTapSkeletonFromTranscript(chunk, { uiLocale });
+            const res = await refineOneTapWithGeminiCompressed(chunk, skeleton, {
+              uiLocale,
+              lang: params.lang,
+              useStream: false,
+            });
+            if (seq !== geminiSeqRef.current) return;
+            const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
+            if (seq !== geminiSeqRef.current) return;
+            const vr = await persistOneTapDraftVentilated({
+              deps,
+              draft: hydrated,
+              transcript: chunk,
+              habitsDefaultTitle,
+              birthdayLabel,
+            });
+            if (vr.ok) {
+              savedAny = true;
+              DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+              console.log('[SEQUENCER] ✅ Terminé pour : "' + chunks[i] + '"');
+              console.log('************************************');
+            } else {
+              console.log('[BulkSequence] ❌ CHUNK_FAILED:', { idx: i + 1, total: chunks.length });
+            }
+          } catch (e) {
+            console.log('[BulkSequence] ❌ CHUNK_EXCEPTION:', { idx: i + 1, total: chunks.length });
+          } finally {
+            bulkProgressIndexRef.current = -1;
+          }
+        }
+        console.log('********* TOUTES INTENTIONS TRAITÉES *********');
+        if (!savedAny && params.allowAlert) {
+          proposeOfflineFallback({
+            transcript: base,
+            audioUri: params.audioUri,
+            error: new Error('Bulk: aucune intention persistée'),
+            lang: params.lang,
+          });
+          return;
+        }
+        if (savedAny && lastCaptureWasMicRef.current) {
+          await consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
+        }
+        setVisible(false);
+        setRefining(false);
+        userEditedRef.current = false;
+        lastCaptureWasMicRef.current = false;
+        lastAudioUriRef.current = null;
+      } finally {
+        bulkProgressIndexRef.current = -1;
+        bulkProcessingRef.current = false;
       }
-      console.log('********* TOUTES INTENTIONS TRAITÉES *********');
-      if (!savedAny && params.allowAlert) {
-        proposeOfflineFallback({
-          transcript: base,
-          audioUri: params.audioUri,
-          error: new Error('Bulk: aucune intention persistée'),
-          lang: params.lang,
-        });
-        return;
-      }
-      if (savedAny && lastCaptureWasMicRef.current) {
-        await consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
-      }
-      setVisible(false);
-      setRefining(false);
-      userEditedRef.current = false;
-      lastCaptureWasMicRef.current = false;
-      lastAudioUriRef.current = null;
     },
     [proposeOfflineFallback, runGeminiStreamRefine, spectrum.isProUser, spectrum.locale],
   );
