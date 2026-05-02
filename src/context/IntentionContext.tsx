@@ -10,11 +10,11 @@ import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import {
   inferOneTapSkeletonFromTranscript,
   refineOneTapWithGeminiCompressed,
+  splitBulkTranscript,
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
 import {
-  DEBUG_MODE_DOUANE,
   finalizeOneTapOptimisticDraft,
   preSaveOneTapOptimisticDraft,
   persistOneTapDraftVentilated,
@@ -452,37 +452,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                   const it = intents[idx];
                   if (!isCompleteIntent(it)) continue;
                   const idxKey = String(idx);
-                  if (DEBUG_MODE_DOUANE) {
-                    if (intentIdByIndexRef.current[idxKey]) continue;
-                    const ventDraft: OneTapUniversalResult = {
-                      ...partial,
-                      data: { ...((partial.data ?? {}) as Record<string, unknown>), intents: [it] },
-                    };
-                    const vr = await persistOneTapDraftVentilated({
-                      deps,
-                      draft: ventDraft,
-                      transcript: persistTranscript,
-                      habitsDefaultTitle,
-                      birthdayLabel,
-                    });
-                    if (vr.ok && vr.outcomes.length > 0) {
-                      const outcome = vr.outcomes[0] as unknown as { intentionId?: unknown };
-                      const savedId = typeof outcome.intentionId === 'string' ? outcome.intentionId : null;
-                      if (savedId) {
-                        intentIdByIndexRef.current[idxKey] = savedId;
-                        finalizedIdsRef.current[savedId] = true;
-                        if (!firstSavedFiredRef.current) {
-                          firstSavedFiredRef.current = true;
-                          firstSavedResolveRef.current?.();
-                        }
-                        if (!fired && params.openOnFirstIntent) {
-                          fired = true;
-                          params.onFirstIntent?.();
-                        }
-                      }
-                    }
-                    continue;
-                  }
                   const built = buildOneTapDraftFromIntent({ baseDraft: partial, intent: it });
                   if (!built) continue;
                   const existingId = intentIdByIndexRef.current[idxKey];
@@ -549,29 +518,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               const it = intents[idx];
               const idxKey = String(idx);
               const intentionId = intentIdByIndexRef.current[idxKey];
-              if (DEBUG_MODE_DOUANE) {
-                if (intentionId) continue;
-                const ventDraft: OneTapUniversalResult = {
-                  ...hydrated,
-                  data: { ...((hydrated.data ?? {}) as Record<string, unknown>), intents: [it] },
-                };
-                const vr = await persistOneTapDraftVentilated({
-                  deps,
-                  draft: ventDraft,
-                  transcript: persistTranscript,
-                  habitsDefaultTitle,
-                  birthdayLabel,
-                });
-                if (vr.ok && vr.outcomes.length > 0) {
-                  const outcome = vr.outcomes[0] as unknown as { intentionId?: unknown };
-                  const savedId = typeof outcome.intentionId === 'string' ? outcome.intentionId : null;
-                  if (savedId) {
-                    intentIdByIndexRef.current[idxKey] = savedId;
-                    finalizedIdsRef.current[savedId] = true;
-                  }
-                }
-                continue;
-              }
               if (!intentionId) continue;
               if (finalizedIdsRef.current[intentionId]) continue;
               const built = buildOneTapDraftFromIntent({ baseDraft: hydrated, intent: it });
@@ -606,6 +552,80 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [proposeOfflineFallback, spectrum.locale],
   );
 
+  const runGeminiBulkSequence = useCallback(
+    async (params: { transcript: string; audioUri: string | null; lang?: string; allowAlert: boolean }) => {
+      const base = String(params.transcript || '').trim();
+      const chunks = splitBulkTranscript(base);
+      if (chunks.length <= 1) {
+        void runGeminiStreamRefine({
+          transcript: base,
+          audioUri: params.audioUri,
+          lang: params.lang,
+          allowAlert: params.allowAlert,
+          openOnFirstIntent: false,
+        });
+        return;
+      }
+      const uiLocale = params.lang || spectrum.locale || 'fr-FR';
+      const seq = (geminiSeqRef.current += 1);
+      setRefining(true);
+      let savedAny = false;
+      const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
+      const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
+      for (let i = 0; i < chunks.length; i++) {
+        if (seq !== geminiSeqRef.current) return;
+        const chunk = chunks[i];
+        const progressLabel = `Création de ${i + 1}/${chunks.length}...`;
+        setTranscript(progressLabel);
+        showAppToast(progressLabel, 1200);
+        try {
+          const skeleton = inferOneTapSkeletonFromTranscript(chunk, { uiLocale });
+          const res = await refineOneTapWithGeminiCompressed(chunk, skeleton, {
+            uiLocale,
+            lang: params.lang,
+            useStream: false,
+          });
+          if (seq !== geminiSeqRef.current) return;
+          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
+          if (seq !== geminiSeqRef.current) return;
+          const vr = await persistOneTapDraftVentilated({
+            deps,
+            draft: hydrated,
+            transcript: chunk,
+            habitsDefaultTitle,
+            birthdayLabel,
+          });
+          if (vr.ok) {
+            savedAny = true;
+            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          } else {
+            console.log('[BulkSequence] ❌ CHUNK_FAILED:', { idx: i + 1, total: chunks.length });
+          }
+        } catch (e) {
+          console.log('[BulkSequence] ❌ CHUNK_EXCEPTION:', { idx: i + 1, total: chunks.length });
+        }
+      }
+      if (!savedAny && params.allowAlert) {
+        proposeOfflineFallback({
+          transcript: base,
+          audioUri: params.audioUri,
+          error: new Error('Bulk: aucune intention persistée'),
+          lang: params.lang,
+        });
+        return;
+      }
+      if (savedAny && lastCaptureWasMicRef.current) {
+        await consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
+      }
+      setVisible(false);
+      setRefining(false);
+      userEditedRef.current = false;
+      lastCaptureWasMicRef.current = false;
+      lastAudioUriRef.current = null;
+    },
+    [proposeOfflineFallback, runGeminiStreamRefine, spectrum.isProUser, spectrum.locale],
+  );
+
   const submitCapturePayload = useCallback(
     async ({ transcript: rawTranscript, audioUri, lang }: CapturePayload) => {
       const cleaned = rawTranscript.trim();
@@ -636,16 +656,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
 
       if (!geminiStartedRef.current) {
         geminiStartedRef.current = true;
-        void runGeminiStreamRefine({
-          transcript: cleaned,
-          audioUri,
-          lang,
-          allowAlert: true,
-          openOnFirstIntent: false,
-        });
+        void runGeminiBulkSequence({ transcript: cleaned, audioUri, lang, allowAlert: true });
       }
     },
-    [runGeminiStreamRefine],
+    [runGeminiBulkSequence],
   );
 
   const confirm = useCallback(async () => {
@@ -680,25 +694,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       for (let i = 0; i < intents.length; i++) {
         const idxKey = String(readDraftIntents(draft).indexOf(intents[i]));
         let intentionId = intentIdByIndexRef.current[idxKey];
-        if (DEBUG_MODE_DOUANE) {
-          if (!intentionId) {
-            const ventDraft: OneTapUniversalResult = {
-              ...draft,
-              data: { ...((draft.data ?? {}) as Record<string, unknown>), intents: [intents[i]] },
-            };
-            const vr = await persistOneTapDraftVentilated({
-              deps,
-              draft: ventDraft,
-              transcript: persistTranscript,
-              habitsDefaultTitle,
-              birthdayLabel,
-            });
-            successes.push(vr.ok);
-          } else {
-            successes.push(true);
-          }
-          continue;
-        }
         const built = buildOneTapDraftFromIntent({ baseDraft: draft, intent: intents[i] });
         if (!built) continue;
         if (!intentionId) {

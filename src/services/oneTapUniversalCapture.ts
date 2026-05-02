@@ -71,6 +71,15 @@ export function logOneTapCaptureCycleStartBanner(): void {
 }
 import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
 
+export function splitBulkTranscript(raw: string): string[] {
+  const s = String(raw || '');
+  if (!s.includes('**')) return [s.trim()].filter(Boolean);
+  return s
+    .split('**')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
 export const ONE_TAP_PREDICTED_TYPES = [
   'TASK',
   'RECURRING_TASK',
@@ -309,8 +318,8 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
 
 function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
   const s = String(buffer || '');
-  const rawBlocks = s.split('[[NEXT]]');
-  const validatedBlocks = partial ? rawBlocks.slice(0, -1) : rawBlocks;
+  const parts = s.split('\n');
+  const lines = partial && !s.endsWith('\n') ? parts.slice(0, -1) : parts;
   const intents: OneTapIntentJson[] = [];
   let currentList: OneTapIntentJson | null = null;
 
@@ -329,8 +338,8 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
     return '';
   };
 
-  for (const rawBlock of validatedBlocks) {
-    const line = rawBlock.replace('[[COMPLETE]]', '').replace(/\*\*/g, '').trim();
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
     if (!line) continue;
 
     if (!line.startsWith('>') || line.startsWith('>>')) continue;
@@ -1029,14 +1038,11 @@ ${seed}
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""
 
-CRITICAL: Every intent MUST start with ">" and end with "** [[NEXT]]". Structure:
-> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE ** [[NEXT]]
-CRITICAL: After the last intent, output [[COMPLETE]] on its own line.
-Reply ONLY with Bullet-Pipe intents.
+Reply ONLY with Bullet-Pipe lines starting with ">".
 No JSON. No markdown. No explanations.
 
 Output format (one line per intent):
-> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE ** [[NEXT]]
+> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE
 
 Constraints:
 - TYPE: TRIP or TASK (prefer TRIP when movement/location is mentioned)
@@ -1045,8 +1051,7 @@ Constraints:
 - DUE_DATE: "YYYY-MM-DD HH:mm" or null
 
 Examples:
-> TRIP | <CONTENT> | TRAVEL | null ** [[NEXT]]
-[[COMPLETE]]`;
+> TRIP | <CONTENT> | TRAVEL | null`;
 }
 
 /**
@@ -1256,22 +1261,9 @@ export async function refineOneTapWithGeminiCompressed(
 
   let lastEmittedCount = 0;
   let lastPartialSig = '';
-  let lastNextCount = 0;
-  let completeSeen = false;
   const applyBuffer = (buf: string) => {
-    if (completeSeen) return;
-    const hasComplete = buf.includes('[[COMPLETE]]');
-    const nextCount = buf.split('[[NEXT]]').length - 1;
-    if (nextCount > lastNextCount) {
-      for (let i = lastNextCount; i < nextCount; i++) {
-        console.log('[FLOW] 🚦 Signal NEXT détecté, libération d\'une intention.');
-      }
-      lastNextCount = nextCount;
-    }
-    if (hasComplete) completeSeen = true;
-    const partial = useStream && !hasComplete;
-    const parsedIntents = parseBulletPipeIntentsFromBuffer(buf, partial);
-    const extractedIntents = parsedIntents.length ? parsedIntents : parseJsonIntentsFromBuffer(buf, partial);
+    const parsedIntents = parseBulletPipeIntentsFromBuffer(buf, useStream);
+    const extractedIntents = parsedIntents.length ? parsedIntents : parseJsonIntentsFromBuffer(buf, useStream);
     if (!extractedIntents.length) return;
     const intents = annotateIncompletes(extractedIntents, transcript, skeleton);
     const sig = intents
@@ -1343,9 +1335,6 @@ export async function refineOneTapWithGeminiCompressed(
   if (!parsed.title.trim()) {
     parsed = { ...parsed, title: skeleton.title };
   }
-  const intentsDispatchRaw = ((parsed.data ?? {}) as Record<string, unknown>).intents;
-  const intentsDispatchLen = Array.isArray(intentsDispatchRaw) ? intentsDispatchRaw.length : 0;
-  console.log(`[DEBUG-FLOW] 📡 Envoi vers la Douane : ${intentsDispatchLen} intentions trouvées.`);
   const parseEnd = perfNowMs();
   console.log('[GeminiPerf] ⏱️ TIMING:', {
     network_ms: Math.round(netEnd - netStart),
