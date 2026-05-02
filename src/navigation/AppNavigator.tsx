@@ -48,7 +48,8 @@ export function AppNavigator() {
         name="Timeline"
         component={TimelineScreen}
         options={{
-          title: 'Timeline',
+          headerTitle: '',
+          tabBarLabel: t('timeline.title'),
           tabBarIcon: ({ color, size }) => (
             <CalendarDays color={color} size={size} />
           ),

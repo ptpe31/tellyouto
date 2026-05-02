@@ -179,7 +179,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 ### 2) Découplage Pilotage / Contenu
 
-- Header minimaliste : le header de la Timeline ne contient plus que le titre (“Ma Timeline”) et un bouton d’ouverture de filtres.
+- Header minimaliste : le header de la Timeline est fusionné avec la barre de navigation (suppression de la redondance “Timeline” vs “Ma Timeline”). Une seule ligne contient la pilule “Ma Timeline” à gauche et le bouton filtre à droite.
 - TimelineFilterModal : tous les réglages de contexte (`HOME`, `WORK`, `PIGGY`, `ARCHIVES`, etc.), de temps (`timeNav`, incluant la date custom) et de statut (`statusFilter`) sont déportés dans une modale dédiée afin de libérer l’espace visuel.
 - Source de vérité : les états de filtrage restent portés par le parent [TimelineScreen.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) (ex. `timeNav`, `contextBubble`, `statusFilter`, `customPickedDate`) ; la modale ne fait que manipuler ces états via callbacks, sans logique de requête.
 - Transfert de responsabilité : les indicateurs de pilotage technique (badge Pro, compteurs de quota, notifications, accès Tirelire/Cochon) sont exclus de la Timeline.

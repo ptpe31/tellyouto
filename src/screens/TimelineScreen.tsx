@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo } from 'react';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CommonActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
@@ -468,6 +468,41 @@ export function TimelineScreen() {
       } as never);
     }, [navigation, route.params]),
   );
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <View
+          style={[
+            neumorphicRaised(theme),
+            styles.navHeaderPill,
+            { borderWidth: 1, borderColor: theme.colors.outlineVariant },
+          ]}
+        >
+          <Text style={[styles.navHeaderTitle, { color: theme.colors.onBackground }]}>Ma Timeline</Text>
+        </View>
+      ),
+      headerTitleAlign: 'left',
+      headerRight: () => (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setFilterModalOpen(true)}
+          style={({ pressed }) => [
+            neumorphicRaised(theme),
+            styles.navHeaderFilterBtn,
+            {
+              borderWidth: 1,
+              borderColor: theme.colors.outlineVariant,
+              marginRight: 12,
+              opacity: pressed ? 0.88 : 1,
+            },
+          ]}
+        >
+          <Filter size={20} color={theme.colors.onBackground} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, theme]);
 
   const syncPendingSet = useCallback((next: Set<string>) => {
     pendingLocalDoneRef.current = next;
@@ -1088,36 +1123,6 @@ export function TimelineScreen() {
             </View>
           ) : null
         }
-        ListHeaderComponent={
-          <View style={[styles.minHeaderWrap, { paddingTop: insets.top + 8 }]}>
-            <View style={styles.minHeaderRow}>
-              <View
-                style={[
-                  neumorphicRaised(theme),
-                  styles.minHeaderPill,
-                  { borderWidth: 1, borderColor: theme.colors.outlineVariant },
-                ]}
-              >
-                <Text style={[styles.minHeaderTitle, { color: theme.colors.onBackground }]}>Ma Timeline</Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setFilterModalOpen(true)}
-                style={({ pressed }) => [
-                  neumorphicRaised(theme),
-                  styles.minHeaderFilterBtn,
-                  {
-                    borderWidth: 1,
-                    borderColor: theme.colors.outlineVariant,
-                    opacity: pressed ? 0.88 : 1,
-                  },
-                ]}
-              >
-                <Filter size={20} color={theme.colors.onBackground} />
-              </Pressable>
-            </View>
-          </View>
-        }
         renderItem={renderTimelineFlatItem}
         ListEmptyComponent={
           flatListItems.length === 0 ? (
@@ -1214,11 +1219,9 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   listFlex: { flex: 1 },
   listContent: { flexGrow: 1 },
-  minHeaderWrap: { paddingHorizontal: 12, paddingBottom: 6 },
-  minHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
-  minHeaderPill: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10 },
-  minHeaderTitle: { fontSize: 16, fontWeight: '800' },
-  minHeaderFilterBtn: { width: 44, height: 44, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
+  navHeaderPill: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10, marginLeft: 12 },
+  navHeaderTitle: { fontSize: 16, fontWeight: '800' },
+  navHeaderFilterBtn: { width: 44, height: 44, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
   headerStack: { paddingHorizontal: 12, paddingTop: 8, gap: 10 },
   headTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
   screenTitle: { fontSize: 22, fontWeight: '700' },
