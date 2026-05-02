@@ -33,18 +33,24 @@ Le découpage “bulk” ne repose plus sur l’IA mais sur le code client.
 
 Mode de traitement : boucle asynchrone séquentielle, une intention à la fois.
 
+- Mode stable (unitaire séquentiel) : chaque chunk est traité de bout en bout (Gemini → Douane → DB) avant de passer au suivant.
 - Règle d’or : l’appel N+1 vers Gemini ne démarre qu’après confirmation de succès DB (SUCCESS_DB) de l’appel N.
 - Isolation : chaque chunk est envoyé à Gemini comme une requête atomique (Path B standard). Objectif : fiabilité maximale du format JSON/structuré et réduction du risque de sorties trop longues, tronquées ou ambiguës.
-- Tolérance aux erreurs : un échec sur un chunk est logué et ne bloque pas le traitement des autres chunks valides.
+- Mécanisme de survie : un échec sur un chunk est logué et ne bloque pas le traitement des chunks restants.
 
 #### Verrou de persistance (Persistence Lock)
 
 Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la persistance du chunk N n’est pas confirmée.
 
-- Contrat de résolution : [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts) est une fonction async (Promise). Elle ne “libère” le séquenceur qu’après confirmation d’écriture dans le stockage persistant (SQLite local et/ou écriture distante lorsqu’elle est utilisée).
+- Contrat de résolution : [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts) est une fonction async (Promise). Elle ne “libère” le séquenceur qu’après confirmation d’écriture dans le stockage persistant.
 - Gestion du flux : le séquenceur UI attend strictement `await persistOneTapDraftVentilated(...)` avant de passer au chunk suivant.
 - Sécurité : un `finally` doit garantir que les drapeaux de traitement (ex. `isProcessing` / index de progression) ne restent jamais bloqués en cas d’erreur mineure.
 - Feedback de verrou : un log système doit signaler la confirmation de persistance (ex. `[DATABASE] ✅ Persistance confirmée pour <ID>`).
+
+### 2.b) Standardisation base de données (Trankil-v2)
+
+- Schéma : la source de vérité est la table SQLite `intentions` (Trankil‑v2). Les noms de colonnes sont stabilisés, notamment `due_date` (à utiliser partout côté Douane / insertions pour éviter tout conflit futur).
+- Mode de persistance : l’écriture est locale (SQLite `trankil_v2.db`) et une réplication systématique est effectuée dans `via_production.db` (table `core_intentions`) après succès.
 
 ### 3) Feedback utilisateur (UI/UX)
 
@@ -59,6 +65,11 @@ Le flux OneTap doit éviter toute complexité liée au parsing de streaming mult
 
 - Les marqueurs de protocole IA (ex. `[[NEXT]]`, `[[COMPLETE]]`) et les stratégies de split “côté modèle” ne font plus partie du contrat.
 - Le système revient à de la classification unitaire simple (1 chunk → 1 requête Gemini → 1 persistance).
+
+### 5) Protocole de logging (harmonisé)
+
+- Les logs bulk (séquenceur) utilisent un gabarit visuel aligné avec les captures unitaires (bannières + tags `[SEQUENCER]`, `[DATABASE]`, `[GeminiAPI]`, `[DOUANE]`), afin de garder une observabilité homogène entre OneTap simple et bulk.
+- Les mentions de protocoles temporaires (purge auto, debug-only) ne font pas partie de l’état stable.
 
 Composants principaux :
 - Capture & parsing : [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)

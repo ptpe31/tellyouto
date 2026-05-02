@@ -1,5 +1,4 @@
 import * as SQLite from 'expo-sqlite';
-import * as FileSystem from 'expo-file-system/legacy';
 import { DeviceEventEmitter } from 'react-native';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
@@ -138,9 +137,8 @@ export type BonusEventType =
 
 const DB_NAME = 'trankil_v2.db';
 const SQLITE_OP_TIMEOUT_MS = 12000;
-const DISABLE_TRANKIL_V2_SQL_SERIALIZATION = true;
-const DISABLE_TRANKIL_V2_PRAGMAS = true;
-const TRANKIL_V2_MINIMAL_SCHEMA_ONLY = true;
+const DISABLE_TRANKIL_V2_SQL_SERIALIZATION = false;
+const DISABLE_TRANKIL_V2_PRAGMAS = false;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let v2SqlQueue: Promise<void> = Promise.resolve();
@@ -193,28 +191,6 @@ function wrapDbWithSerialization(database: SQLite.SQLiteDatabase): SQLite.SQLite
     },
   );
   return database;
-}
-
-async function purgeTrankilV2DatabaseFile(): Promise<void> {
-  console.log('[DATABASE] 🧹 Purge trankil_v2.db');
-  try {
-    const anySqlite = SQLite as unknown as { deleteDatabaseAsync?: (name: string) => Promise<void> };
-    if (typeof anySqlite.deleteDatabaseAsync === 'function') {
-      await anySqlite.deleteDatabaseAsync(DB_NAME);
-      return;
-    }
-  } catch {}
-  try {
-    const root = FileSystem.documentDirectory;
-    if (!root) return;
-    const candidates = [`${root}SQLite/${DB_NAME}`, `${root}${DB_NAME}`];
-    for (const p of candidates) {
-      try {
-        const info = await FileSystem.getInfoAsync(p);
-        if (info.exists) await FileSystem.deleteAsync(p, { idempotent: true });
-      } catch {}
-    }
-  } catch {}
 }
 
 function resetTrankilV2RuntimeState(): void {
@@ -319,8 +295,6 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
 export async function bootstrapTrankilV2Database(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise;
   bootstrapPromise = (async () => {
-    resetTrankilV2RuntimeState();
-    await purgeTrankilV2DatabaseFile();
     await initTrankilV2Schema();
   })();
   return bootstrapPromise;
@@ -347,20 +321,8 @@ function notifyIntentionsChanged(payload?: { id?: string; reason?: string }): vo
 
 async function syncAfterIntentionWrite(reason: string): Promise<void> {
   try {
-    const timeoutMs = 2500;
-    const job = (async () => {
-      const { syncNativeRailAlarmsAfterIntentionWrite } = await import('./intentionHardwareSync');
-      await syncNativeRailAlarmsAfterIntentionWrite(reason);
-    })();
-    await Promise.race([
-      job,
-      new Promise<void>((resolve) =>
-        setTimeout(() => {
-          console.log(`[DATABASE] ⚠️ syncAfterIntentionWrite timeout (${timeoutMs}ms): ${reason}`);
-          resolve();
-        }, timeoutMs),
-      ),
-    ]);
+    const { syncNativeRailAlarmsAfterIntentionWrite } = await import('./intentionHardwareSync');
+    void syncNativeRailAlarmsAfterIntentionWrite(reason);
   } catch {
     /* ignore */
   }
@@ -374,34 +336,127 @@ export async function initTrankilV2Schema(): Promise<void> {
   if (schemaInitPromise) return schemaInitPromise;
   schemaInitPromise = (async () => {
     const db = await getDb();
-    if (TRANKIL_V2_MINIMAL_SCHEMA_ONLY) {
-      console.log('[SQL_TRACE] 🏁 Tentative de création de table intentions...');
-      await db.execAsync(`CREATE TABLE IF NOT EXISTS intentions (
-        id TEXT PRIMARY KEY NOT NULL,
-        type TEXT NOT NULL,
-        title TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      );`);
-      console.log('[SQL_TRACE] ✅ Réussite création table intentions.');
-    } else {
-      console.log('[SQL_TRACE] 🏁 Tentative de création schéma complet...');
-      await db.execAsync(`CREATE TABLE IF NOT EXISTS intentions (
-        id TEXT PRIMARY KEY NOT NULL,
-        type TEXT NOT NULL,
-        title TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      );`);
-      console.log('[SQL_TRACE] ✅ Réussite création schéma complet.');
+    console.log('[SQL_TRACE] 🏁 Tentative de création de table intentions...');
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS intentions (
+      id TEXT PRIMARY KEY NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      content_raw TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      suggested_tags TEXT NOT NULL DEFAULT '[]',
+      category_id TEXT,
+      category TEXT,
+      parent_id TEXT,
+      status TEXT NOT NULL DEFAULT 'TODO',
+      is_organized INTEGER NOT NULL DEFAULT 0,
+      is_local_processed INTEGER NOT NULL DEFAULT 0,
+      complexity_level INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      calendar_event_id TEXT,
+      calendar_name TEXT,
+      is_synced_calendar INTEGER NOT NULL DEFAULT 0,
+      alarm_enabled INTEGER NOT NULL DEFAULT 0,
+      remind_at INTEGER,
+      local_notification_id TEXT,
+      recurrence_rrule TEXT,
+      is_done INTEGER NOT NULL DEFAULT 0,
+      done_at INTEGER,
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      archived_at INTEGER,
+      is_pending_ai INTEGER NOT NULL DEFAULT 0,
+      remind_to_leave INTEGER NOT NULL DEFAULT 0,
+      location_address TEXT,
+      ai_model_used TEXT,
+      ai_latency_ms INTEGER,
+      tokens_prompt INTEGER,
+      tokens_completion INTEGER,
+      tokens_total INTEGER,
+      location_id INTEGER
+    );`);
+    console.log('[SQL_TRACE] ✅ Réussite création table intentions.');
+    const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(intentions)`);
+    const has = (name: string) => cols.some((c) => c.name === name);
+    const ensureCol = async (name: string, sql: string) => {
+      if (has(name)) return;
+      console.log('[SQL_TRACE] 🏁 Ajout colonne manquante:', name);
+      await db.execAsync(sql);
+      console.log('[SQL_TRACE] ✅ Colonne ajoutée:', name);
+    };
+    await ensureCol('due_date', `ALTER TABLE intentions ADD COLUMN due_date TEXT;`);
+    await ensureCol('content_raw', `ALTER TABLE intentions ADD COLUMN content_raw TEXT NOT NULL DEFAULT '';`);
+    await ensureCol('metadata_json', `ALTER TABLE intentions ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';`);
+    await ensureCol('suggested_tags', `ALTER TABLE intentions ADD COLUMN suggested_tags TEXT NOT NULL DEFAULT '[]';`);
+    await ensureCol('category_id', `ALTER TABLE intentions ADD COLUMN category_id TEXT;`);
+    await ensureCol('category', `ALTER TABLE intentions ADD COLUMN category TEXT;`);
+    await ensureCol('parent_id', `ALTER TABLE intentions ADD COLUMN parent_id TEXT;`);
+    await ensureCol('status', `ALTER TABLE intentions ADD COLUMN status TEXT NOT NULL DEFAULT 'TODO';`);
+    await ensureCol('is_organized', `ALTER TABLE intentions ADD COLUMN is_organized INTEGER NOT NULL DEFAULT 0;`);
+    await ensureCol('is_local_processed', `ALTER TABLE intentions ADD COLUMN is_local_processed INTEGER NOT NULL DEFAULT 0;`);
+    await ensureCol('complexity_level', `ALTER TABLE intentions ADD COLUMN complexity_level INTEGER NOT NULL DEFAULT 1;`);
+    await ensureCol('calendar_event_id', `ALTER TABLE intentions ADD COLUMN calendar_event_id TEXT;`);
+    await ensureCol('calendar_name', `ALTER TABLE intentions ADD COLUMN calendar_name TEXT;`);
+    await ensureCol('is_synced_calendar', `ALTER TABLE intentions ADD COLUMN is_synced_calendar INTEGER NOT NULL DEFAULT 0;`);
+    await ensureCol('alarm_enabled', `ALTER TABLE intentions ADD COLUMN alarm_enabled INTEGER NOT NULL DEFAULT 0;`);
+    await ensureCol('remind_at', `ALTER TABLE intentions ADD COLUMN remind_at INTEGER;`);
+    await ensureCol('local_notification_id', `ALTER TABLE intentions ADD COLUMN local_notification_id TEXT;`);
+    await ensureCol('recurrence_rrule', `ALTER TABLE intentions ADD COLUMN recurrence_rrule TEXT;`);
+    await ensureCol('is_done', `ALTER TABLE intentions ADD COLUMN is_done INTEGER NOT NULL DEFAULT 0;`);
+    await ensureCol('done_at', `ALTER TABLE intentions ADD COLUMN done_at INTEGER;`);
+    await ensureCol('is_archived', `ALTER TABLE intentions ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;`);
+    await ensureCol('archived_at', `ALTER TABLE intentions ADD COLUMN archived_at INTEGER;`);
+    await ensureCol('is_pending_ai', `ALTER TABLE intentions ADD COLUMN is_pending_ai INTEGER NOT NULL DEFAULT 0;`);
+    await ensureCol('remind_to_leave', `ALTER TABLE intentions ADD COLUMN remind_to_leave INTEGER NOT NULL DEFAULT 0;`);
+    await ensureCol('location_address', `ALTER TABLE intentions ADD COLUMN location_address TEXT;`);
+    await ensureCol('ai_model_used', `ALTER TABLE intentions ADD COLUMN ai_model_used TEXT;`);
+    await ensureCol('ai_latency_ms', `ALTER TABLE intentions ADD COLUMN ai_latency_ms INTEGER;`);
+    await ensureCol('tokens_prompt', `ALTER TABLE intentions ADD COLUMN tokens_prompt INTEGER;`);
+    await ensureCol('tokens_completion', `ALTER TABLE intentions ADD COLUMN tokens_completion INTEGER;`);
+    await ensureCol('tokens_total', `ALTER TABLE intentions ADD COLUMN tokens_total INTEGER;`);
+    await ensureCol('location_id', `ALTER TABLE intentions ADD COLUMN location_id INTEGER;`);
+
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);`);
+
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS user_stats (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      ia_credits INTEGER NOT NULL DEFAULT 10,
+      zen_points INTEGER NOT NULL DEFAULT 0,
+      growth_score INTEGER NOT NULL DEFAULT 0,
+      local_action_streak INTEGER NOT NULL DEFAULT 0,
+      ad_last_reward_at INTEGER,
+      ad_videos_watched INTEGER NOT NULL DEFAULT 0,
+      pending_sync_ia_credits INTEGER NOT NULL DEFAULT 0,
+      recharge_window_started_at INTEGER,
+      recharge_videos_in_window INTEGER NOT NULL DEFAULT 0,
+      recharge_last_video_at INTEGER,
+      free_capture_day_ymd TEXT,
+      free_capture_remaining INTEGER NOT NULL DEFAULT 3
+    );`);
+    await db.execAsync(
+      `INSERT OR IGNORE INTO user_stats (id, ia_credits, zen_points, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at)
+       VALUES (1, 10, 0, 0, 0, NULL, 0, 0, NULL, 0, NULL);`,
+    );
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY NOT NULL,
+      label TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );`);
+    for (const category of DEFAULT_HORIZON_CATEGORIES) {
+      await db.runAsync(`INSERT OR IGNORE INTO categories (id, label, sort_order) VALUES (?, ?, ?)`, [
+        category.id,
+        category.label,
+        category.sort_order,
+      ]);
     }
+
     const testId = `system_ready_${Date.now()}`;
     await db.runAsync(`INSERT OR REPLACE INTO intentions (id, type, title, created_at) VALUES (?, 'NOTE', 'System Ready', ?)`, [
       testId,
       Date.now(),
     ]);
     const check = await db.getFirstAsync<{ title: string }>(`SELECT title FROM intentions WHERE id = ? LIMIT 1`, [testId]);
-    if (check?.title === 'System Ready') {
-      console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
-    }
+    if (check?.title === 'System Ready') console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
     schemaReady = true;
   })();
   await schemaInitPromise;
@@ -2218,7 +2273,7 @@ export async function insertTrankilV2Intention(
   }
   const stats = await getTrankilV2UserStats();
   void stats;
-  await syncAfterIntentionWrite('insertTrankilV2Intention');
+  void syncAfterIntentionWrite('insertTrankilV2Intention');
   notifyIntentionsChanged({ id: row.id, reason: 'insert' });
 }
 
