@@ -572,9 +572,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       let savedAny = false;
       const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
       const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
+      const total = chunks.length;
       for (let i = 0; i < chunks.length; i++) {
         if (seq !== geminiSeqRef.current) return;
         const chunk = chunks[i];
+        console.log('********* CHUNK ' + (i + 1) + '/' + total + ' *********');
+        console.log('[SEQUENCER] 🚀 Envoi : "' + chunks[i] + '"');
         const progressLabel = `Création de ${i + 1}/${chunks.length}...`;
         setTranscript(progressLabel);
         showAppToast(progressLabel, 1200);
@@ -598,6 +601,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           if (vr.ok) {
             savedAny = true;
             DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+            console.log('[SEQUENCER] ✅ Terminé pour : "' + chunks[i] + '"');
+            console.log('************************************');
           } else {
             console.log('[BulkSequence] ❌ CHUNK_FAILED:', { idx: i + 1, total: chunks.length });
           }
@@ -605,6 +610,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           console.log('[BulkSequence] ❌ CHUNK_EXCEPTION:', { idx: i + 1, total: chunks.length });
         }
       }
+      console.log('********* TOUTES INTENTIONS TRAITÉES *********');
       if (!savedAny && params.allowAlert) {
         proposeOfflineFallback({
           transcript: base,

@@ -72,12 +72,12 @@ export function logOneTapCaptureCycleStartBanner(): void {
 import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
 
 export function splitBulkTranscript(raw: string): string[] {
-  const s = String(raw || '');
-  if (!s.includes('**')) return [s.trim()].filter(Boolean);
-  return s
-    .split('**')
-    .map((x) => x.trim())
-    .filter(Boolean);
+  const text = String(raw || '');
+  const chunks = text.includes('**') ? text.split('**').map((s) => s.trim()).filter(Boolean) : [text.trim()].filter(Boolean);
+  console.log('********* DÉBUT SÉQUENCEUR *********');
+  console.log('[SEQUENCER] 🧩 Texte brut reçu:', text);
+  console.log('[SEQUENCER] 🔪 Chunks détectés (' + chunks.length + ') :', chunks);
+  return chunks;
 }
 
 export const ONE_TAP_PREDICTED_TYPES = [
