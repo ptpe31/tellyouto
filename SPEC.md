@@ -21,6 +21,30 @@ Le pipeline OneTap est “dual‑path” :
 - Path A (local) : heuristiques synchrones (type, dates, signaux) pour un squelette immédiat.
 - Path B (Gemini via proxy) : classification/structuration unitaire d’un chunk, puis fusion dans le squelette.
 
+### 0) Logique de Traitement & Contrats IA
+
+#### 1) Dual-Path (synchronisation des flux)
+
+- Path A (heuristique locale) : extraction immédiate (signaux/regex + chrono-node) du type d’intention et de dates relatives simples afin de produire un placeholder UI (brouillon exploitable) sans réseau.
+- Path B (Gemini unitaire) : envoi d’un chunk unique au proxy Gemini. Path B enrichit/rectifie les champs issus de Path A, sans casser les identifiants de suivi (l’ID d’intention généré côté app et les repères de progression restent stables).
+
+#### 2) Recette du prompt system (instructions immuables)
+
+- Contrainte de langue (mirroring) : le modèle doit répondre dans la langue du chunk (ex. chunk EN → contenu/notes EN). Les chaînes “user-facing” ne doivent jamais être traduites.
+- Extraction de date : le modèle doit utiliser l’horodatage système fourni dans le contexte de la requête (reference time ISO + timezone) pour résoudre les dates relatives (“demain”, “samedi”, etc.).
+- Déterminisme de sortie : la réponse doit être strictement conforme au format attendu (aucun texte introductif, aucun markdown). Les codes catégories sont strictement bornés (ex. HOME/WORK/PERSO/SHOP…) et ne doivent jamais être traduits ni inventés.
+
+#### 3) Traitement de sortie (Douane & normalisation)
+
+- Validation de schéma : chaque réponse Gemini est validée et normalisée. Les clés manquantes reçoivent des valeurs par défaut (ex. dates nulles, booléens false, champs texte vides).
+- Correction “in extremis” : si une catégorie est inconnue, elle est remappée vers `PERSO`.
+- Gestion du vide : si la réponse Gemini est vide/malformée (ou ne produit aucune intention valide), le système génère une intention `NOTE_FALLBACK` contenant le texte brut d’origine.
+
+#### 4) Format de persistance final
+
+- Les champs persistés doivent impérativement être alignés sur le schéma SQLite Trankil‑v2 (ex. `due_date`).
+- `due_date` est stocké en ISO 8601 (`YYYY-MM-DDTHH:mm:ss.sssZ`).
+
 ### 1) Règle de découpage local (client-side splitting)
 
 Le découpage “bulk” ne repose plus sur l’IA mais sur le code client.
