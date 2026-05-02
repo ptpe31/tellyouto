@@ -65,7 +65,7 @@ L’interface doit refléter la progression du séquenceur (ex. “Création de 
 
 Le flux OneTap doit éviter toute complexité liée au parsing de streaming multi-intentions côté IA.
 
-- Les marqueurs de protocole IA (ex. `[[NEXT]]`, `[[COMPLETE]]`) et les stratégies de split “côté modèle” ne font plus partie du contrat.
+- Les protocoles de découpage “côté modèle” et le parsing de flux multi-intentions ne font plus partie du contrat.
 - Le système revient à de la classification unitaire simple (1 chunk → 1 requête Gemini → 1 persistance).
 
 ### 5) Protocole de logging (harmonisé)

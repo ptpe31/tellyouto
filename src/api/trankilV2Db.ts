@@ -2,6 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import { DeviceEventEmitter } from 'react-native';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
+import { VERBOSE_DEBUG } from '../config/verboseDebug';
 
 export type TrankilIntentType = 'TASK' | 'HABIT' | 'NOTE' | 'AUDIO' | 'PROJECT' | 'LIST';
 export type TrankilIntentStatus = 'TODO' | 'DONE' | 'ARCHIVED';
@@ -275,7 +276,7 @@ function appendTimelinePaging(
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = SQLite.openDatabaseAsync(DB_NAME).then(async (db) => {
-      console.log('[SQL_TRACE] 🏁 openDatabaseAsync terminé');
+      if (VERBOSE_DEBUG) console.log('[SQL_TRACE] 🏁 openDatabaseAsync terminé');
       const wrapped = wrapDbWithSerialization(db);
       if (!DISABLE_TRANKIL_V2_PRAGMAS && !pragmasApplied) {
         try {
@@ -336,7 +337,7 @@ export async function initTrankilV2Schema(): Promise<void> {
   if (schemaInitPromise) return schemaInitPromise;
   schemaInitPromise = (async () => {
     const db = await getDb();
-    console.log('[SQL_TRACE] 🏁 Tentative de création de table intentions...');
+    if (VERBOSE_DEBUG) console.log('[SQL_TRACE] 🏁 Tentative de création de table intentions...');
     await db.execAsync(`CREATE TABLE IF NOT EXISTS intentions (
       id TEXT PRIMARY KEY NOT NULL,
       type TEXT NOT NULL,
@@ -374,14 +375,14 @@ export async function initTrankilV2Schema(): Promise<void> {
       tokens_total INTEGER,
       location_id INTEGER
     );`);
-    console.log('[SQL_TRACE] ✅ Réussite création table intentions.');
+    if (VERBOSE_DEBUG) console.log('[SQL_TRACE] ✅ Réussite création table intentions.');
     const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(intentions)`);
     const has = (name: string) => cols.some((c) => c.name === name);
     const ensureCol = async (name: string, sql: string) => {
       if (has(name)) return;
-      console.log('[SQL_TRACE] 🏁 Ajout colonne manquante:', name);
+      if (VERBOSE_DEBUG) console.log('[SQL_TRACE] 🏁 Ajout colonne manquante:', name);
       await db.execAsync(sql);
-      console.log('[SQL_TRACE] ✅ Colonne ajoutée:', name);
+      if (VERBOSE_DEBUG) console.log('[SQL_TRACE] ✅ Colonne ajoutée:', name);
     };
     await ensureCol('due_date', `ALTER TABLE intentions ADD COLUMN due_date TEXT;`);
     await ensureCol('content_raw', `ALTER TABLE intentions ADD COLUMN content_raw TEXT NOT NULL DEFAULT '';`);
@@ -456,7 +457,7 @@ export async function initTrankilV2Schema(): Promise<void> {
       Date.now(),
     ]);
     const check = await db.getFirstAsync<{ title: string }>(`SELECT title FROM intentions WHERE id = ? LIMIT 1`, [testId]);
-    if (check?.title === 'System Ready') console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
+    if (check?.title === 'System Ready' && VERBOSE_DEBUG) console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
     schemaReady = true;
   })();
   await schemaInitPromise;
@@ -2217,7 +2218,7 @@ export async function insertTrankilV2Intention(
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
-  console.log('[DEBUG_DB] Statut de l instance DB:', !!db);
+  if (VERBOSE_DEBUG) console.log('[DEBUG_DB] Statut de l instance DB:', !!db);
   const remindLeave = row.remind_to_leave ?? 0;
   const locAddr = row.location_address?.trim() ? row.location_address.trim() : null;
   const sql =
@@ -2268,7 +2269,7 @@ export async function insertTrankilV2Intention(
     console.log('[DATABASE] ♻️ Re-open SQLite (prepareAsync rejected)');
     resetTrankilV2RuntimeState();
     const nextDb = await getDb();
-    console.log('[DEBUG_DB] Statut de l instance DB (reopen):', !!nextDb);
+    if (VERBOSE_DEBUG) console.log('[DEBUG_DB] Statut de l instance DB (reopen):', !!nextDb);
     await nextDb.runAsync(sql, args);
   }
   const stats = await getTrankilV2UserStats();
