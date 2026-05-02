@@ -4,26 +4,23 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CommonActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import { Filter } from 'lucide-react-native';
 import {
   ActivityIndicator,
   DeviceEventEmitter,
   FlatList,
   LayoutAnimation,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   UIManager,
   View,
 } from 'react-native';
-import { SegmentedButtons, useTheme, type MD3Theme } from 'react-native-paper';
+import { useTheme, type MD3Theme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   bulkTrankilV2TaskChildStatsByParentIds,
-  countTrankilV2RootTodoTasksDueOnLocalDate,
-  getFreeCaptureQuotaSnapshot,
-  getTrankilV2UnorganizedCount,
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2TimelineItemsByDate,
@@ -40,23 +37,22 @@ import {
   type TrankilV2TimelineItemRow,
 } from '../api';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
-import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import type { AppTabParamList } from '../navigation/types';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import { showAppToast } from '../services/appToast';
 import { retryOfflineFirstAiSort, timelineRowEligibleForOfflineAiRetry } from '../services/offlineFirstAiRetry';
 import { IdeaBankModal } from '../components/IdeaBankModal';
+import { TimelineFilterModal } from '../components/TimelineFilterModal';
 import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
+import { IntentionCard } from '../components/IntentionCard';
 import { ListIntentionCard } from '../components/ListIntentionCard';
-import { NeumorphicCard } from '../components/NeumorphicCard';
 import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
 import { TimelineListItemRow } from '../components/TimelineListItemRow';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { formatYmdLocal } from '../services/TimeSorter';
 import { generateSmartTitle } from '../services/smartTitle';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
-import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
+import { neumorphicRaised } from '../theme/neumorphism';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 
 if (RPlatform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -134,11 +130,6 @@ function startOfToday(): Date {
 
 function dateAtNoon(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
-}
-
-/** Affichage court type 25/04 pour le segment « Date ». */
-function formatPilotDayChip(d: Date): string {
-  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
 }
 
 function resolveAnchor(
@@ -433,7 +424,7 @@ type IdeaBankEntry = {
 type ListEntry = RowSection | IdeaBankEntry;
 
 export function TimelineScreen() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -449,14 +440,12 @@ export function TimelineScreen() {
   const [primaryRows, setPrimaryRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [archivedRows, setArchivedRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [unorganizedTodo, setUnorganizedTodo] = useState<TrankilV2TimelineItemRow[]>([]);
-  const [unorganizedCount, setUnorganizedCount] = useState(0);
-  const [headerTodayRootTodoCount, setHeaderTodayRootTodoCount] = useState(0);
-  const [freeQuotaSnapshot, setFreeQuotaSnapshot] = useState<{ remaining: number; max: number } | null>(null);
   const [primaryHasMore, setPrimaryHasMore] = useState(false);
   const [archivedHasMore, setArchivedHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
@@ -508,8 +497,6 @@ export function TimelineScreen() {
       status: TrankilIntentStatus,
       offset: number,
     ): Promise<{
-      unorganizedCount: number;
-      todayRootTodoCount: number;
       unorganizedTodo: TrankilV2TimelineItemRow[];
       primary: TrankilV2TimelineItemRow[];
       primaryHasMore: boolean;
@@ -520,10 +507,7 @@ export function TimelineScreen() {
       const ctx = sqlContextFromBubble(bubble);
       const { anchor, mode } = resolveAnchor(nav, custom);
       const ymd = toYmd(anchor);
-      const todayYmd = formatYmdLocal(new Date());
-      const [count, todayRootTodos, unorganizedRaw] = await Promise.all([
-        getTrankilV2UnorganizedCount(),
-        countTrankilV2RootTodoTasksDueOnLocalDate(todayYmd),
+      const [unorganizedRaw] = await Promise.all([
         listTrankilV2UnorganizedIntentions({
           paging: { limit: 400, offset: 0 },
           context: 'ALL',
@@ -537,8 +521,6 @@ export function TimelineScreen() {
         });
         const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
         return {
-          unorganizedCount: count,
-          todayRootTodoCount: todayRootTodos,
           unorganizedTodo: unorganizedRaw,
           primary: slice,
           primaryHasMore: hasMore,
@@ -555,8 +537,6 @@ export function TimelineScreen() {
         const mapped = raw.map(mapTrankilIntentionToTimelineItemRow);
         const { slice, hasMore } = takePage(mapped, TIMELINE_PAGE_SIZE);
         return {
-          unorganizedCount: count,
-          todayRootTodoCount: todayRootTodos,
           unorganizedTodo: unorganizedRaw,
           primary: [],
           primaryHasMore: false,
@@ -580,8 +560,6 @@ export function TimelineScreen() {
       }
       const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
       return {
-        unorganizedCount: count,
-        todayRootTodoCount: todayRootTodos,
         unorganizedTodo: unorganizedRaw,
         primary: slice,
         primaryHasMore: hasMore,
@@ -597,22 +575,15 @@ export function TimelineScreen() {
     setLoading(true);
     try {
       const b = await fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0);
-      setUnorganizedCount(b.unorganizedCount);
-      setHeaderTodayRootTodoCount(b.todayRootTodoCount);
       setUnorganizedTodo(b.unorganizedTodo);
       setPrimaryRows(b.primary);
       setPrimaryHasMore(b.primaryHasMore);
       setArchivedRows(b.archived);
       setArchivedHasMore(b.archivedHasMore);
-      if (!spectrum.isProUser) {
-        setFreeQuotaSnapshot(await getFreeCaptureQuotaSnapshot());
-      } else {
-        setFreeQuotaSnapshot(null);
-      }
     } finally {
       setLoading(false);
     }
-  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, spectrum.isProUser, statusFilter, timeNav]);
+  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, statusFilter, timeNav]);
 
   const reload = useCallback(() => {
     void loadPack();
@@ -729,10 +700,6 @@ export function TimelineScreen() {
     setArchivedRows((prev) => prev.filter((r) => r.id !== rowId));
     setUnorganizedTodo((prev) => {
       const next = prev.filter((r) => r.id !== rowId);
-      const removed = next.length < prev.length;
-      if (removed) {
-        setUnorganizedCount((c) => Math.max(0, c - 1));
-      }
       return next;
     });
   }, []);
@@ -802,18 +769,6 @@ export function TimelineScreen() {
         params: { screen: 'Tabs', params: { screen: 'TalkHome' } },
       } as never),
     );
-  }, []);
-
-  const handleTimeNavChange = useCallback((v: string) => {
-    if (v === 'CUSTOM') {
-      if (RPlatform.OS === 'web') return;
-      setTimeNav('CUSTOM');
-      setCustomPickedDate((prev) => dateAtNoon(prev ?? startOfToday()));
-      setDatePickerOpen(true);
-      return;
-    }
-    setTimeNav(v as 'TODAY' | 'TOMORROW' | 'WEEK');
-    setCustomPickedDate(null);
   }, []);
 
   const onDatePicked = useCallback(
@@ -991,8 +946,6 @@ export function TimelineScreen() {
           setLoading(true);
           try {
             const b = await fetchTimelineSlice('TODAY', null, contextBubble, statusFilter, 0);
-            setUnorganizedCount(b.unorganizedCount);
-            setHeaderTodayRootTodoCount(b.todayRootTodoCount);
             setUnorganizedTodo(b.unorganizedTodo);
             setPrimaryRows(b.primary);
             setPrimaryHasMore(b.primaryHasMore);
@@ -1010,7 +963,7 @@ export function TimelineScreen() {
         timelineBlurredRef.current = true;
         void flushPendingCommits();
       };
-    }, [contextBubble, fetchTimelineSlice, flushPendingCommits, spectrum.isProUser, statusFilter]),
+    }, [contextBubble, fetchTimelineSlice, flushPendingCommits, statusFilter]),
   );
 
   useEffect(() => {
@@ -1023,45 +976,6 @@ export function TimelineScreen() {
     });
     return () => sub.remove();
   }, [loadPack]);
-
-  const timeNavButtons = useMemo(() => {
-    const base: {
-      value: 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM';
-      label: string;
-      style: typeof styles.segmentBtnCompact;
-      labelStyle: typeof styles.segmentLabelCompact;
-    }[] = [
-      {
-        value: 'TODAY',
-        label: t('horizons.today'),
-        style: styles.segmentBtnCompact,
-        labelStyle: styles.segmentLabelCompact,
-      },
-      {
-        value: 'TOMORROW',
-        label: t('horizons.tomorrow'),
-        style: styles.segmentBtnCompact,
-        labelStyle: styles.segmentLabelCompact,
-      },
-      {
-        value: 'WEEK',
-        label: t('horizons.thisWeek'),
-        style: styles.segmentBtnCompact,
-        labelStyle: styles.segmentLabelCompact,
-      },
-    ];
-    if (RPlatform.OS === 'web') return base;
-    base.push({
-      value: 'CUSTOM',
-      label:
-        timeNav === 'CUSTOM' && customPickedDate
-          ? t('timeline.pilot.pickedDateShort', { date: formatPilotDayChip(customPickedDate) })
-          : t('timeline.pilot.specificDate'),
-      style: styles.segmentBtnCompact,
-      labelStyle: styles.segmentLabelCompact,
-    });
-    return base;
-  }, [t, timeNav, customPickedDate]);
 
   const renderTimelineFlatItem = useCallback(
     ({ item }: { item: TimelineFlatItem }) => {
@@ -1101,57 +1015,43 @@ export function TimelineScreen() {
         );
       }
       const row = item.row;
-      const resolved = resolveDisplayTitle(row);
-      const headingKey = displayHeading(resolved);
-      const titleText = headingKey ? t(headingKey) : resolved;
-      const createdLine = formatCreatedLine(row.created_at, i18n.language);
       const showCompleteOrb = canShowCompleteOrb(item.listKey, statusFilter);
-      const progressLookupId = progressLookupIdForRow(row);
-      const projectSuffix =
-        row.section === 'PROJECT_SUBTASK' && row.project_title
-          ? `${t('timeline.projectPrefix')}: ${row.project_title}`
-          : null;
-      const offlineChip = offlineAiChipForRow(row, t);
-      const showRetry = timelineRowEligibleForOfflineAiRetry(row);
-      const catKey = categoryLabelKey(row.category_id);
-      const catLabel = catKey ? t(catKey) : '';
-      const badgeBase = t(typeBadge(row.type));
-      const badgeLabel = catLabel ? `${badgeBase} • ${catLabel}` : badgeBase;
+      const card = (
+        <IntentionCard
+          row={row}
+          theme={theme}
+          pendingLocalDone={pendingLocalDone.has(row.id)}
+          enabled={showCompleteOrb}
+          onToggleComplete={() => void handleToggleRowComplete(row)}
+        />
+      );
       return (
         <View style={{ paddingHorizontal: 16, paddingBottom: 2 }}>
-          <TimelineCardRow
-            row={row}
-            listKey={item.listKey}
-            rowVariant={item.rowVariant}
-            theme={theme}
-            spectrumIsPro={spectrum.isProUser}
-            anchorDate={anchorDate}
-            titleText={titleText}
-            badgeLabel={badgeLabel}
-            projectSuffix={projectSuffix}
-            createdCaption={t('timeline.createdOn', { date: createdLine })}
-            progressLookupId={progressLookupId}
-            showCompleteOrb={showCompleteOrb}
-            pendingLocalDone={pendingLocalDone.has(row.id)}
-            childStats={childStats}
-            onToggleComplete={() => void handleToggleRowComplete(row)}
-            onMutationReload={reload}
-            offlineAiChipLabel={offlineChip}
-            onRetryAiSort={showRetry ? () => void handleRetryOfflineAi(row.id) : undefined}
-            retryAiSortBusy={retryAiBusyId === row.id}
-        />
-      </View>
+          <IntentInteractionWrapper intentionId={row.id} anchorDate={anchorDate} onMutation={reload}>
+            {item.rowVariant === 'noPressure' ? (
+              <View
+                style={{
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderStyle: 'dashed',
+                  borderColor: theme.colors.primary,
+                  backgroundColor: 'rgba(0, 128, 128, 0.06)',
+                }}
+              >
+                {card}
+              </View>
+            ) : (
+              card
+            )}
+          </IntentInteractionWrapper>
+        </View>
       );
     },
     [
       anchorDate,
-      childStats,
-      handleRetryOfflineAi,
       handleToggleRowComplete,
-      i18n.language,
       pendingLocalDone,
       reload,
-      retryAiBusyId,
       spectrum.isProUser,
       statusFilter,
       t,
@@ -1159,47 +1059,8 @@ export function TimelineScreen() {
     ],
   );
 
-  const contextDefs: { id: ContextBubble; label: string; emoji?: string }[] = [
-    { id: 'ALL', label: t('timeline.pilot.contextAll') },
-    { id: 'HOME', label: t('timeline.pilot.contextHome'), emoji: '🏠' },
-    { id: 'WORK', label: t('timeline.pilot.contextWork'), emoji: '💼' },
-    { id: 'PIGGY', label: t('timeline.pilot.contextPiggy'), emoji: '🐷' },
-    { id: 'ARCHIVES', label: t('timeline.pilot.contextArchives'), emoji: '📦' },
-  ];
-
-  const openProSubscription = useCallback(() => {
-    if (rootNavigationRef.isReady()) {
-      rootNavigationRef.navigate('ProSubscription');
-    }
-  }, []);
-
-      return (
+  return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-      <View style={{ paddingTop: insets.top, paddingHorizontal: 16, paddingBottom: 6 }}>
-        <PilotStatusHeader
-          variant="timeline"
-          isProUser={spectrum.isProUser}
-          freeRemaining={freeQuotaSnapshot?.remaining ?? 0}
-          freeMax={freeQuotaSnapshot?.max ?? 3}
-          dayOfMonth={new Date().getDate()}
-          todayTodoCount={headerTodayRootTodoCount}
-          piggyCount={unorganizedCount}
-          onPressCredits={openProSubscription}
-          onPressCalendar={() =>
-            navigation.navigate('Timeline', {
-              initialTimeNav: 'TODAY',
-              initialContext: 'ALL',
-            })
-          }
-          onPressPiggy={() =>
-            navigation.navigate('Timeline', {
-              initialTimeNav: 'TODAY',
-              initialContext: 'PIGGY',
-            })
-          }
-          translate={t}
-        />
-      </View>
       <FlatList
         style={styles.listFlex}
         data={flatListItems}
@@ -1228,103 +1089,33 @@ export function TimelineScreen() {
           ) : null
         }
         ListHeaderComponent={
-          <View style={styles.headerStack}>
-            <View style={styles.headTitleRow}>
-              <Text style={[styles.screenTitle, { color: theme.colors.onBackground }]}>{t('timeline.pilot.title')}</Text>
+          <View style={[styles.minHeaderWrap, { paddingTop: insets.top + 8 }]}>
+            <View style={styles.minHeaderRow}>
+              <View
+                style={[
+                  neumorphicRaised(theme),
+                  styles.minHeaderPill,
+                  { borderWidth: 1, borderColor: theme.colors.outlineVariant },
+                ]}
+              >
+                <Text style={[styles.minHeaderTitle, { color: theme.colors.onBackground }]}>Ma Timeline</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setFilterModalOpen(true)}
+                style={({ pressed }) => [
+                  neumorphicRaised(theme),
+                  styles.minHeaderFilterBtn,
+                  {
+                    borderWidth: 1,
+                    borderColor: theme.colors.outlineVariant,
+                    opacity: pressed ? 0.88 : 1,
+                  },
+                ]}
+              >
+                <Filter size={20} color={theme.colors.onBackground} />
+              </Pressable>
             </View>
-
-            <NeumorphicCard style={styles.cardBlock}>
-              <View style={styles.segmentLabelRow}>
-                <Text style={[styles.cardLabel, { color: theme.colors.primary }]}>{t('timeline.pilot.timeNav')}</Text>
-                {timeNav === 'TODAY' && headerTodayRootTodoCount > 0 ? (
-                  <View style={styles.timeBadge}>
-                    <Text style={styles.timeBadgeText}>{headerTodayRootTodoCount}</Text>
-                  </View>
-                ) : null}
-              </View>
-              <SegmentedButtons
-                value={timeNav}
-                onValueChange={(v) => handleTimeNavChange(v)}
-                buttons={timeNavButtons}
-                density="small"
-                style={styles.segment}
-              />
-              {timeNav === 'CUSTOM' && RPlatform.OS !== 'web' ? (
-                <Pressable
-                  onPress={() => setDatePickerOpen(true)}
-                  style={[styles.changeDateLink, { borderColor: theme.colors.outlineVariant }]}
-                >
-                  <Text style={[styles.changeDateLinkText, { color: theme.colors.primary }]}>
-                    {t('timeline.pilot.changeDate')}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </NeumorphicCard>
-
-            <NeumorphicCard style={styles.cardBlock}>
-              <Text style={[styles.cardLabel, { color: theme.colors.primary }]}>{t('timeline.pilot.contextNav')}</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bubbleRow}>
-                {contextDefs.map((c) => {
-                  const selected = contextBubble === c.id;
-                  const countPiggy = c.id === 'PIGGY' ? unorganizedCount : 0;
-  return (
-                    <Pressable
-                      key={c.id}
-                      onPress={() => setContextBubble(c.id)}
-                      style={[
-                        selected ? neumorphicRaised(theme) : neumorphicInset(theme),
-                        styles.contextBubble,
-                        {
-                          borderWidth: 1,
-                          borderColor: selected ? theme.colors.primary : theme.colors.outlineVariant,
-                          borderStyle: selected ? 'solid' : 'dashed',
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.bubbleLabel, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                        {c.emoji ? `${c.emoji} ` : ''}
-                        {c.label}
-                      </Text>
-                      {c.id === 'PIGGY' && countPiggy > 0 ? (
-                        <View style={styles.piggyBadge}>
-                          <Text style={styles.piggyBadgeText}>{countPiggy}</Text>
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </NeumorphicCard>
-
-            <NeumorphicCard style={styles.cardBlock}>
-              <Text style={[styles.cardLabel, { color: theme.colors.primary }]}>{t('timeline.pilot.statusNav')}</Text>
-              <View style={styles.statusRow}>
-                <Pressable
-                  onPress={() => setStatusFilter('TODO')}
-                  style={[
-                    neumorphicInset(theme),
-                    styles.statusBtn,
-                    statusFilter === 'TODO' && { borderColor: theme.colors.primary, borderWidth: 1 },
-                  ]}
-                >
-                  <Text style={[styles.statusBtnText, { color: theme.colors.onSurfaceVariant }]}>
-                    {t('timeline.pilot.todo')}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setStatusFilter('DONE')}
-                  style={[
-                    neumorphicInset(theme),
-                    styles.statusBtn,
-                    statusFilter === 'DONE' && { borderColor: theme.colors.primary, borderWidth: 1 },
-                  ]}
-                >
-                  <Text style={[styles.statusBtnText, { color: theme.colors.onSurfaceVariant }]}>
-                    {t('timeline.pilot.done')}
-                  </Text>
-                </Pressable>
-              </View>
-            </NeumorphicCard>
           </View>
         }
         renderItem={renderTimelineFlatItem}
@@ -1368,6 +1159,20 @@ export function TimelineScreen() {
         }
       />
 
+      <TimelineFilterModal
+        visible={filterModalOpen}
+        onClose={() => setFilterModalOpen(false)}
+        timeNav={timeNav}
+        setTimeNav={setTimeNav}
+        customPickedDate={customPickedDate}
+        setCustomPickedDate={setCustomPickedDate}
+        setDatePickerOpen={setDatePickerOpen}
+        contextBubble={contextBubble}
+        setContextBubble={setContextBubble}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+      />
+
       {RPlatform.OS !== 'web' && datePickerOpen ? (
         <TimelineDatePickerLazy
           value={customPickedDate ?? startOfToday()}
@@ -1409,6 +1214,11 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   listFlex: { flex: 1 },
   listContent: { flexGrow: 1 },
+  minHeaderWrap: { paddingHorizontal: 12, paddingBottom: 6 },
+  minHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
+  minHeaderPill: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10 },
+  minHeaderTitle: { fontSize: 16, fontWeight: '800' },
+  minHeaderFilterBtn: { width: 44, height: 44, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
   headerStack: { paddingHorizontal: 12, paddingTop: 8, gap: 10 },
   headTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
   screenTitle: { fontSize: 22, fontWeight: '700' },
