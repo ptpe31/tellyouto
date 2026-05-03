@@ -40,6 +40,10 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 - Path A (heuristique locale) : extraction immédiate (signaux/regex + chrono-node) du type d’intention et de dates relatives simples afin de produire un placeholder UI (brouillon exploitable) sans réseau.
 - Path B (Gemini unitaire) : envoi d’un chunk unique au proxy Gemini. Path B enrichit/rectifie les champs issus de Path A, sans casser les identifiants de suivi (l’ID d’intention généré côté app et les repères de progression restent stables).
 - Autonomie réelle en cas de panne réseau/proxy : l’UI pose d’abord le squelette (Path A), puis tente Path B dans un `try/catch`. Si l’appel Gemini échoue, la capture est mise en file offline (texte ou audio) pour traitement ultérieur. Voir [IntentionContext.tsx:L420-L552](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/IntentionContext.tsx#L420-L552).
+- Cycle de vie du titre (critique) :
+  - Path A (heuristique locale) : génère un titre “bruit” (brut ou via heuristiques simples) uniquement pour l’affichage immédiat.
+  - Path B (Gemini) : fournit le Smart Title définitif via son champ `CONTENT`.
+  - Règle de conflit : dès que Path B répond, `CONTENT` devient la source de vérité absolue. Le code local ne doit plus appliquer de transformations (regex) sur le résultat de Path B, à l’exception du formatage de surface (trim / majuscule).
 
 #### 2) Recette du prompt system (instructions immuables)
 
@@ -77,6 +81,8 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 - Normalisation de catégorie : unknown → `PERSO` via [normalizeOneTapCategoryCode](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L120-L127).
 - Fusion réelle Path B → Path A :
   - fusion d’une liste d’intents dans le squelette : [mergeIntentArrayIntoOneTapSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L747-L850)
+  - priorité au contenu : `mergeIntentArrayIntoOneTapSkeleton` doit injecter le `CONTENT` Gemini tel quel dans `display_title`.
+  - désactivation des regex : toute logique de nettoyage par expressions régulières est réservée exclusivement au Path A (offline/heuristique) pour éviter de dénaturer la précision sémantique de Path B.
   - normalisation temporelle (dueDateTime ISO, recurrence null si vide, logisticsPotential) : [normalizeUniversalTemporalInData](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L165-L220).
 - Si aucune intention n’est extraite : le brouillon final reste le squelette Path A (pas de NOTE_FALLBACK à ce stade), avec logs debug éventuels : [refineOneTapWithGeminiCompressed](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L1236-L1378).
 
@@ -86,6 +92,15 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 - Gestion du vide / malformé (NOTE_FALLBACK) :
   - Si `intents[]` existe mais qu’aucune entité n’a pu être persistée : si `allowNoteFallback !== false`, création d’un draft NOTE avec `memo = transcript` et persistance sous label `NOTE_FALLBACK` : [oneTapPersist.ts:L1167-L1186](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L1167-L1186).
   - Si aucun résultat n’a été persisté après les branches list/temporal/trip : même fallback NOTE_FALLBACK : [oneTapPersist.ts:L1261-L1277](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L1261-L1277).
+
+##### 3.e) Enrichissement du Contrat d'Erreur Proxy (Anti-SPOF)
+
+- Problème : le proxy renvoie actuellement un code générique `gemini_failed`, masquant la cause réelle (blocage sécurité vs quota vs surcharge).
+- Nouveau contrat SSE : le proxy doit mapper les erreurs Gemini vers des types explicites :
+  - `SAFETY_BLOCK` : déclenché si les filtres de sécurité bloquent le prompt ou la réponse.
+  - `QUOTA_EXCEEDED` : limite de requêtes/crédits atteinte côté modèle.
+  - `SERVER_OVERLOAD` : erreur technique (5xx) côté Google ou proxy.
+- Comportement client : l’app doit logger ces erreurs distinctement. En cas de `SAFETY_BLOCK`, le fallback `NOTE_FALLBACK` doit être marqué par un tag spécifique afin d’éviter une incompréhension utilisateur.
 
 #### 4) Format de persistance final
 
@@ -124,6 +139,8 @@ Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la p
 
 ### 2.b) Standardisation base de données (Trankil-v2)
 
+- Outils de maintenance (debug) : les actions “Reconstruire la base” et “Vider la base” ciblent explicitement `intentions` (SQLite `trankil_v2.db`) et `core_intentions` (SQLite `via_production.db`), en exécution séquentielle (table par table) via les wrappers singletons (`withTrankilV2Database` / `withViaDb`) afin d’éviter toute fuite de connexion.
+- Vidage manuel (debug) : le vidage exécute `DELETE FROM intentions;` et `DELETE FROM core_intentions;` après confirmation utilisateur, puis journalise un feedback `[DATABASE] 🧹 Base vidée avec succès`.
 - Schéma : la source de vérité est la table SQLite `intentions` (Trankil‑v2). Les noms de colonnes sont stabilisés, notamment `due_date` (à utiliser partout côté Douane / insertions pour éviter tout conflit futur).
 - Format : le format de `due_date` en base est strictement ISO 8601 (`YYYY-MM-DDTHH:mm:ss.sssZ`) pour assurer la compatibilité avec le moteur de tri de la Timeline.
 - Initialisation atomique : interdire l’exécution du schéma SQL en un seul bloc géant via `execAsync`. L’initialisation doit exécuter les opérations séquentiellement (table par table, index par index) afin de limiter les timeouts au premier démarrage.
@@ -173,6 +190,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 - Identité visuelle : l’interface utilise exclusivement un style Neumorphique (reliefs doux, ombres portées, surfaces claires), avec une dominante d’ombres type `#F0F0F3` (et variantes de thème) via les helpers neumorphiques existants (ex. `neumorphicRaised`).
 - Anatomie de la carte : chaque intention est rendue via une structure fixe et stable visuellement : `[Icône de catégorie] | [Titre + Date/Heure relative] | [Indicateur de statut]`.
+- DISPLAY TITLE CONTRACT (Path B / Gemini) : le champ `CONTENT` retourné par le modèle doit être un titre d’action pur (affichable). Il exclut toute information temporelle (jours/heures, ex. “demain”, “ce soir”, “9h30”, “at 7pm”, “monday”) qui doit aller exclusivement dans `DUE_DATE` ; il corrige les fautes/abréviations courantes dans la langue cible (ex. “mdcin” → “Médecin”, “rdv” → “RDV”, “piza” → “Pizza”) ; il commence par une majuscule ; il reste spécifique (ne pas sur-simplifier une action déjà catégorisée).
 - Contrat Phase 2 (IntentionCard) : l’action et l’identité sont fusionnées. Un unique cercle neumorphique à gauche (taille tactile stable) contient l’icône de catégorie et sert de seul bouton d’action.
 - État pending (Undo 3s) : quand `pendingLocalDone` est actif, l’icône de catégorie dans le cercle est remplacée par une coche de validation.
 - Largeur & respiration : le conteneur principal de la carte (rectangle neumorphique) ne doit pas être “bord à bord”. Il conserve un retrait horizontal visible (gouttières) pour laisser respirer le texte, et peut être plafonné par un `maxWidth` afin d’éviter les lignes trop longues sur grands écrans.
@@ -200,6 +218,15 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 - Règle d’or : le délai de persistance de 3 secondes (`pendingLocalDone`) est immuable.
 - Localisation du code : la logique d’undo doit rester au niveau du parent [TimelineScreen.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx#L460-L1014) (timers + refs) pour garantir l’intégrité en cas de scroll, virtualisation FlatList, regroupement/sticky headers, ou changement de filtres. Aucun composant de carte (ex. `IntentionCard`) ne doit embarquer de timers ni de persistance différée.
+
+### 5) Performance & Virtualisation
+
+#### 5.c) Gestion des Titres Longs & Virtualisation
+
+- Hauteur fixe : la virtualisation reste basée sur une constante fixe (ex. `CARD_ROW_H = 105`) et `getItemLayout` reste obligatoire pour la performance.
+- Priorité visuelle : le titre (ligne 1) utilise un maximum de 2 lignes avant `ellipsizeMode="tail"`.
+- Adaptation interne : si le titre prend 2 lignes, le padding vertical interne de la carte peut être réduit pour maintenir la hauteur totale à 105dp sans déborder.
+- Contrat de lisibilité : pour les titres qui dépassent cette capacité, l’utilisateur doit pouvoir consulter le texte complet via un appui long ou via une vue détaillée (ex. TalkDebugScreen).
 
 ## Pile technique
 
