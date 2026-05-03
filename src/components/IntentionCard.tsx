@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import { generateSmartTitle } from '../services/smartTitle';
+import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
@@ -35,25 +36,6 @@ function parseDueDate(raw: string | null | undefined): { date: Date; hasTime: bo
   if (!Number.isFinite(d.getTime())) return null;
   const hasTime = /T\d{2}:\d{2}/.test(value) || /\d{2}:\d{2}/.test(value);
   return { date: d, hasTime };
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-function toYmdLocal(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function startOfToday(): Date {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
-}
-
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
-  next.setDate(next.getDate() + days);
-  return next;
 }
 
 function capitalizeFirst(raw: string): string {
@@ -99,10 +81,10 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
     if (!parsed) return '';
     const due = parsed.date;
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
-    const today = startOfToday();
-    const todayKey = toYmdLocal(today);
-    const tomorrowKey = toYmdLocal(addDays(today, 1));
-    const dueKey = toYmdLocal(due);
+    const now = new Date();
+    const todayKey = formatYmdLocal(now);
+    const tomorrowKey = addDaysYmd(now, 1);
+    const dueKey = formatYmdLocal(due);
     const dayLabel =
       dueKey === todayKey
         ? t('horizons.today')
@@ -110,7 +92,7 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
           ? t('horizons.tomorrow')
           : capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long' }).format(due));
     if (!parsed.hasTime) return dayLabel;
-    const time = new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(due);
+    const time = new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(due);
     return `${dayLabel} • ${time}`;
   }, [i18n.language, row.due_date, t]);
 
