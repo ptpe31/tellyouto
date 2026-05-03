@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   DeviceEventEmitter,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,12 +15,13 @@ import { useTranslation } from 'react-i18next';
 import { Button, useTheme } from 'react-native-paper';
 
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
-import { getTrankilV2IntentionTaskCounts } from '../api/trankilV2Db';
+import { getTrankilV2IntentionTaskCounts, purgeTrankilV2IntentionsCascade, withTrankilV2Database } from '../api/trankilV2Db';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { askGeminiExpert } from '../services/GeminiExpert';
 import { executeFactoryResetDataPlane } from '../services/factoryReset';
+import { showAppToast } from '../services/appToast';
 import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import {
@@ -38,6 +40,8 @@ import {
   setDebugUserTierOverride,
   type DebugUserTierOverride,
 } from '../services/debugUserTierOverride';
+import { withViaDb } from '../services/db/Schema';
+import { neumorphicRaised } from '../theme/neumorphism';
 
 export function DebugScreen() {
   const { t } = useTranslation();
@@ -134,12 +138,18 @@ export function DebugScreen() {
     setLastError(null);
     setBusy('db');
     try {
+      await purgeTrankilV2IntentionsCascade();
+      await withViaDb(async (db) => {
+        await db.execAsync(`DELETE FROM core_intentions;`);
+      });
       const { health } = await executeFactoryResetDataPlane();
       power.setEnergyScore(1);
       power.setLowPower(false);
       if (!health.sqliteOk) {
         setLastError(t('debug.factoryResetHealthWarn'));
       }
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      void refreshDbCounts();
       setTimeout(() => {
         Alert.alert(t('debug.factoryResetSuccessTitle'), t('debug.factoryResetSuccessBody'));
       }, 500);
@@ -148,7 +158,28 @@ export function DebugScreen() {
     } finally {
       setBusy(null);
     }
-  }, [power, t]);
+  }, [power, refreshDbCounts, t]);
+
+  const runClearDatabases = useCallback(async () => {
+    setLastError(null);
+    setBusy('db');
+    try {
+      await withTrankilV2Database(async (db) => {
+        await db.execAsync(`DELETE FROM intentions;`);
+      });
+      await withViaDb(async (db) => {
+        await db.execAsync(`DELETE FROM core_intentions;`);
+      });
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      void refreshDbCounts();
+      console.log('[DATABASE] 🧹 Base vidée avec succès');
+      showAppToast('[DATABASE] 🧹 Base vidée avec succès', 1200);
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, [refreshDbCounts]);
 
   const onRebuildDb = useCallback(() => {
     Alert.alert(t('debug.factoryResetConfirmTitle'), t('debug.factoryResetConfirmBody'), [
@@ -171,6 +202,13 @@ export function DebugScreen() {
       },
     ]);
   }, [runFactoryReset, t]);
+
+  const onClearDb = useCallback(() => {
+    Alert.alert(t('debug.clearDbConfirmTitle'), t('debug.clearDbConfirmBody'), [
+      { text: t('debug.clearDbCancel'), style: 'cancel' },
+      { text: t('debug.clearDbConfirm'), style: 'destructive', onPress: () => void runClearDatabases() },
+    ]);
+  }, [runClearDatabases, t]);
 
   const onRefreshRemoteGeminiModel = useCallback(async () => {
     setLastError(null);
@@ -514,8 +552,28 @@ export function DebugScreen() {
         <Button mode="outlined" onPress={onRebuildDb} disabled={busy !== null} style={styles.btn}>
           {t('debug.rebuildDb')}
         </Button>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onClearDb}
+          disabled={busy !== null}
+          style={({ pressed }) => [
+            neumorphicRaised(theme),
+            styles.neoBtn,
+            {
+              borderWidth: 1,
+              borderColor: theme.colors.outlineVariant,
+              backgroundColor: theme.colors.surface,
+              opacity: busy !== null ? 0.55 : pressed ? 0.9 : 1,
+            },
+          ]}
+        >
+          <Text style={[styles.neoBtnText, { color: theme.colors.onSurface }]}>{t('debug.clearDb')}</Text>
+        </Pressable>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
           {t('debug.rebuildDbHelp')}
+        </Text>
+        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
+          {t('debug.clearDbHelp')}
         </Text>
       </View>
 
@@ -568,6 +626,14 @@ const styles = StyleSheet.create({
   section: { marginBottom: 20 },
   btn: { alignSelf: 'flex-start' },
   btnSecond: { marginTop: 12 },
+  neoBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  neoBtnText: { fontSize: 14, fontWeight: '800' },
   help: { fontSize: 12, marginTop: 8, maxWidth: '100%' },
   godRow: { marginTop: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   btnCompact: { marginTop: 4 },
