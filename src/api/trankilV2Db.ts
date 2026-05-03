@@ -1543,6 +1543,66 @@ export async function purgeTrankilV2IntentionsCascade(): Promise<{
   };
 }
 
+export async function rebuildTrankilV2IntentionsTableForDebug(): Promise<void> {
+  const db = await getDb();
+  await db.execAsync('BEGIN;');
+  try {
+    await db.execAsync(`DROP TABLE IF EXISTS intentions;`);
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS intentions (
+      id TEXT PRIMARY KEY NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      content_raw TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      suggested_tags TEXT NOT NULL DEFAULT '[]',
+      category_id TEXT,
+      category TEXT,
+      parent_id TEXT,
+      status TEXT NOT NULL DEFAULT 'TODO',
+      is_organized INTEGER NOT NULL DEFAULT 0,
+      is_local_processed INTEGER NOT NULL DEFAULT 0,
+      complexity_level INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      calendar_event_id TEXT,
+      calendar_name TEXT,
+      is_synced_calendar INTEGER NOT NULL DEFAULT 0,
+      alarm_enabled INTEGER NOT NULL DEFAULT 0,
+      remind_at INTEGER,
+      local_notification_id TEXT,
+      recurrence_rrule TEXT,
+      is_done INTEGER NOT NULL DEFAULT 0,
+      done_at INTEGER,
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      archived_at INTEGER,
+      is_pending_ai INTEGER NOT NULL DEFAULT 0,
+      remind_to_leave INTEGER NOT NULL DEFAULT 0,
+      location_address TEXT,
+      ai_model_used TEXT,
+      ai_latency_ms INTEGER,
+      tokens_prompt INTEGER,
+      tokens_completion INTEGER,
+      tokens_total INTEGER,
+      location_id INTEGER
+    );`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);`);
+    await db.execAsync('COMMIT;');
+  } catch (e) {
+    try {
+      await db.execAsync('ROLLBACK;');
+    } catch {}
+    throw e;
+  }
+  const testId = `system_ready_${Date.now()}`;
+  await db.runAsync(`INSERT OR REPLACE INTO intentions (id, type, title, created_at) VALUES (?, 'NOTE', 'System Ready', ?)`, [
+    testId,
+    Date.now(),
+  ]);
+  const check = await db.getFirstAsync<{ title: string }>(`SELECT title FROM intentions WHERE id = ? LIMIT 1`, [testId]);
+  if (check?.title === 'System Ready') console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
+}
+
 /** Vrac Timeline : brouillon sans étiquette ni date, actif, non archivé (`is_organized = 0`). */
 export async function listTrankilV2UnorganizedIntentions(opts?: {
   paging?: TimelinePaging;

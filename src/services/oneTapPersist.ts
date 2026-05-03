@@ -23,9 +23,8 @@ import type { OneTapUniversalResult } from './oneTapUniversalCapture';
 import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from './oneTapUniversalReminders';
 import { mergeIntentionMetadataJson } from './captureOfflineFirstUtils';
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
-import { dualWriteViaCoreIntention } from './viaCoreDualWrite';
-import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
 import { activateSentinelTrip } from './traffic/sentinelActivation';
+
 
 export type PersistOneTapSuccess =
   | {
@@ -881,11 +880,6 @@ async function persistAndDualWrite(params: {
     if (id) console.log(`[DATABASE] ✅ Persistance confirmée pour ${id}`);
     console.log(`[DATABASE] ⏱️ Persistance ${entityLabel} en ${Date.now() - persistStart}ms`);
     console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
-    try {
-      await dualWriteViaCoreIntention({ draft: params.draft, transcript: params.transcript, outcome: res.outcome, entityLabel });
-    } catch {
-      /* ignore */
-    }
   }
   return res;
 }

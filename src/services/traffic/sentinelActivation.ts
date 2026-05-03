@@ -2,7 +2,6 @@ import { withTrankilV2Database } from '../../api/trankilV2Db';
 import { computeNewtonWindow } from './TrafficEngine';
 import { SentinelNotificationManager } from './TrafficNotificationService';
 import i18n from '../../locales/i18n';
-import { upsertViaSentinelTrip } from './viaSentinelDb';
 
 export async function ensureSentinelTripsSchema(): Promise<void> {
   await withTrankilV2Database(async (db) => {
@@ -72,30 +71,6 @@ export async function activateSentinelTrip(input: {
       ]
     );
   });
-  try {
-    await upsertViaSentinelTrip({
-      tripId: input.tripTaskId,
-      destination: input.formattedAddress.trim(),
-      arrivalAtMs: input.targetArrivalMs,
-      status: vigilanceStatus === 'FINISHED' ? 'DONE' : 'ACTIVE',
-      sentinelMode,
-      lastTrafficDurationSec: durationSec,
-      internalScanCount: 0,
-      nextCheckAtMs: null,
-      gatePromptedAtMs: null,
-      lastErrorAtMs: null,
-      tOptimisteMs,
-      tPessimisteMs,
-      vigilanceStatus,
-      lat: typeof input.lat === 'number' ? input.lat : undefined,
-      lng: typeof input.lng === 'number' ? input.lng : undefined,
-    });
-    console.log(
-      `[VIA-DUAL-WRITE] 💾 Trajet répliqué dans via_production.db | ID: ${input.tripTaskId}.`
-    );
-  } catch {
-    /* ignore */
-  }
 
   const manager = new SentinelNotificationManager();
   if (vigilanceStatus === 'FINISHED') {

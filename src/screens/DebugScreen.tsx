@@ -15,14 +15,16 @@ import { useTranslation } from 'react-i18next';
 import { Button, useTheme } from 'react-native-paper';
 
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
-import { getTrankilV2IntentionTaskCounts, purgeTrankilV2IntentionsCascade, withTrankilV2Database } from '../api/trankilV2Db';
+import {
+  getTrankilV2IntentionTaskCounts,
+  rebuildTrankilV2IntentionsTableForDebug,
+  withTrankilV2Database,
+} from '../api/trankilV2Db';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import type { TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { askGeminiExpert } from '../services/GeminiExpert';
-import { executeFactoryResetDataPlane } from '../services/factoryReset';
 import { showAppToast } from '../services/appToast';
-import { usePower } from '../context/PowerContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import {
   applyGeminiLocalModelOverride,
@@ -40,13 +42,11 @@ import {
   setDebugUserTierOverride,
   type DebugUserTierOverride,
 } from '../services/debugUserTierOverride';
-import { withViaDb } from '../services/db/Schema';
 import { neumorphicRaised } from '../theme/neumorphism';
 
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const power = usePower();
   const { spectrum, setProUser } = useUserSpectrum();
   const [busy, setBusy] = useState<
     'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | null
@@ -138,16 +138,7 @@ export function DebugScreen() {
     setLastError(null);
     setBusy('db');
     try {
-      await purgeTrankilV2IntentionsCascade();
-      await withViaDb(async (db) => {
-        await db.execAsync(`DELETE FROM core_intentions;`);
-      });
-      const { health } = await executeFactoryResetDataPlane();
-      power.setEnergyScore(1);
-      power.setLowPower(false);
-      if (!health.sqliteOk) {
-        setLastError(t('debug.factoryResetHealthWarn'));
-      }
+      await rebuildTrankilV2IntentionsTableForDebug();
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       void refreshDbCounts();
       setTimeout(() => {
@@ -158,7 +149,7 @@ export function DebugScreen() {
     } finally {
       setBusy(null);
     }
-  }, [power, refreshDbCounts, t]);
+  }, [refreshDbCounts, t]);
 
   const runClearDatabases = useCallback(async () => {
     setLastError(null);
@@ -166,9 +157,6 @@ export function DebugScreen() {
     try {
       await withTrankilV2Database(async (db) => {
         await db.execAsync(`DELETE FROM intentions;`);
-      });
-      await withViaDb(async (db) => {
-        await db.execAsync(`DELETE FROM core_intentions;`);
       });
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       void refreshDbCounts();

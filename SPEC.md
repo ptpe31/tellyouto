@@ -131,7 +131,7 @@ Mode de traitement : boucle asynchrone séquentielle, une intention à la fois.
 Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la persistance du chunk N n’est pas confirmée.
 
 - Contrat de résolution : [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts) est une fonction async (Promise). Elle ne “libère” le séquenceur qu’après confirmation d’écriture dans le stockage persistant.
-- Multi-intentions par chunk : si Path B renvoie un tableau d’intentions pour un seul chunk, le verrou de persistance attend la sauvegarde de l’ensemble du tableau (toutes les écritures SQLite + réplication) avant de libérer le séquenceur.
+- Multi-intentions par chunk : si Path B renvoie un tableau d’intentions pour un seul chunk, le verrou de persistance attend la sauvegarde de l’ensemble du tableau (toutes les écritures SQLite) avant de libérer le séquenceur.
 - Gestion du flux : le séquenceur UI attend strictement `await persistOneTapDraftVentilated(...)` avant de passer au chunk suivant.
 - Sécurité : un `finally` doit garantir que les drapeaux de traitement (ex. `isProcessing` / index de progression) ne restent jamais bloqués en cas d’erreur mineure.
 - Feedback de verrou : un log système doit signaler la confirmation de persistance (ex. `[DATABASE] ✅ Persistance confirmée pour <ID>`).
@@ -139,13 +139,13 @@ Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la p
 
 ### 2.b) Standardisation base de données (Trankil-v2)
 
-- Outils de maintenance (debug) : les actions “Reconstruire la base” et “Vider la base” ciblent explicitement `intentions` (SQLite `trankil_v2.db`) et `core_intentions` (SQLite `via_production.db`), en exécution séquentielle (table par table) via les wrappers singletons (`withTrankilV2Database` / `withViaDb`) afin d’éviter toute fuite de connexion.
-- Vidage manuel (debug) : le vidage exécute `DELETE FROM intentions;` et `DELETE FROM core_intentions;` après confirmation utilisateur, puis journalise un feedback `[DATABASE] 🧹 Base vidée avec succès`.
+- Outils de maintenance (debug) : les actions “Reconstruire la base” et “Vider la base” ciblent uniquement `intentions` (SQLite `trankil_v2.db`) en exécution séquentielle (table par table) via le wrapper singleton `withTrankilV2Database`.
+- Vidage manuel (debug) : le vidage exécute `DELETE FROM intentions;` après confirmation utilisateur, puis journalise un feedback `[DATABASE] 🧹 Base vidée avec succès`.
 - Schéma : la source de vérité est la table SQLite `intentions` (Trankil‑v2). Les noms de colonnes sont stabilisés, notamment `due_date` (à utiliser partout côté Douane / insertions pour éviter tout conflit futur).
 - Format : le format de `due_date` en base est strictement ISO 8601 (`YYYY-MM-DDTHH:mm:ss.sssZ`) pour assurer la compatibilité avec le moteur de tri de la Timeline.
 - Initialisation atomique : interdire l’exécution du schéma SQL en un seul bloc géant via `execAsync`. L’initialisation doit exécuter les opérations séquentiellement (table par table, index par index) afin de limiter les timeouts au premier démarrage.
 - Auto-réparation (healthcheck) : exécuter un test d’écriture/lecture `System Ready` immédiatement après l’ouverture/initialisation. Si ce test échoue (timeout natif, `NativeDatabase.prepareAsync` rejeté / NPE), lever une exception bloquante plutôt que de laisser le séquenceur tourner à vide.
-- Mode de persistance : l’écriture est locale (SQLite `trankil_v2.db`) et une réplication systématique est effectuée dans `via_production.db` (table `core_intentions`) après succès.
+- Mode de persistance : l’écriture est locale (SQLite `trankil_v2.db`) et constitue la source de vérité (base unique).
 - Sécurité production : aucune suppression du fichier DB (ex. `deleteDatabaseAsync`) n’est exécutée au démarrage. Toute purge de données éventuelle doit rester une action explicite (debug/outils), jamais un comportement automatique.
 - Migrations vs purge : le bootstrap DB peut exécuter des `DROP TABLE ...` uniquement dans des chemins de migration/normalisation de schéma (ex. contraintes `ARCHIVED`, ajout du type `LIST`) et non comme “purge périodique”. Voir [trankilV2Db.ts:L774-L843](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts#L774-L843) et [trankilV2Db.ts:L936-L1005](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/api/trankilV2Db.ts#L936-L1005).
 - Hard Reset manuel (debug) : un “factory reset” existe et efface SQLite + préférences + notifications sur action utilisateur confirmée (double confirmation). Implémentation : [factoryReset.ts:L7-L18](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/factoryReset.ts#L7-L18). Déclenchement UI : [DebugScreen.tsx:L153-L173](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/screens/DebugScreen.tsx#L153-L173) puis exécution [DebugScreen.tsx:L133-L151](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/screens/DebugScreen.tsx#L133-L151).
