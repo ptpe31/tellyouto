@@ -1012,6 +1012,12 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
   HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
 - Use these codes ONLY. Never translate them. Never invent new categories.
 - If unsure, use PERSO.`;
+  const titleContract = `DISPLAY TITLE CONTRACT (ABSOLUTE):
+- CONTENT must be a pure action title (the essence of the user's intent).
+- CRITICAL: Strip ALL time markers from CONTENT (e.g. "tomorrow", "tonight", "9h30", "at 7pm", "monday", "ce soir", "demain"). Time information must go ONLY into DUE_DATE.
+- Fix common typos/abbreviations in the target language when obvious (e.g. "mdcin"->"Médecin", "rdv"->"RDV", "piza"->"Pizza").
+- CONTENT must start with an uppercase letter.
+- ZERO REDUNDANCY: keep the specific action even if the category is obvious (do not over-simplify).`;
   const tripContract = `TRIP CONTRACT (ABSOLUTE):
 - Any mention of movement or going somewhere MUST be classified as TRIP.
 - Trigger dictionary: ${[...TRIP_TRIGGER_TERMS_EN, ...TRIP_TRIGGER_TERMS_FR, ...TRIP_TRIGGER_TERMS_EXTRA].join(', ')}.
@@ -1030,6 +1036,7 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
   return `lang=${lang2}
 ${loc}
 ${catContract}
+${titleContract}
 ${tripContract}
 Current Reference Time: [ISO: ${fullDateString} (${tz})]
 Local heuristic (refine or override if wrong):
@@ -1046,7 +1053,7 @@ Output format (one line per intent):
 
 Constraints:
 - TYPE: TRIP or TASK (prefer TRIP when movement/location is mentioned)
-- CONTENT: keep the user's content in lang (do not translate)
+- CONTENT: keep the user's content in lang (do not translate); must follow DISPLAY TITLE CONTRACT above
 - CATEGORY_CODE: one of the 10 codes above (uppercase)
 - DUE_DATE: "YYYY-MM-DD HH:mm" or null
 

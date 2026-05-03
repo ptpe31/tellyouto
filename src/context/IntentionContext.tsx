@@ -38,6 +38,8 @@ import { getNotifications } from '../services/notifications';
 import { useUserSpectrum } from './UserSpectrumContext';
 import i18n from '../locales/i18n';
 import { formatYmdLocal } from '../services/TimeSorter';
+import { generateSmartTitle } from '../services/smartTitle';
+import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
 
 type CapturePayload = { transcript: string; audioUri: string | null; lang?: string };
@@ -508,6 +510,14 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           },
         });
         if (seq !== geminiSeqRef.current) return;
+        if (__DEV__ && VERBOSE_DEBUG) {
+          const clean = generateSmartTitle(cleaned, uiLocale);
+          const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
+          const ymd = typeof d.dueDateYmd === 'string' ? d.dueDateYmd.trim() : '';
+          const hm = typeof d.dueTimeHm === 'string' ? d.dueTimeHm.trim() : '';
+          const time = ymd ? `${ymd}${hm ? ' ' + hm : ''}` : '—';
+          console.log(`[SmartTitle Audit] RAW: "${cleaned}" -> CLEAN: "${clean}" | TIME: "${time}"`);
+        }
         const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
         if (seq !== geminiSeqRef.current) return;
         setDraft(hydrated);
@@ -595,6 +605,14 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               useStream: false,
             });
             if (seq !== geminiSeqRef.current) return;
+            if (__DEV__ && VERBOSE_DEBUG) {
+              const clean = generateSmartTitle(chunk, uiLocale);
+              const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
+              const ymd = typeof d.dueDateYmd === 'string' ? d.dueDateYmd.trim() : '';
+              const hm = typeof d.dueTimeHm === 'string' ? d.dueTimeHm.trim() : '';
+              const time = ymd ? `${ymd}${hm ? ' ' + hm : ''}` : '—';
+              console.log(`[SmartTitle Audit] RAW: "${chunk}" -> CLEAN: "${clean}" | TIME: "${time}"`);
+            }
             const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
             if (seq !== geminiSeqRef.current) return;
             const vr = await persistOneTapDraftVentilated({
