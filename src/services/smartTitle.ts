@@ -40,6 +40,28 @@ function stripWeakLeadingSegment(input: string): string {
   return out;
 }
 
+function scrubTimeHints(input: string): string {
+  let out = normalizeInput(input);
+  if (!out) return out;
+
+  out = out.replace(/\b(mdcin|medcin|medecin)\b/gi, 'médecin');
+
+  out = out.replace(
+    /\b(aujourd['’]hui|demain|après-demain|apres[- ]demain|ce\s+(?:matin|soir)|cet\s+apres[- ]midi|cet\s+apr[eè]s[- ]midi|cette\s+nuit|ce\s+week[- ]?end|cette\s+semaine)\b/gi,
+    '',
+  );
+
+  out = out.replace(/\b(mat[iî]n|midi|soir|nuit|apr[eè]s[- ]midi|apres[- ]midi)\b/gi, '');
+
+  out = out.replace(/\b(?:a|à)\s*(\d{1,2}(?::\d{2}|h\s*\d{0,2})?)\b/gi, '');
+  out = out.replace(/\b\d{1,2}\s*h\s*\d{0,2}\b/gi, '');
+  out = out.replace(/\b\d{1,2}:\d{2}\b/g, '');
+
+  out = out.replace(/[\s,.:;!?-]{2,}/g, ' ');
+  out = out.replace(/\s+([,.:;!?])/g, '$1');
+  return normalizeInput(out);
+}
+
 export function cleanTranscriptText(rawTranscript: string): string {
   const cleaned = stripWeakLeadingSegment(stripLeadingFillers(rawTranscript));
   return normalizeInput(cleaned);
@@ -66,6 +88,7 @@ export function generateSmartTitle(rawTranscript: string, locale?: string): stri
 
   if (!base) return '';
   base = stripWeakLeadingSegment(base);
+  base = scrubTimeHints(base);
   if (!base) return '';
   const head = base.charAt(0).toLocaleUpperCase(locale);
   return `${head}${base.slice(1)}`;

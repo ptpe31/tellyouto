@@ -61,22 +61,6 @@ function capitalizeFirst(raw: string): string {
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
-function resolveDisplayTitle(row: TrankilV2TimelineItemRow): string {
-  const base = String(row.display_title || '').trim();
-  if (base) return base;
-  if (row.type === 'NOTE' || row.type === 'AUDIO') {
-    return generateSmartTitle(row.content_raw || '') || (row.type === 'AUDIO' ? 'timeline.memoAudio' : 'timeline.note');
-  }
-  return 'timeline.untitled';
-}
-
-function displayHeading(textOrKey: string): string {
-  if (textOrKey.startsWith('timeline.') || textOrKey.startsWith('tabs.') || textOrKey.startsWith('horizons.')) {
-    return textOrKey;
-  }
-  return '';
-}
-
 function getCategoryIcon(categoryId: string | null | undefined, type: TrankilV2TimelineItemRow['type']): string {
   const up = String(categoryId ?? '').trim().toUpperCase();
   if (up === 'SHOP') return 'cart-outline';
@@ -100,10 +84,15 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
   const { t, i18n } = useTranslation();
 
   const titleText = useMemo(() => {
-    const resolved = resolveDisplayTitle(row);
-    const headingKey = displayHeading(resolved);
-    return headingKey ? t(headingKey) : resolved;
-  }, [row, t]);
+    const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
+    const smart = generateSmartTitle(row.content_raw || '', loc);
+    if (smart) return smart;
+    const fallback = String(row.display_title || '').trim();
+    if (fallback) return fallback;
+    if (row.type === 'AUDIO') return t('timeline.memoAudio');
+    if (row.type === 'NOTE') return t('timeline.note');
+    return t('timeline.untitled');
+  }, [i18n.language, row.content_raw, row.display_title, row.type, t]);
 
   const subtitle = useMemo(() => {
     const parsed = parseDueDate(row.due_date);
@@ -152,7 +141,7 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
         </Pressable>
 
         <View style={styles.textCol}>
-          <Text style={[styles.title, { color: theme.colors.onSurface, opacity: titleOpacity }]} numberOfLines={2}>
+          <Text style={[styles.title, { color: theme.colors.onSurface, opacity: titleOpacity }]} numberOfLines={1}>
             {titleText}
           </Text>
           {subtitle ? (
@@ -170,13 +159,12 @@ const CIRCLE_SIZE = 54;
 
 const styles = StyleSheet.create({
   card: {
-    height: 146,
+    height: 105,
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    marginHorizontal: 8,
-    marginBottom: 8,
-    maxWidth: 560,
+    marginHorizontal: 0,
+    marginBottom: 12,
   },
   row: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   circle: { width: CIRCLE_SIZE, height: CIRCLE_SIZE, borderRadius: CIRCLE_SIZE / 2, alignItems: 'center', justifyContent: 'center' },

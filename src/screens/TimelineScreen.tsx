@@ -227,7 +227,7 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 
 const SECTION_HEADER_H = 36;
 const IDEA_BANK_H = 58;
-const CARD_ROW_H = 156;
+const CARD_ROW_H = 120;
 const LIST_CARD_H = 348;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {

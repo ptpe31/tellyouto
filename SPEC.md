@@ -176,6 +176,9 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Contrat Phase 2 (IntentionCard) : l’action et l’identité sont fusionnées. Un unique cercle neumorphique à gauche (taille tactile stable) contient l’icône de catégorie et sert de seul bouton d’action.
 - État pending (Undo 3s) : quand `pendingLocalDone` est actif, l’icône de catégorie dans le cercle est remplacée par une coche de validation.
 - Largeur & respiration : le conteneur principal de la carte (rectangle neumorphique) ne doit pas être “bord à bord”. Il conserve un retrait horizontal visible (gouttières) pour laisser respirer le texte, et peut être plafonné par un `maxWidth` afin d’éviter les lignes trop longues sur grands écrans.
+- Densité & hauteur : la carte Phase 2 doit être plus fine (hauteur visuelle cible 105) ; l’espacement vertical entre cartes est géré par le flux (ex. `marginBottom` côté carte) et la respiration horizontale par le parent (ex. wrapper `paddingHorizontal: 16` dans `TimelineScreen`).
+- Titre intelligent : la ligne 1 n’affiche pas de texte brut. Elle utilise `generateSmartTitle(row.content_raw)` et doit retirer les indications temporelles (“demain”, “9h30”, etc.) et corriger les fautes fréquentes (ex. “mdcin” → “médecin”) pour produire un titre propre (ex. “RDV chez le médecin”).
+- Sous-titre temporel : la ligne 2 affiche uniquement la date relative + heure (ex. “Aujourd’hui • 09:30”), sans répétition d’informations déjà présentes dans le titre.
 - Mirroring temporel : l’affichage de date doit être relatif (ex. “Aujourd’hui”, “Demain”) suivi de l’heure précise, dérivée du champ `due_date` (stocké en ISO 8601 côté SQLite Trankil‑v2). L’affichage UI ne doit pas altérer le tri ni la valeur persistée.
 
 ### 2) Découplage Pilotage / Contenu
