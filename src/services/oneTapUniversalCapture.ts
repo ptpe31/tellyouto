@@ -844,7 +844,8 @@ function mergeIntentArrayIntoOneTapSkeleton(
   }
 
   const data = normalizeUniversalTemporalInData(out);
-  const nextTitle = (hasTrip ? tripTitle : title).trim().slice(0, 200) || skeleton.title;
+  const rawNextTitle = (hasTrip ? tripTitle : title).trim().slice(0, 200) || skeleton.title;
+  const nextTitle = rawNextTitle;
   const baseType = hasTrip ? 'TRIP' : skeleton.predictedType;
   return { ...skeleton, predictedType: baseType, categoryTag, title: nextTitle, data };
 }
@@ -910,7 +911,8 @@ export function mergeWireIntoOneTapSkeleton(
   wire: OneTapWireFields,
 ): OneTapUniversalResult {
   const categoryTag = normalizeOneTapCategoryCode(wire.K || skeleton.categoryTag).slice(0, 80);
-  const title = (wire.T?.trim() || skeleton.title || 'Note').trim().slice(0, 200);
+  const rawTitle = (wire.T?.trim() || skeleton.title || 'Note').trim().slice(0, 200);
+  const title = rawTitle;
   const mergedBase = { ...(skeleton.data as Record<string, unknown>) };
   const wirePatch = patchDataFromWire(wire);
   const logisticsPatch = mergeLogisticsFromWire(wire, { ...mergedBase, ...wirePatch });
@@ -997,16 +999,13 @@ function shouldForceTripFromTranscript(cleaned: string): boolean {
 
 function buildCompressedGeminiPrompt(transcript: string, seedLine: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
-  const lang = detectLangForOneTapPrompt(safe, '');
-  const lang2 = baseLangFromBcp47(lang);
+  const lang2 = 'auto';
   const seed = seedLine;
-  const loc = `LANGUAGE CONTRACT (ABSOLUTE):
-- lang=${lang2}
-- Your output must be in the same language as lang=${lang2}.
-- CRITICAL: ZERO TRANSLATION. Do not translate the user's wording.
-- If lang=auto, infer the language from the dictation, then follow this contract.
-- CRITICAL: If lang=en, every user-facing string MUST be English. Never output French words.
-- CRITICAL: If lang=fr, every user-facing string MUST be French. Never output English words.`;
+  const loc = `DETECTED LANGUAGE DISCIPLINE (ABSOLUTE):
+- Detect the language of the dictation (any language).
+- Output ALL user-facing strings strictly in that detected language. Never mix languages.
+- CRITICAL: ZERO TRANSLATION. Do not translate the user's wording. Preserve the user's wording as much as possible.
+- You may fix obvious typos and expand obvious abbreviations, but ONLY in the same detected language.`;
   const catContract = `CATEGORY CONTRACT (ABSOLUTE):
 - CATEGORY_CODE MUST be exactly one of these uppercase codes:
   HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
@@ -1033,11 +1032,24 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
       }
     })();
   const fullDateString = now.toISOString();
+  const isoWeekday = ((now.getDay() + 6) % 7) + 1;
+  const weekdayEn =
+    (() => {
+      try {
+        return new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(now);
+      } catch {
+        return 'Monday';
+      }
+    })();
+  const anchorRule = `UNIVERSAL TEMPORAL ANCHOR (ABSOLUTE):
+- Today is ${weekdayEn} (ISO weekday: ${isoWeekday}).
+- If the user mentions the current day of the week (today is ${weekdayEn}), always set the date to TODAY (J+0), unless "next" is specified. This rule applies in any language.`;
   return `lang=${lang2}
 ${loc}
 ${catContract}
 ${titleContract}
 ${tripContract}
+${anchorRule}
 Current Reference Time: [ISO: ${fullDateString} (${tz})]
 Local heuristic (refine or override if wrong):
 ${seed}
@@ -1371,8 +1383,10 @@ export async function refineOneTapWithGeminiCompressed(
       operation: useStream ? 'oneTap.wire.stream' : 'oneTap.wire.nonstream',
       versionLabel: /-latest$/i.test(metaModelId) ? 'v1beta' : 'v1',
     };
+  const safeTitle = (parsed.title || skeleton.title).trim().slice(0, 200) || skeleton.title;
   const parsedWithPerfMeta: OneTapUniversalResult = {
     ...parsed,
+    title: safeTitle,
     data: {
       ...(parsed.data ?? {}),
       ai_model_used: metaForLog.modelId,

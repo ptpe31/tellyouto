@@ -44,21 +44,57 @@ function scrubTimeHints(input: string): string {
   let out = normalizeInput(input);
   if (!out) return out;
 
-  out = out.replace(/\b(mdcin|medcin|medecin)\b/gi, 'médecin');
+  out = out.replace(
+    /\b(aujourd['’]hui|demain|après-demain|apres[- ]demain|hier|ce\s+(?:matin|soir)|cet\s+apr[eè]s[- ]midi|cet\s+apres[- ]midi|cette\s+nuit|ce\s+week[- ]?end|cette\s+semaine|semaine\s+prochaine|mois\s+prochain)\b/gi,
+    '',
+  );
+  out = out.replace(
+    /\b(today|tomorrow|tonight|yesterday|this\s+(?:morning|afternoon|evening|night)|next\s+(?:week|month))\b/gi,
+    '',
+  );
+  out = out.replace(/\b(hoy|mañana|manana|esta\s+(?:tarde|noche|mañana|manana))\b/gi, '');
 
   out = out.replace(
-    /\b(aujourd['’]hui|demain|après-demain|apres[- ]demain|ce\s+(?:matin|soir)|cet\s+apres[- ]midi|cet\s+apr[eè]s[- ]midi|cette\s+nuit|ce\s+week[- ]?end|cette\s+semaine)\b/gi,
+    /\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)\b/gi,
     '',
   );
 
-  out = out.replace(/\b(mat[iî]n|midi|soir|nuit|apr[eè]s[- ]midi|apres[- ]midi)\b/gi, '');
+  out = out.replace(
+    /\b(chaque|tous|toutes|every|each|cada)\s+(?:les?\s+)?\b(mat[iî]n|soir|semaine|jour|jours|morning|evening|day|days|mañana|manana|tarde|noche)\b/gi,
+    '',
+  );
 
-  out = out.replace(/\b(?:a|à)\s*(\d{1,2}(?::\d{2}|h\s*\d{0,2})?)\b/gi, '');
+  out = out.replace(/\b(ds|d['’]?ici|dans|in)\s*\d+\s*(?:j|jour|jours|day|days|semaine|semaines|week|weeks|mois|month|months)\b/gi, '');
+
+  out = out.replace(/\b(mat[iî]n|midi|soir|nuit|apr[eè]s[- ]midi|apres[- ]midi|morning|afternoon|evening|night)\b/gi, '');
+
+  out = out.replace(/\b(?:a|à|at)\s*(\d{1,2}(?::\d{2}|h\s*\d{0,2})?)\s*(?:am|pm)?\b/gi, '');
   out = out.replace(/\b\d{1,2}\s*h\s*\d{0,2}\b/gi, '');
   out = out.replace(/\b\d{1,2}:\d{2}\b/g, '');
+  out = out.replace(/\b\d{1,2}\s*(?:am|pm)\b/gi, '');
+
+  out = out.replace(/\b\d{4}-\d{2}-\d{2}\b/g, '');
+  out = out.replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, '');
 
   out = out.replace(/[\s,.:;!?-]{2,}/g, ' ');
   out = out.replace(/\s+([,.:;!?])/g, '$1');
+  out = out.replace(/[()[\]{}]+/g, ' ');
+  return normalizeInput(out);
+}
+
+function expandAbbreviations(input: string, locale?: string): string {
+  let out = normalizeInput(input);
+  if (!out) return out;
+  const l = String(locale || '').toLowerCase();
+  if (l.startsWith('fr')) {
+    out = out.replace(/\b(rdv|r\.d\.v\.|rdvs)\b/gi, 'Rendez-vous');
+    out = out.replace(/\b(mdcin|medcin|medecin)\b/gi, 'Médecin');
+    out = out.replace(/\b(mger|mangé|mange)\b/gi, (m) => (m.toLowerCase() === 'mger' ? 'Manger' : m));
+  } else if (l.startsWith('en')) {
+    out = out.replace(/\b(appt)\b/gi, 'Appointment');
+  } else if (l.startsWith('es')) {
+    out = out.replace(/\b(cita)\b/gi, 'Cita');
+  }
   return normalizeInput(out);
 }
 
@@ -88,8 +124,19 @@ export function generateSmartTitle(rawTranscript: string, locale?: string): stri
 
   if (!base) return '';
   base = stripWeakLeadingSegment(base);
-  base = scrubTimeHints(base);
+  base = expandAbbreviations(scrubTimeHints(base), locale);
   if (!base) return '';
   const head = base.charAt(0).toLocaleUpperCase(locale);
   return `${head}${base.slice(1)}`;
+}
+
+export function sanitizeDisplayTitle(input: string, locale?: string): string {
+  const cleaned = normalizeInput(input);
+  if (!cleaned) return '';
+  let out = expandAbbreviations(scrubTimeHints(cleaned), locale);
+  if (!out) return '';
+  const head = out.charAt(0).toLocaleUpperCase(locale);
+  out = `${head}${out.slice(1)}`;
+  out = out.replace(/^[\s,.:;!?-]+/, '').replace(/[\s,.:;!?-]+$/, '');
+  return normalizeInput(out);
 }

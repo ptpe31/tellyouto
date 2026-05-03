@@ -43,7 +43,7 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 - Cycle de vie du titre (critique) :
   - Path A (heuristique locale) : génère un titre “bruit” (brut ou via heuristiques simples) uniquement pour l’affichage immédiat.
   - Path B (Gemini) : fournit le Smart Title définitif via son champ `CONTENT`.
-  - Règle de conflit : dès que Path B répond, `CONTENT` devient la source de vérité absolue. Le code local ne doit plus appliquer de transformations (regex) sur le résultat de Path B, à l’exception du formatage de surface (trim / majuscule).
+  - Règle de conflit : dès que Path B répond, `CONTENT` devient la source de vérité absolue. Le client ne fait aucun nettoyage lexical/regex sur `CONTENT` (à part formatage de surface : trim/majuscule) ; si le titre est “sale”, on corrige le prompt, pas le code.
 
 #### 2) Recette du prompt system (instructions immuables)
 
@@ -55,8 +55,7 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
 - LANGUAGE CONTRACT (ABSOLUTE) :
   - `Your output must be in the same language as lang=...`
   - `CRITICAL: ZERO TRANSLATION. Do not translate the user's wording.`
-  - `If lang=en ... Never output French words.`
-  - `If lang=fr ... Never output English words.`
+  - Detected Language Discipline : si `lang=auto`, le modèle doit détecter la langue de la dictée et produire **toute** sortie utilisateur dans cette langue, sans se limiter à FR/EN.
 - CATEGORY CONTRACT (ABSOLUTE) :
   - catégories autorisées exactement : `HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER`
   - interdiction de traduire/inventer ; fallback `PERSO` si doute.
@@ -65,6 +64,8 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
   - dictionnaire de déclencheurs (FR/EN/extra) injecté tel quel.
 - Reference time :
   - `Current Reference Time: [ISO: ... (tz)]` pour résoudre “demain”, etc.
+- Règle d’ancrage temporel universelle :
+  - “If the user mentions the current day of the week (today is {{current_day}}), always set the date to TODAY (J+0), unless 'next' is specified.” (règle indépendante de la langue).
 - Format de sortie :
   - “Reply ONLY with Bullet-Pipe lines starting with ">".”
   - “No JSON. No markdown. No explanations.”
@@ -81,8 +82,7 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 - Normalisation de catégorie : unknown → `PERSO` via [normalizeOneTapCategoryCode](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L120-L127).
 - Fusion réelle Path B → Path A :
   - fusion d’une liste d’intents dans le squelette : [mergeIntentArrayIntoOneTapSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L747-L850)
-  - priorité au contenu : `mergeIntentArrayIntoOneTapSkeleton` doit injecter le `CONTENT` Gemini tel quel dans `display_title`.
-  - désactivation des regex : toute logique de nettoyage par expressions régulières est réservée exclusivement au Path A (offline/heuristique) pour éviter de dénaturer la précision sémantique de Path B.
+  - titre affichable (strict) : le titre final est `CONTENT` (nettoyé par l’IA via prompt) et ne subit pas de post-processing lexical/regex côté client (seulement trim/majuscule).
   - normalisation temporelle (dueDateTime ISO, recurrence null si vide, logisticsPotential) : [normalizeUniversalTemporalInData](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L165-L220).
 - Si aucune intention n’est extraite : le brouillon final reste le squelette Path A (pas de NOTE_FALLBACK à ce stade), avec logs debug éventuels : [refineOneTapWithGeminiCompressed](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L1236-L1378).
 
@@ -190,12 +190,16 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 - Identité visuelle : l’interface utilise exclusivement un style Neumorphique (reliefs doux, ombres portées, surfaces claires), avec une dominante d’ombres type `#F0F0F3` (et variantes de thème) via les helpers neumorphiques existants (ex. `neumorphicRaised`).
 - Anatomie de la carte : chaque intention est rendue via une structure fixe et stable visuellement : `[Icône de catégorie] | [Titre + Date/Heure relative] | [Indicateur de statut]`.
-- DISPLAY TITLE CONTRACT (Path B / Gemini) : le champ `CONTENT` retourné par le modèle doit être un titre d’action pur (affichable). Il exclut toute information temporelle (jours/heures, ex. “demain”, “ce soir”, “9h30”, “at 7pm”, “monday”) qui doit aller exclusivement dans `DUE_DATE` ; il corrige les fautes/abréviations courantes dans la langue cible (ex. “mdcin” → “Médecin”, “rdv” → “RDV”, “piza” → “Pizza”) ; il commence par une majuscule ; il reste spécifique (ne pas sur-simplifier une action déjà catégorisée).
+- DISPLAY TITLE CONTRACT (strict) : le champ `CONTENT` (ou `display_title`) est un titre d’action purifié, conforme aux règles ci-dessous.
+  - Stripping temporel absolu : supprimer systématiquement tout mot/expression de temps (jour/date/heure/récurrence) même si c’est le cœur de la phrase (ex. “demain”, “ce soir”, “à 19h”, “monday”, “at 7pm”, “ds 2 jours”, “morning”, “esta tarde”, “every morning”…).
+  - Correction sémantique & orthographique : remplacer les abréviations par les mots complets dans la langue de l’utilisateur (ex. “rdv” → “Rendez-vous”, “mdcin” → “Médecin”), corriger les fautes évidentes, et démarrer par une majuscule.
+  - Intégrité : ne jamais supprimer l’objet de l’action (ex. “mger des frites ce soir” → “Manger des frites”).
+  - Règle d’or : si une info temporelle est déjà structurée (`due_date`, `recurrence`, etc.), elle ne doit pas apparaître dans le titre.
 - Contrat Phase 2 (IntentionCard) : l’action et l’identité sont fusionnées. Un unique cercle neumorphique à gauche (taille tactile stable) contient l’icône de catégorie et sert de seul bouton d’action.
 - État pending (Undo 3s) : quand `pendingLocalDone` est actif, l’icône de catégorie dans le cercle est remplacée par une coche de validation.
 - Largeur & respiration : le conteneur principal de la carte (rectangle neumorphique) ne doit pas être “bord à bord”. Il conserve un retrait horizontal visible (gouttières) pour laisser respirer le texte, et peut être plafonné par un `maxWidth` afin d’éviter les lignes trop longues sur grands écrans.
 - Densité & hauteur : la carte Phase 2 doit être plus fine (hauteur visuelle cible 105) ; l’espacement vertical entre cartes est géré par le flux (ex. `marginBottom` côté carte) et la respiration horizontale par le parent (ex. wrapper `paddingHorizontal: 16` dans `TimelineScreen`).
-- Titre intelligent : la ligne 1 n’affiche pas de texte brut. Elle utilise `generateSmartTitle(row.content_raw)` et doit retirer les indications temporelles (“demain”, “9h30”, etc.) et corriger les fautes fréquentes (ex. “mdcin” → “médecin”) pour produire un titre propre (ex. “RDV chez le médecin”).
+- Titre intelligent (universal) : la ligne 1 affiche `row.title` (source de vérité Gemini). `generateSmartTitle(row.content_raw)` reste un fallback local (offline/heuristique), jamais un nettoyage appliqué sur un titre Gemini.
 - Sous-titre temporel : la ligne 2 affiche uniquement la date relative + heure (ex. “Aujourd’hui • 09:30”), sans répétition d’informations déjà présentes dans le titre. La date relative est calculée en local via `formatYmdLocal` (et comparaison à J+0/J+1).
 - Mirroring temporel : l’affichage de date doit être relatif (ex. “Aujourd’hui”, “Demain”) suivi de l’heure précise, dérivée du champ `due_date` (stocké en ISO 8601 côté SQLite Trankil‑v2). L’affichage UI ne doit pas altérer le tri ni la valeur persistée.
 
@@ -257,7 +261,8 @@ Variables d’environnement principales (Expo public) :
   - Dépendances runtime : firebase-functions, firebase-admin (voir [functions/package.json](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/package.json))
   - Secrets : la clé Gemini est un secret Functions (`defineSecret('GEMINI_API_KEY')`) et n’est jamais exposée au client : [index.ts:L8-L9](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L8-L9).
   - Auth côté proxy : extraction `Bearer <token>` + `admin.auth().verifyIdToken(token)` ; sinon `401 unauthorized` : [index.ts:L18-L66](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L18-L66).
-  - SSE : le proxy force `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, puis envoie `delta/done/error` : [index.ts:L72-L108](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L72-L108).
+  - SSE : le proxy force `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, puis envoie `delta/done/error` : [index.ts:L72-L108](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/functions/src/index.ts#L72-L108).
+  - Usage metadata (tokens) : l’événement SSE `done` doit inclure `usageMetadata` (promptTokenCount, candidatesTokenCount, totalTokenCount) renvoyé par Gemini afin que le client puisse journaliser et persister les tokens (monitoring coût/perf). Si absent, c’est un bug proxy (et non un “null acceptable”).
   - Payload : le proxy accepte `{ modelId, systemInstruction, request }` ; si `request` est absent, il reconstruit une requête à partir de `prompt` : [index.ts:L10-L40](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L10-L40).
   - Sanitisation : pas de validation/sanitisation applicative du `body` côté proxy au-delà du contrôle méthode + auth ; le proxy forwarde `request` tel quel vers Gemini (et renvoie un `gemini_failed` générique en cas d’erreur).
   - Gestion d’erreur : en cas d’échec Gemini, l’événement SSE renvoyé est `{type:'error', error:'gemini_failed'}` (pas d’exception détaillée) : [index.ts:L105-L108](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L105-L108).

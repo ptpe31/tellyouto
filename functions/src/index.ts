@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, type GenerateContentRequest } from '@google/generative-ai';
 import * as admin from 'firebase-admin';
 import { defineSecret } from 'firebase-functions/params';
 import { onRequest } from 'firebase-functions/v2/https';
@@ -29,8 +29,8 @@ async function verifyFirebaseIdToken(authorization: string | undefined): Promise
   await admin.auth().verifyIdToken(token);
 }
 
-function coerceRequest(body: GeminiProxyBody): Record<string, unknown> {
-  if (body.request && typeof body.request === 'object') return body.request;
+function coerceRequest(body: GeminiProxyBody): GenerateContentRequest {
+  if (body.request && typeof body.request === 'object') return body.request as unknown as GenerateContentRequest;
   const prompt = String(body.prompt || '');
   return {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -93,12 +93,17 @@ export const geminiProxyStream = onRequest(
 
       const finalResponse = await result.response;
       const finalText = finalResponse.text();
+      const usageMetadata =
+        finalResponse && typeof (finalResponse as { usageMetadata?: unknown }).usageMetadata === 'object'
+          ? (finalResponse as { usageMetadata: unknown }).usageMetadata
+          : undefined;
       res.write(
         `data: ${JSON.stringify({
           type: 'done',
           text: finalText,
           latencyMs: Date.now() - startedAt,
           modelId,
+          usageMetadata,
         })}\n\n`,
       );
       res.end();

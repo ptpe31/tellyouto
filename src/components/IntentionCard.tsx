@@ -66,11 +66,11 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
   const { t, i18n } = useTranslation();
 
   const titleText = useMemo(() => {
+    const fallback = String(row.display_title || '').trim();
+    if (fallback) return fallback;
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
     const smart = generateSmartTitle(row.content_raw || '', loc);
     if (smart) return smart;
-    const fallback = String(row.display_title || '').trim();
-    if (fallback) return fallback;
     if (row.type === 'AUDIO') return t('timeline.memoAudio');
     if (row.type === 'NOTE') return t('timeline.note');
     return t('timeline.untitled');

@@ -23,6 +23,7 @@ import type { OneTapUniversalResult } from './oneTapUniversalCapture';
 import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from './oneTapUniversalReminders';
 import { mergeIntentionMetadataJson } from './captureOfflineFirstUtils';
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
+import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
 import { activateSentinelTrip } from './traffic/sentinelActivation';
 
 

@@ -617,7 +617,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             const timeLabel = hm || '—';
             const categoryCode = String(res.parsed.categoryTag || '').trim() || 'PERSO';
             const geminiMsLabel = Number.isFinite(res.httpMeta.latencyMs) ? String(Math.round(res.httpMeta.latencyMs)) : '—';
-            const tokensTotalLabel = Number.isFinite(res.httpMeta.tokensTotal) ? String(Math.round(res.httpMeta.tokensTotal)) : '—';
+            const tokensTotalLabel =
+              typeof res.httpMeta.tokensTotal === 'number' ? String(Math.round(res.httpMeta.tokensTotal)) : '—';
             const costLabel = Number.isFinite(res.httpMeta.estimatedCostUsd) ? `$${res.httpMeta.estimatedCostUsd.toFixed(4)}` : '—';
             console.log(`[IA-CORE]    ✨ CLEAN : "${clean}"`);
             console.log(`[IA-CORE]    📅 META  : ${relativeDate} • ${timeLabel} | 🏷️ ${categoryCode}`);
