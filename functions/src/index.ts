@@ -93,10 +93,39 @@ export const geminiProxyStream = onRequest(
 
       const finalResponse = await result.response;
       const finalText = finalResponse.text();
-      const usageMetadata =
+      const rawUsage =
         finalResponse && typeof (finalResponse as { usageMetadata?: unknown }).usageMetadata === 'object'
-          ? (finalResponse as { usageMetadata: unknown }).usageMetadata
-          : undefined;
+          ? ((finalResponse as { usageMetadata: unknown }).usageMetadata as Record<string, unknown>)
+          : null;
+      const promptTokenCount =
+        rawUsage && typeof rawUsage.promptTokenCount === 'number'
+          ? rawUsage.promptTokenCount
+          : rawUsage && typeof rawUsage.prompt_token_count === 'number'
+            ? rawUsage.prompt_token_count
+            : undefined;
+      const candidatesTokenCount =
+        rawUsage && typeof rawUsage.candidatesTokenCount === 'number'
+          ? rawUsage.candidatesTokenCount
+          : rawUsage && typeof rawUsage.candidates_token_count === 'number'
+            ? rawUsage.candidates_token_count
+            : undefined;
+      const totalTokenCount =
+        rawUsage && typeof rawUsage.totalTokenCount === 'number'
+          ? rawUsage.totalTokenCount
+          : rawUsage && typeof rawUsage.total_token_count === 'number'
+            ? rawUsage.total_token_count
+            : undefined;
+      const usageMetadata =
+        promptTokenCount === undefined && candidatesTokenCount === undefined && totalTokenCount === undefined
+          ? undefined
+          : {
+              promptTokenCount,
+              candidatesTokenCount,
+              totalTokenCount,
+              prompt_token_count: promptTokenCount,
+              candidates_token_count: candidatesTokenCount,
+              total_token_count: totalTokenCount,
+            };
       res.write(
         `data: ${JSON.stringify({
           type: 'done',

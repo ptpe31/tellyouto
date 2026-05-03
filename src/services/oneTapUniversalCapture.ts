@@ -1002,10 +1002,11 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
   const lang2 = 'auto';
   const seed = seedLine;
   const loc = `DETECTED LANGUAGE DISCIPLINE (ABSOLUTE):
-- Detect the language of the dictation (any language).
-- Output ALL user-facing strings strictly in that detected language. Never mix languages.
+- Identify the language (EN, FR, ES, IT, etc.).
+- Output strings ONLY in that language.
 - CRITICAL: ZERO TRANSLATION. Do not translate the user's wording. Preserve the user's wording as much as possible.
-- You may fix obvious typos and expand obvious abbreviations, but ONLY in the same detected language.`;
+- You may fix obvious typos and expand obvious abbreviations, but ONLY in the same detected language.
+- The DISPLAY TITLE CONTRACT applies UNIVERSALLY to all languages.`;
   const catContract = `CATEGORY CONTRACT (ABSOLUTE):
 - CATEGORY_CODE MUST be exactly one of these uppercase codes:
   HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
@@ -1013,8 +1014,9 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
 - If unsure, use PERSO.`;
   const titleContract = `DISPLAY TITLE CONTRACT (ABSOLUTE):
 - CONTENT must be a pure action title (the essence of the user's intent).
-- CRITICAL: Strip ALL time markers from CONTENT (e.g. "tomorrow", "tonight", "9h30", "at 7pm", "monday", "ce soir", "demain"). Time information must go ONLY into DUE_DATE.
-- Fix common typos/abbreviations in the target language when obvious (e.g. "mdcin"->"Médecin", "rdv"->"RDV", "piza"->"Pizza").
+- STEP 1: Strip ALL time markers from CONTENT (e.g. "tomorrow", "tonight", "9h30", "at 7pm", "monday", "ce soir", "demain", "stasera", "mañana"). Time information must go ONLY into DUE_DATE.
+- STEP 2: MANDATORY TRIM of trailing prepositions. Delete any "at", "on", "for", "to", "à", "le", "el", "per", "en" left at the end of the title.
+- STEP 3: Fix common typos/abbreviations in the target language when obvious (e.g. "mdcin"->"Médecin", "rdv"->"RDV", "piza"->"Pizza", "pades"->"Padres").
 - CONTENT must start with an uppercase letter.
 - ZERO REDUNDANCY: keep the specific action even if the category is obvious (do not over-simplify).`;
   const tripContract = `TRIP CONTRACT (ABSOLUTE):
@@ -1041,15 +1043,24 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
         return 'Monday';
       }
     })();
-  const anchorRule = `UNIVERSAL TEMPORAL ANCHOR (ABSOLUTE):
-- Today is ${weekdayEn} (ISO weekday: ${isoWeekday}).
-- If the user mentions the current day of the week (today is ${weekdayEn}), always set the date to TODAY (J+0), unless "next" is specified. This rule applies in any language.`;
-  return `lang=${lang2}
+  const dueTimeHm =
+    (() => {
+      try {
+        return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+      } catch {
+        return '00:00';
+      }
+    })();
+  const anchorRule = `UNIVERSAL TEMPORAL ANCHOR (STRICT):
+- Today is: ${weekdayEn}, ${fullDateString} (Local Time: ${tz})
+- Current Human Time: ${weekdayEn} at ${dueTimeHm}
+- RULE: If user mentions "${weekdayEn}" (today) without "next", set DUE_DATE to TODAY (J+0).`;
+  return `${anchorRule}
+lang=${lang2}
 ${loc}
 ${catContract}
 ${titleContract}
 ${tripContract}
-${anchorRule}
 Current Reference Time: [ISO: ${fullDateString} (${tz})]
 Local heuristic (refine or override if wrong):
 ${seed}

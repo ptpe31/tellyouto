@@ -52,10 +52,14 @@ Le prompt OneTap réellement envoyé au modèle est construit dans [oneTapUniver
 - d’une détection de langue heuristique locale (FR/EN) via [detectLangForOneTapPrompt](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L921-L934).
 
 Instructions système critiques (texte exact, condensé) incluses dans le prompt :
-- LANGUAGE CONTRACT (ABSOLUTE) :
-  - `Your output must be in the same language as lang=...`
-  - `CRITICAL: ZERO TRANSLATION. Do not translate the user's wording.`
-  - Detected Language Discipline : si `lang=auto`, le modèle doit détecter la langue de la dictée et produire **toute** sortie utilisateur dans cette langue, sans se limiter à FR/EN.
+- UNIVERSAL TEMPORAL ANCHOR (STRICT) :
+  - `Today is: <WEEKDAY_EN>, <NOW_ISO> (Local Time: <TZ>)`
+  - `Current Human Time: <WEEKDAY_EN> at <DUE_TIME_HM>`
+  - `RULE: If user mentions "<WEEKDAY_EN>" (today) without "next", set DUE_DATE to TODAY (J+0).`
+- DETECTED LANGUAGE DISCIPLINE (ABSOLUTE) :
+  - “Identify the language (EN, FR, ES, IT, etc.)”
+  - “Output strings ONLY in that language”
+  - “The DISPLAY TITLE CONTRACT applies UNIVERSALLY to all languages”
 - CATEGORY CONTRACT (ABSOLUTE) :
   - catégories autorisées exactement : `HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER`
   - interdiction de traduire/inventer ; fallback `PERSO` si doute.
@@ -64,8 +68,6 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
   - dictionnaire de déclencheurs (FR/EN/extra) injecté tel quel.
 - Reference time :
   - `Current Reference Time: [ISO: ... (tz)]` pour résoudre “demain”, etc.
-- Règle d’ancrage temporel universelle :
-  - “If the user mentions the current day of the week (today is {{current_day}}), always set the date to TODAY (J+0), unless 'next' is specified.” (règle indépendante de la langue).
 - Format de sortie :
   - “Reply ONLY with Bullet-Pipe lines starting with ">".”
   - “No JSON. No markdown. No explanations.”
@@ -192,6 +194,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Anatomie de la carte : chaque intention est rendue via une structure fixe et stable visuellement : `[Icône de catégorie] | [Titre + Date/Heure relative] | [Indicateur de statut]`.
 - DISPLAY TITLE CONTRACT (strict) : le champ `CONTENT` (ou `display_title`) est un titre d’action purifié, conforme aux règles ci-dessous.
   - Stripping temporel absolu : supprimer systématiquement tout mot/expression de temps (jour/date/heure/récurrence) même si c’est le cœur de la phrase (ex. “demain”, “ce soir”, “à 19h”, “monday”, “at 7pm”, “ds 2 jours”, “morning”, “esta tarde”, “every morning”…).
+  - Prépositions orphelines : supprimer toute préposition résiduelle en fin de titre après stripping temporel (ex. “at”, “on”, “for”, “to”, “à”, “le”, “el”, “per”, “en”).
   - Correction sémantique & orthographique : remplacer les abréviations par les mots complets dans la langue de l’utilisateur (ex. “rdv” → “Rendez-vous”, “mdcin” → “Médecin”), corriger les fautes évidentes, et démarrer par une majuscule.
   - Intégrité : ne jamais supprimer l’objet de l’action (ex. “mger des frites ce soir” → “Manger des frites”).
   - Règle d’or : si une info temporelle est déjà structurée (`due_date`, `recurrence`, etc.), elle ne doit pas apparaître dans le titre.
