@@ -1244,7 +1244,7 @@ export async function refineOneTapWithGeminiCompressed(
   transcript: string,
   skeleton: OneTapUniversalResult,
   options: OneTapRefineOptions,
-): Promise<{ parsed: OneTapUniversalResult; rawModelText: string }> {
+): Promise<{ parsed: OneTapUniversalResult; rawModelText: string; httpMeta: GeminiHttpSettledMeta }> {
   if (getDebugUserTierOverrideCached() === 'force_free') {
     console.log('[OneTap] Mode FREE actif : Limitation simulée');
   }
@@ -1363,13 +1363,30 @@ export async function refineOneTapWithGeminiCompressed(
     httpMeta ?? {
       modelId: metaModelId,
       latencyMs: geminiRefineMs,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      tokensTotal: null,
+      estimatedCostUsd: 0,
       fallbackUsed: false,
       operation: useStream ? 'oneTap.wire.stream' : 'oneTap.wire.nonstream',
       versionLabel: /-latest$/i.test(metaModelId) ? 'v1beta' : 'v1',
     };
+  const parsedWithPerfMeta: OneTapUniversalResult = {
+    ...parsed,
+    data: {
+      ...(parsed.data ?? {}),
+      ai_model_used: metaForLog.modelId,
+      ai_latency_ms: metaForLog.latencyMs,
+      tokens_prompt: metaForLog.tokensPrompt,
+      tokens_completion: metaForLog.tokensCompletion,
+      tokens_total: metaForLog.tokensTotal,
+      debug_tokens: metaForLog.tokensTotal,
+      debug_latency_ms: metaForLog.latencyMs,
+    },
+  };
   logGeminiApiPathBResolvedSuccess(metaForLog, {
-    categoryTag: parsed.categoryTag,
-    data: parsed.data,
+    categoryTag: parsedWithPerfMeta.categoryTag,
+    data: parsedWithPerfMeta.data,
   });
 
   const cp = options.chainPerf;
@@ -1381,7 +1398,7 @@ export async function refineOneTapWithGeminiCompressed(
     );
   }
 
-  return { parsed, rawModelText };
+  return { parsed: parsedWithPerfMeta, rawModelText, httpMeta: metaForLog };
 }
 
 /**

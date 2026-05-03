@@ -15,10 +15,35 @@ export type GeminiPathBLogAnchor = {
 export type GeminiHttpSettledMeta = {
   modelId: string;
   latencyMs: number;
+  tokensPrompt: number | null;
+  tokensCompletion: number | null;
+  tokensTotal: number | null;
+  estimatedCostUsd: number;
   fallbackUsed: boolean;
   operation: string;
   versionLabel: string;
 };
+
+function estimateGeminiCostUsd(modelId: string, tokensPrompt: number | null, tokensCompletion: number | null, tokensTotal: number | null): number {
+  const m = String(modelId || '').toLowerCase();
+  const prompt = Math.max(0, Number(tokensPrompt ?? 0) || 0);
+  const completion = Math.max(0, Number(tokensCompletion ?? 0) || 0);
+  const total = Math.max(0, Number(tokensTotal ?? 0) || 0);
+  const pricing: Record<string, { promptPer1k: number; completionPer1k: number; totalPer1k?: number }> = {
+    'gemini-1.5-flash': { promptPer1k: 0, completionPer1k: 0, totalPer1k: 0 },
+    'gemini-1.5-pro': { promptPer1k: 0, completionPer1k: 0, totalPer1k: 0 },
+    'gemini-2.0-flash': { promptPer1k: 0, completionPer1k: 0, totalPer1k: 0 },
+  };
+  const key =
+    Object.keys(pricing).find((k) => m.includes(k)) ??
+    (m.includes('flash') ? 'gemini-1.5-flash' : m.includes('pro') ? 'gemini-1.5-pro' : null);
+  const p = key ? pricing[key] : null;
+  if (!p) return 0;
+  if (prompt > 0 || completion > 0) {
+    return (prompt / 1000) * p.promptPer1k + (completion / 1000) * p.completionPer1k;
+  }
+  return (total / 1000) * (p.totalPer1k ?? 0);
+}
 
 function safeJsonForTerminalLog(value: unknown, maxLen: number): string {
   try {
@@ -73,7 +98,13 @@ type PostGeminiHttpOptions = {
 
 type ProxyStreamEvent =
   | { type: 'delta'; text: string }
-  | { type: 'done'; text: string; latencyMs?: number; modelId?: string }
+  | {
+      type: 'done';
+      text: string;
+      latencyMs?: number;
+      modelId?: string;
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+    }
   | { type: 'error'; error: string };
 
 async function getFirebaseIdToken(): Promise<string> {
@@ -103,13 +134,19 @@ async function readAllTextFromResponse(res: Response): Promise<string> {
 async function readProxySse(
   res: Response,
   onDelta?: (accumulated: string) => void,
-): Promise<{ text: string; serverLatencyMs?: number; serverModelId?: string }> {
+): Promise<{
+  text: string;
+  serverLatencyMs?: number;
+  serverModelId?: string;
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+}> {
   const decoder = new TextDecoder();
   let buffer = '';
   let accumulated = '';
   let doneText: string | null = null;
   let serverLatencyMs: number | undefined;
   let serverModelId: string | undefined;
+  let usageMetadata: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | undefined;
 
   const processChunkText = (chunkText: string) => {
     buffer += chunkText;
@@ -138,6 +175,7 @@ async function readProxySse(
           doneText = typeof evt.text === 'string' ? evt.text : accumulated;
           serverLatencyMs = typeof evt.latencyMs === 'number' ? evt.latencyMs : undefined;
           serverModelId = typeof evt.modelId === 'string' ? evt.modelId : undefined;
+          usageMetadata = evt.usageMetadata ?? usageMetadata;
         } else if (evt.type === 'error') {
           throw new Error(evt.error || 'proxy_error');
         }
@@ -149,7 +187,7 @@ async function readProxySse(
   if (!stream || typeof stream.getReader !== 'function') {
     const text = await readAllTextFromResponse(res);
     processChunkText(text);
-    return { text: doneText ?? accumulated, serverLatencyMs, serverModelId };
+    return { text: doneText ?? accumulated, serverLatencyMs, serverModelId, usageMetadata };
   }
 
   const reader = stream.getReader();
@@ -159,7 +197,7 @@ async function readProxySse(
     if (value) processChunkText(decoder.decode(value, { stream: true }));
   }
   if (buffer) processChunkText('\n\n');
-  return { text: doneText ?? accumulated, serverLatencyMs, serverModelId };
+  return { text: doneText ?? accumulated, serverLatencyMs, serverModelId, usageMetadata };
 }
 
 function contentType(res: Response): string {
@@ -183,10 +221,36 @@ function extractTextFromAnyGeminiShape(data: unknown): string {
   return s.trim();
 }
 
+function extractUsageMetadataFromAnyGeminiShape(
+  data: unknown,
+): { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | undefined {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined;
+  const rec = data as Record<string, unknown>;
+  const direct = rec.usageMetadata;
+  if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+    const u = direct as Record<string, unknown>;
+    return {
+      promptTokenCount: typeof u.promptTokenCount === 'number' ? u.promptTokenCount : undefined,
+      candidatesTokenCount: typeof u.candidatesTokenCount === 'number' ? u.candidatesTokenCount : undefined,
+      totalTokenCount: typeof u.totalTokenCount === 'number' ? u.totalTokenCount : undefined,
+    };
+  }
+  const nested = rec.response;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return extractUsageMetadataFromAnyGeminiShape(nested);
+  }
+  return undefined;
+}
+
 async function readProxyResponse(
   res: Response,
   onAccumulatedText?: (full: string) => void,
-): Promise<{ text: string; serverLatencyMs?: number; serverModelId?: string }> {
+): Promise<{
+  text: string;
+  serverLatencyMs?: number;
+  serverModelId?: string;
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+}> {
   const ct = contentType(res);
   if (ct.includes('text/event-stream')) {
     return readProxySse(res, onAccumulatedText);
@@ -208,14 +272,15 @@ async function readProxyResponse(
     try {
       const parsed = JSON.parse(raw) as unknown;
       const extracted = extractTextFromAnyGeminiShape(parsed);
+      const usageMetadata = extractUsageMetadataFromAnyGeminiShape(parsed);
       if (extracted) {
         onAccumulatedText?.(extracted);
-        return { text: extracted };
+        return { text: extracted, usageMetadata };
       }
       const fallback = JSON.stringify(parsed);
       if (fallback && fallback !== 'null') {
         onAccumulatedText?.(fallback);
-        return { text: fallback };
+        return { text: fallback, usageMetadata };
       }
     } catch {}
   }
@@ -284,9 +349,17 @@ async function callGeminiProxyStream(params: {
     try {
       const out = await readProxyResponse(res, params.onAccumulatedText);
       const t1 = perfNowMs();
+      const tokensPrompt = typeof out.usageMetadata?.promptTokenCount === 'number' ? out.usageMetadata.promptTokenCount : null;
+      const tokensCompletion =
+        typeof out.usageMetadata?.candidatesTokenCount === 'number' ? out.usageMetadata.candidatesTokenCount : null;
+      const tokensTotal = typeof out.usageMetadata?.totalTokenCount === 'number' ? out.usageMetadata.totalTokenCount : null;
       const meta: GeminiHttpSettledMeta = {
         modelId: out.serverModelId ?? modelId,
         latencyMs: out.serverLatencyMs ?? Math.round(t1 - t0),
+        tokensPrompt,
+        tokensCompletion,
+        tokensTotal,
+        estimatedCostUsd: estimateGeminiCostUsd(out.serverModelId ?? modelId, tokensPrompt, tokensCompletion, tokensTotal),
         fallbackUsed: i > 0,
         operation: params.operation,
         versionLabel: 'proxy',
@@ -303,6 +376,10 @@ async function callGeminiProxyStream(params: {
   const meta: GeminiHttpSettledMeta = {
     modelId: candidates[0] ?? 'unknown',
     latencyMs: Math.round(t1 - t0),
+    tokensPrompt: null,
+    tokensCompletion: null,
+    tokensTotal: null,
+    estimatedCostUsd: 0,
     fallbackUsed: candidates.length > 1,
     operation: params.operation,
     versionLabel: 'proxy',

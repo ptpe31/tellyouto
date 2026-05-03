@@ -37,7 +37,7 @@ import { consumeMicroIfNeeded } from '../../src_v2/services/permissions/Permissi
 import { getNotifications } from '../services/notifications';
 import { useUserSpectrum } from './UserSpectrumContext';
 import i18n from '../locales/i18n';
-import { formatYmdLocal } from '../services/TimeSorter';
+import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
@@ -593,8 +593,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           try {
             if (seq !== geminiSeqRef.current) return;
             const chunk = chunks[i];
-            console.log('********* CHUNK ' + (i + 1) + '/' + total + ' *********');
-            console.log('[SEQUENCER] 🚀 Envoi : "' + chunks[i] + '"');
+            const now = new Date();
+            console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
+            console.log(`********* [CHUNK ${i + 1}/${total}] *********`);
+            console.log(`[SEQUENCER] 🚀 Traitement : "${chunk}"`);
             const progressLabel = `Création de ${i + 1}/${chunks.length}...`;
             setTranscript(progressLabel);
             showAppToast(progressLabel, 1200);
@@ -605,14 +607,23 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               useStream: false,
             });
             if (seq !== geminiSeqRef.current) return;
-            if (__DEV__ && VERBOSE_DEBUG) {
-              const clean = generateSmartTitle(chunk, uiLocale);
-              const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
-              const ymd = typeof d.dueDateYmd === 'string' ? d.dueDateYmd.trim() : '';
-              const hm = typeof d.dueTimeHm === 'string' ? d.dueTimeHm.trim() : '';
-              const time = ymd ? `${ymd}${hm ? ' ' + hm : ''}` : '—';
-              console.log(`[SmartTitle Audit] RAW: "${chunk}" -> CLEAN: "${clean}" | TIME: "${time}"`);
-            }
+            const clean = generateSmartTitle(chunk, uiLocale);
+            const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
+            const ymd = typeof d.dueDateYmd === 'string' ? d.dueDateYmd.trim() : '';
+            const hm = typeof d.dueTimeHm === 'string' ? d.dueTimeHm.trim() : '';
+            const today = formatYmdLocal(now);
+            const tomorrow = addDaysYmd(now, 1);
+            const relativeDate = ymd === today ? "Aujourd’hui" : ymd === tomorrow ? 'Demain' : ymd ? ymd : '—';
+            const timeLabel = hm || '—';
+            const categoryCode = String(res.parsed.categoryTag || '').trim() || 'PERSO';
+            const geminiMsLabel = Number.isFinite(res.httpMeta.latencyMs) ? String(Math.round(res.httpMeta.latencyMs)) : '—';
+            const tokensTotalLabel = Number.isFinite(res.httpMeta.tokensTotal) ? String(Math.round(res.httpMeta.tokensTotal)) : '—';
+            const costLabel = Number.isFinite(res.httpMeta.estimatedCostUsd) ? `$${res.httpMeta.estimatedCostUsd.toFixed(4)}` : '—';
+            console.log(`[IA-CORE]    ✨ CLEAN : "${clean}"`);
+            console.log(`[IA-CORE]    📅 META  : ${relativeDate} • ${timeLabel} | 🏷️ ${categoryCode}`);
+            console.log(
+              `[IA-USAGE]   ⏱️ LATENCY : ${geminiMsLabel}ms | 🪙 TOKENS : ${tokensTotalLabel} | 💰 COST : ${costLabel}`,
+            );
             const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
             if (seq !== geminiSeqRef.current) return;
             const vr = await persistOneTapDraftVentilated({
@@ -623,12 +634,19 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               birthdayLabel,
               allowNoteFallback: false,
             });
-            console.log('[SEQUENCER] 🔒 Retour persistance:', vr.ok ? 'OK' : 'FAIL');
             if (vr.ok) {
               savedAny = true;
               DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-              console.log('[SEQUENCER] ✅ Terminé pour : "' + chunks[i] + '"');
-              console.log('************************************');
+              const ids = vr.outcomes
+                .map((o) => {
+                  if (o && typeof (o as { intentionId?: unknown }).intentionId === 'string') return (o as { intentionId: string }).intentionId;
+                  return '';
+                })
+                .filter(Boolean);
+              const intentionId = ids[0] || '—';
+              console.log(`[DATABASE]   ✅ Persistance confirmée (trankil_v2.db) | ID: ${intentionId}`);
+              console.log(`[SEQUENCER]  ✅ Succès total pour le chunk ${i + 1}`);
+              console.log('***************************************');
             } else {
               console.log('[BulkSequence] ❌ CHUNK_FAILED:', { idx: i + 1, total: chunks.length });
             }
