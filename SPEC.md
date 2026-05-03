@@ -175,6 +175,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Anatomie de la carte : chaque intention est rendue via une structure fixe et stable visuellement : `[Icône de catégorie] | [Titre + Date/Heure relative] | [Indicateur de statut]`.
 - Contrat Phase 2 (IntentionCard) : l’action et l’identité sont fusionnées. Un unique cercle neumorphique à gauche (taille tactile stable) contient l’icône de catégorie et sert de seul bouton d’action.
 - État pending (Undo 3s) : quand `pendingLocalDone` est actif, l’icône de catégorie dans le cercle est remplacée par une coche de validation.
+- Largeur & respiration : le conteneur principal de la carte (rectangle neumorphique) ne doit pas être “bord à bord”. Il conserve un retrait horizontal visible (gouttières) pour laisser respirer le texte, et peut être plafonné par un `maxWidth` afin d’éviter les lignes trop longues sur grands écrans.
 - Mirroring temporel : l’affichage de date doit être relatif (ex. “Aujourd’hui”, “Demain”) suivi de l’heure précise, dérivée du champ `due_date` (stocké en ISO 8601 côté SQLite Trankil‑v2). L’affichage UI ne doit pas altérer le tri ni la valeur persistée.
 
 ### 2) Découplage Pilotage / Contenu

@@ -174,7 +174,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 12,
+    marginHorizontal: 8,
     marginBottom: 8,
+    maxWidth: 560,
   },
   row: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   circle: { width: CIRCLE_SIZE, height: CIRCLE_SIZE, borderRadius: CIRCLE_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
@@ -183,4 +185,3 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
 });
-
