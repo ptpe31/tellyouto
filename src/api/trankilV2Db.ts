@@ -47,6 +47,7 @@ export type TrankilV2IntentionRow = {
   tokens_prompt?: number | null;
   tokens_completion?: number | null;
   tokens_total?: number | null;
+  cost?: number | null;
   location_id?: number | null;
 };
 
@@ -322,6 +323,7 @@ export async function initTrankilV2Schema(): Promise<void> {
       tokens_prompt INTEGER,
       tokens_completion INTEGER,
       tokens_total INTEGER,
+      cost REAL,
       debug_tokens INTEGER,
       debug_latency_ms INTEGER,
       location_id INTEGER
@@ -365,6 +367,7 @@ export async function initTrankilV2Schema(): Promise<void> {
     await ensureCol('tokens_prompt', `ALTER TABLE intentions ADD COLUMN tokens_prompt INTEGER;`);
     await ensureCol('tokens_completion', `ALTER TABLE intentions ADD COLUMN tokens_completion INTEGER;`);
     await ensureCol('tokens_total', `ALTER TABLE intentions ADD COLUMN tokens_total INTEGER;`);
+    await ensureCol('cost', `ALTER TABLE intentions ADD COLUMN cost REAL;`);
     await ensureCol('debug_tokens', `ALTER TABLE intentions ADD COLUMN debug_tokens INTEGER;`);
     await ensureCol('debug_latency_ms', `ALTER TABLE intentions ADD COLUMN debug_latency_ms INTEGER;`);
     await ensureCol('location_id', `ALTER TABLE intentions ADD COLUMN location_id INTEGER;`);
@@ -815,6 +818,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         tokens_prompt INTEGER,
         tokens_completion INTEGER,
         tokens_total INTEGER,
+        cost REAL,
         location_id INTEGER
       );
       INSERT INTO intentions_v2 (
@@ -823,7 +827,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
         is_done, done_at, is_archived, archived_at,
         is_pending_ai, remind_to_leave, location_address,
-        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, location_id
+        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, location_id
       )
       SELECT
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
@@ -835,7 +839,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END,
         CASE WHEN status = 'ARCHIVED' THEN created_at ELSE NULL END,
         0, 0, NULL,
-        NULL, NULL, NULL, NULL, NULL, NULL
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL
       FROM intentions;
       DROP TABLE intentions;
       ALTER TABLE intentions_v2 RENAME TO intentions;
@@ -978,6 +982,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         tokens_prompt INTEGER,
         tokens_completion INTEGER,
         tokens_total INTEGER,
+        cost REAL,
         location_id INTEGER
       );
       INSERT INTO intentions_list_mig (
@@ -986,7 +991,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
         is_done, done_at, is_archived, archived_at, is_pending_ai,
         remind_to_leave, location_address,
-        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, location_id
+        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, location_id
       )
       SELECT
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
@@ -998,7 +1003,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         archived_at,
         COALESCE(is_pending_ai, 0),
         0, NULL,
-        NULL, NULL, NULL, NULL, NULL, NULL
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL
       FROM intentions;
       DROP TABLE intentions;
       ALTER TABLE intentions_list_mig RENAME TO intentions;
@@ -1034,6 +1039,9 @@ export async function initTrankilV2Schema(): Promise<void> {
   }
   if (!colsIntentionsLogistics.some((c) => c.name === 'tokens_total')) {
     await db.execAsync(`ALTER TABLE intentions ADD COLUMN tokens_total INTEGER;`);
+  }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'cost')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN cost REAL;`);
   }
   if (!colsIntentionsLogistics.some((c) => c.name === 'location_id')) {
     await db.execAsync(`ALTER TABLE intentions ADD COLUMN location_id INTEGER;`);
@@ -2186,6 +2194,7 @@ export type TrankilV2IntentionInsert = {
   tokens_prompt?: number | null;
   tokens_completion?: number | null;
   tokens_total?: number | null;
+  cost?: number | null;
   debug_tokens?: number | null;
   debug_latency_ms?: number | null;
   location_id?: number | null;
@@ -2243,7 +2252,7 @@ export async function insertTrankilV2Intention(
       id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
       is_pending_ai,
       remind_to_leave, location_address,
-      ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, debug_tokens, debug_latency_ms, location_id,
+      ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, debug_tokens, debug_latency_ms, location_id,
       is_done, done_at, is_archived, archived_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
   const args = [
@@ -2277,6 +2286,7 @@ export async function insertTrankilV2Intention(
     Number.isFinite(row.tokens_prompt as number) ? Number(row.tokens_prompt) : null,
     Number.isFinite(row.tokens_completion as number) ? Number(row.tokens_completion) : null,
     Number.isFinite(row.tokens_total as number) ? Number(row.tokens_total) : null,
+    Number.isFinite(row.cost as number) ? Number(row.cost) : null,
     Number.isFinite(row.debug_tokens as number) ? Number(row.debug_tokens) : null,
     Number.isFinite(row.debug_latency_ms as number) ? Number(row.debug_latency_ms) : null,
     Number.isFinite(row.location_id as number) ? Number(row.location_id) : null,
@@ -2335,6 +2345,7 @@ export async function replaceTrankilV2IntentionOneTap(
       tokens_prompt = COALESCE(?, tokens_prompt),
       tokens_completion = COALESCE(?, tokens_completion),
       tokens_total = COALESCE(?, tokens_total),
+      cost = COALESCE(?, cost),
       debug_tokens = COALESCE(?, debug_tokens),
       debug_latency_ms = COALESCE(?, debug_latency_ms),
       location_id = COALESCE(?, location_id)
@@ -2361,6 +2372,7 @@ export async function replaceTrankilV2IntentionOneTap(
       Number.isFinite(patch.tokens_prompt as number) ? Number(patch.tokens_prompt) : null,
       Number.isFinite(patch.tokens_completion as number) ? Number(patch.tokens_completion) : null,
       Number.isFinite(patch.tokens_total as number) ? Number(patch.tokens_total) : null,
+      Number.isFinite(patch.cost as number) ? Number(patch.cost) : null,
       Number.isFinite(patch.debug_tokens as number) ? Number(patch.debug_tokens) : null,
       Number.isFinite(patch.debug_latency_ms as number) ? Number(patch.debug_latency_ms) : null,
       Number.isFinite(patch.location_id as number) ? Number(patch.location_id) : null,

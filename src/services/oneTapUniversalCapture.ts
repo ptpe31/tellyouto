@@ -1422,6 +1422,7 @@ export async function refineOneTapWithGeminiCompressed(
       tokens_prompt: metaForLog.tokensPrompt,
       tokens_completion: metaForLog.tokensCompletion,
       tokens_total: metaForLog.tokensTotal,
+      ai_cost_usd: metaForLog.estimatedCostUsd,
       debug_tokens: metaForLog.tokensTotal,
       debug_latency_ms: metaForLog.latencyMs,
     },

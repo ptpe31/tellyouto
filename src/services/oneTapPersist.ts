@@ -147,13 +147,14 @@ async function materializeOneTapIntentionRow(params: {
   const tokens_prompt = Number.isFinite(draft.data.tokens_prompt as number) ? Number(draft.data.tokens_prompt) : null;
   const tokens_completion = Number.isFinite(draft.data.tokens_completion as number) ? Number(draft.data.tokens_completion) : null;
   const tokens_total = Number.isFinite(draft.data.tokens_total as number) ? Number(draft.data.tokens_total) : null;
+  const cost = Number.isFinite(draft.data.ai_cost_usd as number) ? Number(draft.data.ai_cost_usd) : null;
   const debug_tokens = Number.isFinite(draft.data.debug_tokens as number) ? Number(draft.data.debug_tokens) : tokens_total;
   const debug_latency_ms =
     Number.isFinite(draft.data.debug_latency_ms as number) ? Number(draft.data.debug_latency_ms) : ai_latency_ms;
   const aiMeta: Pick<
     TrankilV2IntentionInsert,
-    'ai_model_used' | 'ai_latency_ms' | 'tokens_prompt' | 'tokens_completion' | 'tokens_total' | 'debug_tokens' | 'debug_latency_ms'
-  > = { ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, debug_tokens, debug_latency_ms };
+    'ai_model_used' | 'ai_latency_ms' | 'tokens_prompt' | 'tokens_completion' | 'tokens_total' | 'cost' | 'debug_tokens' | 'debug_latency_ms'
+  > = { ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, debug_tokens, debug_latency_ms };
 
   switch (draft.predictedType) {
     case 'NOTE':

@@ -641,7 +641,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             const geminiMsLabel = Number.isFinite(res.httpMeta.latencyMs) ? String(Math.round(res.httpMeta.latencyMs)) : '—';
             const tokensTotalLabel =
               typeof res.httpMeta.tokensTotal === 'number' ? String(Math.round(res.httpMeta.tokensTotal)) : '—';
-            const costLabel = Number.isFinite(res.httpMeta.estimatedCostUsd) ? `$${res.httpMeta.estimatedCostUsd.toFixed(4)}` : '—';
+            const costLabel = Number.isFinite(res.httpMeta.estimatedCostUsd) ? `$${res.httpMeta.estimatedCostUsd.toFixed(6)}` : '—';
             console.log(`[IA-CORE]    ✨ CLEAN : "${clean}"`);
             console.log(`[IA-CORE]    📅 META  : ${relativeDate} • ${timeLabel} | 🏷️ ${categoryCode}`);
             console.log(

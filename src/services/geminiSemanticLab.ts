@@ -30,7 +30,8 @@ function estimateGeminiCostUsd(modelId: string, tokensPrompt: number | null, tok
   const completion = Math.max(0, Number(tokensCompletion ?? 0) || 0);
   const total = Math.max(0, Number(tokensTotal ?? 0) || 0);
   const pricing: Record<string, { promptPer1k: number; completionPer1k: number; totalPer1k?: number }> = {
-    'gemini-1.5-flash': { promptPer1k: 0, completionPer1k: 0, totalPer1k: 0 },
+    'gemini-1.5-flash': { promptPer1k: 0.000075, completionPer1k: 0.0003 },
+    'gemini-flash-latest': { promptPer1k: 0.000075, completionPer1k: 0.0003 },
     'gemini-1.5-pro': { promptPer1k: 0, completionPer1k: 0, totalPer1k: 0 },
     'gemini-2.0-flash': { promptPer1k: 0, completionPer1k: 0, totalPer1k: 0 },
   };
