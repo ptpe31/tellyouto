@@ -46,6 +46,7 @@ import { TimelineFilterModal } from '../components/TimelineFilterModal';
 import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
 import { IntentionCard } from '../components/IntentionCard';
+import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import { ListIntentionCard } from '../components/ListIntentionCard';
 import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
 import { TimelineListItemRow } from '../components/TimelineListItemRow';
@@ -462,6 +463,8 @@ export function TimelineScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
@@ -471,6 +474,23 @@ export function TimelineScreen() {
     () => resolveAnchor(timeNav, customPickedDate).anchor,
     [timeNav, customPickedDate],
   );
+
+  const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
+    setDetailRow(r);
+    setDetailOpen(true);
+  }, []);
+
+  const patchRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
+    setPrimaryRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setArchivedRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setUnorganizedTodo((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setDetailRow((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setDetailOpen(false);
+    setDetailRow(null);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -1098,6 +1118,7 @@ export function TimelineScreen() {
           pendingLocalDone={pendingLocalDone.has(row.id)}
           enabled={showCompleteOrb}
           onToggleComplete={() => void handleToggleRowComplete(row)}
+          onPress={() => openDetail(row)}
         />
       );
       return (
@@ -1127,6 +1148,7 @@ export function TimelineScreen() {
       handleToggleRowComplete,
       pendingLocalDone,
       reload,
+      openDetail,
       spectrum.isProUser,
       statusFilter,
       t,
@@ -1202,6 +1224,14 @@ export function TimelineScreen() {
             </View>
           ) : null
         }
+      />
+
+      <IntentionDetailSheet
+        visible={detailOpen}
+        row={detailRow}
+        theme={theme}
+        onClose={closeDetail}
+        onPatchRow={patchRow}
       />
 
       <TimelineFilterModal

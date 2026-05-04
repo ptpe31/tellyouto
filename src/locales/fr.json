@@ -64,6 +64,24 @@
     "vigilanceRedTitle": "TOP DÉPART CRITIQUE",
     "vigilanceRedBody": "Départ critique pour {{destination}}."
   },
+  "intentionDetail": {
+    "source": "Source",
+    "checklist": "Checklist",
+    "trip": "Trajet",
+    "newton": "Activer Newton",
+    "transport": "Transport",
+    "departure": "Départ",
+    "arrival": "Arrivée",
+    "currentPosition": "Ma position",
+    "addressPlaceholder": "Rechercher une adresse…",
+    "transportAuto": "Auto",
+    "transportTransit": "Transports",
+    "transportWalking": "Marche",
+    "transportBike": "Vélo",
+    "ecoFriendly": "Eco-Friendly 🌱",
+    "co2Standard": "Impact CO2 standard",
+    "launchRoute": "Lancer l'itinéraire"
+  },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
     "creditsDepleted": "0 ⚡",

@@ -14,7 +14,13 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "waze",
+          "comgooglemaps"
+        ]
+      }
     },
     "android": {
       "package": "com.trankil.talkndone",

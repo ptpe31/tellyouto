@@ -15,6 +15,7 @@ type Props = {
   pendingLocalDone: boolean;
   enabled: boolean;
   onToggleComplete: () => void;
+  onPress?: () => void;
 };
 
 function parseDueDate(raw: string | null | undefined): { date: Date; hasTime: boolean } | null {
@@ -114,8 +115,24 @@ function getCategoryIcon(categoryId: string | null | undefined, type: TrankilV2T
   return 'check-circle-outline';
 }
 
-export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleComplete }: Props) {
+function getTripTransportIcon(raw: string | null | undefined): string | null {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (!v) return null;
+  if (v === 'auto' || v === 'car' || v === 'driving') return 'car';
+  if (v === 'transit' || v === 'train') return 'train';
+  if (v === 'walking' || v === 'walk') return 'walk';
+  if (v === 'bike' || v === 'bicycle' || v === 'bicycling') return 'bike';
+  return null;
+}
+
+export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleComplete, onPress }: Props) {
   const { t, i18n } = useTranslation();
+  const meta = useMemo(() => safeParseJsonObject(row.metadata_json), [row.metadata_json]);
+  const trip = useMemo(() => {
+    const r = meta?.trip;
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+    return r as Record<string, unknown>;
+  }, [meta]);
 
   const titleText = useMemo(() => {
     const fallback = String(row.display_title || '').trim();
@@ -129,8 +146,6 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
   }, [i18n.language, row.content_raw, row.display_title, row.type, t]);
 
   const subtitle = useMemo(() => {
-    const meta = safeParseJsonObject(row.metadata_json);
-    const trip = meta && meta.trip && typeof meta.trip === 'object' && !Array.isArray(meta.trip) ? (meta.trip as Record<string, unknown>) : null;
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
     const now = new Date();
     const todayKey = formatYmdLocal(now);
@@ -176,16 +191,26 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
         : rootHm || baseTimeLabel || t('timeline.allDuration');
     const showRecurrence = hasTruthyRecurrence(meta) || row.type === 'HABIT';
     return { dayLabel, timeLabel, showRecurrence };
-  }, [i18n.language, row.due_date, row.metadata_json, row.type, t]);
+  }, [i18n.language, meta, row.due_date, row.type, t, trip]);
+
+  const tripIcon = useMemo(() => {
+    if (!trip) return null;
+    return getTripTransportIcon(row.transport_mode) ?? 'airplane';
+  }, [row.transport_mode, trip]);
 
   const categoryIcon = useMemo(() => getCategoryIcon(row.category_id, row.type), [row.category_id, row.type]);
-  const circleIcon = pendingLocalDone ? 'check' : categoryIcon;
+  const circleIcon = pendingLocalDone ? 'check' : tripIcon ?? categoryIcon;
   const iconColor = pendingLocalDone ? '#065f46' : theme.colors.primary;
 
   const titleOpacity = pendingLocalDone ? 0.5 : 1;
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={titleText}
+      style={[styles.card, { backgroundColor: theme.colors.surface }]}
+    >
       <View style={styles.row}>
         <Pressable
           accessibilityRole="button"
@@ -205,9 +230,11 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
         </Pressable>
 
         <View style={styles.textCol}>
-          <Text style={[styles.title, { color: theme.colors.onSurface, opacity: titleOpacity }]} numberOfLines={1}>
-            {titleText}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, { color: theme.colors.onSurface, opacity: titleOpacity }]} numberOfLines={1}>
+              {titleText}
+            </Text>
+          </View>
           {subtitle ? (
             <View style={styles.subtitleRow}>
               <Text
@@ -228,7 +255,7 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
           ) : null}
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -247,6 +274,7 @@ const styles = StyleSheet.create({
   circle: { width: CIRCLE_SIZE, height: CIRCLE_SIZE, borderRadius: CIRCLE_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
   circleIcon: { margin: 0 },
   textCol: { flex: 1, minWidth: 0 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
   subtitleRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', minWidth: 0 },

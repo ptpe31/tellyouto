@@ -64,6 +64,24 @@
     "vigilanceRedTitle": "CRITICAL DEPARTURE",
     "vigilanceRedBody": "Critical departure for {{destination}}."
   },
+  "intentionDetail": {
+    "source": "Source",
+    "checklist": "Checklist",
+    "trip": "Trip",
+    "newton": "Enable Newton",
+    "transport": "Transport",
+    "departure": "From",
+    "arrival": "To",
+    "currentPosition": "Current position",
+    "addressPlaceholder": "Search an address…",
+    "transportAuto": "Car",
+    "transportTransit": "Transit",
+    "transportWalking": "Walk",
+    "transportBike": "Bike",
+    "ecoFriendly": "Eco-Friendly 🌱",
+    "co2Standard": "Standard CO2 impact",
+    "launchRoute": "Launch route"
+  },
   "talk": {
     "title": "Talk (dev)",
     "helper": "Quickly insert an intention into trankil_v2.db (intentions).",

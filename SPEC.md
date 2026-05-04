@@ -257,9 +257,16 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Header :
   - Titre principal : `CONTENT` (display_title).
   - Sous-titre : `{JourLabel} • {Heure}` identique à la Timeline (voir contrat “Sous‑titre temporel (maquette)”).
-- Preuve de source (transcription) :
-  - Une section “Transcription / Source” affiche `memo` / texte brut original (ex. `content_raw` / champ memo OneTap) en italique.
-  - Objectif : l’utilisateur voit la source exacte utilisée par l’IA.
+- Gestion “Source / Note” :
+  - Icône discrète (style “note”) à droite du titre.
+  - Tap sur l’icône : la sheet s’agrandit légèrement et révèle un bloc Source en italique.
+  - Le bloc Source est éditable (TextInput multi‑ligne) pour ajouter/modifier la note.
+  - Persistance : sauvegarde immédiate dans `metadata_json.memo`.
+- Bloc logique “haut de page” (toujours accessible avec clavier) :
+  - Sous‑titre date/heure.
+  - Adresses (TRIP) en priorité : Départ (📍) + Arrivée (🏁) en champs autocomplétés.
+  - Interaction : tap sur “Jour • Heure” ouvre un sélecteur natif Date/Heure (datetime) et persiste immédiatement dans `intentions.due_date`.
+  - Option “Toute la journée” : switch qui masque l’horloge et persiste `metadata_json.is_all_day=1` + `due_date=YYYY-MM-DD`.
 
 ### 2) Checkboxes (Persistance totale)
 
@@ -274,23 +281,53 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Newton switch : interrupteur “Activer Newton”.
   - État initial : `false`.
   - Calcul fenêtres de tir + alertes de départ : activé uniquement si l’utilisateur active Newton manuellement.
-- Triangle d’alerte (⚠️) en Timeline :
-  - Affiché si l’intention est un TRIP et que les détails n’ont pas été validés.
+- Indicateur “à valider” en Timeline :
+  - Affiché si l’intention est un TRIP (ou une intention complexe) et que les détails n’ont pas été validés.
   - Disparaît dès la première interaction/validation dans la Bottom Sheet (persistée).
 
 ### 4) TRIP — Transport & Carbone
 
 - Sélecteur de mode : 4 icônes (Auto, Transit, Walking, Bike). Par défaut : `auto`.
 - Persistance : le mode de transport doit être persisté en SQLite (champ dédié ou metadata), et un champ DB peut être nécessaire.
+- Icône dynamique Timeline :
+  - Pour un TRIP, l’icône affichée dans la Timeline doit refléter la colonne SQLite `transport_mode` (auto/transit/walking/bicycle).
+  - Si `transport_mode` est vide, fallback sur l’icône avion.
+  - La mise à jour doit être instantanée dès qu’un mode est sélectionné dans la Bottom Sheet (optimistic UI + persistance).
+- UI épurée :
+  - Le sélecteur est très espacé et sans libellés (“Trajet/Transport” supprimés).
+  - Newton : ligne dédiée “Activer Newton” + Switch sous le sélecteur.
+  - Stabilité : aucun layout shift lors du changement de mode (slot CO2/Eco‑Friendly à hauteur fixe).
+- Bloc adresses (juste au‑dessus du bouton “Lancer l’itinéraire”) :
+  - **Point de départ** :
+    - Valeur par défaut : “Ma position” / “Position actuelle”.
+    - Interaction : tap → champ éditable avec autocomplétion (Google Places) pour définir un autre départ.
+    - Stockage : dans `metadata_json.trip.origin_address` (et champs associés place_id/lat/lng si disponibles).
+  - **Point d’arrivée** :
+    - Affichage : si une adresse exacte est connue (favori/validation), afficher l’adresse complète en couleur secondaire ; sinon afficher le nom de lieu extrait par l’IA (ex. `destination_name`) comme indicateur.
+    - Interaction : tap → autocomplétion (Google Places) pour valider/affiner l’adresse.
+    - Stockage : l’adresse d’arrivée validée est la source de vérité pour Newton.
+- Recherche contextuelle (Saved information) :
+  - À l’affichage, si `destination_name` correspond à un alias enregistré (ex. “Mami”), la vue doit résoudre l’adresse sauvegardée et l’utiliser comme arrivée par défaut.
+  - Source : table locale de favoris (ex. `location_favorites`) ou autre stockage équivalent.
 - Indicateur carbone :
   - Walking/Bike : badge “Eco‑Friendly”.
   - Auto : texte d’impact estimé (ex. “Impact CO2 standard”).
-- Action : bouton “Lancer l’itinéraire” ouvrant un deep link vers Maps/Waze avec le travel mode.
+- Action : bouton “Lancer l’itinéraire” ouvrant un deep link vers Google Maps/Waze avec :
+  - `origin` si le départ a été précisé,
+  - `destination` = adresse d’arrivée exacte,
+  - `travelmode` selon le mode sélectionné (auto/transit/walking/bike).
+- Deep link universel (sélecteur natif) :
+  - Android : utiliser un schéma `geo:0,0?q=` pour déclencher le sélecteur natif si plusieurs apps GPS sont installées.
+  - iOS : ouvrir via schémas natifs (Apple Maps / Google Maps / Waze) et afficher un sélecteur natif (ActionSheet) si plusieurs fournisseurs sont disponibles.
+  - Les schémas externes (ex. `waze://`, `comgooglemaps://`) nécessitent l’autorisation iOS `LSApplicationQueriesSchemes` dans la config Expo.
 
 ### 5) Synchronisation (Top‑Down Sync)
 
-- Temps réel : toute modification (heure, mode de transport, switch Newton, checkbox) déclenche un UPDATE SQL immédiat via le repository.
+- Temps réel : toute modification (heure, mode de transport, switch Newton, checkbox, adresses départ/arrivée) déclenche un UPDATE SQL immédiat via le repository.
+- Persistance Newton : toute adresse d’arrivée saisie/validée doit être sauvegardée immédiatement dans la colonne SQLite `intentions.location_address` (en plus du JSON), afin d’être exploitable par le calcul trafic.
 - Refresh : la Timeline se rafraîchit automatiquement en arrière‑plan (icône triangle, heure, sous‑titre, etc.).
+- Gestion clavier :
+  - Utiliser `KeyboardAvoidingView` (ou équivalent) et un footer fixe (bouton itinéraire) pour que les champs Places restent accessibles au‑dessus du clavier.
 
 ## Pile technique
 

@@ -891,6 +891,24 @@
     "synthAligned": "Types aligned: {{localLabel}} = Gemini \"{{geminiType}}\".\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}",
     "synthMismatch": "Mismatch: [LOCAL AI] said « {{localLabel}} », [GEMINI FLASH] said « {{geminiType}} ».\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}\nComplex project (Gemini): {{complex}}\nWhy (Gemini): {{reasoning}}"
   },
+  "intentionDetail": {
+    "source": "Fonte",
+    "checklist": "Checklist",
+    "trip": "Viaggio",
+    "newton": "Attiva Newton",
+    "transport": "Trasporto",
+    "departure": "Partenza",
+    "arrival": "Arrivo",
+    "currentPosition": "La mia posizione",
+    "addressPlaceholder": "Cerca un indirizzo…",
+    "transportAuto": "Auto",
+    "transportTransit": "Trasporti",
+    "transportWalking": "A piedi",
+    "transportBike": "Bici",
+    "ecoFriendly": "Eco-Friendly 🌱",
+    "co2Standard": "Impatto CO2 standard",
+    "launchRoute": "Avvia itinerario"
+  },
   "talkDebug": {
     "noteSaved": "Nota salvata",
     "audioTitle": "Memo audio",

@@ -49,6 +49,7 @@ export type TrankilV2IntentionRow = {
   tokens_total?: number | null;
   cost?: number | null;
   location_id?: number | null;
+  transport_mode?: string | null;
 };
 
 export type TrankilV2TimelineItemRow = {
@@ -69,6 +70,7 @@ export type TrankilV2TimelineItemRow = {
   suggested_tags?: string | null;
   metadata_json?: string | null;
   is_pending_ai?: number;
+  transport_mode?: string | null;
 };
 
 export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
@@ -326,7 +328,8 @@ export async function initTrankilV2Schema(): Promise<void> {
       cost REAL,
       debug_tokens INTEGER,
       debug_latency_ms INTEGER,
-      location_id INTEGER
+      location_id INTEGER,
+      transport_mode TEXT
     );`);
     if (VERBOSE_DEBUG) console.log('[SQL_TRACE] ✅ Réussite création table intentions.');
     const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(intentions)`);
@@ -371,6 +374,7 @@ export async function initTrankilV2Schema(): Promise<void> {
     await ensureCol('debug_tokens', `ALTER TABLE intentions ADD COLUMN debug_tokens INTEGER;`);
     await ensureCol('debug_latency_ms', `ALTER TABLE intentions ADD COLUMN debug_latency_ms INTEGER;`);
     await ensureCol('location_id', `ALTER TABLE intentions ADD COLUMN location_id INTEGER;`);
+    await ensureCol('transport_mode', `ALTER TABLE intentions ADD COLUMN transport_mode TEXT;`);
 
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);`);
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);`);
@@ -819,7 +823,8 @@ export async function initTrankilV2Schema(): Promise<void> {
         tokens_completion INTEGER,
         tokens_total INTEGER,
         cost REAL,
-        location_id INTEGER
+        location_id INTEGER,
+        transport_mode TEXT
       );
       INSERT INTO intentions_v2 (
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
@@ -827,7 +832,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
         is_done, done_at, is_archived, archived_at,
         is_pending_ai, remind_to_leave, location_address,
-        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, location_id
+        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, location_id, transport_mode
       )
       SELECT
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
@@ -839,7 +844,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END,
         CASE WHEN status = 'ARCHIVED' THEN created_at ELSE NULL END,
         0, 0, NULL,
-        NULL, NULL, NULL, NULL, NULL, NULL, NULL
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
       FROM intentions;
       DROP TABLE intentions;
       ALTER TABLE intentions_v2 RENAME TO intentions;
@@ -983,7 +988,8 @@ export async function initTrankilV2Schema(): Promise<void> {
         tokens_completion INTEGER,
         tokens_total INTEGER,
         cost REAL,
-        location_id INTEGER
+        location_id INTEGER,
+        transport_mode TEXT
       );
       INSERT INTO intentions_list_mig (
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
@@ -991,7 +997,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
         is_done, done_at, is_archived, archived_at, is_pending_ai,
         remind_to_leave, location_address,
-        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, location_id
+        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, location_id, transport_mode
       )
       SELECT
         id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
@@ -1003,7 +1009,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         archived_at,
         COALESCE(is_pending_ai, 0),
         0, NULL,
-        NULL, NULL, NULL, NULL, NULL, NULL, NULL
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
       FROM intentions;
       DROP TABLE intentions;
       ALTER TABLE intentions_list_mig RENAME TO intentions;
@@ -1045,6 +1051,9 @@ export async function initTrankilV2Schema(): Promise<void> {
   }
   if (!colsIntentionsLogistics.some((c) => c.name === 'location_id')) {
     await db.execAsync(`ALTER TABLE intentions ADD COLUMN location_id INTEGER;`);
+  }
+  if (!colsIntentionsLogistics.some((c) => c.name === 'transport_mode')) {
+    await db.execAsync(`ALTER TABLE intentions ADD COLUMN transport_mode TEXT;`);
   }
   await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);`);
   await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);`);
@@ -1102,7 +1111,7 @@ export async function listTrankilV2TimelineItemsByDate(
   await initTrankilV2Schema();
   const db = await getDb();
   const inner = `
-    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai
+    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode
     FROM (
       SELECT
         i.id AS id,
@@ -1120,6 +1129,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.suggested_tags AS suggested_tags,
         i.metadata_json AS metadata_json,
         COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+        i.transport_mode AS transport_mode,
         i.due_date AS effective_date,
         1 AS section_order
       FROM intentions i
@@ -1147,6 +1157,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.suggested_tags AS suggested_tags,
         i.metadata_json AS metadata_json,
         COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+        i.transport_mode AS transport_mode,
         i.due_date AS effective_date,
         2 AS section_order
       FROM intentions i
@@ -1176,6 +1187,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.suggested_tags AS suggested_tags,
         i.metadata_json AS metadata_json,
         COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+        i.transport_mode AS transport_mode,
         COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
         3 AS section_order
       FROM intentions i
@@ -1233,6 +1245,7 @@ WITH dated AS (
       i.suggested_tags AS suggested_tags,
       i.metadata_json AS metadata_json,
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+      i.transport_mode AS transport_mode,
       i.due_date AS effective_date,
       1 AS section_order
     FROM intentions i
@@ -1258,6 +1271,7 @@ WITH dated AS (
       i.suggested_tags AS suggested_tags,
       i.metadata_json AS metadata_json,
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+      i.transport_mode AS transport_mode,
       i.due_date AS effective_date,
       2 AS section_order
     FROM intentions i
@@ -1285,6 +1299,7 @@ WITH dated AS (
       i.suggested_tags AS suggested_tags,
       i.metadata_json AS metadata_json,
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+      i.transport_mode AS transport_mode,
       COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
       3 AS section_order
     FROM intentions i
@@ -1312,6 +1327,7 @@ lowp AS (
     i.suggested_tags AS suggested_tags,
     i.metadata_json AS metadata_json,
     COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+    i.transport_mode AS transport_mode,
     NULL AS effective_date,
     1 AS section_order
   FROM intentions i
@@ -1326,7 +1342,7 @@ lowp AS (
     ${ctx}
     AND NOT EXISTS (SELECT 1 FROM dated d WHERE d.id = i.id)
 )
-SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai
+SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode
 FROM (
   SELECT * FROM dated
   UNION ALL
@@ -1379,7 +1395,8 @@ export async function listTrankilV2UndatedRootTasks(
        i.category_id AS category_id,
        i.suggested_tags AS suggested_tags,
        i.metadata_json AS metadata_json,
-       COALESCE(i.is_pending_ai, 0) AS is_pending_ai
+       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+       i.transport_mode AS transport_mode
      FROM intentions i
      WHERE i.status = ?
        AND COALESCE(i.is_archived, 0) = 0
@@ -1719,6 +1736,7 @@ export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow)
     suggested_tags: row.suggested_tags ?? '[]',
     metadata_json: row.metadata_json,
     is_pending_ai: row.is_pending_ai ?? 0,
+    transport_mode: row.transport_mode ?? null,
   };
 }
 
@@ -2198,6 +2216,7 @@ export type TrankilV2IntentionInsert = {
   debug_tokens?: number | null;
   debug_latency_ms?: number | null;
   location_id?: number | null;
+  transport_mode?: string | null;
 };
 
 function normalizeTitleForLogisticsMatch(title: string): string {
@@ -2662,6 +2681,44 @@ export async function updateTrankilV2IntentionMetadataJson(
   if (opts?.silent) return;
   await syncAfterIntentionWrite('updateTrankilV2IntentionMetadataJson');
   notifyIntentionsChanged({ id, reason: 'metadata' });
+}
+
+export async function updateTrankilV2IntentionTransportMode(
+  id: string,
+  patch: { transport_mode?: string | null; metadata_json?: string },
+  opts?: { silent?: boolean },
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const current = await db.getFirstAsync<TrankilV2IntentionRow>(`SELECT * FROM intentions WHERE id = ?`, [id]);
+  if (!current) return;
+  await db.runAsync(`UPDATE intentions SET transport_mode = ?, metadata_json = ? WHERE id = ?`, [
+    patch.transport_mode === undefined ? current.transport_mode ?? null : patch.transport_mode,
+    patch.metadata_json ?? current.metadata_json,
+    id,
+  ]);
+  if (opts?.silent) return;
+  await syncAfterIntentionWrite('updateTrankilV2IntentionTransportMode');
+  notifyIntentionsChanged({ id, reason: 'transport_mode' });
+}
+
+export async function updateTrankilV2IntentionLocationAddress(
+  id: string,
+  patch: { location_address?: string | null; metadata_json?: string },
+  opts?: { silent?: boolean },
+): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const current = await db.getFirstAsync<TrankilV2IntentionRow>(`SELECT * FROM intentions WHERE id = ?`, [id]);
+  if (!current) return;
+  await db.runAsync(`UPDATE intentions SET location_address = ?, metadata_json = ? WHERE id = ?`, [
+    patch.location_address === undefined ? current.location_address ?? null : patch.location_address,
+    patch.metadata_json ?? current.metadata_json,
+    id,
+  ]);
+  if (opts?.silent) return;
+  await syncAfterIntentionWrite('updateTrankilV2IntentionLocationAddress');
+  notifyIntentionsChanged({ id, reason: 'location_address' });
 }
 
 export async function countOfflineFirstAiPendingNotes(): Promise<number> {
