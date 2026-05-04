@@ -74,6 +74,7 @@
     "arrival": "To",
     "currentPosition": "Current position",
     "addressPlaceholder": "Search an address…",
+    "allDay": "All day",
     "transportAuto": "Car",
     "transportTransit": "Transit",
     "transportWalking": "Walk",

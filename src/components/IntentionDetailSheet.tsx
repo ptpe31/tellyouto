@@ -617,31 +617,32 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     );
   };
 
-  const persistDueDateTime = async (d: Date) => {
+  const persistDueDateTime = async (d: Date, opts?: { closePicker?: boolean; allDay?: boolean }) => {
     if (!row) return;
+    const effectiveAllDay = opts?.allDay ?? isAllDay;
     const ymd = formatYmd(d);
-    const nextDue = isAllDay ? ymd : formatLocalIsoNoZ(d);
+    const nextDue = effectiveAllDay ? ymd : formatLocalIsoNoZ(d);
     const root = safeParseJsonObject(row.metadata_json) ?? {};
-    const nextTimeHm = isAllDay ? null : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const nextTimeHm = effectiveAllDay ? null : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
     const nextMeta: Record<string, unknown> = {
       ...root,
-      is_all_day: isAllDay ? 1 : 0,
-      dueDateTime: isAllDay ? null : nextDue,
+      is_all_day: effectiveAllDay ? 1 : 0,
+      dueDateTime: effectiveAllDay ? null : nextDue,
       dueDateYmd: ymd,
       dueTimeHm: nextTimeHm,
       trip:
         isTrip && trip
           ? {
               ...(trip as Record<string, unknown>),
-              dueDateTime: isAllDay ? null : nextDue,
+              dueDateTime: effectiveAllDay ? null : nextDue,
               dueDateYmd: ymd,
               dueTimeHm: nextTimeHm,
-              arrivalDue: isAllDay ? null : nextDue,
+              arrivalDue: effectiveAllDay ? null : nextDue,
             }
           : root.trip,
     };
     onPatchRow?.(row.id, { due_date: nextDue, metadata_json: JSON.stringify(nextMeta, null, 2) });
-    setDatePickerOpen(false);
+    if (opts?.closePicker ?? true) setDatePickerOpen(false);
     setPickerDraft(d);
     await updateTrankilV2IntentionTemporal(row.id, { due_date: nextDue, metadata_json: JSON.stringify(nextMeta, null, 2) });
   };
@@ -704,7 +705,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
       return;
     }
     if (!date) return;
-    void persistDueDateTime(date);
+    void persistDueDateTime(date, { closePicker: false });
   };
 
   const showTriangle = false;
@@ -812,7 +813,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
               {datePickerOpen && Platform.OS === 'ios' ? (
                 <View style={styles.pickerBlock}>
                   <View style={styles.allDayRow}>
-                    <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>Toute la journée</Text>
+                    <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.allDay')}</Text>
                     <Switch
                       value={isAllDay}
                       onValueChange={(v) => {
@@ -821,7 +822,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                         const base = new Date(pickerDraft);
                         if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
                         setPickerDraft(base);
-                        void persistDueDateTime(base);
+                        void persistDueDateTime(base, { closePicker: false, allDay: v });
                       }}
                     />
                   </View>
@@ -837,7 +838,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
               {datePickerOpen && Platform.OS === 'android' ? (
                 <View style={styles.pickerBlock}>
                   <View style={styles.allDayRow}>
-                    <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>Toute la journée</Text>
+                    <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.allDay')}</Text>
                     <Switch
                       value={isAllDay}
                       onValueChange={(v) => {
@@ -846,7 +847,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                         const base = new Date(pickerDraft);
                         if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
                         setPickerDraft(base);
-                        void persistDueDateTime(base);
+                        void persistDueDateTime(base, { closePicker: false, allDay: v });
                       }}
                     />
                   </View>
@@ -1163,7 +1164,7 @@ const styles = StyleSheet.create({
   subtitlePress: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, borderRadius: 12, paddingVertical: 2 },
   subtitleInline: { fontSize: 13, fontWeight: '800', opacity: 0.88 },
   pickerBlock: { marginTop: -6 },
-  allDayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  allDayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
   allDayLabel: { fontSize: 13, fontWeight: '800' },
   addrBlock: { gap: 10 },
   addrRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
