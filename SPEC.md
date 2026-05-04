@@ -110,6 +110,10 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 
 - Les champs persistés doivent impérativement être alignés sur le schéma SQLite Trankil‑v2 (ex. `due_date`).
 - `due_date` est stocké en ISO 8601 (`YYYY-MM-DDTHH:mm:ss.sssZ`).
+- IA & coûts (SQLite) :
+  - Les tokens doivent être persistés dans `intentions.tokens_prompt`, `intentions.tokens_completion`, `intentions.tokens_total` (INTEGER).
+  - Le coût estimé doit être persisté dans `intentions.cost` (REAL, USD) et non dans un champ `ai_cost_usd` (qui n’existe pas en DB). Le payload OneTap peut porter `ai_cost_usd`, mais il doit être mappé vers `cost` avant insertion.
+  - Contrat d’insertion : toute modification du schéma (ajout de colonne) doit s’accompagner d’un alignement strict entre `INSERT INTO intentions (colonnes...)` et `VALUES (...placeholders...)`. Un mismatch (`37 values for 38 columns`) invalide la persistance et rend les intentions invisibles dans la Timeline.
 
 ### 1) Règle de découpage local (client-side splitting)
 
