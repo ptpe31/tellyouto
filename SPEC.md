@@ -212,8 +212,13 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Largeur & respiration : le conteneur principal de la carte (rectangle neumorphique) ne doit pas être “bord à bord”. Il conserve un retrait horizontal visible (gouttières) pour laisser respirer le texte, et peut être plafonné par un `maxWidth` afin d’éviter les lignes trop longues sur grands écrans.
 - Densité & hauteur : la carte Phase 2 doit être plus fine (hauteur visuelle cible 105) ; l’espacement vertical entre cartes est géré par le flux (ex. `marginBottom` côté carte) et la respiration horizontale par le parent (ex. wrapper `paddingHorizontal: 16` dans `TimelineScreen`).
 - Titre intelligent (universal) : la ligne 1 affiche `row.title` (source de vérité Gemini). `generateSmartTitle(row.content_raw)` reste un fallback local (offline/heuristique), jamais un nettoyage appliqué sur un titre Gemini.
-- Sous-titre temporel : la ligne 2 affiche uniquement la date relative + heure (ex. “Aujourd’hui • 09:30”), sans répétition d’informations déjà présentes dans le titre. La date relative est calculée en local via `formatYmdLocal` (et comparaison à J+0/J+1) à partir de la meilleure source temporelle disponible (voir mirroring).
-- Mirroring temporel (priorité ISO) : l’affichage de date doit utiliser en priorité absolue un timestamp ISO (`due_date` SQLite / `dueDateTime` OneTap). Les champs `dueDateYmd` / `dueTimeHm` ne sont utilisés qu’en fallback si aucun ISO n’est disponible. L’affichage UI ne doit pas altérer le tri ni la valeur persistée.
+- Sous-titre temporel (maquette) : la ligne 2 affiche le label au format `{JourLabel} • {Heure}` (point médian), sans répétition d’informations déjà présentes dans le titre.
+  - JourLabel : “Aujourd’hui”, “Demain”, sinon nom du jour (ex. “Lundi”, “Jeudi”) calculé en local via `formatYmdLocal` + comparaison à J+0/J+1.
+  - Heure : utiliser `dueTimeHm` (ex. “18:30”). Si l’heure est absente, afficher la chaîne i18n “toute la durée”.
+  - Alignement types : ce format s’applique uniformément pour TASK et TRIP.
+  - TRIP (source de vérité) : l’heure affichée est dérivée de `arrivalDue` (ISO) quand disponible ; sinon fallback sur `dueDateTime`/`dueTimeHm`.
+  - Récurrence : si `recurrence` (objet OneTap) ou `recurrence_rrule` (SQLite) est non null/non vide, afficher une icône discrète “repeat” (flèches entrelacées) juste avant le bloc horaire, avec la même couleur grise que le sous-titre.
+- Mirroring temporel (priorité ISO) : l’affichage doit utiliser en priorité absolue un timestamp ISO (`due_date` SQLite / `dueDateTime` OneTap / `arrivalDue` pour TRIP) pour dériver JourLabel et Heure. Les champs `dueDateYmd` / `dueTimeHm` ne sont utilisés qu’en fallback si aucun ISO n’est disponible. L’affichage UI ne doit pas altérer le tri ni la valeur persistée.
 
 ### 2) Découplage Pilotage / Contenu
 
