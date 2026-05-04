@@ -2254,7 +2254,7 @@ export async function insertTrankilV2Intention(
       remind_to_leave, location_address,
       ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, debug_tokens, debug_latency_ms, location_id,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
   const args = [
     row.id,
     row.type,
@@ -2291,15 +2291,21 @@ export async function insertTrankilV2Intention(
     Number.isFinite(row.debug_latency_ms as number) ? Number(row.debug_latency_ms) : null,
     Number.isFinite(row.location_id as number) ? Number(row.location_id) : null,
   ];
+  const placeholderCount = (sql.match(/\?/g) ?? []).length;
+  if (placeholderCount !== args.length) {
+    throw new Error(`sql_placeholder_mismatch:${placeholderCount}:${args.length}`);
+  }
   try {
-    await db.runAsync(sql, args);
+    const r = await db.runAsync(sql, args);
+    if (VERBOSE_DEBUG) console.log('[DATABASE] rowsAffected:', (r as { changes?: unknown }).changes ?? '—');
   } catch (e) {
     if (!isNativePrepareAsyncRejected(e)) throw e;
     console.log('[DATABASE] ♻️ Re-open SQLite (prepareAsync rejected)');
     resetTrankilV2RuntimeState();
     const nextDb = await getDb();
     if (VERBOSE_DEBUG) console.log('[DEBUG_DB] Statut de l instance DB (reopen):', !!nextDb);
-    await nextDb.runAsync(sql, args);
+    const r = await nextDb.runAsync(sql, args);
+    if (VERBOSE_DEBUG) console.log('[DATABASE] rowsAffected:', (r as { changes?: unknown }).changes ?? '—');
   }
   const stats = await getTrankilV2UserStats();
   void stats;
