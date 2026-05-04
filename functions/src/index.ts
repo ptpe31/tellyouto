@@ -133,6 +133,9 @@ export const geminiProxyStream = onRequest(
           latencyMs: Date.now() - startedAt,
           modelId,
           usageMetadata,
+          tokens_prompt: promptTokenCount,
+          tokens_completion: candidatesTokenCount,
+          tokens_total: totalTokenCount,
         })}\n\n`,
       );
       res.end();

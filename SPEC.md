@@ -265,7 +265,10 @@ Variables d’environnement principales (Expo public) :
   - Secrets : la clé Gemini est un secret Functions (`defineSecret('GEMINI_API_KEY')`) et n’est jamais exposée au client : [index.ts:L8-L9](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L8-L9).
   - Auth côté proxy : extraction `Bearer <token>` + `admin.auth().verifyIdToken(token)` ; sinon `401 unauthorized` : [index.ts:L18-L66](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L18-L66).
   - SSE : le proxy force `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, puis envoie `delta/done/error` : [index.ts:L72-L108](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/functions/src/index.ts#L72-L108).
-  - Usage metadata (tokens) : l’événement SSE `done` doit inclure `usageMetadata` (promptTokenCount, candidatesTokenCount, totalTokenCount) renvoyé par Gemini afin que le client puisse journaliser et persister les tokens (monitoring coût/perf). Si absent, c’est un bug proxy (et non un “null acceptable”).
+  - Usage metadata (tokens) : l’événement SSE `done` doit inclure les métriques de tokens renvoyées par Gemini **sous deux formes** :
+    - `usageMetadata` : `{ promptTokenCount, candidatesTokenCount, totalTokenCount }` (format natif Gemini)
+    - champs “app” attendus : `tokens_prompt`, `tokens_completion`, `tokens_total` (mêmes valeurs, prêtes à persister côté client)
+    - Si ces champs sont absents, c’est un bug proxy (et non un “null acceptable”) et le monitoring coût/perf côté app reste vide.
   - Payload : le proxy accepte `{ modelId, systemInstruction, request }` ; si `request` est absent, il reconstruit une requête à partir de `prompt` : [index.ts:L10-L40](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L10-L40).
   - Sanitisation : pas de validation/sanitisation applicative du `body` côté proxy au-delà du contrôle méthode + auth ; le proxy forwarde `request` tel quel vers Gemini (et renvoie un `gemini_failed` générique en cas d’erreur).
   - Gestion d’erreur : en cas d’échec Gemini, l’événement SSE renvoyé est `{type:'error', error:'gemini_failed'}` (pas d’exception détaillée) : [index.ts:L105-L108](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L105-L108).
