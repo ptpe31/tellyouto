@@ -81,7 +81,15 @@
     "transportBike": "Bike",
     "ecoFriendly": "Eco-Friendly 🌱",
     "co2Standard": "Standard CO2 impact",
-    "launchRoute": "Launch route"
+    "launchRoute": "Launch route",
+    "close": "Close",
+    "labelIntention": "Intention",
+    "labelTiming": "Timing",
+    "labelItinerary": "Route",
+    "labelTransport": "Transport",
+    "comfortTitle": "Trip comfort",
+    "comfortFixed": "Fixed departure slot: {{time}}",
+    "comfortOptimized": "Optimized departure slot"
   },
   "talk": {
     "title": "Talk (dev)",

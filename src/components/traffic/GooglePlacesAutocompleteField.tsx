@@ -100,8 +100,8 @@ export function GooglePlacesAutocompleteField(props: {
         const lat = Number(json.result?.geometry?.location?.lat);
         const lng = Number(json.result?.geometry?.location?.lng);
         if (!formattedAddress || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        props.onSelect({ placeId: p.placeId, formattedAddress, lat, lng });
         props.onChangeText(formattedAddress);
+        props.onSelect({ placeId: p.placeId, formattedAddress, lat, lng });
       } finally {
         setLoading(false);
       }
@@ -170,4 +170,3 @@ const styles = StyleSheet.create({
   itemText: { color: '#0f172a', fontSize: 13, fontWeight: '600' },
   missingKey: { color: '#b91c1c', fontSize: 13, fontWeight: '700' },
 });
-

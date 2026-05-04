@@ -770,6 +770,43 @@ Return exactly this shape (keys in English as shown):
   return { parsed, rawResponseText };
 }
 
+export async function geminiEnrichGenericList(
+  transcript: string,
+  options: { uiLocale: string },
+): Promise<{ parsed: GeminiListInventoryJson; rawResponseText: string }> {
+  const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
+  const prompt = `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
+
+Consignes strictes :
+Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur (Français, Anglais, Espagnol, etc.).
+Analyse le domaine :
+- Si c'est une recette : décompose en ingrédients (Boucherie, Légumes, etc.).
+- Si c'est une étude/examen : décompose en chapitres ou sessions.
+- Si c'est un objectif/projet : décompose en jalons ou étapes clés.
+Unités adaptatives : Détecte l'unité la plus pertinente (kg, jours, chapitres, séances).
+Scalabilité : scalable=true pour les items dont la quantité dépend de la cible (ex: ingrédients pour X personnes).
+Format : Réponds uniquement par un objet JSON pur suivant le schéma list_scalable_v1. Ne mets aucune explication avant ou après.
+
+Transcription:
+"""${safe.replace(/"/g, '\\"')}"""
+
+Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
+{"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "baseQuantity": number, "unit": string, "scalable": boolean}]}]}
+`;
+
+  const { text } = await callGeminiProxyStream({
+    request: {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.18, maxOutputTokens: 2048 },
+    },
+    operation: 'lab.list_enrich_generic',
+  });
+  const rawResponseText = extractTextFromGenerateResponse(text);
+  if (!rawResponseText) throw new Error('Gemini: empty list enrich response');
+  const parsed = parseGeminiListInventoryJson(rawResponseText);
+  return { parsed, rawResponseText };
+}
+
 const JSON_EXTRACTOR_PREFIX = 'You are a JSON extractor. Output ONLY raw JSON. No chat, no markdown.\n\n';
 
 export async function geminiGenerateTextUserPrompt(prompt: string): Promise<string> {

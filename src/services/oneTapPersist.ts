@@ -10,6 +10,7 @@ import {
   getListFreeQuotaSnapshot,
   insertTrankilV2Intention,
   replaceTrankilV2IntentionOneTap,
+  updateTrankilV2IntentionMetadataJson,
 } from '../api/trankilV2Db';
 import type { CaptureStrategyDeps } from './captureStrategies/types';
 import {
@@ -25,6 +26,7 @@ import { mergeIntentionMetadataJson } from './captureOfflineFirstUtils';
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
 import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
 import { activateSentinelTrip } from './traffic/sentinelActivation';
+import { geminiEnrichGenericList } from './geminiSemanticLab';
 
 
 export type PersistOneTapSuccess =
@@ -698,31 +700,25 @@ export async function persistOneTapDraft(params: {
             return { ok: false, error: new Error('list_quota_exhausted'), code: 'LIST_QUOTA' };
           }
         }
-        const listBlock = draft.data.list;
-        if (!listBlock || typeof listBlock !== 'object') {
-          return { ok: false, error: new Error('LIST_DATA_MISSING') };
-        }
-        let parsedList;
-        try {
-          const jsonStr = buildListInventoryJsonStringFromDraftBlock(
-            listBlock as Record<string, unknown>,
-            title,
-          );
-          parsedList = parseGeminiListInventoryJson(jsonStr);
-        } catch (e) {
-          if (e instanceof Error && e.message === 'LIST_NO_ITEMS_SELECTED') {
-            return { ok: false, error: e, code: 'LIST_SELECTION' };
-          }
-          return { ok: false, error: e };
-        }
-        const payload = geminiJsonToStoredPayload(parsedList);
-        const mergedTitle = title || payload.title;
+        const mergedTitle = title || draft.title.trim() || raw.slice(0, 120);
+        const placeholderPayload = {
+          title: mergedTitle,
+          baseCount: 1,
+          unitLabel: 'personne',
+          multiplier: 1,
+          categories: [
+            {
+              name: '—',
+              items: [{ uid: '', name: 'Génération en cours...', qty: 1, unit: 'piece', scalable: false, checked: false }],
+            },
+          ],
+        };
         const id = deps.newId();
-        const metaBase = mergeListPayloadIntoMetadataJson(
-          '{}',
-          { ...payload, title: mergedTitle },
-        );
-        const meta = buildMetadataJsonForInsert(metaBase, draft);
+        const metaBase = mergeListPayloadIntoMetadataJson('{}', placeholderPayload);
+        const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
+          list_enrich_status: 'pending',
+        });
+        const categoryId = normalizeDomainCategoryId(draft.categoryTag);
         await insertTrankilV2Intention({
           id,
           type: 'LIST',
@@ -730,7 +726,7 @@ export async function persistOneTapDraft(params: {
           content_raw: raw,
           metadata_json: meta,
           suggested_tags: JSON.stringify(['sans_pression']),
-          category_id: null,
+          category_id: categoryId,
           parent_id: null,
           status: 'TODO',
           is_organized: 0,
@@ -738,6 +734,26 @@ export async function persistOneTapDraft(params: {
           complexity_level: 0,
           created_at: Date.now(),
         });
+        void (async () => {
+          try {
+            const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale });
+            const payload = geminiJsonToStoredPayload(enriched.parsed);
+            const nextTitle = mergedTitle || payload.title;
+            const listJson = mergeListPayloadIntoMetadataJson(meta, { ...payload, title: nextTitle });
+            const root = JSON.parse(listJson) as Record<string, unknown>;
+            root.list_enrich_status = 'done';
+            await updateTrankilV2IntentionMetadataJson(id, JSON.stringify(root, null, 2));
+          } catch (e) {
+            try {
+              const root = JSON.parse(meta) as Record<string, unknown>;
+              root.list_enrich_status = 'error';
+              root.list_enrich_error = e instanceof Error ? e.message : String(e);
+              await updateTrankilV2IntentionMetadataJson(id, JSON.stringify(root, null, 2));
+            } catch {
+              return;
+            }
+          }
+        })();
         if (!deps.spectrum.isProUser) {
           await consumeListFreeSuccessOnce();
         }

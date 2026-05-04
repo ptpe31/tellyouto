@@ -908,7 +908,15 @@
     "transportBike": "Bici",
     "ecoFriendly": "Eco-Friendly 🌱",
     "co2Standard": "Impacto CO2 estándar",
-    "launchRoute": "Lanzar itinerario"
+    "launchRoute": "Lanzar itinerario",
+    "close": "Cerrar",
+    "labelIntention": "Intención",
+    "labelTiming": "Horario",
+    "labelItinerary": "Itinerario",
+    "labelTransport": "Transporte",
+    "comfortTitle": "Confort del trayecto",
+    "comfortFixed": "Franja fija de salida: {{time}}",
+    "comfortOptimized": "Franja optimizada de salida"
   },
   "talkDebug": {
     "noteSaved": "Nota guardada",

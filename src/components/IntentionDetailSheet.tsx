@@ -342,6 +342,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const { t, i18n } = useTranslation();
   const translateY = useRef(new Animated.Value(0)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
+  const tripControlsOpacity = useRef(new Animated.Value(0)).current;
   const [sheetHeight, setSheetHeight] = useState(0);
   const [closing, setClosing] = useState(false);
   const [entered, setEntered] = useState(false);
@@ -352,6 +353,11 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [pickerDraft, setPickerDraft] = useState<Date>(new Date());
   const [isAllDay, setIsAllDay] = useState(false);
+  const [showTripControls, setShowTripControls] = useState(false);
+  const [originLat, setOriginLat] = useState<number | null>(null);
+  const [originLng, setOriginLng] = useState<number | null>(null);
+  const [arrivalLat, setArrivalLat] = useState<number | null>(null);
+  const [arrivalLng, setArrivalLng] = useState<number | null>(null);
 
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
@@ -439,6 +445,14 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const tMeta = getTripMeta(meta);
     setOriginText(String(str(tMeta, 'origin_address') ?? '').trim());
     setArrivalText(String(str(tMeta, 'location_address') ?? str(meta, 'location_address') ?? '').trim());
+    const oLat = Number((tMeta as any)?.origin_lat);
+    const oLng = Number((tMeta as any)?.origin_lng);
+    setOriginLat(Number.isFinite(oLat) ? oLat : null);
+    setOriginLng(Number.isFinite(oLng) ? oLng : null);
+    const aLat = Number((tMeta as any)?.location_lat);
+    const aLng = Number((tMeta as any)?.location_lng);
+    setArrivalLat(Number.isFinite(aLat) ? aLat : null);
+    setArrivalLng(Number.isFinite(aLng) ? aLng : null);
     setOriginEditing(false);
     setArrivalEditing(false);
     setSourceExpanded(false);
@@ -454,6 +468,34 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const allDayFlag = Boolean((meta as Record<string, unknown> | null)?.is_all_day);
     setIsAllDay(allDayFlag || Boolean(parsed && !parsed.hasTime));
   }, [meta, visible]);
+
+  const comfortReady = useMemo(() => {
+    if (!isTrip) return false;
+    return Number.isFinite(Number(arrivalLat)) && Number.isFinite(Number(arrivalLng));
+  }, [arrivalLat, arrivalLng, isTrip]);
+
+  const routeReady = useMemo(() => {
+    if (!isTrip) return false;
+    return (
+      Number.isFinite(Number(originLat)) &&
+      Number.isFinite(Number(originLng)) &&
+      Number.isFinite(Number(arrivalLat)) &&
+      Number.isFinite(Number(arrivalLng))
+    );
+  }, [arrivalLat, arrivalLng, isTrip, originLat, originLng]);
+
+  useEffect(() => {
+    if (comfortReady) {
+      setShowTripControls(true);
+      tripControlsOpacity.stopAnimation();
+      Animated.timing(tripControlsOpacity, { toValue: 1, duration: 180, useNativeDriver: true }).start();
+      return;
+    }
+    tripControlsOpacity.stopAnimation();
+    Animated.timing(tripControlsOpacity, { toValue: 0, duration: 140, useNativeDriver: true }).start(() => {
+      setShowTripControls(false);
+    });
+  }, [comfortReady, tripControlsOpacity]);
 
   useEffect(
     () => () => {
@@ -624,6 +666,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const nextDue = effectiveAllDay ? ymd : formatLocalIsoNoZ(d);
     const root = safeParseJsonObject(row.metadata_json) ?? {};
     const nextTimeHm = effectiveAllDay ? null : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const tripBase = isTrip && trip ? (trip as Record<string, unknown>) : null;
     const nextMeta: Record<string, unknown> = {
       ...root,
       is_all_day: effectiveAllDay ? 1 : 0,
@@ -631,9 +674,10 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
       dueDateYmd: ymd,
       dueTimeHm: nextTimeHm,
       trip:
-        isTrip && trip
+        tripBase
           ? {
-              ...(trip as Record<string, unknown>),
+              ...tripBase,
+              ...(effectiveAllDay ? { newtonEnabled: false } : null),
               dueDateTime: effectiveAllDay ? null : nextDue,
               dueDateYmd: ymd,
               dueTimeHm: nextTimeHm,
@@ -669,7 +713,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
               }
               const picked = date ?? base;
               if (isAllDay) {
-                void persistDueDateTime(picked).finally(resolve);
+                void persistDueDateTime(picked, { closePicker: false }).finally(resolve);
                 return;
               }
               DateTimePickerAndroid.open({
@@ -685,7 +729,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                   const final = new Date(picked);
                   const t = time ?? picked;
                   final.setHours(t.getHours(), t.getMinutes(), 0, 0);
-                  void persistDueDateTime(final).finally(resolve);
+                  void persistDueDateTime(final, { closePicker: false }).finally(resolve);
                 },
               });
             },
@@ -748,9 +792,10 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
             keyboardVerticalOffset={24}
             style={styles.kbRoot}
           >
-            <View style={styles.headerRow}>
-              <View style={styles.headerTitleRow}>
-                <Text style={[styles.headerTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+            <View style={styles.fixedBlock}>
+              <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelIntention')}</Text>
+              <View style={styles.intentionRow}>
+                <Text style={[styles.intentionTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
                   {String(row?.display_title ?? '').trim() || t('timeline.untitled')}
                 </Text>
                 <IconButton
@@ -761,35 +806,36 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                   onPress={() => setSourceExpanded((v) => !v)}
                 />
               </View>
-              {showTriangle ? <View style={styles.warningWrap} /> : null}
-            </View>
 
-            {sourceExpanded ? (
-              <View style={styles.sourceWrap}>
-                <TextInput
-                  value={sourceDraft}
-                  onChangeText={(text) => {
-                    setSourceDraft(text);
-                    if (!row) return;
-                    if (sourceSaveTimer.current) clearTimeout(sourceSaveTimer.current);
-                    sourceSaveTimer.current = setTimeout(() => {
-                      sourceSaveTimer.current = null;
-                      void (async () => {
-                        const root = safeParseJsonObject(row.metadata_json) ?? {};
-                        const nextMeta: Record<string, unknown> = { ...root, memo: String(text ?? '').trim() };
-                        await updateTrankilV2IntentionMetadataJson(row.id, JSON.stringify(nextMeta, null, 2));
-                      })();
-                    }, 250);
-                  }}
-                  placeholder={transcription ?? ''}
-                  placeholderTextColor="rgba(100,116,139,0.72)"
-                  multiline
-                  style={[styles.sourceInput, { color: theme.colors.onSurfaceVariant }]}
-                />
-              </View>
-            ) : null}
+              {sourceExpanded ? (
+                <View style={styles.sourceWrap}>
+                  <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.source')}</Text>
+                  <TextInput
+                    value={sourceDraft}
+                    onChangeText={(text) => {
+                      setSourceDraft(text);
+                      if (!row) return;
+                      if (sourceSaveTimer.current) clearTimeout(sourceSaveTimer.current);
+                      sourceSaveTimer.current = setTimeout(() => {
+                        sourceSaveTimer.current = null;
+                        void (async () => {
+                          const root = safeParseJsonObject(row.metadata_json) ?? {};
+                          const nextMeta: Record<string, unknown> = { ...root, memo: String(text ?? '').trim() };
+                          await updateTrankilV2IntentionMetadataJson(row.id, JSON.stringify(nextMeta, null, 2));
+                        })();
+                      }, 250);
+                    }}
+                    placeholder={transcription ?? ''}
+                    placeholderTextColor="rgba(100,116,139,0.72)"
+                    multiline
+                    style={[styles.sourceInput, { color: theme.colors.onSurfaceVariant }]}
+                  />
+                </View>
+              ) : null}
 
-            <View style={styles.logicBlock}>
+              <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+
+              <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelTiming')}</Text>
               {subtitle ? (
                 <Pressable
                   onPress={openTemporalPicker}
@@ -797,12 +843,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                   style={({ pressed }) => [styles.subtitlePress, { opacity: pressed ? 0.88 : 1 }]}
                 >
                   <View pointerEvents="none" style={styles.addrIconWrap}>
-                    <IconButton
-                      icon="calendar-month-outline"
-                      size={18}
-                      iconColor={theme.colors.onSurfaceVariant}
-                      style={styles.addrIcon}
-                    />
+                    <IconButton icon="calendar-month-outline" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.addrIcon} />
                   </View>
                   <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
                     {subtitle}
@@ -810,7 +851,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                 </Pressable>
               ) : null}
 
-              {datePickerOpen && Platform.OS === 'ios' ? (
+              {datePickerOpen ? (
                 <View style={styles.pickerBlock}>
                   <View style={styles.allDayRow}>
                     <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.allDay')}</Text>
@@ -818,6 +859,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                       value={isAllDay}
                       onValueChange={(v) => {
                         setIsAllDay(v);
+                        if (v) setNewtonEnabled(false);
                         const now = new Date();
                         const base = new Date(pickerDraft);
                         if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
@@ -826,36 +868,22 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                       }}
                     />
                   </View>
-                  <DateTimePickerLazy
-                    value={pickerDraft}
-                    mode={isAllDay ? 'date' : 'datetime'}
-                    display={isAllDay ? 'inline' : 'compact'}
-                    onChange={onPickedDateTimeIos}
-                  />
-                </View>
-              ) : null}
-
-              {datePickerOpen && Platform.OS === 'android' ? (
-                <View style={styles.pickerBlock}>
-                  <View style={styles.allDayRow}>
-                    <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.allDay')}</Text>
-                    <Switch
-                      value={isAllDay}
-                      onValueChange={(v) => {
-                        setIsAllDay(v);
-                        const now = new Date();
-                        const base = new Date(pickerDraft);
-                        if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
-                        setPickerDraft(base);
-                        void persistDueDateTime(base, { closePicker: false, allDay: v });
-                      }}
+                  {Platform.OS === 'ios' ? (
+                    <DateTimePickerLazy
+                      value={pickerDraft}
+                      mode={isAllDay ? 'date' : 'datetime'}
+                      display={isAllDay ? 'inline' : 'compact'}
+                      onChange={onPickedDateTimeIos}
                     />
-                  </View>
+                  ) : null}
                 </View>
               ) : null}
 
               {isTrip ? (
-                <View style={styles.addrBlock}>
+                <>
+                  <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                  <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelItinerary')}</Text>
+                  <View style={styles.addrBlock}>
                   <View style={styles.addrRow}>
                     <View pointerEvents="none" style={styles.addrIconWrap}>
                       <IconButton icon="map-marker-radius" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.addrIcon} />
@@ -866,6 +894,8 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                           value={originText}
                           onChangeText={(text) => {
                             setOriginText(text);
+                            setOriginLat(null);
+                            setOriginLng(null);
                             if (!row) return;
                             const raw = text.trim();
                             const root = safeParseJsonObject(row.metadata_json) ?? {};
@@ -885,6 +915,8 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                           onSelect={(p) => {
                             setOriginText(p.formattedAddress);
                             setOriginEditing(false);
+                            setOriginLat(p.lat);
+                            setOriginLng(p.lng);
                             if (!row) return;
                             const root = safeParseJsonObject(row.metadata_json) ?? {};
                             const tripMeta = getTripMeta(root) ?? {};
@@ -930,6 +962,8 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                           value={arrivalText}
                           onChangeText={(text) => {
                             setArrivalText(text);
+                            setArrivalLat(null);
+                            setArrivalLng(null);
                             if (!row) return;
                             const raw = text.trim();
                             const root = safeParseJsonObject(row.metadata_json) ?? {};
@@ -958,6 +992,8 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                           onSelect={(p) => {
                             setArrivalText(p.formattedAddress);
                             setArrivalEditing(false);
+                            setArrivalLat(p.lat);
+                            setArrivalLng(p.lng);
                             if (!row) return;
                             const root = safeParseJsonObject(row.metadata_json) ?? {};
                             const tripMeta = getTripMeta(root) ?? {};
@@ -1000,6 +1036,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                     </View>
                   </View>
                 </View>
+                </>
               ) : null}
             </View>
 
@@ -1011,9 +1048,82 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
               {!entered ? <View style={styles.enterPlaceholder} /> : null}
               {entered ? (
                 <>
+                  {isTrip ? (
+                    showTripControls ? (
+                      <Animated.View style={[styles.section, { opacity: tripControlsOpacity }]}>
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                        {t('intentionDetail.labelTransport')}
+                      </Text>
+                      <View style={styles.transportRow}>
+                        {(
+                          [
+                            { key: 'auto', icon: 'car', label: t('intentionDetail.transportAuto') },
+                            { key: 'transit', icon: 'bus', label: t('intentionDetail.transportTransit') },
+                            { key: 'walking', icon: 'walk', label: t('intentionDetail.transportWalking') },
+                            { key: 'bike', icon: 'bike', label: t('intentionDetail.transportBike') },
+                          ] as const
+                        ).map((m) => {
+                          const active = transportMode === m.key;
+                          return (
+                            <Pressable
+                              key={m.key}
+                              onPress={() => void onSelectTransportMode(m.key)}
+                              style={({ pressed }) => [
+                                styles.transportBtn,
+                                {
+                                  borderColor: active ? theme.colors.primary : theme.colors.outlineVariant,
+                                  backgroundColor: active ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
+                                  opacity: pressed ? 0.88 : 1,
+                                },
+                              ]}
+                              accessibilityRole="button"
+                              accessibilityLabel={m.label}
+                            >
+                              <IconButton icon={m.icon} size={22} iconColor={theme.colors.onSurface} style={styles.transportIcon} />
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+
+                      <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                        {t('intentionDetail.comfortTitle')}
+                      </Text>
+
+                      <View style={styles.newtonRow}>
+                        <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.newton')}</Text>
+                        <Switch value={newtonEnabled} disabled={isAllDay} onValueChange={() => void onToggleNewton()} />
+                      </View>
+
+                      <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
+                        {t('intentionDetail.comfortFixed', { time: `${pad2(pickerDraft.getHours())}:${pad2(pickerDraft.getMinutes())}` })}
+                      </Text>
+                      <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
+                        {t('intentionDetail.comfortOptimized')}
+                      </Text>
+
+                      <View style={styles.impactSlot}>
+                        {ecoBadge ? (
+                          <View style={[styles.badge, { backgroundColor: theme.colors.tertiaryContainer }]}>
+                            <Text style={[styles.badgeText, { color: theme.colors.onTertiaryContainer }]}>
+                              {t('intentionDetail.ecoFriendly')}
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text style={[styles.co2Text, { color: theme.colors.onSurfaceVariant }]}>
+                            {t('intentionDetail.co2Standard')}
+                          </Text>
+                        )}
+                      </View>
+                      </Animated.View>
+                    ) : null
+                  ) : null}
+
                   {checklist ? (
                     <View style={styles.section}>
-                      <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>{t('intentionDetail.checklist')}</Text>
+                      <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.checklist')}</Text>
                       <View style={styles.checklist}>
                         {checklist.map((it) => (
                           <Pressable
@@ -1050,79 +1160,32 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                       </View>
                     </View>
                   ) : null}
-
-                  {isTrip ? (
-                    <View style={styles.section}>
-                      <View style={styles.transportRow}>
-                        {(
-                          [
-                            { key: 'auto', icon: 'car', label: t('intentionDetail.transportAuto') },
-                            { key: 'transit', icon: 'bus', label: t('intentionDetail.transportTransit') },
-                            { key: 'walking', icon: 'walk', label: t('intentionDetail.transportWalking') },
-                            { key: 'bike', icon: 'bike', label: t('intentionDetail.transportBike') },
-                          ] as const
-                        ).map((m) => {
-                          const active = transportMode === m.key;
-                          return (
-                            <Pressable
-                              key={m.key}
-                              onPress={() => void onSelectTransportMode(m.key)}
-                              style={({ pressed }) => [
-                                styles.transportBtn,
-                                {
-                                  borderColor: active ? theme.colors.primary : theme.colors.outlineVariant,
-                                  backgroundColor: active ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
-                                  opacity: pressed ? 0.88 : 1,
-                                },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={m.label}
-                            >
-                              <IconButton icon={m.icon} size={22} iconColor={theme.colors.onSurface} style={styles.transportIcon} />
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-
-                      <View style={styles.impactSlot}>
-                        {ecoBadge ? (
-                          <View style={[styles.badge, { backgroundColor: theme.colors.tertiaryContainer }]}>
-                            <Text style={[styles.badgeText, { color: theme.colors.onTertiaryContainer }]}>
-                              {t('intentionDetail.ecoFriendly')}
-                            </Text>
-                          </View>
-                        ) : (
-                          <Text style={[styles.co2Text, { color: theme.colors.onSurfaceVariant }]}>
-                            {t('intentionDetail.co2Standard')}
-                          </Text>
-                        )}
-                      </View>
-
-                      <View style={styles.newtonRow}>
-                        <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.newton')}</Text>
-                        <Switch value={newtonEnabled} onValueChange={() => void onToggleNewton()} />
-                      </View>
-                    </View>
-                  ) : null}
                 </>
               ) : null}
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-              <Button
-                mode="contained"
-                onPress={() =>
-                  void openNavigationUniversal({
-                    origin: originText.trim() ? originText.trim() : null,
-                    destination: arrivalDisplay ?? '',
-                    mode: transportMode,
-                  })
-                }
-                disabled={!arrivalDisplay}
-                style={styles.footerBtn}
-              >
-                {t('intentionDetail.launchRoute')}
-              </Button>
+              <View style={styles.footerRow}>
+                {isTrip && routeReady ? (
+                  <Button
+                    mode="contained"
+                    onPress={() =>
+                      void openNavigationUniversal({
+                        origin: originText.trim() ? originText.trim() : null,
+                        destination: arrivalDisplay ?? '',
+                        mode: transportMode,
+                      })
+                    }
+                    disabled={!routeReady}
+                    style={styles.footerBtn}
+                  >
+                    GO
+                  </Button>
+                ) : null}
+                <Button mode="outlined" onPress={onClose} style={[styles.footerCloseBtn, !routeReady ? { flex: 1 } : null]}>
+                  {t('intentionDetail.close')}
+                </Button>
+              </View>
             </View>
           </KeyboardAvoidingView>
         </Animated.View>
@@ -1142,12 +1205,14 @@ const styles = StyleSheet.create({
   },
   kbRoot: { flex: 1 },
   grabber: { alignSelf: 'center', width: 56, height: 5, borderRadius: 5, marginBottom: 12 },
-  headerRow: { paddingHorizontal: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  headerTitleRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-  headerTitle: { fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  fixedBlock: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
+  divider: { height: StyleSheet.hairlineWidth, width: '100%', opacity: 0.65 },
+  sectionLabel: { fontSize: 12, fontWeight: '700', opacity: 0.7 },
+  intentionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  intentionTitle: { flex: 1, minWidth: 0, fontSize: 18, fontWeight: '900', lineHeight: 22 },
   noteIcon: { margin: 0, padding: 0, marginTop: -2 },
   warningWrap: { marginTop: -6 },
-  sourceWrap: { paddingHorizontal: 16, paddingBottom: 8 },
+  sourceWrap: { gap: 6 },
   sourceInput: {
     minHeight: 90,
     maxHeight: 160,
@@ -1160,7 +1225,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontStyle: 'italic',
   },
-  logicBlock: { paddingHorizontal: 16, paddingBottom: 6, gap: 16 },
   subtitlePress: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, borderRadius: 12, paddingVertical: 2 },
   subtitleInline: { fontSize: 13, fontWeight: '800', opacity: 0.88 },
   pickerBlock: { marginTop: -6 },
@@ -1174,7 +1238,6 @@ const styles = StyleSheet.create({
   addrValue: { fontSize: 14, fontWeight: '800', lineHeight: 18 },
   content: { paddingHorizontal: 16, paddingBottom: 140 },
   section: { marginTop: 12, gap: 10 },
-  sectionTitle: { fontSize: 14, fontWeight: '900' },
   checklist: { gap: 10 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
@@ -1187,8 +1250,11 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '900' },
   co2Text: { fontSize: 12, fontWeight: '700' },
   impactSlot: { height: 32, justifyContent: 'center' },
+  comfortLine: { fontSize: 12, fontWeight: '700' },
   newtonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   footer: { paddingHorizontal: 16, paddingTop: 10 },
-  footerBtn: { borderRadius: 16 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  footerBtn: { borderRadius: 16, flex: 1 },
+  footerCloseBtn: { borderRadius: 16 },
   enterPlaceholder: { height: 240 },
 });

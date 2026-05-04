@@ -81,7 +81,15 @@
     "transportBike": "Vélo",
     "ecoFriendly": "Eco-Friendly 🌱",
     "co2Standard": "Impact CO2 standard",
-    "launchRoute": "Lancer l'itinéraire"
+    "launchRoute": "Lancer l'itinéraire",
+    "close": "Fermer",
+    "labelIntention": "Intention",
+    "labelTiming": "Timing",
+    "labelItinerary": "Itinéraire",
+    "labelTransport": "Transport",
+    "comfortTitle": "Confort de trajet",
+    "comfortFixed": "Créneau de départ fixe : {{time}}",
+    "comfortOptimized": "Créneau de départ optimisé"
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",

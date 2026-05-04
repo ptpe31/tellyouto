@@ -321,6 +321,18 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - iOS : ouvrir via schémas natifs (Apple Maps / Google Maps / Waze) et afficher un sélecteur natif (ActionSheet) si plusieurs fournisseurs sont disponibles.
   - Les schémas externes (ex. `waze://`, `comgooglemaps://`) nécessitent l’autorisation iOS `LSApplicationQueriesSchemes` dans la config Expo.
 
+#### Règle de visibilité “zéro flags” (robustesse UI)
+
+- Principe : la validation d’une adresse ne repose pas sur un booléen UI mais sur la présence de coordonnées persistées.
+- Arrivée (source de vérité) :
+  - Lors d’une saisie manuelle dans le champ Arrivée (`onChangeText`) : vider immédiatement `metadata_json.trip.location_lat` / `location_lng` (et champs associés) pour marquer l’arrivée comme non exploitable.
+  - Lors de la sélection d’une suggestion Google Places (`onSelect`) : renseigner immédiatement `metadata_json.trip.location_lat` / `location_lng` (+ `location_place_id`, `location_address`) pour marquer l’arrivée exploitable.
+  - Condition d’affichage “Confort de trajet” (Transport + Newton) : afficher uniquement si `metadata_json.trip.location_lat` est présent et non nul (indépendant du Départ).
+- Départ (impact uniquement sur le bouton GPS) :
+  - Lors d’une saisie manuelle dans le champ Départ : vider `metadata_json.trip.origin_lat` / `origin_lng`.
+  - Lors de la sélection Places : renseigner `origin_lat` / `origin_lng` (+ `origin_place_id`, `origin_address`).
+  - Condition d’affichage du bouton GPS (GO) : afficher/activer uniquement si Départ ET Arrivée ont des coordonnées.
+
 ### 5) Synchronisation (Top‑Down Sync)
 
 - Temps réel : toute modification (heure, mode de transport, switch Newton, checkbox, adresses départ/arrivée) déclenche un UPDATE SQL immédiat via le repository.
@@ -328,6 +340,157 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Refresh : la Timeline se rafraîchit automatiquement en arrière‑plan (icône triangle, heure, sous‑titre, etc.).
 - Gestion clavier :
   - Utiliser `KeyboardAvoidingView` (ou équivalent) et un footer fixe (bouton itinéraire) pour que les champs Places restent accessibles au‑dessus du clavier.
+
+## OneTap LIST — Pipeline 2-Pass (Classification + Enrichissement)
+
+### Objectif
+
+- Transformer les intentions de type `LIST` en listes actionnables (courses, projets, révisions) via un pipeline en **2 passes**.
+
+### Pass 1 — Classification (inchangé)
+
+- Format de réponse Gemini : **Bullet‑Pipe** uniquement (lignes `> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE`).
+- Rôle : détecter `TYPE === LIST` et extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT) + catégorie.
+
+### Pass 2 — Enrichissement (LIST uniquement)
+
+- Déclenchement : si Pass 1 détecte `TYPE === LIST`, lancer immédiatement `enrichGenericList(content)`.
+- UI feedback : la LIST est insérée en base dès Pass 1 avec un état temporaire visible (ex. titre/ligne “Génération en cours…” ou flag dans `metadata_json`) afin que l’utilisateur voie l’item pendant l’enrichissement.
+- Sortie attendue : un **JSON strict** conforme au schéma `list_scalable_v1` (voir `LIST_METADATA_KEY = list_scalable_v1`).
+- Fusion : injecter le JSON enrichi dans `metadata_json.list` (ou la clé dédiée `list_scalable_v1` selon le modèle effectif) et persister en SQLite.
+
+### Prompt Système Gemini (Pass 2)
+
+```
+Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
+
+Consignes strictes :
+Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur (Français, Anglais, Espagnol, etc.).
+Analyse le domaine :
+- Si c'est une recette : décompose en ingrédients (Boucherie, Légumes, etc.).
+- Si c'est une étude/examen : décompose en chapitres ou sessions.
+- Si c'est un objectif/projet : décompose en jalons ou étapes clés.
+Unités adaptatives : Détecte l'unité la plus pertinente (kg, jours, chapitres, séances).
+Scalabilité : scalable=true pour les items dont la quantité dépend de la cible (ex: ingrédients pour X personnes).
+Format : Réponds uniquement par un objet JSON pur suivant le schéma list_scalable_v1. Ne mets aucune explication avant ou après.
+```
+
+### Correction de visibilité (critique)
+
+- Lors de l’insertion d’une intention `LIST`, `category_id` ne doit **jamais** être `NULL`.
+- Règle : `category_id = normalizeDomainCategoryId(draft.categoryTag)` (ex. `SHOP` doit tomber dans le contexte Maison si c’est la convention de mapping) pour éviter que l’item soit masqué par les filtres de contexte de la Timeline.
+
+### Refresh
+
+- Une fois le Pass 2 terminé et persisté, déclencher un refresh UI (invalidate / event) pour que la Timeline ré-affiche la liste complète sans action utilisateur.
+
+## Écran Projets & Listes (ProjectListScreen)
+
+### Objectif
+
+- Ajouter un écran dédié à la gestion approfondie des intentions `LIST` et `PROJECT`.
+- Offrir une édition native via BottomSheet (édition inline, accordéon, autosave).
+
+### Points à surveiller (implémentation Cursor)
+
+- Structure & flux :
+  - Uniformisation : `LIST` et `PROJECT` utilisent le schéma `list_scalable_v1` dans `metadata_json`.
+  - Mutation sécurisée : chaque modification suit le cycle Lecture → modification partielle → réécriture complète du JSON (préserve les clés annexes).
+  - Réactivité : toute écriture doit déclencher `notifyIntentionsChanged` (ou équivalent) pour rafraîchir la Timeline sans rechargement forcé.
+- Ergonomie “Trankil” :
+  - Accordéon intelligent : auto-focus (un item ouvert ferme le précédent) pour limiter la charge visuelle.
+  - Zéro friction : persistance sur `onBlur` + `BottomSheetTextInput` (pas de CTA “Valider”).
+  - État génération : `metadata_json.is_generating` doit désactiver l’édition + afficher un loader pour éviter les conflits IA/édition.
+- Navigation & système :
+  - Android BackHandler : le bouton retour ferme d’abord la BottomSheet avant de quitter l’écran.
+  - Filtrage dynamique : la liste n’affiche que les items actifs (`is_archived = 0`).
+
+### 1) Structure de l’écran (ProjectListScreen.tsx)
+
+- Layout : `FlatList` de cartes étroites.
+- Source données : requête SQLite filtrant `type IN ('LIST','PROJECT')` et `is_archived = 0`, tri par `created_at DESC`.
+  - SQL :
+    - `SELECT * FROM intentions WHERE type IN ('LIST', 'PROJECT') AND is_archived = 0 ORDER BY created_at DESC`
+- Design cartes :
+  - Titre projet/liste (ex. “Refaire la cuisine”, “Courses Hebdo”).
+  - Indicateur de progression à droite (ex. `4/20`).
+  - Style épuré : bordures fines, pas d’ombre excessive.
+
+### 2) Navigation & BottomSheet intelligente
+
+- Trigger : tap sur une carte → ouvrir une BottomSheet occupant ~95% de la hauteur.
+- Implémentation : `@gorhom/bottom-sheet` (ou équivalent déjà présent).
+- Contenu BottomSheet :
+  - Header : titre modifiable inline (tap → TextInput, persistance sur `onBlur`).
+  - Corps (accordéon) :
+    - `LIST` : items de liste (cases cochées + détails).
+    - `PROJECT` : jalons (milestones) (cases cochées + détails).
+  - Comportement d’accordéon :
+    - Par défaut : items rétractés (titre + checkbox).
+    - Tap sur item : déployer détails (note/commentaire + échéance).
+    - Auto‑focus : ouvrir un item ferme automatiquement le précédent.
+
+### 3) Édition native & champs
+
+- Checkbox : toggle done (UPDATE SQLite immédiat).
+- Inline editing :
+  - Tap sur texte → édition directe.
+  - Persistance sur `onBlur` (pas de bouton “Enregistrer”).
+- Champ Notes : TextInput multi‑ligne par item/jalon pour les détails.
+
+### 4) Logique de données (SQLite)
+
+- Requêtes :
+  - Nouvelle fonction `getProjectsAndLists()` dans `trankilV2Db.ts` (ou équivalent).
+- Persistance :
+  - Ajouter/étendre des fonctions DB pour :
+    - mettre à jour `intentions.title` (projet/liste),
+    - mettre à jour les notes et le statut de complétion des items individuels (LIST/PROJECT).
+  - Les items LIST doivent continuer à utiliser `metadata_json` (clé `list_scalable_v1`) comme source de vérité.
+  - Pour `PROJECT`, utiliser le même schéma JSON que `list_scalable_v1` à l’intérieur de `metadata_json` (uniformisation), en ajoutant un champ optionnel `due_date` par item.
+- Sync UI :
+  - Utiliser le mécanisme existant (`notifyIntentionsChanged`) ou react-query/event emitter si présent pour répercuter instantanément les modifications.
+
+### 5) Fonctionnalités spéciales — Scalabilité
+
+- Si l’intention contient une liste scalable (items `scalable: true` dans `list_scalable_v1`) :
+  - Afficher un contrôle `[-] / [+]` en haut de la BottomSheet (multiplier).
+  - Le changement ajuste le multiplicateur et recalcul les quantités affichées, avec persistance immédiate.
+
+### 6) Spécifications complémentaires (UX & Navigation)
+
+- Android — BackHandler :
+  - Si la BottomSheet est ouverte, le bouton retour physique doit fermer la BottomSheet en priorité (et ne pas quitter l’écran).
+- Deep link / navigation :
+  - Permettre l’ouverture directe d’un projet/liste via un paramètre de route (ex. `ProjectListScreen?id=123`).
+- Inline editing :
+  - Lors de l’édition d’un titre, afficher un bouton `X` (clear) à droite du TextInput.
+  - Désactiver le scroll de la BottomSheet pendant que le clavier est ouvert (ex. `keyboardBlurBehavior="restore"`).
+- Progression :
+  - Calcul dynamique `doneCount/totalCount` via parse `metadata_json` (JS), en ignorant les items dont `name` est vide.
+- Notes :
+  - Le champ note/commentaire doit s’agrandir automatiquement avec le texte (`multiline` + auto-height).
+- Archivage :
+  - Ajouter un bouton “Archiver” discret dans le Header de la BottomSheet.
+  - Action : passer `is_archived = 1` (SQLite) puis fermer la BottomSheet.
+- Feedback persistance :
+  - Après un `onBlur` réussi, afficher un indicateur discret “Saved” (micro-animation) en haut de la BottomSheet.
+
+### 7) Précisions techniques (Mutation JSON, clavier, génération)
+
+- Mutation JSON (LIST/PROJECT) :
+  - Pour mettre à jour un item (note, checkbox, échéance), le code doit :
+    - lire le `metadata_json` courant,
+    - modifier uniquement l’item ciblé dans l’array (par `uid`),
+    - réécrire le JSON complet via `UPDATE` en préservant toutes les autres clés (ex. `categoryTag`, `trip`, `gemini_universal_draft`, etc.).
+  - Ne jamais écraser `metadata_json` avec un JSON partiel.
+- Clavier & BottomSheet :
+  - Utiliser `BottomSheetTextInput` (`@gorhom/bottom-sheet`) au lieu de `TextInput` standard pour garantir que la feuille s’ajuste et que le champ en édition reste visible.
+- État “Génération en cours” :
+  - Si `metadata_json.is_generating === true` :
+    - afficher un `ActivityIndicator` (spinner) à la place de la liste d’items dans la BottomSheet,
+    - afficher le message : `L'IA prépare votre projet...`,
+    - désactiver l’édition tant que la génération n’est pas terminée.
 
 ## Pile technique
 

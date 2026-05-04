@@ -56,6 +56,16 @@ import {
 export const ONE_TAP_DEBUG_LOG_CONT = '\n  | ';
 const OT_LOG = ONE_TAP_DEBUG_LOG_CONT;
 
+function safeJsonForTerminalLog(value: unknown, maxLen: number): string {
+  try {
+    const s = JSON.stringify(value);
+    if (s.length <= maxLen) return s;
+    return `${s.slice(0, maxLen)}…`;
+  } catch {
+    return '"[unserializable]"';
+  }
+}
+
 /**
  * Séparateur visuel au **début de cycle** (T0 — fin capture). Appeler depuis l’écran qui déclenche le dual-path
  * (ex. Talk après `perfNowMs` T0) ou en tête de {@link geminiOneTapUniversalFromTranscript}.
@@ -1432,6 +1442,33 @@ export async function refineOneTapWithGeminiCompressed(
     categoryTag: parsedWithPerfMeta.categoryTag,
     data: parsedWithPerfMeta.data,
   });
+
+  if (parsedWithPerfMeta.predictedType === 'LIST') {
+    const listRaw = (parsedWithPerfMeta.data as Record<string, unknown>).list;
+    const listObj =
+      listRaw && typeof listRaw === 'object' && !Array.isArray(listRaw) ? (listRaw as Record<string, unknown>) : null;
+    const catsRaw = listObj ? listObj.categories : null;
+    const cats = Array.isArray(catsRaw) ? (catsRaw as Array<Record<string, unknown>>) : [];
+    const totalItems = cats.reduce((acc, c) => {
+      const items = Array.isArray(c.items) ? (c.items as unknown[]) : [];
+      return acc + items.length;
+    }, 0);
+    const sample = cats
+      .flatMap((c) => (Array.isArray(c.items) ? (c.items as Array<Record<string, unknown>>) : []))
+      .slice(0, 10)
+      .map((it) => {
+        const name = String(it.name ?? '—').trim() || '—';
+        const qty = it.baseQuantity ?? it.qty ?? 0;
+        const unit = String(it.unit ?? '').trim();
+        return `${name}${qty ? ` (${qty}${unit ? ` ${unit}` : ''})` : ''}`;
+      });
+    const listTitle = String(listObj?.title ?? '').trim();
+    const unitLabel = String(listObj?.unitLabel ?? '').trim();
+    const baseCount = Number(listObj?.baseCount ?? 0);
+    console.log(
+      `[GeminiList] 🧺 LIST_DETECTED${OT_LOG}Title: ${listTitle || '—'}${OT_LOG}Base: ${baseCount || 1} ${unitLabel || 'personne'}${OT_LOG}Categories: ${cats.length}${OT_LOG}Items: ${totalItems}${OT_LOG}Sample: ${sample.join(', ') || '—'}${OT_LOG}RawList: ${safeJsonForTerminalLog(listObj, 1800)}`,
+    );
+  }
 
   const cp = options.chainPerf;
   if (cp) {
