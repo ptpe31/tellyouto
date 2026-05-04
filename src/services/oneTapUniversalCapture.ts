@@ -1018,7 +1018,7 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
   const loc = `DETECTED LANGUAGE DISCIPLINE (ABSOLUTE):
 - Identify the language (EN, FR, ES, IT, etc.).
 - Output strings ONLY in that language.
-- CRITICAL: ZERO TRANSLATION. Do not translate the user's wording. Preserve the user's wording as much as possible.
+- CRITICAL: ZERO TRANSLATION. Keep the user's verbs and nouns. Preserve the user's wording as much as possible.
 - You may fix obvious typos and expand obvious abbreviations, but ONLY in the same detected language.
 - The DISPLAY TITLE CONTRACT applies UNIVERSALLY to all languages.`;
   const catContract = `CATEGORY CONTRACT (ABSOLUTE):
@@ -1026,13 +1026,14 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
   HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
 - Use these codes ONLY. Never translate them. Never invent new categories.
 - If unsure, use PERSO.`;
-  const titleContract = `DISPLAY TITLE CONTRACT (ABSOLUTE):
-- CONTENT must be a pure action title (the essence of the user's intent).
-- STEP 1: Strip ALL time markers from CONTENT (e.g. "tomorrow", "tonight", "9h30", "at 7pm", "monday", "ce soir", "demain", "stasera", "mañana"). Time information must go ONLY into DUE_DATE.
-- STEP 2: MANDATORY TRIM of trailing prepositions. Delete any "at", "on", "for", "to", "à", "le", "el", "per", "en" left at the end of the title.
-- STEP 3: Fix common typos/abbreviations in the target language when obvious (e.g. "mdcin"->"Médecin", "rdv"->"RDV", "piza"->"Pizza", "pades"->"Padres").
-- CONTENT must start with an uppercase letter.
-- ZERO REDUNDANCY: keep the specific action even if the category is obvious (do not over-simplify).`;
+  const titleContract = `DISPLAY TITLE CONTRACT (DESTRUCTIVE STRIPPING):
+- CONTENT must be a PURE action title.
+- MANDATORY: Strip ALL time/date markers (tomorrow, tonight, 9h30, monday, ce soir, demain, stasera, mañana, sàbdo, etc.). Time information must go ONLY into DUE_DATE.
+- MANDATORY TRIM: Delete ANY trailing prepositions or articles: "at", "on", "for", "to", "à", "le", "el", "la", "a las", "per", "en", "sta".
+- EXAMPLE: "Cena con mis pades el sàbdo a las 21h" -> "Cena con mis Padres"
+- EXAMPLE: "Lunch with Marc on friday" -> "Lunch with Marc"
+- STEP: Fix obvious typos (pades -> Padres, piza -> Pizza, mdcin -> Médecin).
+- TITLE MUST start with Uppercase.`;
   const tripContract = `TRIP CONTRACT (ABSOLUTE):
 - Any mention of movement or going somewhere MUST be classified as TRIP.
 - Trigger dictionary: ${[...TRIP_TRIGGER_TERMS_EN, ...TRIP_TRIGGER_TERMS_FR, ...TRIP_TRIGGER_TERMS_EXTRA].join(', ')}.

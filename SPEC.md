@@ -59,6 +59,7 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
 - DETECTED LANGUAGE DISCIPLINE (ABSOLUTE) :
   - “Identify the language (EN, FR, ES, IT, etc.)”
   - “Output strings ONLY in that language”
+  - `CRITICAL: ZERO TRANSLATION. Keep the user's verbs and nouns.`
   - “The DISPLAY TITLE CONTRACT applies UNIVERSALLY to all languages”
 - CATEGORY CONTRACT (ABSOLUTE) :
   - catégories autorisées exactement : `HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER`
@@ -194,11 +195,14 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Identité visuelle : l’interface utilise exclusivement un style Neumorphique (reliefs doux, ombres portées, surfaces claires), avec une dominante d’ombres type `#F0F0F3` (et variantes de thème) via les helpers neumorphiques existants (ex. `neumorphicRaised`).
 - Anatomie de la carte : chaque intention est rendue via une structure fixe et stable visuellement : `[Icône de catégorie] | [Titre + Date/Heure relative] | [Indicateur de statut]`.
 - DISPLAY TITLE CONTRACT (strict) : le champ `CONTENT` (ou `display_title`) est un titre d’action purifié, conforme aux règles ci-dessous.
-  - Stripping temporel absolu : supprimer systématiquement tout mot/expression de temps (jour/date/heure/récurrence) même si c’est le cœur de la phrase (ex. “demain”, “ce soir”, “à 19h”, “monday”, “at 7pm”, “ds 2 jours”, “morning”, “esta tarde”, “every morning”…).
-  - Prépositions orphelines : supprimer toute préposition résiduelle en fin de titre après stripping temporel (ex. “at”, “on”, “for”, “to”, “à”, “le”, “el”, “per”, “en”).
-  - Correction sémantique & orthographique : remplacer les abréviations par les mots complets dans la langue de l’utilisateur (ex. “rdv” → “Rendez-vous”, “mdcin” → “Médecin”), corriger les fautes évidentes, et démarrer par une majuscule.
+  - Destructive stripping (obligatoire) : supprimer systématiquement tout marqueur de temps/date (jour/date/heure/récurrence), y compris variantes bruitées multi‑langues (ex. “demain”, “ce soir”, “à 19h”, “monday”, “at 7pm”, “ds 2 jours”, “mañana”, “stasera”, “sàbdo”…).
+  - Prépositions/articles orphelins (obligatoire) : supprimer toute préposition ou article résiduel en fin de titre après stripping (ex. “at”, “on”, “for”, “to”, “à”, “le”, “el”, “la”, “a las”, “per”, “en”, “sta”…).
+  - Corrections évidentes : corriger les typos/abréviations évidentes dans la langue détectée, sans traduction (ex. “pades” → “Padres”, “piza” → “Pizza”, “mdcin” → “Médecin”), et démarrer par une majuscule.
   - Intégrité : ne jamais supprimer l’objet de l’action (ex. “mger des frites ce soir” → “Manger des frites”).
   - Règle d’or : si une info temporelle est déjà structurée (`due_date`, `recurrence`, etc.), elle ne doit pas apparaître dans le titre.
+  - Exemples contractuels :
+    - “Cena con mis pades el sàbdo a las 21h” → “Cena con mis Padres”
+    - “Lunch with Marc on friday” → “Lunch with Marc”
 - Contrat Phase 2 (IntentionCard) : l’action et l’identité sont fusionnées. Un unique cercle neumorphique à gauche (taille tactile stable) contient l’icône de catégorie et sert de seul bouton d’action.
 - État pending (Undo 3s) : quand `pendingLocalDone` est actif, l’icône de catégorie dans le cercle est remplacée par une coche de validation.
 - Largeur & respiration : le conteneur principal de la carte (rectangle neumorphique) ne doit pas être “bord à bord”. Il conserve un retrait horizontal visible (gouttières) pour laisser respirer le texte, et peut être plafonné par un `maxWidth` afin d’éviter les lignes trop longues sur grands écrans.
