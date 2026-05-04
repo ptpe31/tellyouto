@@ -360,6 +360,7 @@
     "sectionIntentions": "Intentions",
     "arrivalAt": "Arrivée à {{time}}",
     "dueAt": "Échéance {{time}}",
+    "allDuration": "Toute la durée",
     "subtitle": "Rail du jour — créneaux suggérés selon ton spectre (Momentum élevé → blocs plus profonds).",
     "now": "Maintenant",
     "dayRail": "Position dans la journée (6h–22h)",

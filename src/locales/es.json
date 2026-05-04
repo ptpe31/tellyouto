@@ -248,6 +248,7 @@
     "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
   },
   "timeline": {
+    "allDuration": "Todo el día",
     "subtitle": "Riel del día — ventanas sugeridas según tu espectro (Momentum alto → bloques más profundos).",
     "now": "Ahora",
     "dayRail": "Posición en el día (6h–22h)",

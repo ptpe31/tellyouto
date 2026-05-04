@@ -248,6 +248,7 @@
     "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
   },
   "timeline": {
+    "allDuration": "Tutto il giorno",
     "subtitle": "Binario della giornata — slot suggeriti in base allo spettro (Momentum alto → blocchi più profondi).",
     "now": "Adesso",
     "dayRail": "Posizione nella giornata (6–22)",

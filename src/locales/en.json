@@ -360,6 +360,7 @@
     "sectionIntentions": "Intentions",
     "arrivalAt": "Arrival at {{time}}",
     "dueAt": "Due {{time}}",
+    "allDuration": "All day",
     "subtitle": "Today’s rail — suggested slots follow your spectrum (high Momentum → deeper blocks).",
     "now": "Now",
     "dayRail": "Where you are in the day (6am–10pm)",

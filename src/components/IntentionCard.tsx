@@ -43,6 +43,58 @@ function capitalizeFirst(raw: string): string {
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
+function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  try {
+    const v = JSON.parse(s) as unknown;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    return v as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function str(obj: Record<string, unknown> | null, key: string): string | null {
+  if (!obj) return null;
+  const v = obj[key];
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s ? s : null;
+}
+
+function hasTruthyRecurrence(meta: Record<string, unknown> | null): boolean {
+  if (!meta) return false;
+  const rr = str(meta, 'recurrence_rrule');
+  if (rr) return true;
+  const rec = meta.recurrence;
+  if (rec && typeof rec === 'object' && !Array.isArray(rec) && Object.keys(rec as object).length > 0) return true;
+  const cadence = str(meta, 'cadenceDescription');
+  if (cadence) return true;
+  const recurringTask = meta.recurring_task;
+  if (recurringTask && typeof recurringTask === 'object' && !Array.isArray(recurringTask)) return true;
+  const trip = meta.trip;
+  if (trip && typeof trip === 'object' && !Array.isArray(trip)) {
+    const tr = trip as Record<string, unknown>;
+    const tripRec = tr.recurrence;
+    if (tripRec && typeof tripRec === 'object' && !Array.isArray(tripRec) && Object.keys(tripRec as object).length > 0) return true;
+    const tripCadence = str(tr, 'cadenceDescription');
+    if (tripCadence) return true;
+    const tripRRule = str(tr, 'recurrence_rrule');
+    if (tripRRule) return true;
+  }
+  return false;
+}
+
+function parseHm(raw: string | null): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  if (!/^\d{1,2}:\d{2}$/.test(s)) return null;
+  const [hh, mm] = s.split(':').map((n) => Number(n));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
 function getCategoryIcon(categoryId: string | null | undefined, type: TrankilV2TimelineItemRow['type']): string {
   const up = String(categoryId ?? '').trim().toUpperCase();
   if (up === 'SHOP') return 'cart-outline';
@@ -77,24 +129,54 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
   }, [i18n.language, row.content_raw, row.display_title, row.type, t]);
 
   const subtitle = useMemo(() => {
-    const parsed = parseDueDate(row.due_date);
-    if (!parsed) return '';
-    const due = parsed.date;
+    const meta = safeParseJsonObject(row.metadata_json);
+    const trip = meta && meta.trip && typeof meta.trip === 'object' && !Array.isArray(meta.trip) ? (meta.trip as Record<string, unknown>) : null;
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
     const now = new Date();
     const todayKey = formatYmdLocal(now);
     const tomorrowKey = addDaysYmd(now, 1);
-    const dueKey = formatYmdLocal(due);
+
+    const rootDueIso = str(meta, 'dueDateTime');
+    const rootYmd = str(meta, 'dueDateYmd');
+    const rootHm = parseHm(str(meta, 'dueTimeHm'));
+
+    const tripArrivalIso = str(trip, 'arrivalDue');
+    const tripDueIso = str(trip, 'dueDateTime');
+    const tripYmd = str(trip, 'dueDateYmd');
+    const tripHm = parseHm(str(trip, 'dueTimeHm'));
+
+    const baseParsed = parseDueDate(row.due_date);
+    const isoSource = row.type === 'TASK' && trip ? tripArrivalIso || tripDueIso : rootDueIso;
+    const parsedIso = isoSource ? parseDueDate(isoSource) : rootDueIso ? parseDueDate(rootDueIso) : null;
+    const dateRef =
+      parsedIso?.date ??
+      (tripYmd ? parseDueDate(tripYmd)?.date : null) ??
+      (rootYmd ? parseDueDate(rootYmd)?.date : null) ??
+      baseParsed?.date ??
+      null;
+    if (!dateRef) return null;
+    const dueKey = formatYmdLocal(dateRef);
     const dayLabel =
       dueKey === todayKey
         ? t('horizons.today')
         : dueKey === tomorrowKey
           ? t('horizons.tomorrow')
-          : capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long' }).format(due));
-    if (!parsed.hasTime) return dayLabel;
-    const time = new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(due);
-    return `${dayLabel} • ${time}`;
-  }, [i18n.language, row.due_date, t]);
+          : capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long' }).format(dateRef));
+    const isoTimeLabel =
+      parsedIso?.hasTime && parsedIso.date
+        ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(parsedIso.date)
+        : null;
+    const baseTimeLabel =
+      baseParsed?.hasTime && baseParsed.date
+        ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(baseParsed.date)
+        : null;
+    const timeLabel =
+      row.type === 'TASK' && trip
+        ? tripHm || isoTimeLabel || rootHm || baseTimeLabel || t('timeline.allDuration')
+        : rootHm || baseTimeLabel || t('timeline.allDuration');
+    const showRecurrence = hasTruthyRecurrence(meta) || row.type === 'HABIT';
+    return { dayLabel, timeLabel, showRecurrence };
+  }, [i18n.language, row.due_date, row.metadata_json, row.type, t]);
 
   const categoryIcon = useMemo(() => getCategoryIcon(row.category_id, row.type), [row.category_id, row.type]);
   const circleIcon = pendingLocalDone ? 'check' : categoryIcon;
@@ -127,9 +209,22 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
             {titleText}
           </Text>
           {subtitle ? (
-            <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-              {subtitle}
-            </Text>
+            <View style={styles.subtitleRow}>
+              <Text
+                style={[styles.subtitle, styles.subtitleLead, { color: theme.colors.onSurfaceVariant }]}
+                numberOfLines={1}
+              >
+                {subtitle.dayLabel} •
+              </Text>
+              {subtitle.showRecurrence ? (
+                <View pointerEvents="none" style={styles.subtitleIconWrap}>
+                  <IconButton icon="repeat" size={14} iconColor={theme.colors.onSurfaceVariant} style={styles.subtitleIcon} />
+                </View>
+              ) : null}
+              <Text style={[styles.subtitle, styles.subtitleTail, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                {subtitle.timeLabel}
+              </Text>
+            </View>
           ) : null}
         </View>
       </View>
@@ -154,4 +249,9 @@ const styles = StyleSheet.create({
   textCol: { flex: 1, minWidth: 0 },
   title: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
+  subtitleRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+  subtitleLead: { marginTop: 0, flexShrink: 0 },
+  subtitleIconWrap: { marginLeft: 4, marginRight: 2 },
+  subtitleIcon: { margin: 0, padding: 0 },
+  subtitleTail: { marginTop: 0, flexShrink: 1, minWidth: 0 },
 });
