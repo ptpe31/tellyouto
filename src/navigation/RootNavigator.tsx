@@ -5,7 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
-import { ProSubscriptionScreen } from '../screens';
+import { ProSubscriptionScreen, ProjectListScreen } from '../screens';
 import { MainStack } from './MainStack';
 import type { RootStackParamList } from './types';
 import { markAppInteractive } from '../services/performance';
@@ -49,6 +49,15 @@ function RootNavigatorInner() {
       screenOptions={{ headerShown: false }}
     >
       <Stack.Screen name="App" component={MainStack} />
+      <Stack.Screen
+        name="ProjectList"
+        component={ProjectListScreen}
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          animationDuration: Math.round(320 * animationMultiplier),
+        }}
+      />
       <Stack.Screen
         name="ProSubscription"
         component={ProSubscriptionScreen}

@@ -716,6 +716,7 @@ export async function persistOneTapDraft(params: {
         const id = deps.newId();
         const metaBase = mergeListPayloadIntoMetadataJson('{}', placeholderPayload);
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
+          is_generating: true,
           list_enrich_status: 'pending',
         });
         const categoryId = normalizeDomainCategoryId(draft.categoryTag);
@@ -741,11 +742,13 @@ export async function persistOneTapDraft(params: {
             const nextTitle = mergedTitle || payload.title;
             const listJson = mergeListPayloadIntoMetadataJson(meta, { ...payload, title: nextTitle });
             const root = JSON.parse(listJson) as Record<string, unknown>;
+            root.is_generating = false;
             root.list_enrich_status = 'done';
             await updateTrankilV2IntentionMetadataJson(id, JSON.stringify(root, null, 2));
           } catch (e) {
             try {
               const root = JSON.parse(meta) as Record<string, unknown>;
+              root.is_generating = false;
               root.list_enrich_status = 'error';
               root.list_enrich_error = e instanceof Error ? e.message : String(e);
               await updateTrankilV2IntentionMetadataJson(id, JSON.stringify(root, null, 2));

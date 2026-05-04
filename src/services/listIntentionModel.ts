@@ -16,6 +16,8 @@ export type ListItemStored = {
   unit: string;
   scalable: boolean;
   checked?: boolean;
+  note?: string;
+  due_date?: string | null;
 };
 
 export type ListItemDraft = {
@@ -25,6 +27,8 @@ export type ListItemDraft = {
   unit?: string;
   scalable?: boolean;
   includeInSave?: boolean;
+  note?: string;
+  due_date?: string | null;
 };
 
 export type ListCategoryDraft = {
@@ -118,6 +122,8 @@ export function parseListScalablePayloadFromMetadataJson(raw: string | null | un
               unit: normalizeUnit(ir.unit),
               scalable: Boolean(ir.scalable),
               checked: Boolean(ir.checked),
+              note: String(ir.note ?? '').trim() || undefined,
+              due_date: typeof ir.due_date === 'string' && ir.due_date.trim() ? ir.due_date.trim() : null,
             };
           })
         : [];

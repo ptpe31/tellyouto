@@ -65,11 +65,14 @@ export {
   updateGrowth,
   updateTrankilV2IntentionOrganization,
   updateTrankilV2IntentionQuick,
+  updateTrankilV2IntentionTitle,
   updateTrankilV2IntentionTemporal,
   updateTrankilV2IntentionArchiveState,
+  updateTrankilV2IntentionMetadataJson,
   updateTrankilV2IntentionAlarmFields,
   listTrankilV2PendingAlarmIntentions,
   getTrankilV2IntentionById,
+  getProjectsAndLists,
   bootstrapTrankilV2Database,
 } from './trankilV2Db';
 export type {

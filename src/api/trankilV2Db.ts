@@ -2430,6 +2430,28 @@ export async function updateTrankilV2IntentionQuick(
   );
 }
 
+export async function updateTrankilV2IntentionTitle(id: string, title: string): Promise<void> {
+  await initTrankilV2Schema();
+  const next = String(title ?? '').trim();
+  if (!next) return;
+  await withTrankilV2Database(async (db) => {
+    await db.runAsync(`UPDATE intentions SET title = ? WHERE id = ?`, [next, id]);
+  });
+  await syncAfterIntentionWrite('updateTrankilV2IntentionTitle');
+  notifyIntentionsChanged({ id, reason: 'title' });
+}
+
+export async function getProjectsAndLists(): Promise<TrankilV2IntentionRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions
+     WHERE type IN ('LIST', 'PROJECT')
+       AND COALESCE(is_archived, 0) = 0
+     ORDER BY created_at DESC`,
+  );
+}
+
 export async function updateTrankilV2IntentionTemporal(
   id: string,
   patch: { due_date?: string | null; category_id?: string | null; metadata_json?: string },

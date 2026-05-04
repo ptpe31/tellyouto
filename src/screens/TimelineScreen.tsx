@@ -4,7 +4,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CommonActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { Filter } from 'lucide-react-native';
+import { ClipboardList, Filter } from 'lucide-react-native';
 import {
   ActivityIndicator,
   DeviceEventEmitter,
@@ -520,22 +520,40 @@ export function TimelineScreen() {
       ),
       headerTitleAlign: 'left',
       headerRight: () => (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setFilterModalOpen(true)}
-          style={({ pressed }) => [
-            neumorphicRaised(theme),
-            styles.navHeaderFilterBtn,
-            {
-              borderWidth: 1,
-              borderColor: theme.colors.outlineVariant,
-              marginRight: 12,
-              opacity: pressed ? 0.88 : 1,
-            },
-          ]}
-        >
-          <Filter size={20} color={theme.colors.onBackground} />
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginRight: 12 }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
+            }}
+            style={({ pressed }) => [
+              neumorphicRaised(theme),
+              styles.navHeaderFilterBtn,
+              {
+                borderWidth: 1,
+                borderColor: theme.colors.outlineVariant,
+                opacity: pressed ? 0.88 : 1,
+              },
+            ]}
+          >
+            <ClipboardList size={20} color={theme.colors.onBackground} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setFilterModalOpen(true)}
+            style={({ pressed }) => [
+              neumorphicRaised(theme),
+              styles.navHeaderFilterBtn,
+              {
+                borderWidth: 1,
+                borderColor: theme.colors.outlineVariant,
+                opacity: pressed ? 0.88 : 1,
+              },
+            ]}
+          >
+            <Filter size={20} color={theme.colors.onBackground} />
+          </Pressable>
+        </View>
       ),
     });
   }, [navigation, theme]);

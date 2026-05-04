@@ -3,6 +3,7 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 export type RootStackParamList = {
   App: undefined;
   ProSubscription: undefined;
+  ProjectList: { id?: string } | undefined;
 };
 
 /** Paramètres optionnels pour ouvrir la Timeline sur un pilote précis (ex. depuis Talk Debug). */
