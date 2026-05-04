@@ -104,6 +104,9 @@ type ProxyStreamEvent =
       latencyMs?: number;
       modelId?: string;
       usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+      tokens_prompt?: number | null;
+      tokens_completion?: number | null;
+      tokens_total?: number | null;
     }
   | { type: 'error'; error: string };
 
@@ -175,7 +178,15 @@ async function readProxySse(
           doneText = typeof evt.text === 'string' ? evt.text : accumulated;
           serverLatencyMs = typeof evt.latencyMs === 'number' ? evt.latencyMs : undefined;
           serverModelId = typeof evt.modelId === 'string' ? evt.modelId : undefined;
-          usageMetadata = evt.usageMetadata ?? usageMetadata;
+          usageMetadata =
+            evt.usageMetadata ??
+            (typeof evt.tokens_prompt === 'number' || typeof evt.tokens_completion === 'number' || typeof evt.tokens_total === 'number'
+              ? {
+                  promptTokenCount: typeof evt.tokens_prompt === 'number' ? evt.tokens_prompt : undefined,
+                  candidatesTokenCount: typeof evt.tokens_completion === 'number' ? evt.tokens_completion : undefined,
+                  totalTokenCount: typeof evt.tokens_total === 'number' ? evt.tokens_total : undefined,
+                }
+              : usageMetadata);
         } else if (evt.type === 'error') {
           throw new Error(evt.error || 'proxy_error');
         }
@@ -226,6 +237,16 @@ function extractUsageMetadataFromAnyGeminiShape(
 ): { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | undefined {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined;
   const rec = data as Record<string, unknown>;
+  const tp = rec.tokens_prompt;
+  const tc = rec.tokens_completion;
+  const tt = rec.tokens_total;
+  if (typeof tp === 'number' || typeof tc === 'number' || typeof tt === 'number') {
+    return {
+      promptTokenCount: typeof tp === 'number' ? tp : undefined,
+      candidatesTokenCount: typeof tc === 'number' ? tc : undefined,
+      totalTokenCount: typeof tt === 'number' ? tt : undefined,
+    };
+  }
   const direct = rec.usageMetadata;
   if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
     const u = direct as Record<string, unknown>;

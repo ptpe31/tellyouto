@@ -219,6 +219,20 @@ function normalizeUniversalTemporalInData(data: Record<string, unknown>): Record
   return next;
 }
 
+function syncYmdHmFromDueDateTime(data: Record<string, unknown>): Record<string, unknown> {
+  const iso = typeof data.dueDateTime === 'string' ? data.dueDateTime.trim() : '';
+  if (!iso) return data;
+  const dt = new Date(iso);
+  const ms = dt.getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return data;
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mm = String(dt.getMinutes()).padStart(2, '0');
+  return { ...data, dueDateYmd: `${y}-${m}-${d}`, dueTimeHm: `${hh}:${mm}` };
+}
+
 function universalTailFromPrev(prevData: Record<string, unknown>): Record<string, unknown> {
   const dueDateTime =
     prevData.dueDateTime === undefined || prevData.dueDateTime === null
@@ -1395,11 +1409,14 @@ export async function refineOneTapWithGeminiCompressed(
       versionLabel: /-latest$/i.test(metaModelId) ? 'v1beta' : 'v1',
     };
   const safeTitle = (parsed.title || skeleton.title).trim().slice(0, 200) || skeleton.title;
+  const baseData =
+    parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data) ? (parsed.data as Record<string, unknown>) : {};
+  const syncedTemporalData = syncYmdHmFromDueDateTime(baseData);
   const parsedWithPerfMeta: OneTapUniversalResult = {
     ...parsed,
     title: safeTitle,
     data: {
-      ...(parsed.data ?? {}),
+      ...(syncedTemporalData ?? {}),
       ai_model_used: metaForLog.modelId,
       ai_latency_ms: metaForLog.latencyMs,
       tokens_prompt: metaForLog.tokensPrompt,

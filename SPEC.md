@@ -86,6 +86,7 @@ La “Douane” OneTap est distribuée sur deux étages réels :
   - fusion d’une liste d’intents dans le squelette : [mergeIntentArrayIntoOneTapSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L747-L850)
   - titre affichable (strict) : le titre final est `CONTENT` (nettoyé par l’IA via prompt) et ne subit pas de post-processing lexical/regex côté client (seulement trim/majuscule).
   - normalisation temporelle (dueDateTime ISO, recurrence null si vide, logisticsPotential) : [normalizeUniversalTemporalInData](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L165-L220).
+  - Top-Down Sync (Gemini patron) : si Path B met à jour `dueDateTime` (ou `arrivalDue`), le client doit recalculer et écraser `dueDateYmd` + `dueTimeHm` à partir du timestamp ISO afin d’éviter toute divergence avec les heuristiques Path A (chrono-node).
 - Si aucune intention n’est extraite : le brouillon final reste le squelette Path A (pas de NOTE_FALLBACK à ce stade), avec logs debug éventuels : [refineOneTapWithGeminiCompressed](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L1236-L1378).
 
 2) Douane de persistance (côté DB) — [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L893-L1281)
@@ -203,8 +204,8 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Largeur & respiration : le conteneur principal de la carte (rectangle neumorphique) ne doit pas être “bord à bord”. Il conserve un retrait horizontal visible (gouttières) pour laisser respirer le texte, et peut être plafonné par un `maxWidth` afin d’éviter les lignes trop longues sur grands écrans.
 - Densité & hauteur : la carte Phase 2 doit être plus fine (hauteur visuelle cible 105) ; l’espacement vertical entre cartes est géré par le flux (ex. `marginBottom` côté carte) et la respiration horizontale par le parent (ex. wrapper `paddingHorizontal: 16` dans `TimelineScreen`).
 - Titre intelligent (universal) : la ligne 1 affiche `row.title` (source de vérité Gemini). `generateSmartTitle(row.content_raw)` reste un fallback local (offline/heuristique), jamais un nettoyage appliqué sur un titre Gemini.
-- Sous-titre temporel : la ligne 2 affiche uniquement la date relative + heure (ex. “Aujourd’hui • 09:30”), sans répétition d’informations déjà présentes dans le titre. La date relative est calculée en local via `formatYmdLocal` (et comparaison à J+0/J+1).
-- Mirroring temporel : l’affichage de date doit être relatif (ex. “Aujourd’hui”, “Demain”) suivi de l’heure précise, dérivée du champ `due_date` (stocké en ISO 8601 côté SQLite Trankil‑v2). L’affichage UI ne doit pas altérer le tri ni la valeur persistée.
+- Sous-titre temporel : la ligne 2 affiche uniquement la date relative + heure (ex. “Aujourd’hui • 09:30”), sans répétition d’informations déjà présentes dans le titre. La date relative est calculée en local via `formatYmdLocal` (et comparaison à J+0/J+1) à partir de la meilleure source temporelle disponible (voir mirroring).
+- Mirroring temporel (priorité ISO) : l’affichage de date doit utiliser en priorité absolue un timestamp ISO (`due_date` SQLite / `dueDateTime` OneTap). Les champs `dueDateYmd` / `dueTimeHm` ne sont utilisés qu’en fallback si aucun ISO n’est disponible. L’affichage UI ne doit pas altérer le tri ni la valeur persistée.
 
 ### 2) Découplage Pilotage / Contenu
 

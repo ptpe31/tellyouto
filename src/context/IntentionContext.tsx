@@ -609,11 +609,33 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             if (seq !== geminiSeqRef.current) return;
             const clean = generateSmartTitle(chunk, uiLocale);
             const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
-            const ymd = typeof d.dueDateYmd === 'string' ? d.dueDateYmd.trim() : '';
-            const hm = typeof d.dueTimeHm === 'string' ? d.dueTimeHm.trim() : '';
+            const dueIso = typeof d.dueDateTime === 'string' ? d.dueDateTime.trim() : '';
+            const parsedDue = dueIso ? new Date(dueIso) : null;
+            const dueDate = parsedDue && Number.isFinite(parsedDue.getTime()) ? parsedDue : null;
+            const ymd = dueDate
+              ? formatYmdLocal(dueDate)
+              : typeof d.dueDateYmd === 'string'
+                ? d.dueDateYmd.trim()
+                : '';
+            const hm = dueDate
+              ? new Intl.DateTimeFormat(uiLocale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(dueDate)
+              : typeof d.dueTimeHm === 'string'
+                ? d.dueTimeHm.trim()
+                : '';
             const today = formatYmdLocal(now);
             const tomorrow = addDaysYmd(now, 1);
-            const relativeDate = ymd === today ? "Aujourd’hui" : ymd === tomorrow ? 'Demain' : ymd ? ymd : '—';
+            const weekday =
+              dueDate && ymd ? new Intl.DateTimeFormat(uiLocale, { weekday: 'long' }).format(dueDate) : '';
+            const relativeDate =
+              ymd === today
+                ? "Aujourd’hui"
+                : ymd === tomorrow
+                  ? 'Demain'
+                  : weekday
+                    ? `${weekday.charAt(0).toLocaleUpperCase(uiLocale)}${weekday.slice(1)}`
+                    : ymd
+                      ? ymd
+                      : '—';
             const timeLabel = hm || '—';
             const categoryCode = String(res.parsed.categoryTag || '').trim() || 'PERSO';
             const geminiMsLabel = Number.isFinite(res.httpMeta.latencyMs) ? String(Math.round(res.httpMeta.latencyMs)) : '—';
