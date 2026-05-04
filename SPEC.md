@@ -249,6 +249,49 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Adaptation interne : si le titre prend 2 lignes, le padding vertical interne de la carte peut être réduit pour maintenir la hauteur totale à 105dp sans déborder.
 - Contrat de lisibilité : pour les titres qui dépassent cette capacité, l’utilisateur doit pouvoir consulter le texte complet via un appui long ou via une vue détaillée (ex. TalkDebugScreen).
 
+## Détails Intention (Bottom Sheet)
+
+### 1) UI (Bottom Sheet) & Preuve de Source
+
+- Format : la vue détaillée d’une intention s’affiche sous forme de Bottom Sheet (panneau coulissant depuis le bas), fermable par swipe vers le bas (et tap sur le backdrop si applicable).
+- Header :
+  - Titre principal : `CONTENT` (display_title).
+  - Sous-titre : `{JourLabel} • {Heure}` identique à la Timeline (voir contrat “Sous‑titre temporel (maquette)”).
+- Preuve de source (transcription) :
+  - Une section “Transcription / Source” affiche `memo` / texte brut original (ex. `content_raw` / champ memo OneTap) en italique.
+  - Objectif : l’utilisateur voit la source exacte utilisée par l’IA.
+
+### 2) Checkboxes (Persistance totale)
+
+- Détection : si le contenu correspond à une liste (items séparés, tirets, puces), la vue génère des lignes avec cases à cocher.
+- Persistance : l’état checked/unchecked est sauvegardé en temps réel (UPDATE immédiat) et doit survivre à un redémarrage.
+- Stockage (à trancher à l’implémentation) :
+  - Option A : table dédiée `intention_check_items` (recommandé pour requêtes/tri).
+  - Option B : champ JSON dans `metadata_json` (plus simple, moins queryable).
+
+### 3) TRIP — Newton & Alertes
+
+- Newton switch : interrupteur “Activer Newton”.
+  - État initial : `false`.
+  - Calcul fenêtres de tir + alertes de départ : activé uniquement si l’utilisateur active Newton manuellement.
+- Triangle d’alerte (⚠️) en Timeline :
+  - Affiché si l’intention est un TRIP et que les détails n’ont pas été validés.
+  - Disparaît dès la première interaction/validation dans la Bottom Sheet (persistée).
+
+### 4) TRIP — Transport & Carbone
+
+- Sélecteur de mode : 4 icônes (Auto, Transit, Walking, Bike). Par défaut : `auto`.
+- Persistance : le mode de transport doit être persisté en SQLite (champ dédié ou metadata), et un champ DB peut être nécessaire.
+- Indicateur carbone :
+  - Walking/Bike : badge “Eco‑Friendly”.
+  - Auto : texte d’impact estimé (ex. “Impact CO2 standard”).
+- Action : bouton “Lancer l’itinéraire” ouvrant un deep link vers Maps/Waze avec le travel mode.
+
+### 5) Synchronisation (Top‑Down Sync)
+
+- Temps réel : toute modification (heure, mode de transport, switch Newton, checkbox) déclenche un UPDATE SQL immédiat via le repository.
+- Refresh : la Timeline se rafraîchit automatiquement en arrière‑plan (icône triangle, heure, sous‑titre, etc.).
+
 ## Pile technique
 
 ### Client (app Expo / React Native)
