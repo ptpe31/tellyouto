@@ -15,8 +15,13 @@ export async function ensureLocationFavoritesSchema(): Promise<void> {
         alias TEXT PRIMARY KEY NOT NULL,
         formatted_address TEXT NOT NULL,
         lat REAL NOT NULL,
-        lng REAL NOT NULL
+        lng REAL NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
       );
+      CREATE INDEX IF NOT EXISTS idx_location_favorites_dirty_updated
+        ON location_favorites (is_dirty, updated_at DESC);
     `);
   });
 }
@@ -24,10 +29,11 @@ export async function ensureLocationFavoritesSchema(): Promise<void> {
 export async function upsertLocationFavorite(input: LocationFavoriteRow): Promise<void> {
   await ensureLocationFavoritesSchema();
   await withTrankilV2Database(async (db) => {
+    const now = Date.now();
     await db.runAsync(
-      `INSERT OR REPLACE INTO location_favorites (alias, formatted_address, lat, lng)
-       VALUES (?, ?, ?, ?)`,
-      [input.alias.trim(), input.formattedAddress.trim(), input.lat, input.lng]
+      `INSERT OR REPLACE INTO location_favorites (alias, formatted_address, lat, lng, updated_at, is_dirty, server_version)
+       VALUES (?, ?, ?, ?, ?, 1, 0)`,
+      [input.alias.trim(), input.formattedAddress.trim(), input.lat, input.lng, now]
     );
   });
 }

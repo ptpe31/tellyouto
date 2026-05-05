@@ -4,7 +4,7 @@ import {
   insertTrankilV2Intention,
 } from '../../api/trankilV2Db';
 import { geminiListInventoryFromTranscript } from '../geminiSemanticLab';
-import { geminiJsonToStoredPayload, mergeListPayloadIntoMetadataJson } from '../listIntentionModel';
+import { buildListMetadataPatch, geminiJsonToStoredPayload } from '../listIntentionModel';
 import type { CaptureStrategyDeps } from './types';
 import type { ListCaptureOutcome } from './types';
 
@@ -48,7 +48,7 @@ export async function executeListInventoryCapture(input: ExecuteListCaptureInput
     });
     const payload = geminiJsonToStoredPayload(parsed);
     const id = deps.newId();
-    const meta = mergeListPayloadIntoMetadataJson('{}', payload);
+    const meta = JSON.stringify(buildListMetadataPatch(payload));
     await insertTrankilV2Intention({
       id,
       type: 'LIST',

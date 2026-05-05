@@ -4,7 +4,7 @@ import {
   deleteTrankilV2IntentionById,
   finalizeOfflineFirstHabitFromShell,
   getTrankilV2IntentionById,
-  updateTrankilV2IntentionMetadataJson,
+  patchMetadata,
   updateTrankilV2IntentionPendingAiFlag,
 } from '../api/trankilV2Db';
 import {
@@ -17,7 +17,7 @@ import {
 import { persistGeminiExpertRows } from './ProjectPlanFlowService';
 import { cleanTranscriptText } from './smartTitle';
 import { computeNextYearlyDueDateFromNativeDate, formatYmdLocal, hasAnniversaryKeyword } from './TimeSorter';
-import { applyOfflineFirstShellFailure, mergeIntentionMetadataJson } from './captureOfflineFirstUtils';
+import { applyOfflineFirstShellFailure } from './captureOfflineFirstUtils';
 import { safeParseGeminiExpertRows } from './geminiResponseGuards';
 
 function parseDueDateFromLocale(text: string, locale: string): string | null {
@@ -200,13 +200,7 @@ export async function retryOfflineFirstAiSort(params: {
   if (!kind) return { ok: false, error: new Error('MISSING_CAPTURE_KIND') };
 
   await updateTrankilV2IntentionPendingAiFlag(intentionId, 1);
-  await updateTrankilV2IntentionMetadataJson(
-    intentionId,
-    mergeIntentionMetadataJson(row.metadata_json, {
-      ai_processing_failed: false,
-      ai_transient_error: false,
-    }),
-  );
+  await patchMetadata(intentionId, { ai_processing_failed: false, ai_transient_error: false });
 
   try {
     if (kind === 'HABIT') {

@@ -95,6 +95,7 @@ export function TimelineListItemRow({
             <Text style={titleStyle} numberOfLines={3}>
               {titleText}
             </Text>
+            {row.is_dirty === 1 ? <View style={styles.dirtyDot} /> : null}
             {isPro && row.is_synced_calendar === 1 ? (
               <View style={styles.syncBadge}>
                 <CalendarCheck size={listKey === 'archives' ? 16 : 14} color="#0ea5a4" />
@@ -174,6 +175,7 @@ const styles = StyleSheet.create({
   },
   bodyMuted: { opacity: 0.55 },
   createdMeta: { fontSize: 11, marginTop: 6 },
+  dirtyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#f59e0b' },
   syncBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   syncBadgeText: { color: '#0ea5a4', fontSize: 11, fontWeight: '700' },
 });

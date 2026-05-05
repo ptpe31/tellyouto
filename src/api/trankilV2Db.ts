@@ -3,6 +3,7 @@ import { DeviceEventEmitter } from 'react-native';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
+import { newUuidV4 } from '../utils/uuid';
 
 export type TrankilIntentType = 'TASK' | 'HABIT' | 'NOTE' | 'AUDIO' | 'PROJECT' | 'LIST';
 export type TrankilIntentStatus = 'TODO' | 'DONE' | 'ARCHIVED';
@@ -23,6 +24,9 @@ export type TrankilV2IntentionRow = {
   is_local_processed: number;
   complexity_level: number;
   created_at: number;
+  updated_at: number;
+  is_dirty: number;
+  server_version: number;
   calendar_event_id?: string | null;
   calendar_name?: string | null;
   is_synced_calendar?: number;
@@ -48,7 +52,7 @@ export type TrankilV2IntentionRow = {
   tokens_completion?: number | null;
   tokens_total?: number | null;
   cost?: number | null;
-  location_id?: number | null;
+  location_id?: string | null;
   transport_mode?: string | null;
 };
 
@@ -58,6 +62,8 @@ export type TrankilV2TimelineItemRow = {
   status: TrankilIntentStatus;
   due_date: string | null;
   created_at: number;
+  updated_at?: number;
+  is_dirty?: number;
   content_raw: string;
   parent_id: string | null;
   project_title: string | null;
@@ -147,6 +153,28 @@ let pragmasApplied = false;
 let schemaInitPromise: Promise<void> | null = null;
 let schemaReady = false;
 let bootstrapPromise: Promise<void> | null = null;
+
+let sqliteQueueTail: Promise<unknown> = Promise.resolve();
+let sqliteReentrantDepth = 0;
+
+async function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> {
+  if (sqliteReentrantDepth > 0) {
+    return operation();
+  }
+  const next = sqliteQueueTail.then(async () => {
+    sqliteReentrantDepth += 1;
+    try {
+      return await operation();
+    } finally {
+      sqliteReentrantDepth -= 1;
+    }
+  });
+  sqliteQueueTail = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
 
 function resetTrankilV2RuntimeState(): void {
   dbPromise = null;
@@ -239,6 +267,14 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
         }
         pragmasApplied = true;
       }
+      const anyDb = db as any;
+      if (!anyDb.__trankilV2Serialized) {
+        const rawRunAsync = db.runAsync.bind(db);
+        const rawExecAsync = db.execAsync.bind(db);
+        anyDb.runAsync = (...args: any[]) => runSerializedSqlite(() => (rawRunAsync as any)(...args));
+        anyDb.execAsync = (...args: any[]) => runSerializedSqlite(() => (rawExecAsync as any)(...args));
+        anyDb.__trankilV2Serialized = true;
+      }
       return db;
     });
   }
@@ -256,16 +292,18 @@ export async function bootstrapTrankilV2Database(): Promise<void> {
 export async function withTrankilV2Database<T>(
   fn: (db: SQLite.SQLiteDatabase) => Promise<T>,
 ): Promise<T> {
-  const db = await getDb();
-  try {
-    return await fn(db);
-  } catch (e) {
-    if (!isNativePrepareAsyncRejected(e)) throw e;
-    console.log('[DATABASE] ♻️ Reset connexion SQLite (NativeDatabase.prepareAsync rejected)');
-    resetTrankilV2RuntimeState();
-    const next = await getDb();
-    return fn(next);
-  }
+  return runSerializedSqlite(async () => {
+    const db = await getDb();
+    try {
+      return await fn(db);
+    } catch (e) {
+      if (!isNativePrepareAsyncRejected(e)) throw e;
+      console.log('[DATABASE] ♻️ Reset connexion SQLite (NativeDatabase.prepareAsync rejected)');
+      resetTrankilV2RuntimeState();
+      const next = await getDb();
+      return fn(next);
+    }
+  });
 }
 
 function notifyIntentionsChanged(payload?: { id?: string; reason?: string }): void {
@@ -287,507 +325,45 @@ async function syncAfterIntentionWrite(reason: string): Promise<void> {
 export async function initTrankilV2Schema(): Promise<void> {
   if (schemaReady) return;
   if (schemaInitPromise) return schemaInitPromise;
-  schemaInitPromise = (async () => {
+  schemaInitPromise = runSerializedSqlite(async () => {
     const db = await getDb();
-    if (VERBOSE_DEBUG) console.log('[SQL_TRACE] 🏁 Tentative de création de table intentions...');
-    await db.execAsync(`CREATE TABLE IF NOT EXISTS intentions (
-      id TEXT PRIMARY KEY NOT NULL,
-      type TEXT NOT NULL,
-      title TEXT NOT NULL,
-      due_date TEXT,
-      content_raw TEXT NOT NULL DEFAULT '',
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      suggested_tags TEXT NOT NULL DEFAULT '[]',
-      category_id TEXT,
-      category TEXT,
-      parent_id TEXT,
-      status TEXT NOT NULL DEFAULT 'TODO',
-      is_organized INTEGER NOT NULL DEFAULT 0,
-      is_local_processed INTEGER NOT NULL DEFAULT 0,
-      complexity_level INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL,
-      calendar_event_id TEXT,
-      calendar_name TEXT,
-      is_synced_calendar INTEGER NOT NULL DEFAULT 0,
-      alarm_enabled INTEGER NOT NULL DEFAULT 0,
-      remind_at INTEGER,
-      local_notification_id TEXT,
-      recurrence_rrule TEXT,
-      is_done INTEGER NOT NULL DEFAULT 0,
-      done_at INTEGER,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      archived_at INTEGER,
-      is_pending_ai INTEGER NOT NULL DEFAULT 0,
-      remind_to_leave INTEGER NOT NULL DEFAULT 0,
-      location_address TEXT,
-      ai_model_used TEXT,
-      ai_latency_ms INTEGER,
-      tokens_prompt INTEGER,
-      tokens_completion INTEGER,
-      tokens_total INTEGER,
-      cost REAL,
-      debug_tokens INTEGER,
-      debug_latency_ms INTEGER,
-      location_id INTEGER,
-      transport_mode TEXT
-    );`);
-    if (VERBOSE_DEBUG) console.log('[SQL_TRACE] ✅ Réussite création table intentions.');
-    const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(intentions)`);
-    const has = (name: string) => cols.some((c) => c.name === name);
-    const ensureCol = async (name: string, sql: string) => {
-      if (has(name)) return;
-      if (VERBOSE_DEBUG) console.log('[SQL_TRACE] 🏁 Ajout colonne manquante:', name);
-      await db.execAsync(sql);
-      if (VERBOSE_DEBUG) console.log('[SQL_TRACE] ✅ Colonne ajoutée:', name);
-    };
-    await ensureCol('due_date', `ALTER TABLE intentions ADD COLUMN due_date TEXT;`);
-    await ensureCol('content_raw', `ALTER TABLE intentions ADD COLUMN content_raw TEXT NOT NULL DEFAULT '';`);
-    await ensureCol('metadata_json', `ALTER TABLE intentions ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';`);
-    await ensureCol('suggested_tags', `ALTER TABLE intentions ADD COLUMN suggested_tags TEXT NOT NULL DEFAULT '[]';`);
-    await ensureCol('category_id', `ALTER TABLE intentions ADD COLUMN category_id TEXT;`);
-    await ensureCol('category', `ALTER TABLE intentions ADD COLUMN category TEXT;`);
-    await ensureCol('parent_id', `ALTER TABLE intentions ADD COLUMN parent_id TEXT;`);
-    await ensureCol('status', `ALTER TABLE intentions ADD COLUMN status TEXT NOT NULL DEFAULT 'TODO';`);
-    await ensureCol('is_organized', `ALTER TABLE intentions ADD COLUMN is_organized INTEGER NOT NULL DEFAULT 0;`);
-    await ensureCol('is_local_processed', `ALTER TABLE intentions ADD COLUMN is_local_processed INTEGER NOT NULL DEFAULT 0;`);
-    await ensureCol('complexity_level', `ALTER TABLE intentions ADD COLUMN complexity_level INTEGER NOT NULL DEFAULT 1;`);
-    await ensureCol('calendar_event_id', `ALTER TABLE intentions ADD COLUMN calendar_event_id TEXT;`);
-    await ensureCol('calendar_name', `ALTER TABLE intentions ADD COLUMN calendar_name TEXT;`);
-    await ensureCol('is_synced_calendar', `ALTER TABLE intentions ADD COLUMN is_synced_calendar INTEGER NOT NULL DEFAULT 0;`);
-    await ensureCol('alarm_enabled', `ALTER TABLE intentions ADD COLUMN alarm_enabled INTEGER NOT NULL DEFAULT 0;`);
-    await ensureCol('remind_at', `ALTER TABLE intentions ADD COLUMN remind_at INTEGER;`);
-    await ensureCol('local_notification_id', `ALTER TABLE intentions ADD COLUMN local_notification_id TEXT;`);
-    await ensureCol('recurrence_rrule', `ALTER TABLE intentions ADD COLUMN recurrence_rrule TEXT;`);
-    await ensureCol('is_done', `ALTER TABLE intentions ADD COLUMN is_done INTEGER NOT NULL DEFAULT 0;`);
-    await ensureCol('done_at', `ALTER TABLE intentions ADD COLUMN done_at INTEGER;`);
-    await ensureCol('is_archived', `ALTER TABLE intentions ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;`);
-    await ensureCol('archived_at', `ALTER TABLE intentions ADD COLUMN archived_at INTEGER;`);
-    await ensureCol('is_pending_ai', `ALTER TABLE intentions ADD COLUMN is_pending_ai INTEGER NOT NULL DEFAULT 0;`);
-    await ensureCol('remind_to_leave', `ALTER TABLE intentions ADD COLUMN remind_to_leave INTEGER NOT NULL DEFAULT 0;`);
-    await ensureCol('location_address', `ALTER TABLE intentions ADD COLUMN location_address TEXT;`);
-    await ensureCol('ai_model_used', `ALTER TABLE intentions ADD COLUMN ai_model_used TEXT;`);
-    await ensureCol('ai_latency_ms', `ALTER TABLE intentions ADD COLUMN ai_latency_ms INTEGER;`);
-    await ensureCol('tokens_prompt', `ALTER TABLE intentions ADD COLUMN tokens_prompt INTEGER;`);
-    await ensureCol('tokens_completion', `ALTER TABLE intentions ADD COLUMN tokens_completion INTEGER;`);
-    await ensureCol('tokens_total', `ALTER TABLE intentions ADD COLUMN tokens_total INTEGER;`);
-    await ensureCol('cost', `ALTER TABLE intentions ADD COLUMN cost REAL;`);
-    await ensureCol('debug_tokens', `ALTER TABLE intentions ADD COLUMN debug_tokens INTEGER;`);
-    await ensureCol('debug_latency_ms', `ALTER TABLE intentions ADD COLUMN debug_latency_ms INTEGER;`);
-    await ensureCol('location_id', `ALTER TABLE intentions ADD COLUMN location_id INTEGER;`);
-    await ensureCol('transport_mode', `ALTER TABLE intentions ADD COLUMN transport_mode TEXT;`);
+    try {
+      await db.execAsync('PRAGMA foreign_keys = ON;');
+    } catch {}
+    const now = Date.now();
 
-    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);`);
-    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);`);
-
-    await db.execAsync(`CREATE TABLE IF NOT EXISTS user_stats (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      ia_credits INTEGER NOT NULL DEFAULT 10,
-      zen_points INTEGER NOT NULL DEFAULT 0,
-      growth_score INTEGER NOT NULL DEFAULT 0,
-      local_action_streak INTEGER NOT NULL DEFAULT 0,
-      ad_last_reward_at INTEGER,
-      ad_videos_watched INTEGER NOT NULL DEFAULT 0,
-      pending_sync_ia_credits INTEGER NOT NULL DEFAULT 0,
-      recharge_window_started_at INTEGER,
-      recharge_videos_in_window INTEGER NOT NULL DEFAULT 0,
-      recharge_last_video_at INTEGER,
-      free_capture_day_ymd TEXT,
-      free_capture_remaining INTEGER NOT NULL DEFAULT 3
-    );`);
-    await db.execAsync(
-      `INSERT OR IGNORE INTO user_stats (id, ia_credits, zen_points, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at)
-       VALUES (1, 10, 0, 0, 0, NULL, 0, 0, NULL, 0, NULL);`,
-    );
-    await db.execAsync(`CREATE TABLE IF NOT EXISTS categories (
-      id TEXT PRIMARY KEY NOT NULL,
-      label TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
-    );`);
-    for (const category of DEFAULT_HORIZON_CATEGORIES) {
-      await db.runAsync(`INSERT OR IGNORE INTO categories (id, label, sort_order) VALUES (?, ?, ?)`, [
-        category.id,
-        category.label,
-        category.sort_order,
-      ]);
-    }
-
-    const testId = `system_ready_${Date.now()}`;
-    await db.runAsync(`INSERT OR REPLACE INTO intentions (id, type, title, created_at) VALUES (?, 'NOTE', 'System Ready', ?)`, [
-      testId,
-      Date.now(),
-    ]);
-    const check = await db.getFirstAsync<{ title: string }>(`SELECT title FROM intentions WHERE id = ? LIMIT 1`, [testId]);
-    if (check?.title === 'System Ready' && VERBOSE_DEBUG) console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
-    schemaReady = true;
-  })();
-  await schemaInitPromise;
-  return;
-  const db = await getDb();
-  await db.execAsync(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-
-    CREATE TABLE IF NOT EXISTS locations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      formatted_address TEXT NOT NULL,
-      place_id TEXT,
-      lat REAL,
-      lng REAL,
-      updated_at_ms INTEGER NOT NULL
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_place_id
-      ON locations (place_id);
-    CREATE INDEX IF NOT EXISTS idx_locations_updated_at
-      ON locations (updated_at_ms DESC);
-
-    CREATE TABLE IF NOT EXISTS location_anchors (
-      anchor TEXT PRIMARY KEY NOT NULL,
-      location_id INTEGER,
-      label TEXT,
-      FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_location_anchors_location_id
-      ON location_anchors (location_id);
-
-    CREATE TABLE IF NOT EXISTS intentions (
-      id TEXT PRIMARY KEY NOT NULL,
-      type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT', 'LIST')),
-      title TEXT NOT NULL,
-      due_date TEXT,
-      content_raw TEXT NOT NULL DEFAULT '',
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      suggested_tags TEXT NOT NULL DEFAULT '[]',
-      category_id TEXT,
-      category TEXT,
-      parent_id TEXT,
-      status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE', 'ARCHIVED')),
-      is_organized INTEGER NOT NULL DEFAULT 0 CHECK (is_organized IN (0, 1)),
-      is_local_processed INTEGER NOT NULL DEFAULT 0 CHECK (is_local_processed IN (0, 1)),
-      complexity_level INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL,
-      calendar_event_id TEXT,
-      calendar_name TEXT,
-      is_synced_calendar INTEGER NOT NULL DEFAULT 0 CHECK (is_synced_calendar IN (0, 1)),
-      alarm_enabled INTEGER NOT NULL DEFAULT 0 CHECK (alarm_enabled IN (0, 1)),
-      remind_at INTEGER,
-      local_notification_id TEXT,
-      recurrence_rrule TEXT
-      ,
-      is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1)),
-      done_at INTEGER,
-      is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1)),
-      archived_at INTEGER,
-      is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1)),
-      remind_to_leave INTEGER NOT NULL DEFAULT 0 CHECK (remind_to_leave IN (0, 1)),
-      location_address TEXT,
-      ai_model_used TEXT,
-      ai_latency_ms INTEGER,
-      tokens_prompt INTEGER,
-      tokens_completion INTEGER,
-      tokens_total INTEGER,
-      location_id INTEGER,
-      FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_intentions_type_status
-      ON intentions (type, status);
-    CREATE INDEX IF NOT EXISTS idx_intentions_created_at
-      ON intentions (created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_intentions_location_id
-      ON intentions (location_id);
-    CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used
-      ON intentions (ai_model_used);
-
-    CREATE TABLE IF NOT EXISTS categories (
-      id TEXT PRIMARY KEY NOT NULL,
-      label TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS user_identity (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      firebase_uid TEXT,
-      user_email TEXT,
-      plan_type TEXT NOT NULL DEFAULT 'FREE',
-      subscription_status TEXT NOT NULL DEFAULT 'INACTIVE',
-      sync_enabled INTEGER NOT NULL DEFAULT 0 CHECK (sync_enabled IN (0, 1)),
-      last_sync_at_ms INTEGER
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identity_firebase_uid
-      ON user_identity (firebase_uid);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identity_user_email
-      ON user_identity (user_email);
-    INSERT OR IGNORE INTO user_identity (id) VALUES (1);
-
-    CREATE TABLE IF NOT EXISTS user_billing_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      daily_intentions_limit INTEGER NOT NULL DEFAULT 0,
-      current_day_intentions_count INTEGER NOT NULL DEFAULT 0,
-      daily_notes_limit INTEGER NOT NULL DEFAULT 0,
-      current_day_notes_count INTEGER NOT NULL DEFAULT 0,
-      trip_credits_balance INTEGER NOT NULL DEFAULT 0,
-      feature_flags_json TEXT NOT NULL DEFAULT '{}'
-    );
-    INSERT OR IGNORE INTO user_billing_state (id) VALUES (1);
-
-    CREATE TABLE IF NOT EXISTS user_knowledge (
-      key TEXT PRIMARY KEY NOT NULL,
-      value_text TEXT NOT NULL DEFAULT '',
-      value_json TEXT NOT NULL DEFAULT '{}',
-      namespace TEXT NOT NULL DEFAULT 'USER' CHECK (namespace IN ('USER', 'IA')),
-      confidence_score REAL NOT NULL DEFAULT 0.0 CHECK (confidence_score >= 0.0 AND confidence_score <= 1.0),
-      updated_at_ms INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_user_knowledge_namespace
-      ON user_knowledge (namespace);
-    CREATE INDEX IF NOT EXISTS idx_user_knowledge_updated_at
-      ON user_knowledge (updated_at_ms DESC);
-
-    CREATE TABLE IF NOT EXISTS user_context (
-      key TEXT PRIMARY KEY NOT NULL,
-      value_json TEXT NOT NULL DEFAULT '{}'
-    );
-
-    CREATE TABLE IF NOT EXISTS user_stats (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      ia_credits INTEGER NOT NULL DEFAULT 10,
-      zen_points INTEGER NOT NULL DEFAULT 0,
-      local_action_streak INTEGER NOT NULL DEFAULT 0,
-      ad_last_reward_at INTEGER,
-      ad_videos_watched INTEGER NOT NULL DEFAULT 0,
-      pending_sync_ia_credits INTEGER NOT NULL DEFAULT 0,
-      recharge_window_started_at INTEGER,
-      recharge_videos_in_window INTEGER NOT NULL DEFAULT 0,
-      recharge_last_video_at INTEGER
-    );
-
-    INSERT OR IGNORE INTO user_stats (id, ia_credits, zen_points, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at)
-    VALUES (1, 10, 0, 0, NULL, 0, 0, NULL, 0, NULL);
-
-    CREATE TABLE IF NOT EXISTS bonus_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      bonus_type TEXT NOT NULL,
-      is_accepted INTEGER NOT NULL DEFAULT 0,
-      triggered_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS emergency_logs (
-      id TEXT PRIMARY KEY NOT NULL,
-      error_message TEXT NOT NULL,
-      stack TEXT NOT NULL DEFAULT '',
-      intentions_json TEXT NOT NULL DEFAULT '[]',
-      created_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS user_activity_logs (
-      id TEXT PRIMARY KEY NOT NULL,
-      created_at INTEGER NOT NULL,
-      day_key TEXT NOT NULL,
-      action_type TEXT NOT NULL,
-      points_delta INTEGER NOT NULL DEFAULT 0,
-      intention_id TEXT,
-      request_id TEXT,
-      api_name TEXT,
-      http_status INTEGER,
-      latency_ms INTEGER,
-      ai_model_used TEXT,
-      tokens_prompt INTEGER,
-      tokens_completion INTEGER,
-      tokens_total INTEGER,
-      meta_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_day_key
-      ON user_activity_logs (day_key);
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_action_day
-      ON user_activity_logs (action_type, day_key);
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created_at
-      ON user_activity_logs (created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_intention_id
-      ON user_activity_logs (intention_id);
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_request_id
-      ON user_activity_logs (request_id);
-  `);
-  const cols = await db.getAllAsync<{ name: string }>(
-    `PRAGMA table_info(intentions)`,
-  );
-  const hasParentId = cols.some((c) => c.name === 'parent_id');
-  if (!hasParentId) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN parent_id TEXT;`);
-  }
-  const hasLocalProcessed = cols.some((c) => c.name === 'is_local_processed');
-  if (!hasLocalProcessed) {
-    await db.execAsync(
-      `ALTER TABLE intentions ADD COLUMN is_local_processed INTEGER NOT NULL DEFAULT 0;`,
-    );
-  }
-  const hasSuggestedTags = cols.some((c) => c.name === 'suggested_tags');
-  if (!hasSuggestedTags) {
-    await db.execAsync(
-      `ALTER TABLE intentions ADD COLUMN suggested_tags TEXT NOT NULL DEFAULT '[]';`,
-    );
-  }
-  const hasComplexityLevel = cols.some((c) => c.name === 'complexity_level');
-  if (!hasComplexityLevel) {
-    await db.execAsync(
-      `ALTER TABLE intentions ADD COLUMN complexity_level INTEGER NOT NULL DEFAULT 1;`,
-    );
-  }
-  const hasCategory = cols.some((c) => c.name === 'category');
-  if (!hasCategory) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN category TEXT;`);
-    await db.execAsync(`UPDATE intentions SET category = category_id WHERE category IS NULL;`);
-  }
-  const hasDueDate = cols.some((c) => c.name === 'due_date');
-  if (!hasDueDate) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN due_date TEXT;`);
-  }
-  const hasCalendarEventId = cols.some((c) => c.name === 'calendar_event_id');
-  if (!hasCalendarEventId) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN calendar_event_id TEXT;`);
-  }
-  const hasCalendarName = cols.some((c) => c.name === 'calendar_name');
-  if (!hasCalendarName) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN calendar_name TEXT;`);
-  }
-  const hasIsSyncedCalendar = cols.some((c) => c.name === 'is_synced_calendar');
-  if (!hasIsSyncedCalendar) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN is_synced_calendar INTEGER NOT NULL DEFAULT 0;`);
-  }
-  const hasAlarmEnabled = cols.some((c) => c.name === 'alarm_enabled');
-  if (!hasAlarmEnabled) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN alarm_enabled INTEGER NOT NULL DEFAULT 0;`);
-  }
-  const hasRemindAt = cols.some((c) => c.name === 'remind_at');
-  if (!hasRemindAt) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN remind_at INTEGER;`);
-  }
-  const hasLocalNotificationId = cols.some((c) => c.name === 'local_notification_id');
-  if (!hasLocalNotificationId) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN local_notification_id TEXT;`);
-  }
-  const hasRecurrenceRrule = cols.some((c) => c.name === 'recurrence_rrule');
-  if (!hasRecurrenceRrule) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN recurrence_rrule TEXT;`);
-  }
-  await db.execAsync(
-    `UPDATE intentions
-     SET due_date = substr(trim(due_date), 1, 4) || '-' || substr(trim(due_date), 5, 2) || '-' || substr(trim(due_date), 7, 2)
-     WHERE due_date IS NOT NULL
-       AND trim(due_date) GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'`,
-  );
-  for (const category of DEFAULT_HORIZON_CATEGORIES) {
-    await db.runAsync(
-      `INSERT OR IGNORE INTO categories (id, label, sort_order) VALUES (?, ?, ?)`,
-      [category.id, category.label, category.sort_order],
-    );
-  }
-  const userStatsCols = await db.getAllAsync<{ name: string }>(
-    `PRAGMA table_info(user_stats)`,
-  );
-  const hasIaCredits = userStatsCols.some((c) => c.name === 'ia_credits');
-  if (!hasIaCredits) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN ia_credits INTEGER NOT NULL DEFAULT 10;`);
-  }
-  const hasZenPoints = userStatsCols.some((c) => c.name === 'zen_points');
-  if (!hasZenPoints) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN zen_points INTEGER NOT NULL DEFAULT 0;`);
-  }
-  const hasGrowthScore = userStatsCols.some((c) => c.name === 'growth_score');
-  if (hasGrowthScore) {
-    await db.execAsync(`UPDATE user_stats SET zen_points = COALESCE(zen_points, growth_score, 0) WHERE id = 1;`);
-  }
-  const hasRemainingIntents = userStatsCols.some((c) => c.name === 'remaining_intents');
-  if (hasRemainingIntents) {
-    await db.execAsync(`UPDATE user_stats SET ia_credits = COALESCE(remaining_intents, ia_credits, 10) WHERE id = 1;`);
-  }
-  if (!hasGrowthScore) {
-    await db.execAsync(
-      `ALTER TABLE user_stats ADD COLUMN growth_score INTEGER NOT NULL DEFAULT 0;`,
-    );
-  }
-  const hasLocalStreak = userStatsCols.some((c) => c.name === 'local_action_streak');
-  if (!hasLocalStreak) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN local_action_streak INTEGER NOT NULL DEFAULT 0;`);
-  }
-  const hasAdLast = userStatsCols.some((c) => c.name === 'ad_last_reward_at');
-  if (!hasAdLast) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN ad_last_reward_at INTEGER;`);
-  }
-  const hasAdVideosWatched = userStatsCols.some((c) => c.name === 'ad_videos_watched');
-  if (!hasAdVideosWatched) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN ad_videos_watched INTEGER NOT NULL DEFAULT 0;`);
-  }
-  const hasPendingSyncCredits = userStatsCols.some((c) => c.name === 'pending_sync_ia_credits');
-  if (!hasPendingSyncCredits) {
-    await db.execAsync(
-      `ALTER TABLE user_stats ADD COLUMN pending_sync_ia_credits INTEGER NOT NULL DEFAULT 0;`,
-    );
-  }
-  const hasRechargeWindowStart = userStatsCols.some((c) => c.name === 'recharge_window_started_at');
-  if (!hasRechargeWindowStart) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN recharge_window_started_at INTEGER;`);
-  }
-  const hasRechargeVideosInWindow = userStatsCols.some((c) => c.name === 'recharge_videos_in_window');
-  if (!hasRechargeVideosInWindow) {
-    await db.execAsync(
-      `ALTER TABLE user_stats ADD COLUMN recharge_videos_in_window INTEGER NOT NULL DEFAULT 0;`,
-    );
-  }
-  const hasRechargeLastVideoAt = userStatsCols.some((c) => c.name === 'recharge_last_video_at');
-  if (!hasRechargeLastVideoAt) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN recharge_last_video_at INTEGER;`);
-  }
-  const hasFreeCaptureDay = userStatsCols.some((c) => c.name === 'free_capture_day_ymd');
-  if (!hasFreeCaptureDay) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN free_capture_day_ymd TEXT;`);
-  }
-  const hasFreeCaptureRemaining = userStatsCols.some((c) => c.name === 'free_capture_remaining');
-  if (!hasFreeCaptureRemaining) {
-    await db.execAsync(
-      `ALTER TABLE user_stats ADD COLUMN free_capture_remaining INTEGER NOT NULL DEFAULT 3;`,
-    );
-  }
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS user_activity_logs (
-      id TEXT PRIMARY KEY NOT NULL,
-      created_at INTEGER NOT NULL,
-      day_key TEXT NOT NULL,
-      action_type TEXT NOT NULL,
-      points_delta INTEGER NOT NULL DEFAULT 0,
-      intention_id TEXT,
-      request_id TEXT,
-      api_name TEXT,
-      http_status INTEGER,
-      latency_ms INTEGER,
-      ai_model_used TEXT,
-      tokens_prompt INTEGER,
-      tokens_completion INTEGER,
-      tokens_total INTEGER,
-      meta_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_day_key
-      ON user_activity_logs (day_key);
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_action_day
-      ON user_activity_logs (action_type, day_key);
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created_at
-      ON user_activity_logs (created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_intention_id
-      ON user_activity_logs (intention_id);
-    CREATE INDEX IF NOT EXISTS idx_user_activity_logs_request_id
-      ON user_activity_logs (request_id);
-  `);
-  await db.execAsync(`UPDATE user_stats SET growth_score = COALESCE(growth_score, zen_points, 0) WHERE id = 1;`);
-  await db.execAsync(`UPDATE user_stats SET zen_points = growth_score WHERE id = 1;`);
-  const tableSql = await db.getFirstAsync<{ sql: string }>(
-    `SELECT sql FROM sqlite_master WHERE type='table' AND name='intentions'`,
-  );
-  const hasArchivedStatusInConstraint = String(tableSql?.sql || '').includes("'ARCHIVED'");
-  if (!hasArchivedStatusInConstraint) {
-    // Reliquat d'une migration interrompue : intentions_v2 peut déjà exister avec des lignes ;
-    // sans DROP, le second INSERT relève une contrainte UNIQUE sur id (ex. après +crédits → init).
     await db.execAsync(`
-      DROP TABLE IF EXISTS intentions_v2;
-      CREATE TABLE intentions_v2 (
+      CREATE TABLE IF NOT EXISTS locations (
+        id TEXT PRIMARY KEY NOT NULL,
+        formatted_address TEXT NOT NULL,
+        place_id TEXT,
+        lat REAL,
+        lng REAL,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_place_id ON locations (place_id);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_locations_updated_at ON locations (updated_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_locations_dirty_updated ON locations (is_dirty, updated_at DESC);`);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS location_anchors (
+        anchor TEXT PRIMARY KEY NOT NULL,
+        location_id TEXT,
+        label TEXT,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_location_anchors_location_id ON location_anchors (location_id);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_location_anchors_dirty_updated ON location_anchors (is_dirty, updated_at DESC);`);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS intentions (
         id TEXT PRIMARY KEY NOT NULL,
         type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT', 'LIST')),
         title TEXT NOT NULL,
@@ -803,6 +379,9 @@ export async function initTrankilV2Schema(): Promise<void> {
         is_local_processed INTEGER NOT NULL DEFAULT 0 CHECK (is_local_processed IN (0, 1)),
         complexity_level INTEGER NOT NULL DEFAULT 1,
         created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0,
         calendar_event_id TEXT,
         calendar_name TEXT,
         is_synced_calendar INTEGER NOT NULL DEFAULT 0 CHECK (is_synced_calendar IN (0, 1)),
@@ -823,45 +402,76 @@ export async function initTrankilV2Schema(): Promise<void> {
         tokens_completion INTEGER,
         tokens_total INTEGER,
         cost REAL,
-        location_id INTEGER,
-        transport_mode TEXT
+        debug_tokens INTEGER,
+        debug_latency_ms INTEGER,
+        location_id TEXT,
+        transport_mode TEXT,
+        FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL
       );
-      INSERT INTO intentions_v2 (
-        id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
-        status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
-        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
-        is_done, done_at, is_archived, archived_at,
-        is_pending_ai, remind_to_leave, location_address,
-        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, location_id, transport_mode
-      )
-      SELECT
-        id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
-        CASE WHEN status IN ('TODO', 'DONE', 'ARCHIVED') THEN status ELSE 'TODO' END,
-        is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
-        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
-        CASE WHEN status = 'DONE' THEN 1 ELSE 0 END,
-        CASE WHEN status = 'DONE' THEN created_at ELSE NULL END,
-        CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END,
-        CASE WHEN status = 'ARCHIVED' THEN created_at ELSE NULL END,
-        0, 0, NULL,
-        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
-      FROM intentions;
-      DROP TABLE intentions;
-      ALTER TABLE intentions_v2 RENAME TO intentions;
-      CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);
-      CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);
-      CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);
     `);
-  }
-  const mustCompactUserStats =
-    userStatsCols.some((c) => c.name === 'flower_boosts') ||
-    userStatsCols.some((c) => c.name === 'pshitt_sprays') ||
-    userStatsCols.some((c) => c.name === 'magic_shake_passes') ||
-    userStatsCols.some((c) => c.name === 'aesthetic_score');
-  if (mustCompactUserStats) {
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_updated_at ON intentions (updated_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_dirty_updated ON intentions (is_dirty, updated_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_status_due_date_created_at ON intentions (status, due_date, created_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_parent_id ON intentions (parent_id);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);`);
+
     await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS user_stats_compact (
+      CREATE TABLE IF NOT EXISTS categories (
+        id TEXT PRIMARY KEY NOT NULL,
+        label TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_categories_sort_order ON categories (sort_order);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_categories_dirty_updated ON categories (is_dirty, updated_at DESC);`);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS user_identity (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        firebase_uid TEXT,
+        user_email TEXT,
+        plan_type TEXT NOT NULL DEFAULT 'FREE',
+        subscription_status TEXT NOT NULL DEFAULT 'INACTIVE',
+        sync_enabled INTEGER NOT NULL DEFAULT 0 CHECK (sync_enabled IN (0, 1)),
+        last_sync_at_ms INTEGER,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identity_firebase_uid ON user_identity (firebase_uid);`);
+    await db.execAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identity_user_email ON user_identity (user_email);`);
+    await db.runAsync(`INSERT OR IGNORE INTO user_identity (id, updated_at, is_dirty, server_version) VALUES (1, ?, 0, 0);`, [
+      now,
+    ]);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS user_billing_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        plan_type TEXT NOT NULL DEFAULT 'FREE',
+        daily_intentions_limit INTEGER NOT NULL DEFAULT 0,
+        current_day_intentions_count INTEGER NOT NULL DEFAULT 0,
+        daily_notes_limit INTEGER NOT NULL DEFAULT 0,
+        current_day_notes_count INTEGER NOT NULL DEFAULT 0,
+        trip_credits_balance INTEGER NOT NULL DEFAULT 0,
+        feature_flags_json TEXT NOT NULL DEFAULT '{}',
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.runAsync(`INSERT OR IGNORE INTO user_billing_state (id, updated_at, is_dirty, server_version) VALUES (1, ?, 0, 0);`, [
+      now,
+    ]);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS user_stats (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         ia_credits INTEGER NOT NULL DEFAULT 10,
         zen_points INTEGER NOT NULL DEFAULT 0,
@@ -874,223 +484,181 @@ export async function initTrankilV2Schema(): Promise<void> {
         recharge_videos_in_window INTEGER NOT NULL DEFAULT 0,
         recharge_last_video_at INTEGER,
         free_capture_day_ymd TEXT,
-        free_capture_remaining INTEGER NOT NULL DEFAULT 3
+        free_capture_remaining INTEGER NOT NULL DEFAULT 3,
+        list_free_day_ymd TEXT,
+        list_free_remaining INTEGER NOT NULL DEFAULT 1,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
       );
-      INSERT OR REPLACE INTO user_stats_compact (
-        id, ia_credits, zen_points, growth_score, local_action_streak, ad_last_reward_at, ad_videos_watched, pending_sync_ia_credits, recharge_window_started_at, recharge_videos_in_window, recharge_last_video_at, free_capture_day_ymd, free_capture_remaining
-      )
-      SELECT
-        1,
-        COALESCE(ia_credits, remaining_intents, 10),
-        COALESCE(growth_score, zen_points, 0),
-        COALESCE(growth_score, zen_points, 0),
-        COALESCE(local_action_streak, 0),
-        ad_last_reward_at,
-        COALESCE(ad_videos_watched, 0),
-        0,
-        NULL,
-        0,
-        NULL,
-        NULL,
-        3
-      FROM user_stats
-      WHERE id = 1;
-      DROP TABLE user_stats;
-      ALTER TABLE user_stats_compact RENAME TO user_stats;
     `);
-  }
+    await db.runAsync(`INSERT OR IGNORE INTO user_stats (id, updated_at, is_dirty, server_version) VALUES (1, ?, 0, 0);`, [
+      now,
+    ]);
 
-  const colsIntentions = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(intentions)`);
-  if (!colsIntentions.some((c) => c.name === 'is_done')) {
-    await db.execAsync(
-      `ALTER TABLE intentions ADD COLUMN is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1));`,
-    );
-  }
-  if (!colsIntentions.some((c) => c.name === 'done_at')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN done_at INTEGER;`);
-  }
-  if (!colsIntentions.some((c) => c.name === 'is_archived')) {
-    await db.execAsync(
-      `ALTER TABLE intentions ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1));`,
-    );
-  }
-  if (!colsIntentions.some((c) => c.name === 'archived_at')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN archived_at INTEGER;`);
-  }
-  await db.execAsync(
-    `UPDATE intentions SET
-       is_done = CASE WHEN status = 'DONE' THEN 1 ELSE 0 END,
-       is_archived = CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END`,
-  );
-  await db.execAsync(
-    `UPDATE intentions SET done_at = COALESCE(done_at, created_at) WHERE status = 'DONE' AND done_at IS NULL`,
-  );
-  await db.execAsync(
-    `UPDATE intentions SET archived_at = COALESCE(archived_at, created_at) WHERE status = 'ARCHIVED' AND archived_at IS NULL`,
-  );
-
-  const colsIntentionsPending = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(intentions)`);
-  if (!colsIntentionsPending.some((c) => c.name === 'is_pending_ai')) {
-    await db.execAsync(
-      `ALTER TABLE intentions ADD COLUMN is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1));`,
-    );
-  }
-
-  const userStatsCols2 = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(user_stats)`);
-  if (!userStatsCols2.some((c) => c.name === 'list_free_day_ymd')) {
-    await db.execAsync(`ALTER TABLE user_stats ADD COLUMN list_free_day_ymd TEXT;`);
-  }
-  if (!userStatsCols2.some((c) => c.name === 'list_free_remaining')) {
-    await db.execAsync(
-      `ALTER TABLE user_stats ADD COLUMN list_free_remaining INTEGER NOT NULL DEFAULT 1;`,
-    );
-  }
-
-  const tableSqlListType = await db.getFirstAsync<{ sql: string }>(
-    `SELECT sql FROM sqlite_master WHERE type='table' AND name='intentions'`,
-  );
-  if (!String(tableSqlListType?.sql || '').includes("'LIST'")) {
     await db.execAsync(`
-      DROP TABLE IF EXISTS intentions_list_mig;
-      CREATE TABLE intentions_list_mig (
+      CREATE TABLE IF NOT EXISTS user_knowledge (
+        key TEXT PRIMARY KEY NOT NULL,
+        value_text TEXT NOT NULL DEFAULT '',
+        value_json TEXT NOT NULL DEFAULT '{}',
+        namespace TEXT NOT NULL DEFAULT 'USER' CHECK (namespace IN ('USER', 'IA')),
+        confidence_score REAL NOT NULL DEFAULT 0.0 CHECK (confidence_score >= 0.0 AND confidence_score <= 1.0),
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_knowledge_namespace ON user_knowledge (namespace);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_knowledge_updated_at ON user_knowledge (updated_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_knowledge_dirty_updated ON user_knowledge (is_dirty, updated_at DESC);`);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS user_context (
+        key TEXT PRIMARY KEY NOT NULL,
+        value_json TEXT NOT NULL DEFAULT '{}',
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_context_dirty_updated ON user_context (is_dirty, updated_at DESC);`);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS bonus_events (
         id TEXT PRIMARY KEY NOT NULL,
-        type TEXT NOT NULL CHECK (type IN ('TASK', 'HABIT', 'NOTE', 'AUDIO', 'PROJECT', 'LIST')),
-        title TEXT NOT NULL,
-        due_date TEXT,
-        content_raw TEXT NOT NULL DEFAULT '',
-        metadata_json TEXT NOT NULL DEFAULT '{}',
-        suggested_tags TEXT NOT NULL DEFAULT '[]',
-        category_id TEXT,
-        category TEXT,
-        parent_id TEXT,
-        status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE', 'ARCHIVED')),
-        is_organized INTEGER NOT NULL DEFAULT 0 CHECK (is_organized IN (0, 1)),
-        is_local_processed INTEGER NOT NULL DEFAULT 0 CHECK (is_local_processed IN (0, 1)),
-        complexity_level INTEGER NOT NULL DEFAULT 1,
+        bonus_type TEXT NOT NULL,
+        is_accepted INTEGER NOT NULL DEFAULT 0 CHECK (is_accepted IN (0, 1)),
+        triggered_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_bonus_events_triggered_at ON bonus_events (triggered_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_bonus_events_dirty_updated ON bonus_events (is_dirty, updated_at DESC);`);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS emergency_logs (
+        id TEXT PRIMARY KEY NOT NULL,
+        error_message TEXT NOT NULL,
+        stack TEXT NOT NULL DEFAULT '',
+        intentions_json TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
-        calendar_event_id TEXT,
-        calendar_name TEXT,
-        is_synced_calendar INTEGER NOT NULL DEFAULT 0 CHECK (is_synced_calendar IN (0, 1)),
-        alarm_enabled INTEGER NOT NULL DEFAULT 0 CHECK (alarm_enabled IN (0, 1)),
-        remind_at INTEGER,
-        local_notification_id TEXT,
-        recurrence_rrule TEXT,
-        is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1)),
-        done_at INTEGER,
-        is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0, 1)),
-        archived_at INTEGER,
-        is_pending_ai INTEGER NOT NULL DEFAULT 0 CHECK (is_pending_ai IN (0, 1)),
-        remind_to_leave INTEGER NOT NULL DEFAULT 0 CHECK (remind_to_leave IN (0, 1)),
-        location_address TEXT,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_emergency_logs_created_at ON emergency_logs (created_at DESC);`);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS user_activity_logs (
+        id TEXT PRIMARY KEY NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0,
+        day_key TEXT NOT NULL,
+        action_type TEXT NOT NULL,
+        points_delta INTEGER NOT NULL DEFAULT 0,
+        intention_id TEXT,
+        request_id TEXT,
+        api_name TEXT,
+        http_status INTEGER,
+        latency_ms INTEGER,
         ai_model_used TEXT,
-        ai_latency_ms INTEGER,
         tokens_prompt INTEGER,
         tokens_completion INTEGER,
         tokens_total INTEGER,
-        cost REAL,
-        location_id INTEGER,
-        transport_mode TEXT
+        meta_json TEXT NOT NULL DEFAULT '{}'
       );
-      INSERT INTO intentions_list_mig (
-        id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
-        status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
-        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
-        is_done, done_at, is_archived, archived_at, is_pending_ai,
-        remind_to_leave, location_address,
-        ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, location_id, transport_mode
-      )
-      SELECT
-        id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id,
-        status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name,
-        is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
-        COALESCE(is_done, CASE WHEN status = 'DONE' THEN 1 ELSE 0 END),
-        done_at,
-        COALESCE(is_archived, CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END),
-        archived_at,
-        COALESCE(is_pending_ai, 0),
-        0, NULL,
-        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
-      FROM intentions;
-      DROP TABLE intentions;
-      ALTER TABLE intentions_list_mig RENAME TO intentions;
-      CREATE INDEX IF NOT EXISTS idx_intentions_type_status ON intentions (type, status);
-      CREATE INDEX IF NOT EXISTS idx_intentions_created_at ON intentions (created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);
-      CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);
     `);
-  }
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_day_key ON user_activity_logs (day_key);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_action_day ON user_activity_logs (action_type, day_key);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created_at ON user_activity_logs (created_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_intention_id ON user_activity_logs (intention_id);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_request_id ON user_activity_logs (request_id);`);
 
-  const colsIntentionsLogistics = await db.getAllAsync<{ name: string }>(
-    `PRAGMA table_info(intentions)`,
-  );
-  if (!colsIntentionsLogistics.some((c) => c.name === 'remind_to_leave')) {
-    await db.execAsync(
-      `ALTER TABLE intentions ADD COLUMN remind_to_leave INTEGER NOT NULL DEFAULT 0 CHECK (remind_to_leave IN (0, 1));`,
-    );
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'location_address')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN location_address TEXT;`);
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'ai_model_used')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN ai_model_used TEXT;`);
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'ai_latency_ms')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN ai_latency_ms INTEGER;`);
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'tokens_prompt')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN tokens_prompt INTEGER;`);
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'tokens_completion')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN tokens_completion INTEGER;`);
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'tokens_total')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN tokens_total INTEGER;`);
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'cost')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN cost REAL;`);
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'location_id')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN location_id INTEGER;`);
-  }
-  if (!colsIntentionsLogistics.some((c) => c.name === 'transport_mode')) {
-    await db.execAsync(`ALTER TABLE intentions ADD COLUMN transport_mode TEXT;`);
-  }
-  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);`);
-  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);`);
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS sentinel_trips (
+        id TEXT PRIMARY KEY NOT NULL,
+        destination TEXT NOT NULL,
+        arrival_at_ms INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        sentinel_mode TEXT NOT NULL DEFAULT 'SENTINEL',
+        target_duration_sec INTEGER NOT NULL DEFAULT 0,
+        last_traffic_duration INTEGER NOT NULL DEFAULT 0,
+        internal_scan_count INTEGER NOT NULL DEFAULT 0,
+        next_check_at INTEGER,
+        gate_prompted_at INTEGER,
+        last_error_at INTEGER,
+        t_optimiste_ms INTEGER,
+        t_pessimiste_ms INTEGER,
+        vigilance_status TEXT,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_sentinel_trips_status ON sentinel_trips (status);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_sentinel_trips_dirty_updated ON sentinel_trips (is_dirty, updated_at DESC);`);
 
-  const colsUserActivityLogs = await db.getAllAsync<{ name: string }>(
-    `PRAGMA table_info(user_activity_logs)`,
-  );
-  if (!colsUserActivityLogs.some((c) => c.name === 'intention_id')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN intention_id TEXT;`);
-  }
-  if (!colsUserActivityLogs.some((c) => c.name === 'request_id')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN request_id TEXT;`);
-  }
-  if (!colsUserActivityLogs.some((c) => c.name === 'api_name')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN api_name TEXT;`);
-  }
-  if (!colsUserActivityLogs.some((c) => c.name === 'http_status')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN http_status INTEGER;`);
-  }
-  if (!colsUserActivityLogs.some((c) => c.name === 'latency_ms')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN latency_ms INTEGER;`);
-  }
-  if (!colsUserActivityLogs.some((c) => c.name === 'ai_model_used')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN ai_model_used TEXT;`);
-  }
-  if (!colsUserActivityLogs.some((c) => c.name === 'tokens_prompt')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN tokens_prompt INTEGER;`);
-  }
-  if (!colsUserActivityLogs.some((c) => c.name === 'tokens_completion')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN tokens_completion INTEGER;`);
-  }
-  if (!colsUserActivityLogs.some((c) => c.name === 'tokens_total')) {
-    await db.execAsync(`ALTER TABLE user_activity_logs ADD COLUMN tokens_total INTEGER;`);
-  }
-  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created_at ON user_activity_logs (created_at DESC);`);
-  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_intention_id ON user_activity_logs (intention_id);`);
-  await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_user_activity_logs_request_id ON user_activity_logs (request_id);`);
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS location_favorites (
+        alias TEXT PRIMARY KEY NOT NULL,
+        formatted_address TEXT NOT NULL,
+        lat REAL NOT NULL,
+        lng REAL NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_location_favorites_dirty_updated ON location_favorites (is_dirty, updated_at DESC);`);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS offline_audio_queue (
+        id TEXT PRIMARY KEY NOT NULL,
+        intention_id TEXT NOT NULL,
+        transcript TEXT NOT NULL,
+        audio_path TEXT NOT NULL,
+        title TEXT NOT NULL,
+        speech_lang TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        is_pending_ai INTEGER NOT NULL DEFAULT 1 CHECK (is_pending_ai IN (0, 1)),
+        created_at INTEGER NOT NULL,
+        notified_at INTEGER,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_status ON offline_audio_queue (status, created_at DESC);`);
+    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_dirty_updated ON offline_audio_queue (is_dirty, updated_at DESC);`);
+
+    for (const category of DEFAULT_HORIZON_CATEGORIES) {
+      await db.runAsync(`INSERT OR IGNORE INTO categories (id, label, sort_order, updated_at, is_dirty, server_version) VALUES (?, ?, ?, ?, 0, 0)`, [
+        category.id,
+        category.label,
+        category.sort_order,
+        now,
+      ]);
+    }
+
+    const testId = `system_ready_${Date.now()}`;
+    await db.runAsync(`INSERT OR REPLACE INTO intentions (id, type, title, created_at, updated_at) VALUES (?, 'NOTE', 'System Ready', ?, ?)`, [
+      testId,
+      now,
+      now,
+    ]);
+    const check = await db.getFirstAsync<{ title: string }>(`SELECT title FROM intentions WHERE id = ? LIMIT 1`, [
+      testId,
+    ]);
+    if (check?.title === 'System Ready' && VERBOSE_DEBUG) console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
+
+    schemaReady = true;
+  });
+  await schemaInitPromise;
 }
 
 export async function listTrankilV2Intentions(): Promise<TrankilV2IntentionRow[]> {
@@ -1111,7 +679,7 @@ export async function listTrankilV2TimelineItemsByDate(
   await initTrankilV2Schema();
   const db = await getDb();
   const inner = `
-    SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode
+    SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode
     FROM (
       SELECT
         i.id AS id,
@@ -1119,6 +687,8 @@ export async function listTrankilV2TimelineItemsByDate(
         i.status AS status,
         i.due_date AS due_date,
         i.created_at AS created_at,
+        i.updated_at AS updated_at,
+        i.is_dirty AS is_dirty,
         i.content_raw AS content_raw,
         i.parent_id AS parent_id,
         NULL AS project_title,
@@ -1147,6 +717,8 @@ export async function listTrankilV2TimelineItemsByDate(
         i.status AS status,
         i.due_date AS due_date,
         i.created_at AS created_at,
+        i.updated_at AS updated_at,
+        i.is_dirty AS is_dirty,
         i.content_raw AS content_raw,
         i.parent_id AS parent_id,
         p.title AS project_title,
@@ -1177,6 +749,8 @@ export async function listTrankilV2TimelineItemsByDate(
         i.status AS status,
         i.due_date AS due_date,
         i.created_at AS created_at,
+        i.updated_at AS updated_at,
+        i.is_dirty AS is_dirty,
         i.content_raw AS content_raw,
         i.parent_id AS parent_id,
         NULL AS project_title,
@@ -1205,7 +779,11 @@ export async function listTrankilV2TimelineItemsByDate(
         ? = 'WEEK'
         AND effective_date BETWEEN ? AND date(?, '+6 day')
       )
-    ORDER BY section_order ASC, created_at DESC`;
+    ORDER BY
+      section_order ASC,
+      (due_date IS NULL) ASC,
+      due_date ASC,
+      created_at DESC`;
   const baseParams = [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd];
   const { sql, params } = appendTimelinePaging(inner, baseParams, opts?.paging);
   return db.getAllAsync<TrankilV2TimelineItemRow>(sql, params);
@@ -1235,6 +813,8 @@ WITH dated AS (
       i.status AS status,
       i.due_date AS due_date,
       i.created_at AS created_at,
+      i.updated_at AS updated_at,
+      i.is_dirty AS is_dirty,
       i.content_raw AS content_raw,
       i.parent_id AS parent_id,
       NULL AS project_title,
@@ -1261,6 +841,8 @@ WITH dated AS (
       i.status AS status,
       i.due_date AS due_date,
       i.created_at AS created_at,
+      i.updated_at AS updated_at,
+      i.is_dirty AS is_dirty,
       i.content_raw AS content_raw,
       i.parent_id AS parent_id,
       p.title AS project_title,
@@ -1289,6 +871,8 @@ WITH dated AS (
       i.status AS status,
       i.due_date AS due_date,
       i.created_at AS created_at,
+      i.updated_at AS updated_at,
+      i.is_dirty AS is_dirty,
       i.content_raw AS content_raw,
       i.parent_id AS parent_id,
       NULL AS project_title,
@@ -1317,6 +901,8 @@ lowp AS (
     i.status AS status,
     i.due_date AS due_date,
     i.created_at AS created_at,
+    i.updated_at AS updated_at,
+    i.is_dirty AS is_dirty,
     i.content_raw AS content_raw,
     i.parent_id AS parent_id,
     NULL AS project_title,
@@ -1342,7 +928,7 @@ lowp AS (
     ${ctx}
     AND NOT EXISTS (SELECT 1 FROM dated d WHERE d.id = i.id)
 )
-SELECT id, type, status, due_date, created_at, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode
+SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode
 FROM (
   SELECT * FROM dated
   UNION ALL
@@ -1357,6 +943,8 @@ ORDER BY u.section_order ASC,
     ) THEN 0
     ELSE 1
   END,
+  (u.due_date IS NULL) ASC,
+  u.due_date ASC,
   u.created_at DESC
 LIMIT ? OFFSET ?`;
   return db.getAllAsync<TrankilV2TimelineItemRow>(sql, [
@@ -1726,6 +1314,8 @@ export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow)
     status: row.status,
     due_date: row.due_date ?? null,
     created_at: row.created_at,
+    updated_at: row.updated_at,
+    is_dirty: row.is_dirty,
     content_raw: row.content_raw,
     parent_id: row.parent_id,
     project_title: null,
@@ -1795,6 +1385,7 @@ export async function getTrankilV2UserStats(): Promise<TrankilV2UserStatsRow> {
 }
 
 export type TrankilV2BillingStateRow = {
+  plan_type: 'FREE' | 'PREMIUM';
   daily_intentions_limit: number;
   current_day_intentions_count: number;
   daily_notes_limit: number;
@@ -1807,12 +1398,13 @@ export async function getBillingState(): Promise<TrankilV2BillingStateRow> {
   await initTrankilV2Schema();
   const db = await getDb();
   const row = await db.getFirstAsync<TrankilV2BillingStateRow>(
-    `SELECT daily_intentions_limit, current_day_intentions_count, daily_notes_limit, current_day_notes_count, trip_credits_balance, feature_flags_json
+    `SELECT plan_type, daily_intentions_limit, current_day_intentions_count, daily_notes_limit, current_day_notes_count, trip_credits_balance, feature_flags_json
      FROM user_billing_state
      WHERE id = 1`,
   );
   return (
     row ?? {
+      plan_type: 'FREE',
       daily_intentions_limit: 0,
       current_day_intentions_count: 0,
       daily_notes_limit: 0,
@@ -1823,6 +1415,61 @@ export async function getBillingState(): Promise<TrankilV2BillingStateRow> {
   );
 }
 
+export async function updateBillingState(
+  patch: Partial<TrankilV2BillingStateRow>,
+  opts?: { fromSync?: boolean; force_downgrade?: boolean },
+): Promise<void> {
+  await initTrankilV2Schema();
+  await withTrankilV2Database(async (db) => {
+    await db.execAsync('BEGIN IMMEDIATE;');
+    try {
+      const cur = await db.getFirstAsync<{ plan_type: string }>(
+        `SELECT plan_type FROM user_billing_state WHERE id = 1 LIMIT 1`,
+      );
+      const currentPlan = String(cur?.plan_type ?? 'FREE').toUpperCase();
+      const requestedPlan = patch.plan_type ? String(patch.plan_type).toUpperCase() : currentPlan;
+      const nextPlan =
+        currentPlan === 'PREMIUM' && requestedPlan !== 'PREMIUM' && opts?.force_downgrade !== true
+          ? 'PREMIUM'
+          : requestedPlan === 'PREMIUM'
+            ? 'PREMIUM'
+            : 'FREE';
+      const now = Date.now();
+      const isDirty = opts?.fromSync ? 0 : 1;
+      await db.runAsync(
+        `UPDATE user_billing_state SET
+           plan_type = ?,
+           daily_intentions_limit = COALESCE(?, daily_intentions_limit),
+           current_day_intentions_count = COALESCE(?, current_day_intentions_count),
+           daily_notes_limit = COALESCE(?, daily_notes_limit),
+           current_day_notes_count = COALESCE(?, current_day_notes_count),
+           trip_credits_balance = COALESCE(?, trip_credits_balance),
+           feature_flags_json = COALESCE(?, feature_flags_json),
+           updated_at = ?,
+           is_dirty = ?
+         WHERE id = 1`,
+        [
+          nextPlan,
+          patch.daily_intentions_limit ?? null,
+          patch.current_day_intentions_count ?? null,
+          patch.daily_notes_limit ?? null,
+          patch.current_day_notes_count ?? null,
+          patch.trip_credits_balance ?? null,
+          patch.feature_flags_json ?? null,
+          now,
+          isDirty,
+        ],
+      );
+      await db.execAsync('COMMIT;');
+    } catch (e) {
+      try {
+        await db.execAsync('ROLLBACK;');
+      } catch {}
+      throw e;
+    }
+  });
+}
+
 export type TrankilV2KnowledgeNamespace = 'USER' | 'IA';
 
 export type TrankilV2KnowledgeRow = {
@@ -1831,7 +1478,7 @@ export type TrankilV2KnowledgeRow = {
   value_json: string;
   namespace: TrankilV2KnowledgeNamespace;
   confidence_score: number;
-  updated_at_ms: number;
+  updated_at: number;
 };
 
 export async function getKnowledge(
@@ -1842,7 +1489,7 @@ export async function getKnowledge(
   const k = String(key || '').trim();
   if (!k) return null;
   const row = await db.getFirstAsync<TrankilV2KnowledgeRow>(
-    `SELECT key, value_text, value_json, namespace, confidence_score, updated_at_ms
+    `SELECT key, value_text, value_json, namespace, confidence_score, updated_at
      FROM user_knowledge
      WHERE key = ?`,
     [k],
@@ -1861,14 +1508,14 @@ export async function getKnowledge(
 export async function setKnowledge(
   key: string,
   value: unknown,
-  opts?: { namespace?: TrankilV2KnowledgeNamespace; confidence_score?: number; updated_at_ms?: number },
+  opts?: { namespace?: TrankilV2KnowledgeNamespace; confidence_score?: number; updated_at?: number; fromSync?: boolean },
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
   const k = String(key || '').trim();
   if (!k) return;
   const updatedAt =
-    Number.isFinite(opts?.updated_at_ms as number) ? Number(opts?.updated_at_ms) : Date.now();
+    Number.isFinite(opts?.updated_at as number) ? Number(opts?.updated_at) : Date.now();
   const namespace = opts?.namespace ?? 'USER';
   const confidence = Number.isFinite(opts?.confidence_score as number)
     ? Math.max(0, Math.min(1, Number(opts?.confidence_score)))
@@ -1885,9 +1532,9 @@ export async function setKnowledge(
     }
   }
   await db.runAsync(
-    `INSERT OR REPLACE INTO user_knowledge (key, value_text, value_json, namespace, confidence_score, updated_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [k, valueText, valueJson, namespace, confidence, updatedAt],
+    `INSERT OR REPLACE INTO user_knowledge (key, value_text, value_json, namespace, confidence_score, updated_at, is_dirty, server_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+    [k, valueText, valueJson, namespace, confidence, updatedAt, opts?.fromSync ? 0 : 1],
   );
 }
 
@@ -1919,9 +1566,10 @@ export async function setUserContext(key: string, value: unknown): Promise<void>
   } catch {
     json = '{}';
   }
+  const now = Date.now();
   await db.runAsync(
-    `INSERT OR REPLACE INTO user_context (key, value_json) VALUES (?, ?)`,
-    [k, json],
+    `INSERT OR REPLACE INTO user_context (key, value_json, updated_at, is_dirty, server_version) VALUES (?, ?, ?, 1, 0)`,
+    [k, json, now],
   );
 }
 
@@ -1936,9 +1584,11 @@ export async function grantViralBonus(nowMs: number = Date.now()): Promise<{
   await db.runAsync(
     `UPDATE user_stats
       SET zen_points = ?,
-          growth_score = ?
+          growth_score = ?,
+          updated_at = ?,
+          is_dirty = 1
       WHERE id = 1`,
-    [stats.zen_points + 10, stats.zen_points + 10],
+    [stats.zen_points + 10, stats.zen_points + 10, nowMs],
   );
   return { granted: true, nextEligibleAt: cooldownUntil };
 }
@@ -1952,9 +1602,10 @@ export async function consumeTrankilV2IntentCredit(): Promise<TrankilV2UserStats
   const db = await getDb();
   const current = await getTrankilV2UserStats();
   const nextRemaining = Math.max(0, current.ia_credits - 1);
+  const now = Date.now();
   await db.runAsync(
-    `UPDATE user_stats SET ia_credits = ? WHERE id = 1`,
-    [nextRemaining],
+    `UPDATE user_stats SET ia_credits = ?, updated_at = ?, is_dirty = 1 WHERE id = 1`,
+    [nextRemaining, now],
   );
   return {
     ...current,
@@ -1968,7 +1619,11 @@ export async function consumeIaCredits(cost: number): Promise<TrankilV2UserStats
   const current = await getTrankilV2UserStats();
   const safeCost = Number.isFinite(cost) ? Math.max(0, cost) : 0;
   const nextRemaining = Math.max(0, Number(current.ia_credits || 0) - safeCost);
-  await db.runAsync(`UPDATE user_stats SET ia_credits = ? WHERE id = 1`, [nextRemaining]);
+  const now = Date.now();
+  await db.runAsync(`UPDATE user_stats SET ia_credits = ?, updated_at = ?, is_dirty = 1 WHERE id = 1`, [
+    nextRemaining,
+    now,
+  ]);
   if (safeCost > 0) {
     void insertUserActivityLog({
       action_type: 'IA_SPENT',
@@ -1988,7 +1643,8 @@ export async function addIaCredits(count: number): Promise<TrankilV2UserStatsRow
   const current = await getTrankilV2UserStats();
   const safe = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
   const next = current.ia_credits + safe;
-  await db.runAsync(`UPDATE user_stats SET ia_credits = ? WHERE id = 1`, [next]);
+  const now = Date.now();
+  await db.runAsync(`UPDATE user_stats SET ia_credits = ?, updated_at = ?, is_dirty = 1 WHERE id = 1`, [next, now]);
   return {
     ...current,
     ia_credits: next,
@@ -2015,9 +1671,10 @@ async function ensureFreeDailyCaptureResetForDb(db: SQLite.SQLiteDatabase): Prom
   }>(`SELECT free_capture_day_ymd, free_capture_remaining FROM user_stats WHERE id = 1`);
   if (!row) return;
   if (row.free_capture_day_ymd !== today) {
+    const now = Date.now();
     await db.runAsync(
-      `UPDATE user_stats SET free_capture_day_ymd = ?, free_capture_remaining = ? WHERE id = 1`,
-      [today, FREE_DAILY_CAPTURE_MAX],
+      `UPDATE user_stats SET free_capture_day_ymd = ?, free_capture_remaining = ?, updated_at = ?, is_dirty = 1 WHERE id = 1`,
+      [today, FREE_DAILY_CAPTURE_MAX, now],
     );
   }
 }
@@ -2070,7 +1727,8 @@ export async function consumeFreeCaptureSuccessOnce(): Promise<FreeCaptureQuotaS
     return getFreeCaptureQuotaSnapshot();
   }
   const next = cur - 1;
-  await db.runAsync(`UPDATE user_stats SET free_capture_remaining = ? WHERE id = 1`, [next]);
+  const now = Date.now();
+  await db.runAsync(`UPDATE user_stats SET free_capture_remaining = ?, updated_at = ?, is_dirty = 1 WHERE id = 1`, [next, now]);
   notifyIntentionsChanged({ reason: 'free_capture_consumed' });
   const today = formatYmdLocalForQuota(new Date());
   return { remaining: next, max: FREE_DAILY_CAPTURE_MAX, dayYmd: today };
@@ -2084,9 +1742,10 @@ async function ensureListFreeDailyResetForDb(db: SQLite.SQLiteDatabase): Promise
   }>(`SELECT list_free_day_ymd, list_free_remaining FROM user_stats WHERE id = 1`);
   if (!row) return;
   if (row.list_free_day_ymd !== today) {
+    const now = Date.now();
     await db.runAsync(
-      `UPDATE user_stats SET list_free_day_ymd = ?, list_free_remaining = ? WHERE id = 1`,
-      [today, FREE_DAILY_LIST_MAX],
+      `UPDATE user_stats SET list_free_day_ymd = ?, list_free_remaining = ?, updated_at = ?, is_dirty = 1 WHERE id = 1`,
+      [today, FREE_DAILY_LIST_MAX, now],
     );
   }
 }
@@ -2129,7 +1788,8 @@ export async function consumeListFreeSuccessOnce(): Promise<ListFreeQuotaSnapsho
     return getListFreeQuotaSnapshot();
   }
   const next = cur - 1;
-  await db.runAsync(`UPDATE user_stats SET list_free_remaining = ? WHERE id = 1`, [next]);
+  const now = Date.now();
+  await db.runAsync(`UPDATE user_stats SET list_free_remaining = ?, updated_at = ?, is_dirty = 1 WHERE id = 1`, [next, now]);
   notifyIntentionsChanged({ reason: 'list_free_consumed' });
   const today = formatYmdLocalForQuota(new Date());
   return { remaining: next, max: FREE_DAILY_LIST_MAX, dayYmd: today };
@@ -2197,6 +1857,9 @@ export type TrankilV2IntentionInsert = {
   is_local_processed?: number;
   complexity_level?: number;
   created_at?: number;
+  updated_at?: number;
+  is_dirty?: number;
+  server_version?: number;
   calendar_event_id?: string | null;
   calendar_name?: string | null;
   is_synced_calendar?: number;
@@ -2215,7 +1878,7 @@ export type TrankilV2IntentionInsert = {
   cost?: number | null;
   debug_tokens?: number | null;
   debug_latency_ms?: number | null;
-  location_id?: number | null;
+  location_id?: string | null;
   transport_mode?: string | null;
 };
 
@@ -2264,23 +1927,26 @@ export async function insertTrankilV2Intention(
   await initTrankilV2Schema();
   const db = await getDb();
   if (VERBOSE_DEBUG) console.log('[DEBUG_DB] Statut de l instance DB:', !!db);
+  const createdAt = row.created_at ?? Date.now();
+  const updatedAt = row.updated_at ?? createdAt;
+  const isDirty = row.is_dirty ?? 1;
+  const serverVersion = row.server_version ?? 0;
   const remindLeave = row.remind_to_leave ?? 0;
   const locAddr = row.location_address?.trim() ? row.location_address.trim() : null;
   const sql =
     `INSERT INTO intentions (
-      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+      id, type, title, due_date, content_raw, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, updated_at, is_dirty, server_version, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
       is_pending_ai,
       remind_to_leave, location_address,
       ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, debug_tokens, debug_latency_ms, location_id,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
   const args = [
     row.id,
     row.type,
     row.title,
     normalizeDueDate(row.due_date),
     row.content_raw,
-    row.metadata_json ?? '{}',
     row.suggested_tags ?? '[]',
     row.category_id ?? null,
     row.category_id ?? null,
@@ -2289,7 +1955,10 @@ export async function insertTrankilV2Intention(
     row.is_organized ?? 0,
     row.is_local_processed ?? 0,
     row.complexity_level ?? 1,
-    row.created_at ?? Date.now(),
+    createdAt,
+    updatedAt,
+    isDirty ? 1 : 0,
+    Math.max(0, Math.floor(Number(serverVersion) || 0)),
     row.calendar_event_id ?? null,
     row.calendar_name ?? null,
     row.is_synced_calendar ?? 0,
@@ -2308,7 +1977,7 @@ export async function insertTrankilV2Intention(
     Number.isFinite(row.cost as number) ? Number(row.cost) : null,
     Number.isFinite(row.debug_tokens as number) ? Number(row.debug_tokens) : null,
     Number.isFinite(row.debug_latency_ms as number) ? Number(row.debug_latency_ms) : null,
-    Number.isFinite(row.location_id as number) ? Number(row.location_id) : null,
+    row.location_id ?? null,
   ];
   const placeholderCount = (sql.match(/\?/g) ?? []).length;
   if (placeholderCount !== args.length) {
@@ -2328,6 +1997,13 @@ export async function insertTrankilV2Intention(
   }
   const stats = await getTrankilV2UserStats();
   void stats;
+  const initialMeta = typeof row.metadata_json === 'string' ? row.metadata_json.trim() : '';
+  if (initialMeta) {
+    const parsed = safeParseJsonRecord(initialMeta);
+    if (Object.keys(parsed).length > 0) {
+      await patchMetadata(row.id, parsed, { silent: true, fromSync: !isDirty });
+    }
+  }
   void syncAfterIntentionWrite('insertTrankilV2Intention');
   notifyIntentionsChanged({ id: row.id, reason: 'insert' });
 }
@@ -2342,6 +2018,7 @@ export async function replaceTrankilV2IntentionOneTap(
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
+  const now = Date.now();
   const remindLeave = patch.remind_to_leave ?? 0;
   const locAddr =
     patch.location_address !== undefined && patch.location_address !== null
@@ -2353,7 +2030,6 @@ export async function replaceTrankilV2IntentionOneTap(
       title = ?,
       due_date = ?,
       content_raw = ?,
-      metadata_json = ?,
       suggested_tags = ?,
       category_id = ?,
       category = ?,
@@ -2373,14 +2049,15 @@ export async function replaceTrankilV2IntentionOneTap(
       cost = COALESCE(?, cost),
       debug_tokens = COALESCE(?, debug_tokens),
       debug_latency_ms = COALESCE(?, debug_latency_ms),
-      location_id = COALESCE(?, location_id)
+      location_id = COALESCE(?, location_id),
+      updated_at = ?,
+      is_dirty = 1
     WHERE id = ?`,
     [
       patch.type,
       patch.title,
       normalizeDueDate(patch.due_date ?? null),
       patch.content_raw,
-      patch.metadata_json ?? '{}',
       patch.suggested_tags ?? '[]',
       patch.category_id ?? null,
       patch.category_id ?? null,
@@ -2400,10 +2077,15 @@ export async function replaceTrankilV2IntentionOneTap(
       Number.isFinite(patch.cost as number) ? Number(patch.cost) : null,
       Number.isFinite(patch.debug_tokens as number) ? Number(patch.debug_tokens) : null,
       Number.isFinite(patch.debug_latency_ms as number) ? Number(patch.debug_latency_ms) : null,
-      Number.isFinite(patch.location_id as number) ? Number(patch.location_id) : null,
+      patch.location_id ?? null,
+      now,
       id,
     ],
   );
+  const meta = typeof patch.metadata_json === 'string' ? patch.metadata_json.trim() : '';
+  if (meta) {
+    await patchMetadata(id, safeParseJsonRecord(meta), { silent: true });
+  }
   await syncAfterIntentionWrite('replaceTrankilV2IntentionOneTap');
   notifyIntentionsChanged({ id, reason: 'one_tap_replace' });
 }
@@ -2419,12 +2101,14 @@ export async function updateTrankilV2IntentionQuick(
     [id],
   );
   if (!current) return;
+  const now = Date.now();
   await db.runAsync(
-    `UPDATE intentions SET title = ?, category_id = ?, category = ? WHERE id = ?`,
+    `UPDATE intentions SET title = ?, category_id = ?, category = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`,
     [
       patch.title ?? current.title,
       patch.category_id ?? current.category_id,
       patch.category_id ?? current.category_id,
+      now,
       id,
     ],
   );
@@ -2434,8 +2118,9 @@ export async function updateTrankilV2IntentionTitle(id: string, title: string): 
   await initTrankilV2Schema();
   const next = String(title ?? '').trim();
   if (!next) return;
+  const now = Date.now();
   await withTrankilV2Database(async (db) => {
-    await db.runAsync(`UPDATE intentions SET title = ? WHERE id = ?`, [next, id]);
+    await db.runAsync(`UPDATE intentions SET title = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`, [next, now, id]);
   });
   await syncAfterIntentionWrite('updateTrankilV2IntentionTitle');
   notifyIntentionsChanged({ id, reason: 'title' });
@@ -2457,28 +2142,38 @@ export async function updateTrankilV2IntentionTemporal(
   patch: { due_date?: string | null; category_id?: string | null; metadata_json?: string },
 ): Promise<void> {
   await initTrankilV2Schema();
-  const db = await getDb();
-  const current = await db.getFirstAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions WHERE id = ?`,
-    [id],
-  );
-  if (!current) return;
-  const nextCategory = patch.category_id ?? current.category_id;
-  await db.runAsync(
-    `UPDATE intentions
-     SET due_date = ?,
-         category_id = ?,
-         category = ?,
-         metadata_json = ?
-     WHERE id = ?`,
-    [
-      normalizeDueDate(patch.due_date ?? current.due_date ?? null),
-      nextCategory,
-      nextCategory,
-      patch.metadata_json ?? current.metadata_json,
-      id,
-    ],
-  );
+  let didWrite = false;
+  await withTrankilV2Database(async (db) => {
+    const current = await db.getFirstAsync<TrankilV2IntentionRow>(
+      `SELECT * FROM intentions WHERE id = ?`,
+      [id],
+    );
+    if (!current) return;
+    const now = Date.now();
+    const nextCategory = patch.category_id ?? current.category_id;
+    await db.runAsync(
+      `UPDATE intentions
+       SET due_date = ?,
+           category_id = ?,
+           category = ?,
+           updated_at = ?,
+           is_dirty = 1
+       WHERE id = ?`,
+      [
+        normalizeDueDate(patch.due_date ?? current.due_date ?? null),
+        nextCategory,
+        nextCategory,
+        now,
+        id,
+      ],
+    );
+    didWrite = true;
+  });
+  if (!didWrite) return;
+  const meta = typeof patch.metadata_json === 'string' ? patch.metadata_json.trim() : '';
+  if (meta) {
+    await patchMetadata(id, safeParseJsonRecord(meta), { silent: true });
+  }
   await syncAfterIntentionWrite('updateTrankilV2IntentionTemporal');
   notifyIntentionsChanged({ id, reason: 'temporal' });
 }
@@ -2488,25 +2183,31 @@ export async function updateTrankilV2IntentionOrganization(
   patch: { is_organized: number; title?: string; category_id?: string | null },
 ): Promise<void> {
   await initTrankilV2Schema();
-  const db = await getDb();
-  const current = await db.getFirstAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions WHERE id = ?`,
-    [id],
-  );
-  if (!current) return;
-  await db.runAsync(
-    `UPDATE intentions SET is_organized = ?, title = ?, category_id = ?, category = ? WHERE id = ?`,
-    [
-      patch.is_organized,
-      patch.title ?? current.title,
-      patch.category_id ?? current.category_id,
-      patch.category_id ?? current.category_id,
-      id,
-    ],
-  );
-  if (patch.is_organized === 1 && current.is_organized !== 1) {
-    await db.runAsync(`UPDATE user_stats SET zen_points = zen_points + 0 WHERE id = 1`);
-  }
+  let didWrite = false;
+  await withTrankilV2Database(async (db) => {
+    const current = await db.getFirstAsync<TrankilV2IntentionRow>(
+      `SELECT * FROM intentions WHERE id = ?`,
+      [id],
+    );
+    if (!current) return;
+    const now = Date.now();
+    await db.runAsync(
+      `UPDATE intentions SET is_organized = ?, title = ?, category_id = ?, category = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`,
+      [
+        patch.is_organized,
+        patch.title ?? current.title,
+        patch.category_id ?? current.category_id,
+        patch.category_id ?? current.category_id,
+        now,
+        id,
+      ],
+    );
+    if (patch.is_organized === 1 && current.is_organized !== 1) {
+      await db.runAsync(`UPDATE user_stats SET zen_points = zen_points + 0, updated_at = ?, is_dirty = 1 WHERE id = 1`, [now]);
+    }
+    didWrite = true;
+  });
+  if (!didWrite) return;
 }
 
 export async function updateTrankilV2IntentionClassification(
@@ -2521,65 +2222,76 @@ export async function updateTrankilV2IntentionClassification(
   },
 ): Promise<void> {
   await initTrankilV2Schema();
-  const db = await getDb();
-  const current = await db.getFirstAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions WHERE id = ?`,
-    [id],
-  );
-  if (!current) return;
-  const nextCategory = patch.category_id ?? current.category_id;
-  const nextOrganized = patch.is_organized ?? current.is_organized;
-  await db.runAsync(
-    `UPDATE intentions
-     SET type = ?,
-         title = ?,
-         category_id = ?,
-         category = ?,
-         status = ?,
-         is_organized = ?,
-         is_local_processed = ?
-     WHERE id = ?`,
-    [
-      patch.type ?? current.type,
-      patch.title ?? current.title,
-      nextCategory,
-      nextCategory,
-      patch.status ?? current.status,
-      nextOrganized,
-      patch.is_local_processed ?? current.is_local_processed,
-      id,
-    ],
-  );
-  if (nextOrganized === 1 && current.is_organized !== 1) {
-    await db.runAsync(`UPDATE user_stats SET zen_points = zen_points + 0 WHERE id = 1`);
-  }
-  const nextStatus = patch.status ?? current.status;
-  const nextType = patch.type ?? current.type;
-  if (current.status !== 'DONE' && nextStatus === 'DONE' && (nextType === 'TASK' || nextType === 'HABIT')) {
+  let didWrite = false;
+  let activityActionType: UserActivityLogActionType | null = null;
+  await withTrankilV2Database(async (db) => {
+    const current = await db.getFirstAsync<TrankilV2IntentionRow>(
+      `SELECT * FROM intentions WHERE id = ?`,
+      [id],
+    );
+    if (!current) return;
+    const now = Date.now();
+    const nextCategory = patch.category_id ?? current.category_id;
+    const nextOrganized = patch.is_organized ?? current.is_organized;
+    const nextStatus = patch.status ?? current.status;
+    const nextType = patch.type ?? current.type;
+    await db.runAsync(
+      `UPDATE intentions
+       SET type = ?,
+           title = ?,
+           category_id = ?,
+           category = ?,
+           status = ?,
+           is_organized = ?,
+           is_local_processed = ?,
+           updated_at = ?,
+           is_dirty = 1
+       WHERE id = ?`,
+      [
+        nextType,
+        patch.title ?? current.title,
+        nextCategory,
+        nextCategory,
+        nextStatus,
+        nextOrganized,
+        patch.is_local_processed ?? current.is_local_processed,
+        now,
+        id,
+      ],
+    );
+    if (nextOrganized === 1 && current.is_organized !== 1) {
+      await db.runAsync(`UPDATE user_stats SET zen_points = zen_points + 0, updated_at = ?, is_dirty = 1 WHERE id = 1`, [now]);
+    }
+    if (current.status !== 'DONE' && nextStatus === 'DONE' && (nextType === 'TASK' || nextType === 'HABIT')) {
+      activityActionType = nextType === 'TASK' ? 'TASK_DONE' : 'HABIT_DONE';
+    }
+    await db.runAsync(
+      `UPDATE intentions SET
+         is_done = CASE WHEN status = 'DONE' THEN 1 ELSE 0 END,
+         is_archived = CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END
+       WHERE id = ?`,
+      [id],
+    );
+    await db.runAsync(
+      `UPDATE intentions SET done_at = ? WHERE id = ? AND status = 'DONE' AND done_at IS NULL`,
+      [now, id],
+    );
+    await db.runAsync(`UPDATE intentions SET done_at = NULL WHERE id = ? AND status != 'DONE'`, [id]);
+    await db.runAsync(
+      `UPDATE intentions SET archived_at = ? WHERE id = ? AND status = 'ARCHIVED' AND archived_at IS NULL`,
+      [now, id],
+    );
+    await db.runAsync(`UPDATE intentions SET archived_at = NULL WHERE id = ? AND status != 'ARCHIVED'`, [id]);
+    didWrite = true;
+  });
+  if (!didWrite) return;
+  if (activityActionType) {
     void insertUserActivityLog({
-      action_type: nextType === 'TASK' ? 'TASK_DONE' : 'HABIT_DONE',
+      action_type: activityActionType,
       points_delta: 0,
       meta_json: JSON.stringify({ intention_id: id, source: 'updateTrankilV2IntentionClassification' }),
     }).catch(() => undefined);
   }
-  await db.runAsync(
-    `UPDATE intentions SET
-       is_done = CASE WHEN status = 'DONE' THEN 1 ELSE 0 END,
-       is_archived = CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END
-     WHERE id = ?`,
-    [id],
-  );
-  const now = Date.now();
-  await db.runAsync(
-    `UPDATE intentions SET done_at = ? WHERE id = ? AND status = 'DONE' AND done_at IS NULL`,
-    [now, id],
-  );
-  await db.runAsync(`UPDATE intentions SET done_at = NULL WHERE id = ? AND status != 'DONE'`, [id]);
-  await db.runAsync(
-    `UPDATE intentions SET archived_at = ? WHERE id = ? AND status = 'ARCHIVED' AND archived_at IS NULL`,
-    [now, id],
-  );
-  await db.runAsync(`UPDATE intentions SET archived_at = NULL WHERE id = ? AND status != 'ARCHIVED'`, [id]);
 }
 
 export async function getTrankilV2UnorganizedCount(): Promise<number> {
@@ -2647,7 +2359,12 @@ export async function getTrankilV2IntentionById(id: string): Promise<TrankilV2In
 export async function updateTrankilV2IntentionPendingAiFlag(id: string, is_pending_ai: number): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
-  await db.runAsync(`UPDATE intentions SET is_pending_ai = ? WHERE id = ?`, [is_pending_ai ? 1 : 0, id]);
+  const now = Date.now();
+  await db.runAsync(`UPDATE intentions SET is_pending_ai = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`, [
+    is_pending_ai ? 1 : 0,
+    now,
+    id,
+  ]);
   await syncAfterIntentionWrite('updateTrankilV2IntentionPendingAiFlag');
   notifyIntentionsChanged({ id, reason: 'pending_ai_flag' });
 }
@@ -2665,6 +2382,7 @@ export async function finalizeOfflineFirstHabitFromShell(
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
+  const now = Date.now();
   await db.runAsync(
     `UPDATE intentions SET
        type = 'HABIT',
@@ -2672,51 +2390,130 @@ export async function finalizeOfflineFirstHabitFromShell(
        due_date = ?,
        category_id = ?,
        category = ?,
-       metadata_json = ?,
        suggested_tags = ?,
        is_pending_ai = 0,
        is_local_processed = 1,
-       complexity_level = 1
+       complexity_level = 1,
+       updated_at = ?,
+       is_dirty = 1
      WHERE id = ?`,
     [
       fields.title,
       normalizeDueDate(fields.due_date),
       fields.category_id,
       fields.category_id,
-      fields.metadata_json,
       fields.suggested_tags,
+      now,
       id,
     ],
   );
+  const meta = String(fields.metadata_json || '').trim();
+  if (meta) {
+    await patchMetadata(id, safeParseJsonRecord(meta), { silent: true });
+  }
   await syncAfterIntentionWrite('finalizeOfflineFirstHabitFromShell');
   notifyIntentionsChanged({ id, reason: 'offline_first_habit' });
 }
 
-export async function updateTrankilV2IntentionMetadataJson(
+function deepMergeObjects(a: unknown, b: unknown): unknown {
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return b;
+  const base = a && typeof a === 'object' && !Array.isArray(a) ? (a as Record<string, unknown>) : {};
+  const patch = b as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'list_scalable_v1') {
+      out[k] = v as unknown;
+      continue;
+    }
+    const cur = out[k];
+    if (v && typeof v === 'object' && !Array.isArray(v) && cur && typeof cur === 'object' && !Array.isArray(cur)) {
+      out[k] = deepMergeObjects(cur, v) as Record<string, unknown>;
+    } else {
+      out[k] = v as unknown;
+    }
+  }
+  return out;
+}
+
+function safeParseJsonRecord(input: string | null | undefined): Record<string, unknown> {
+  try {
+    const p = JSON.parse(String(input || '{}'));
+    if (p && typeof p === 'object' && !Array.isArray(p)) return p as Record<string, unknown>;
+  } catch {}
+  return {};
+}
+
+export async function patchMetadata(
+  id: string,
+  partialObject: Record<string, unknown>,
+  opts?: { fromSync?: boolean; silent?: boolean },
+): Promise<void> {
+  await initTrankilV2Schema();
+  const key = String(id || '').trim();
+  if (!key) return;
+  await withTrankilV2Database(async (db) => {
+    await db.execAsync('BEGIN IMMEDIATE;');
+    try {
+      const row = await db.getFirstAsync<{ metadata_json: string }>(
+        `SELECT metadata_json FROM intentions WHERE id = ? LIMIT 1`,
+        [key],
+      );
+      if (!row) {
+        await db.execAsync('ROLLBACK;');
+        return;
+      }
+      let base: unknown = {};
+      try {
+        base = JSON.parse(row.metadata_json || '{}');
+      } catch {
+        base = {};
+      }
+      const merged = deepMergeObjects(base, partialObject);
+      const now = Date.now();
+      const isDirty = opts?.fromSync ? 0 : 1;
+      await db.runAsync(
+        `UPDATE intentions SET metadata_json = ?, updated_at = ?, is_dirty = ? WHERE id = ?`,
+        [JSON.stringify(merged ?? {}, null, 2), now, isDirty, key],
+      );
+      await db.execAsync('COMMIT;');
+      if (VERBOSE_DEBUG) {
+        const keys = Object.keys(partialObject ?? {}).join(',');
+        console.log('[SQL_TRACE] ✅ patchMetadata', { id: key, isDirty, updated_at: now, keys });
+      }
+    } catch (e) {
+      try {
+        await db.execAsync('ROLLBACK;');
+      } catch {}
+      throw e;
+    }
+  });
+  if (opts?.silent) return;
+  await syncAfterIntentionWrite('patchMetadata');
+  notifyIntentionsChanged({ id, reason: 'metadata_patch' });
+}
+
+async function updateTrankilV2IntentionMetadataJson(
   id: string,
   metadata_json: string,
   opts?: { silent?: boolean },
 ): Promise<void> {
-  await initTrankilV2Schema();
-  const db = await getDb();
-  await db.runAsync(`UPDATE intentions SET metadata_json = ? WHERE id = ?`, [metadata_json, id]);
-  if (opts?.silent) return;
-  await syncAfterIntentionWrite('updateTrankilV2IntentionMetadataJson');
-  notifyIntentionsChanged({ id, reason: 'metadata' });
+  const obj = safeParseJsonRecord(metadata_json);
+  await patchMetadata(id, obj, { silent: opts?.silent });
 }
 
 export async function updateTrankilV2IntentionTransportMode(
   id: string,
-  patch: { transport_mode?: string | null; metadata_json?: string },
+  patch: { transport_mode?: string | null },
   opts?: { silent?: boolean },
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
   const current = await db.getFirstAsync<TrankilV2IntentionRow>(`SELECT * FROM intentions WHERE id = ?`, [id]);
   if (!current) return;
-  await db.runAsync(`UPDATE intentions SET transport_mode = ?, metadata_json = ? WHERE id = ?`, [
+  const now = Date.now();
+  await db.runAsync(`UPDATE intentions SET transport_mode = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`, [
     patch.transport_mode === undefined ? current.transport_mode ?? null : patch.transport_mode,
-    patch.metadata_json ?? current.metadata_json,
+    now,
     id,
   ]);
   if (opts?.silent) return;
@@ -2726,16 +2523,17 @@ export async function updateTrankilV2IntentionTransportMode(
 
 export async function updateTrankilV2IntentionLocationAddress(
   id: string,
-  patch: { location_address?: string | null; metadata_json?: string },
+  patch: { location_address?: string | null },
   opts?: { silent?: boolean },
 ): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
   const current = await db.getFirstAsync<TrankilV2IntentionRow>(`SELECT * FROM intentions WHERE id = ?`, [id]);
   if (!current) return;
-  await db.runAsync(`UPDATE intentions SET location_address = ?, metadata_json = ? WHERE id = ?`, [
+  const now = Date.now();
+  await db.runAsync(`UPDATE intentions SET location_address = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`, [
     patch.location_address === undefined ? current.location_address ?? null : patch.location_address,
-    patch.metadata_json ?? current.metadata_json,
+    now,
     id,
   ]);
   if (opts?.silent) return;
@@ -2768,16 +2566,20 @@ export async function updateTrankilV2IntentionCalendarSync(
   const db = await getDb();
   const current = await getTrankilV2IntentionById(id);
   if (!current) return;
+  const now = Date.now();
   await db.runAsync(
     `UPDATE intentions
      SET calendar_event_id = ?,
          calendar_name = ?,
-         is_synced_calendar = ?
+         is_synced_calendar = ?,
+         updated_at = ?,
+         is_dirty = 1
      WHERE id = ?`,
     [
       patch.calendar_event_id ?? current.calendar_event_id ?? null,
       patch.calendar_name ?? current.calendar_name ?? null,
       patch.is_synced_calendar ?? current.is_synced_calendar ?? 0,
+      now,
       id,
     ],
   );
@@ -2796,12 +2598,15 @@ export async function updateTrankilV2IntentionAlarmFields(
   const db = await getDb();
   const current = await getTrankilV2IntentionById(id);
   if (!current) return;
+  const now = Date.now();
   await db.runAsync(
     `UPDATE intentions
      SET alarm_enabled = ?,
          remind_at = ?,
          local_notification_id = ?,
-         recurrence_rrule = ?
+         recurrence_rrule = ?,
+         updated_at = ?,
+         is_dirty = 1
      WHERE id = ?`,
     [
       patch.alarm_enabled ?? current.alarm_enabled ?? 0,
@@ -2812,6 +2617,7 @@ export async function updateTrankilV2IntentionAlarmFields(
       patch.recurrence_rrule === undefined
         ? current.recurrence_rrule ?? null
         : patch.recurrence_rrule,
+      now,
       id,
     ],
   );
@@ -2845,8 +2651,8 @@ export async function markTrankilV2IntentionDone(id: string): Promise<void> {
   if (!row || row.status !== 'TODO') return;
   const now = Date.now();
   await db.runAsync(
-    `UPDATE intentions SET status = 'DONE', is_done = 1, done_at = ? WHERE id = ?`,
-    [now, id],
+    `UPDATE intentions SET status = 'DONE', is_done = 1, done_at = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`,
+    [now, now, id],
   );
   if (row.type === 'TASK' || row.type === 'HABIT') {
     void insertUserActivityLog({
@@ -2871,13 +2677,13 @@ export async function toggleIntentionDone(id: string): Promise<void> {
   const now = Date.now();
   if (row.status === 'DONE') {
     await db.runAsync(
-      `UPDATE intentions SET status = 'TODO', is_done = 0, done_at = NULL WHERE id = ?`,
-      [id],
+      `UPDATE intentions SET status = 'TODO', is_done = 0, done_at = NULL, updated_at = ?, is_dirty = 1 WHERE id = ?`,
+      [now, id],
     );
   } else {
     await db.runAsync(
-      `UPDATE intentions SET status = 'DONE', is_done = 1, done_at = ? WHERE id = ?`,
-      [now, id],
+      `UPDATE intentions SET status = 'DONE', is_done = 1, done_at = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`,
+      [now, now, id],
     );
     if (row.type === 'TASK' || row.type === 'HABIT') {
       void insertUserActivityLog({
@@ -2904,9 +2710,11 @@ export async function updateTrankilV2IntentionArchiveState(
        SET status = 'ARCHIVED',
            is_organized = 1,
            is_archived = 1,
-           archived_at = COALESCE(archived_at, ?)
+           archived_at = COALESCE(archived_at, ?),
+           updated_at = ?,
+           is_dirty = 1
        WHERE id = ?`,
-      [now, id],
+      [now, now, id],
     );
   } else {
     await db.runAsync(
@@ -2914,9 +2722,11 @@ export async function updateTrankilV2IntentionArchiveState(
        SET status = 'TODO',
            is_organized = 0,
            is_archived = 0,
-           archived_at = NULL
+           archived_at = NULL,
+           updated_at = ?,
+           is_dirty = 1
        WHERE id = ?`,
-      [id],
+      [now, id],
     );
   }
   await syncAfterIntentionWrite('updateTrankilV2IntentionArchiveState');
@@ -3061,14 +2871,12 @@ export async function insertUserActivityLog(input: {
   const createdAt = Number.isFinite(input.created_at) ? Number(input.created_at) : Date.now();
   const dayKey = String(input.day_key || localDayKeyFromMs(createdAt)).trim();
   const pointsDelta = Number.isFinite(input.points_delta) ? Math.round(input.points_delta) : 0;
-  const id =
-    String(input.id || '').trim() ||
-    `ual_${createdAt.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const id = String(input.id || '').trim() || newUuidV4();
   await db.runAsync(
     `INSERT INTO user_activity_logs (
-      id, created_at, day_key, action_type, points_delta, meta_json
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, createdAt, dayKey, input.action_type, pointsDelta, input.meta_json ?? '{}'],
+      id, created_at, updated_at, is_dirty, server_version, day_key, action_type, points_delta, meta_json
+    ) VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?)`,
+    [id, createdAt, createdAt, dayKey, input.action_type, pointsDelta, input.meta_json ?? '{}'],
   );
 }
 
@@ -3228,15 +3036,17 @@ export async function saveEmergencyLog(
   const intentions = await db.getAllAsync<TrankilV2IntentionRow>(
     `SELECT * FROM intentions WHERE status = 'TODO' ORDER BY created_at DESC LIMIT 40`,
   );
+  const now = Date.now();
   await db.runAsync(
-    `INSERT INTO emergency_logs (id, error_message, stack, intentions_json, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO emergency_logs (id, error_message, stack, intentions_json, created_at, updated_at, is_dirty, server_version)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 0)`,
     [
-      `emg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      newUuidV4(),
       errorMessage.slice(0, 400),
       (stack || '').slice(0, 2000),
       JSON.stringify(intentions),
-      Date.now(),
+      now,
+      now,
     ],
   );
 }

@@ -9,20 +9,19 @@ import {
   consumeListFreeSuccessOnce,
   getListFreeQuotaSnapshot,
   insertTrankilV2Intention,
+  patchMetadata,
   replaceTrankilV2IntentionOneTap,
-  updateTrankilV2IntentionMetadataJson,
 } from '../api/trankilV2Db';
 import type { CaptureStrategyDeps } from './captureStrategies/types';
 import {
   buildListInventoryJsonStringFromDraftBlock,
   geminiJsonToStoredPayload,
-  mergeListPayloadIntoMetadataJson,
+  buildListMetadataPatch,
   parseGeminiListInventoryJson,
 } from './listIntentionModel';
 import { buildLocalTemporalIntentionInsertRow } from './localTemporalIntention';
 import type { OneTapUniversalResult } from './oneTapUniversalCapture';
 import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from './oneTapUniversalReminders';
-import { mergeIntentionMetadataJson } from './captureOfflineFirstUtils';
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
 import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
 import { activateSentinelTrip } from './traffic/sentinelActivation';
@@ -120,6 +119,18 @@ function nextAnniversaryDueYmd(monthDay: string | null): string | null {
   const d1 = build(y0 + 1);
   if (!d1) return null;
   return `${d1.getFullYear()}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function mergeIntentionMetadataJson(
+  currentJson: string | undefined,
+  fragment: Record<string, unknown>,
+): string {
+  let base: Record<string, unknown> = {};
+  try {
+    const p = JSON.parse(currentJson || '{}');
+    if (p && typeof p === 'object' && !Array.isArray(p)) base = p as Record<string, unknown>;
+  } catch {}
+  return JSON.stringify({ ...base, ...fragment }, null, 2);
 }
 
 function buildMetadataJsonForInsert(baseJson: string | null | undefined, draft: OneTapUniversalResult): string {
@@ -328,7 +339,7 @@ async function materializeOneTapIntentionRow(params: {
       const parsedList = parseGeminiListInventoryJson(jsonStr);
       const payload = geminiJsonToStoredPayload(parsedList);
       const mergedTitle = title || payload.title;
-      const meta = mergeListPayloadIntoMetadataJson('{}', { ...payload, title: mergedTitle });
+      const meta = JSON.stringify(buildListMetadataPatch({ ...payload, title: mergedTitle }));
       return {
         id: intentionId,
         type: 'LIST',
@@ -714,7 +725,7 @@ export async function persistOneTapDraft(params: {
           ],
         };
         const id = deps.newId();
-        const metaBase = mergeListPayloadIntoMetadataJson('{}', placeholderPayload);
+        const metaBase = JSON.stringify(buildListMetadataPatch(placeholderPayload));
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
           is_generating: true,
           list_enrich_status: 'pending',
@@ -740,21 +751,18 @@ export async function persistOneTapDraft(params: {
             const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale });
             const payload = geminiJsonToStoredPayload(enriched.parsed);
             const nextTitle = mergedTitle || payload.title;
-            const listJson = mergeListPayloadIntoMetadataJson(meta, { ...payload, title: nextTitle });
-            const root = JSON.parse(listJson) as Record<string, unknown>;
-            root.is_generating = false;
-            root.list_enrich_status = 'done';
-            await updateTrankilV2IntentionMetadataJson(id, JSON.stringify(root, null, 2));
+            await patchMetadata(id, {
+              ...buildListMetadataPatch({ ...payload, title: nextTitle }),
+              is_generating: false,
+              list_enrich_status: 'done',
+              list_enrich_error: null,
+            });
           } catch (e) {
-            try {
-              const root = JSON.parse(meta) as Record<string, unknown>;
-              root.is_generating = false;
-              root.list_enrich_status = 'error';
-              root.list_enrich_error = e instanceof Error ? e.message : String(e);
-              await updateTrankilV2IntentionMetadataJson(id, JSON.stringify(root, null, 2));
-            } catch {
-              return;
-            }
+            await patchMetadata(id, {
+              is_generating: false,
+              list_enrich_status: 'error',
+              list_enrich_error: e instanceof Error ? e.message : String(e),
+            });
           }
         })();
         if (!deps.spectrum.isProUser) {

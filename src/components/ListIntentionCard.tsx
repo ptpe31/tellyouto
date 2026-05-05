@@ -5,9 +5,9 @@ import type { MD3Theme } from 'react-native-paper';
 import { Minus, Plus } from 'lucide-react-native';
 
 import type { TrankilV2TimelineItemRow } from '../api';
-import { updateTrankilV2IntentionMetadataJson } from '../api/trankilV2Db';
+import { patchMetadata } from '../api/trankilV2Db';
 import {
-  mergeListPayloadIntoMetadataJson,
+  buildListMetadataPatch,
   parseListScalablePayloadFromMetadataJson,
   type ListScalablePayload,
 } from '../services/listIntentionModel';
@@ -74,8 +74,7 @@ export function ListIntentionCard({ row, theme, spectrumIsPro }: ListIntentionCa
 
   const persist = useCallback(
     (next: ListScalablePayload, silent: boolean) => {
-      const json = mergeListPayloadIntoMetadataJson(row.metadata_json, next);
-      void updateTrankilV2IntentionMetadataJson(row.id, json, { silent });
+      void patchMetadata(row.id, buildListMetadataPatch(next), { silent });
     },
     [row.id, row.metadata_json],
   );

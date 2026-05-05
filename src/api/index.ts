@@ -68,7 +68,7 @@ export {
   updateTrankilV2IntentionTitle,
   updateTrankilV2IntentionTemporal,
   updateTrankilV2IntentionArchiveState,
-  updateTrankilV2IntentionMetadataJson,
+  patchMetadata,
   updateTrankilV2IntentionAlarmFields,
   listTrankilV2PendingAlarmIntentions,
   getTrankilV2IntentionById,

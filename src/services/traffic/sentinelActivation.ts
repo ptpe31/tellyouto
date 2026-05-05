@@ -20,8 +20,15 @@ export async function ensureSentinelTripsSchema(): Promise<void> {
         last_error_at INTEGER,
         t_optimiste_ms INTEGER,
         t_pessimiste_ms INTEGER,
-        vigilance_status TEXT
+        vigilance_status TEXT,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
       );
+      CREATE INDEX IF NOT EXISTS idx_sentinel_trips_status
+        ON sentinel_trips (status);
+      CREATE INDEX IF NOT EXISTS idx_sentinel_trips_dirty_updated
+        ON sentinel_trips (is_dirty, updated_at DESC);
     `);
   });
 }
@@ -54,8 +61,9 @@ export async function activateSentinelTrip(input: {
       `INSERT OR REPLACE INTO sentinel_trips (
         id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,
         internal_scan_count, next_check_at, gate_prompted_at, last_error_at,
-        t_optimiste_ms, t_pessimiste_ms, vigilance_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
+        t_optimiste_ms, t_pessimiste_ms, vigilance_status,
+        updated_at, is_dirty, server_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 1, 0)`,
       [
         input.tripTaskId,
         input.formattedAddress.trim(),
@@ -68,6 +76,7 @@ export async function activateSentinelTrip(input: {
         tOptimisteMs,
         tPessimisteMs,
         vigilanceStatus,
+        nowMs,
       ]
     );
   });

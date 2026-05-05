@@ -159,7 +159,75 @@ Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la p
 - Hard Reset manuel (debug) : un “factory reset” existe et efface SQLite + préférences + notifications sur action utilisateur confirmée (double confirmation). Implémentation : [factoryReset.ts:L7-L18](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/factoryReset.ts#L7-L18). Déclenchement UI : [DebugScreen.tsx:L153-L173](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/screens/DebugScreen.tsx#L153-L173) puis exécution [DebugScreen.tsx:L133-L151](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/screens/DebugScreen.tsx#L133-L151).
 - Instance singleton & re-open : l’instance SQLite est maintenue en singleton côté JS. En cas de `NativeDatabase.prepareAsync` rejeté (ou NPE natif), le système invalide l’instance courante et force une réouverture propre de la connexion avant de retenter l’opération.
 - Stabilité Android (New Architecture) : le bootstrap SQLite ne doit jamais bloquer l’UI. En cas de stall SQLite au démarrage, l’app continue à afficher l’interface, et l’initialisation DB reste best-effort en arrière-plan.
-- Stratégie anti-deadlock : aucune file d’attente JS de sérialisation SQLite (pas de verrou sur un verrou). La sérialisation est laissée à la couche native expo-sqlite ; les accès DB côté JS restent directs.
+- Stratégie anti-deadlock : sérialiser explicitement les écritures côté JS (queue) pour éliminer les race conditions (ex. `metadata_json`) et garantir l’atomicité des mutations multi-origines (UI, IA, jobs).
+
+### 2.c) Refonte DB Local-First / Cloud-Ready (Snapshot + Sync asynchrone)
+
+Objectif : préparer une synchronisation multi-appareil fiable (Firebase) en partant d’une base “propre” réinstallée à froid (suppression des données existantes sur mobile), sans conserver la logique de migrations historiques.
+
+#### 2.c.1) Principes
+
+- Local-first : SQLite reste la source de vérité locale. Le cloud est un miroir asynchrone (push/pull).
+- Identifiants universels : toutes les entités métier non-singleton utilisent `id TEXT PRIMARY KEY NOT NULL` avec génération UUID v4 **canonique** (format `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) côté client.
+- Gènes de synchronisation : chaque table métier embarque `updated_at INTEGER NOT NULL` (millisecondes), `is_dirty INTEGER NOT NULL DEFAULT 0`, `server_version INTEGER NOT NULL DEFAULT 0`.
+- Résolution de conflits : “Last Write Wins” sur `updated_at` (ms). `server_version` est gardé pour une stratégie future plus riche.
+
+#### 2.c.2) Unification du schéma (bootstrap)
+
+- Interdiction de “bloc mort” dans l’initialisation : tout schéma nécessaire (identity, billing, logs, etc.) est créé au démarrage dans le flux principal.
+- Définition canonique unique : une seule définition par table (pas de doublons).
+- Standardisation des PK : toutes les tables non-singleton ont un PK en `TEXT`. Les tables singleton conservent un PK stable (`id INTEGER PRIMARY KEY CHECK (id = 1)`) et reçoivent aussi `updated_at/is_dirty/server_version`.
+
+#### 2.c.2.b) Périmètre des tables synchronisables
+
+- Inclus dans la standardisation et la sync : toutes les tables “données utilisateur”, y compris `sentinel_trips`, `location_favorites`, `offline_audio_queue` (et les tables “identity/billing”).
+- Exclu (local-only) : logs techniques `emergency_logs`, `user_activity_logs` (ils peuvent rester locaux et ne pas être inclus dans les snapshots cloud).
+
+#### 2.c.3) Écritures sérialisées (atomicité)
+
+- Queue d’écriture : toutes les opérations d’écriture sur `trankil_v2.db` passent par un exécuteur sérialisé (calqué sur [localDb.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/localDb.ts#L12-L31)).
+- Toute mutation métier doit :
+  - être exécutée dans une transaction SQL,
+  - mettre `updated_at = nowMs`,
+  - mettre `is_dirty = 1` (sauf écritures issues du cloud, voir 2.c.3.b).
+
+#### 2.c.3.b) Robustesse du flag `is_dirty` (anti “sync infinie”)
+
+- Problème : lors d’un “pull” cloud → local, une écriture SQLite qui met `is_dirty = 1` déclenche ensuite un push local → cloud, provoquant une boucle.
+- Règle : toutes les API d’écriture doivent accepter un paramètre optionnel de provenance, ex. `fromSync?: boolean` (défaut `false`).
+- Comportement :
+  - `fromSync === false` : écriture locale normale → `is_dirty = 1`.
+  - `fromSync === true` : écriture issue du cloud → `is_dirty` reste `0` (et ne doit pas ré-enfiler l’objet dans la file de push).
+- Application : cette règle s’applique aussi à la mutation de `metadata_json` (patch/merge) : un patch cloud ne doit jamais “salir” une ligne.
+
+#### 2.c.4) Mutation sécurisée de `metadata_json`
+
+- Interdiction d’un `UPDATE ... SET metadata_json = ?` qui écrase l’intégralité sans lecture préalable.
+- API canonique : `patchMetadata(id, partialObject, opts?: { fromSync?: boolean })` :
+  - démarre une transaction,
+  - lit `metadata_json` actuel,
+  - deep-merge avec `partialObject`,
+  - écrit le JSON résultant + `updated_at` + `is_dirty` (1 si local, 0 si `fromSync=true`).
+- Règle : toutes les features (IA, édition utilisateur, logistique, retry offline) passent par `patchMetadata`.
+
+#### 2.c.5) Timeline & tables futures
+
+- Table Timeline : il n’existe pas de table `timeline` en SQLite dans l’état actuel ; la Timeline est une projection/requête sur `intentions`.
+- Habitudes (futur) : `habit_logs` doit inclure une contrainte `UNIQUE(intention_id, business_date)` pour prévenir les doublons lors des imports cloud.
+
+#### 2.c.6) Billing : règle “Premium collant” (anti régression multi-appareil)
+
+- Contexte : `user_billing_state` est une table singleton critique (statut Premium / features).
+- Risque : un appareil offline “ancien” peut écraser un statut Premium récent si la résolution de conflit est un LWW aveugle sur `updated_at`.
+- Règle de fusion : le statut Premium est “collant” :
+  - si l’une des deux versions (local vs cloud) est Premium, le résultat final doit être Premium, indépendamment de `updated_at`.
+  - les autres champs (quotas, compteurs) peuvent rester en LWW ou règles dédiées, mais **le Premium ne doit jamais régresser** via une sync.
+
+#### 2.c.7) UUID v4 et performance SQL (indexation)
+
+- UUID v4 : générer des UUID v4 canoniques via une librairie standard (pas de `Date.now() + random`).
+- Indexation : en plus de l’index implicite de la PK, créer des index dédiés pour les colonnes de jointure/lookup fréquentes.
+  - Exemple attendu (futur) : index sur `habit_logs.intention_id` + contrainte `UNIQUE(intention_id, business_date)` (déjà actée en 2.c.5).
 
 ### 3) Feedback utilisateur (UI/UX)
 
@@ -493,6 +561,203 @@ Format : Réponds uniquement par un objet JSON pur suivant le schéma list_scala
     - désactiver l’édition tant que la génération n’est pas terminée.
 
 ## Pile technique
+
+## MASTER SPECIFICATION — Projets & Coach Habitude
+
+### 1) Architecture système & abonnement (Freemium)
+
+- Boot-Sync (Local First, Offline-safe) :
+  - Au démarrage : utiliser immédiatement la valeur SQLite (navigation instantanée, sans réseau).
+  - En parallèle : tenter une mise à jour Firebase en arrière-plan (silent sync).
+  - Si le statut change : mettre à jour SQLite puis propager à l’UI via event (hot update).
+- Niveau Gratuit :
+  - Accès à la Timeline et à l’écran “Projets & Listes” basique.
+  - Les habitudes apparaissent comme des tâches simples dans la Timeline, sans coaching.
+- Niveau Premium :
+  - Débloque un onglet dédié “Coach Habitude” (i18n : `Habit Coach`).
+- Hot-Update (achat in-app) :
+  - Après achat validé, émettre un événement qui force la mise à jour SQLite + UI sans rechargement.
+- Sécurité Firebase :
+  - Remote Config : quotas (ex. `max_coaching_per_day`).
+  - Cloud Functions : sécuriser les appels Gemini (pas de clé côté client).
+
+### 2) Écran — Projets & Listes (ProjectListScreen.tsx)
+
+- Gestion approfondie des intentions `LIST` et `PROJECT`.
+- Structure :
+  - `FlatList` de cartes étroites + indicateur progression dynamique `doneCount/totalCount`.
+  - Filtrage : `is_archived = 0`.
+- Interface :
+  - Sheet Maison occupant 95% hauteur.
+  - Accordéon intelligent : un item ouvert ferme le précédent (auto-focus).
+- Édition native :
+  - Persistance sur `onBlur` (titre et notes) via `BottomSheetTextInput` quand disponible ; sinon champ équivalent compatible Expo.
+- Mutation JSON :
+  - Principe : mise à jour via **patch (deep merge)**, jamais via remplacement brut.
+  - Utiliser une fonction de type `updateMetadata(uid, partialData)` :
+    - lire le `metadata_json` actuel en base,
+    - fusionner profondément les clés (préserve les clés tierces : `categoryTag`, `trip`, `gemini_universal_draft`, etc.),
+    - réécrire le JSON fusionné (UPDATE).
+  - Objectif : éviter d’écraser des écritures concurrentes (ex. enrichissement IA en arrière-plan).
+
+### 3) Écran — Coach Habitude (HabitCoachScreen.tsx)
+
+- Service premium de coaching comportemental basé sur des signaux locaux et des prompts IA sécurisés.
+ - Appels IA sécurisés : la Cloud Function doit recevoir un contexte structuré construit localement (ne pas “deviner” côté serveur).
+
+#### A) HabitProfiler (local)
+
+- Règles d’état (calcul local, sans API) :
+  - `STREAK_LOW` : 1–7 jours (amorçage).
+  - `STREAK_HIGH` : 21+ jours (ancrage).
+  - `DANGER_ZONE` : 2 échecs consécutifs ou succès < 50% sur 7 jours.
+  - `PLATEAU` : succès constant mais stagnation de l’engagement.
+
+#### B) Les 10 piliers du coaching IA (Premium)
+
+- Micro-Engagement : étape < 2 minutes.
+- Variable Reward : loot box aléatoire (15%).
+- Habit Stacking : greffer sur une routine existante.
+- Identity Shift : félicitations centrées sur l’identité.
+- Proof of Work (Vision) : défi photo + analyse Vision.
+- Scripts Si-Alors : script de secours.
+- Bounce Back : valorisation du retour après échec.
+- Haptique Pavlovienne : vibration heavy rythmée à la validation.
+- Time-Boxing : suggestion créneau basé sur stats.
+- Social Mirroring : bilan hebdo au “nous”.
+
+### 4) Logique données & UX système
+
+- Table `habit_logs` :
+  - Colonnes : `intention_id`, `date`, `status`, `proof_url`.
+- Compression image :
+  - Réduction locale (max 720p) avant envoi à Gemini Vision.
+- Android BackHandler :
+  - Priorité à la fermeture de la Sheet Maison sur le bouton retour physique.
+- État “Génération” :
+  - Spinner et édition bloquée si `metadata_json.is_generating === true`.
+- Feedback persistance :
+  - Micro-animation “Saved” après chaque persistance réussie.
+
+- Payload Cloud Function (coaching) :
+  - Envoyer un objet structuré, ex. :
+    - `{ promptType: 'DANGER_ZONE', stats: { success_rate: 0.4, trend: 'decreasing', missed_days: 2 }, userIdentity: 'Apprenti' }`
+  - Le serveur ne doit pas recalculer le profil : il exécute le prompt choisi et renvoie la réponse.
+
+- Sécurité anti-boucle (cooldown coach) :
+  - Stocker un `last_coaching_timestamp` dans `metadata_json` (ou table dédiée).
+  - Interdire deux interventions proactives à moins de `X` heures d’intervalle, même si les conditions sont réunies.
+
+- Robustesse “Deep Merge” (conflits d’écriture) :
+  - Les mises à jour `metadata_json` doivent être sérialisées via une file d’attente (queue) côté client.
+  - Toute fonction `updateMetadata(...)` doit :
+    - s’enregistrer dans la queue,
+    - relire l’état le plus récent au moment de l’exécution,
+    - fusionner (deep merge) puis écrire,
+    - garantir un ordre strict (évite d’écraser une écriture serveur arrivée entre lecture et write).
+
+- IA Vision — fallback de bienveillance :
+  - Si l’analyse Vision est incertaine, ne jamais bloquer la validation de l’habitude.
+  - Réponse attendue : valider l’action et demander une précision de façon encourageante (motivation first).
+
+- Reset habitude (timezone & midnight) :
+  - Ajouter `metadata_json.day_offset` (par défaut `0`) pour définir une “fin de journée” personnalisée (ex. journée se termine à 02:00).
+  - Le calcul des streaks doit utiliser `day_offset` pour éviter de casser un streak en cas de coucher tardif ou voyage.
+
+- Robustesse day-offset (logique temporelle) :
+  - Utiliser une librairie de calcul de dates robuste (ex. `date-fns` ou équivalent déjà présent) pour éviter les erreurs de bord (DST, fuseaux).
+  - Règle métier : si `day_offset = 2` (fin de journée à 02:00), une validation à `01:30` le mardi est comptée dans la journée “métier” de lundi (J-1), afin de préserver le streak.
+
+- Charge IA (throttling) :
+  - Le recalcul `HabitProfiler` doit être debounced (ne pas recalculer à chaque ouverture/fermeture frénétique d’écran).
+  - Règle métier : ne déclencher un appel Cloud Function (coaching) que si :
+    - l’état local a changé (nouvelle validation/échec, nouvelles stats), ou
+    - `last_coaching_timestamp` est plus vieux que `X` heures (cooldown dépassé).
+
+- Intégrité file d’attente (journaling) :
+  - Pour les écritures critiques (ex. validation habitude), utiliser un “journal” SQLite :
+    - écrire l’action dans une table de logs avant la fusion dans `metadata_json`,
+    - au redémarrage, rejouer les entrées non fusionnées pour éviter la perte en cas de crash.
+
+- Guerre des timezones (streaks robustes) :
+  - `habit_logs` doit stocker les timestamps en ISO 8601 **avec offset local** (ex. `2026-05-04T22:00:00+02:00`) plutôt qu’en UTC pur.
+  - Objectif : recalculer les streaks selon “l’horloge biologique” au moment de l’action, indépendamment du fuseau actuel.
+
+- Journaling vs performance :
+  - Les écritures critiques doivent être atomiques via **une transaction SQLite unique** (journal + update minimal pour l’UI optimiste).
+  - La fusion lourde / deep merge de `metadata_json` est déportée après animations (`InteractionManager.runAfterInteractions`) ou tâche de fond pour éviter des freezes sur Android low-end.
+
+- Payload Gemini (mémoire courte) :
+  - Ajouter `last_coach_message_summary` au payload Cloud Function afin d’éviter les répétitions et maintenir une continuité conversationnelle.
+  - Limite : 140 caractères maximum ou un format compact (3 mots-clés / attributs de contexte).
+
+- UI optimiste :
+  - À la validation d’une habitude, l’UI doit refléter le succès immédiatement (optimistic update).
+  - En cas d’erreur rare de persistance/sync : rollback visuel + notification courte “Oups”.
+
+- UX “génération” (anti feuille blanche) :
+  - Pendant `is_generating === true`, afficher des messages de chargement qui tournent (neuro-actifs), ex. :
+    - “Analyse de ta plasticité cérébrale…”
+    - “Calcul du prochain petit pas…”
+    - “Préparation d’un plan anti-friction…”
+
+- Sécurité types après merge :
+  - Après chaque `readMetadata` / merge, valider la structure via un schéma (type guards ou validation runtime).
+  - Ne jamais exécuter HabitProfiler / UI sur des données non validées (évite crash si array devient `null`).
+
+### Blindage temporel (Habit Logs & Streaks)
+
+- Principe : traiter le temps comme 2 entités distinctes :
+  - **Instant précis** (technique) : timestamp complet.
+  - **Journée métier** (humaine) : date `YYYY-MM-DD` dérivée via `day_offset`.
+
+#### 1) Règle d’or du stockage (`habit_logs`)
+
+- Interdit : stocker des dates en UTC pur (`Z`) pour les logs d’habitudes.
+- Format imposé : ISO 8601 **avec offset local** `YYYY-MM-DDTHH:mm:ss±HH:mm`.
+- Consigne : ne jamais utiliser `new Date().toISOString()` ; utiliser une fonction de formatage qui force l’offset local (ex. `format(new Date(), "yyyy-MM-dd'T'HH:mm:ssXXX")`).
+
+#### 2) Business Date (Journée métier)
+
+- Créer une utilitaire `getBusinessDate(dateTimeLocalIso, dayOffset)` :
+  - Si `day_offset = 2`, toute validation entre `00:00:00` et `01:59:59` appartient à la date du jour précédent (`date - 1 jour`).
+- Recommandation : calculer la `business_date` au moment de l’écriture et la stocker dans une colonne dédiée de `habit_logs` pour simplifier les requêtes SQL (streaks, stats).
+
+#### 3) Algorithme de streak
+
+- Ne jamais utiliser les heures pour la série : uniquement les `business_date`.
+- Étapes :
+  - récupérer la liste des `business_date` distinctes (par habitude), triées décroissant,
+  - vérifier si la plus récente est “aujourd’hui” (selon `day_offset`),
+  - parcourir la liste : si `differenceInCalendarDays(DateN, DateN-1) === 1`, le streak continue ; si `> 1`, streak brisé.
+- Voyage : le changement d’offset ne doit pas casser le streak si l’utilisateur a validé une fois par “journée métier”.
+
+#### 4) Manipulation dates (DST-safe)
+
+- Utiliser exclusivement `date-fns` (ou équivalent) pour les comparaisons/calculs calendaires.
+- Interdit : opérations manuelles sur timestamps (ex. `+ 86400000`).
+- Commande : utiliser `differenceInCalendarDays` pour gérer correctement DST (heure d’été/hiver).
+
+#### Payload temps (HabitProfiler)
+
+- Le payload du `HabitProfiler` doit inclure :
+
+```json
+{
+  "now_local": "2026-05-04T22:00:00+02:00",
+  "day_offset": 2,
+  "history": [
+    { "business_date": "2026-05-04", "status": "done" },
+    { "business_date": "2026-05-03", "status": "done" }
+  ]
+}
+```
+
+### Consigne d’implémentation (SOLO)
+
+- Basculer l’accès au Coach Habitude sur la valeur SQLite persistée au boot.
+- Utiliser `HabitProfiler` local pour sélectionner le prompt (parmi les 10 piliers) avant un appel Gemini via Cloud Functions.
+- Standard UI : privilégier la Sheet Maison pour stabilité Expo SDK 54.
 
 ### Client (app Expo / React Native)
 - Framework : Expo SDK (voir [app.json](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/app.json)) + React Native

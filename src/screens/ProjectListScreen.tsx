@@ -26,11 +26,15 @@ import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import {
   getProjectsAndLists,
   updateTrankilV2IntentionArchiveState,
-  updateTrankilV2IntentionMetadataJson,
+  patchMetadata,
   updateTrankilV2IntentionTitle,
   type TrankilV2IntentionRow,
 } from '../api';
-import { mergeListPayloadIntoMetadataJson, parseListScalablePayloadFromMetadataJson, type ListScalablePayload } from '../services/listIntentionModel';
+import {
+  buildListMetadataPatch,
+  parseListScalablePayloadFromMetadataJson,
+  type ListScalablePayload,
+} from '../services/listIntentionModel';
 import type { RootStackParamList } from '../navigation/types';
 
 type ItemDraft = {
@@ -242,8 +246,7 @@ export function ProjectListScreen() {
   const persistPayload = useCallback(
     async (next: ListScalablePayload) => {
       if (!selected) return;
-      const json = mergeListPayloadIntoMetadataJson(selected.metadata_json, next);
-      await updateTrankilV2IntentionMetadataJson(selected.id, json);
+      await patchMetadata(selected.id, buildListMetadataPatch(next));
       showSaved();
     },
     [selected, showSaved],

@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { insertTrankilV2Intention, withTrankilV2Database } from '../../api/trankilV2Db';
 import i18n from '../../locales/i18n';
 import { getNotifications } from '../notifications';
+import { newUuidV4 } from '../../utils/uuid';
 
 export const OFFLINE_AUDIO_CATEGORY_ID = 'offline_audio_queue_actions';
 export const OFFLINE_AUDIO_ACTION_ANALYZE = 'offline_audio_analyze';
@@ -25,11 +26,11 @@ const OFFLINE_QUEUE_DIR = `${FileSystem.documentDirectory}offline_queue`;
 const PROCESSED_RETENTION_MS = 48 * 60 * 60 * 1000;
 
 function newQueueId(): string {
-  return `offline_audio_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  return newUuidV4();
 }
 
 function newIntentionId(): string {
-  return `offline_intention_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  return newUuidV4();
 }
 
 async function ensureOfflineAudioQueueTable(): Promise<void> {
@@ -43,22 +44,18 @@ async function ensureOfflineAudioQueueTable(): Promise<void> {
         title TEXT NOT NULL,
         speech_lang TEXT,
         status TEXT NOT NULL DEFAULT 'pending',
-        is_pending_ai INTEGER NOT NULL DEFAULT 1,
+        is_pending_ai INTEGER NOT NULL DEFAULT 1 CHECK (is_pending_ai IN (0, 1)),
         created_at INTEGER NOT NULL,
-        notified_at INTEGER
+        notified_at INTEGER,
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+        server_version INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_status
         ON offline_audio_queue (status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_dirty_updated
+        ON offline_audio_queue (is_dirty, updated_at DESC);
     `);
-    const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(offline_audio_queue)`);
-    const hasPending = cols.some((c) => c.name === 'is_pending_ai');
-    if (!hasPending) {
-      await db.execAsync(`ALTER TABLE offline_audio_queue ADD COLUMN is_pending_ai INTEGER NOT NULL DEFAULT 1;`);
-    }
-    const hasLang = cols.some((c) => c.name === 'speech_lang');
-    if (!hasLang) {
-      await db.execAsync(`ALTER TABLE offline_audio_queue ADD COLUMN speech_lang TEXT;`);
-    }
   });
 }
 
@@ -91,9 +88,9 @@ export async function queueOfflineAudioCapture(params: {
   });
   await withTrankilV2Database(async (db) => {
     await db.runAsync(
-      `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, speech_lang, status, is_pending_ai, created_at, notified_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', 1, ?, NULL)`,
-      [queueId, intentionId, params.transcript, targetPath, params.title, params.lang || null, now],
+      `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, speech_lang, status, is_pending_ai, created_at, notified_at, updated_at, is_dirty, server_version)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', 1, ?, NULL, ?, 1, 0)`,
+      [queueId, intentionId, params.transcript, targetPath, params.title, params.lang || null, now, now],
     );
   });
   return { intentionId, queueId, storedPath: targetPath };
@@ -120,9 +117,9 @@ export async function queueOfflineTextCapture(params: {
   });
   await withTrankilV2Database(async (db) => {
     await db.runAsync(
-      `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, speech_lang, status, is_pending_ai, created_at, notified_at)
-       VALUES (?, ?, ?, '', ?, ?, 'pending', 1, ?, NULL)`,
-      [queueId, intentionId, params.transcript, params.title, params.lang || null, now],
+      `INSERT INTO offline_audio_queue (id, intention_id, transcript, audio_path, title, speech_lang, status, is_pending_ai, created_at, notified_at, updated_at, is_dirty, server_version)
+       VALUES (?, ?, ?, '', ?, ?, 'pending', 1, ?, NULL, ?, 1, 0)`,
+      [queueId, intentionId, params.transcript, params.title, params.lang || null, now, now],
     );
   });
   return { intentionId, queueId };
@@ -164,9 +161,10 @@ export async function markOfflineAudioAsDone(queueId: string): Promise<void> {
   await ensureOfflineAudioQueueTable();
   await deleteQueuedAudioFile(queueId);
   await withTrankilV2Database(async (db) => {
+    const now = Date.now();
     await db.runAsync(
-      `UPDATE offline_audio_queue SET status = 'done', notified_at = COALESCE(notified_at, ?) WHERE id = ?`,
-      [Date.now(), queueId],
+      `UPDATE offline_audio_queue SET status = 'done', notified_at = COALESCE(notified_at, ?), updated_at = ?, is_dirty = 1 WHERE id = ?`,
+      [now, now, queueId],
     );
   });
 }
@@ -175,9 +173,10 @@ export async function markOfflineAudioAsKept(queueId: string): Promise<void> {
   await ensureOfflineAudioQueueTable();
   await deleteQueuedAudioFile(queueId);
   await withTrankilV2Database(async (db) => {
+    const now = Date.now();
     await db.runAsync(
-      `UPDATE offline_audio_queue SET status = 'kept', notified_at = COALESCE(notified_at, ?) WHERE id = ?`,
-      [Date.now(), queueId],
+      `UPDATE offline_audio_queue SET status = 'kept', notified_at = COALESCE(notified_at, ?), updated_at = ?, is_dirty = 1 WHERE id = ?`,
+      [now, now, queueId],
     );
   });
 }
@@ -215,7 +214,12 @@ export async function notifyOfflineAudioPendingAnalysis(): Promise<void> {
     trigger: null,
   });
   await withTrankilV2Database(async (db) => {
-    await db.runAsync(`UPDATE offline_audio_queue SET notified_at = ? WHERE id = ?`, [Date.now(), pending.id]);
+    const now = Date.now();
+    await db.runAsync(`UPDATE offline_audio_queue SET notified_at = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`, [
+      now,
+      now,
+      pending.id,
+    ]);
   });
 }
 

@@ -263,22 +263,9 @@ export function geminiJsonToStoredPayload(g: GeminiListInventoryJson): ListScala
 }
 
 /**
- * Fusionne le payload liste dans le JSON metadata existant (préserve les autres clés).
- *
- * @param currentJson — JSON actuel de la ligne `intentions` (ou vide).
  * @param payload — État liste à persister.
- * @returns Chaîne JSON à écrire dans `metadata_json`.
+ * @returns Patch metadata à passer à `patchMetadata`.
  */
-export function mergeListPayloadIntoMetadataJson(
-  currentJson: string | null | undefined,
-  payload: ListScalablePayload,
-): string {
-  let root: Record<string, unknown> = {};
-  try {
-    root = JSON.parse(String(currentJson || '{}')) as Record<string, unknown>;
-  } catch {
-    root = {};
-  }
-  root[LIST_METADATA_KEY] = payload;
-  return JSON.stringify(root);
+export function buildListMetadataPatch(payload: ListScalablePayload): Record<string, unknown> {
+  return { [LIST_METADATA_KEY]: payload };
 }

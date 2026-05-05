@@ -23,9 +23,9 @@ import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import {
+  patchMetadata,
   updateTrankilV2IntentionLocationAddress,
   updateTrankilV2IntentionTemporal,
-  updateTrankilV2IntentionMetadataJson,
   updateTrankilV2IntentionTransportMode,
 } from '../api/trankilV2Db';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
@@ -518,22 +518,17 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
       if (!row) return;
       const root = safeParseJsonObject(row.metadata_json) ?? {};
       const tripMeta = getTripMeta(root) ?? {};
-      const nextMeta: Record<string, unknown> = await touchValidateTrip({
-        ...root,
-        trip: {
-          ...tripMeta,
-          location_address: fav.formattedAddress,
-          location_place_id: `favorite:${fav.alias}`,
-          location_lat: fav.lat,
-          location_lng: fav.lng,
-          location_source: 'favorite',
-        },
-      });
-      setArrivalText(fav.formattedAddress);
-      await updateTrankilV2IntentionLocationAddress(row.id, {
+      const tripPatch: Record<string, unknown> = {
         location_address: fav.formattedAddress,
-        metadata_json: JSON.stringify(nextMeta, null, 2),
-      });
+        location_place_id: `favorite:${fav.alias}`,
+        location_lat: fav.lat,
+        location_lng: fav.lng,
+        location_source: 'favorite',
+      };
+      if (!tripMeta.validatedAtMs) tripPatch.validatedAtMs = Date.now();
+      setArrivalText(fav.formattedAddress);
+      await updateTrankilV2IntentionLocationAddress(row.id, { location_address: fav.formattedAddress }, { silent: true });
+      await patchMetadata(row.id, { trip: tripPatch });
     })();
   }, [arrivalText, isTrip, row, trip, visible]);
 
@@ -594,32 +589,24 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     ]).start(() => setEntered(true));
   }, [sheetOpacity, translateY, visible, windowHeight]);
 
-  const persistMeta = async (nextMeta: Record<string, unknown>) => {
-    if (!row) return;
-    await updateTrankilV2IntentionMetadataJson(row.id, JSON.stringify(nextMeta, null, 2));
-  };
-
-  const touchValidateTrip = async (nextMeta: Record<string, unknown>) => {
-    const tMeta = getTripMeta(nextMeta);
-    if (!tMeta) return nextMeta;
-    if (tMeta.validatedAtMs) return nextMeta;
-    return {
-      ...nextMeta,
-      trip: {
-        ...tMeta,
-        validatedAtMs: Date.now(),
-      },
-    };
+  const touchValidateTrip = async (root: Record<string, unknown>, patchTrip: Record<string, unknown>) => {
+    const tMeta = getTripMeta(root);
+    if (tMeta && tMeta.validatedAtMs) return patchTrip;
+    return { ...patchTrip, validatedAtMs: Date.now() };
   };
 
   const onToggleChecklistItem = async (uid: string) => {
     if (!row || !checklist) return;
     const next = checklist.map((it) => (it.uid === uid ? { ...it, checked: !it.checked } : it));
     setChecklist(next);
-    const json = mergeChecklistIntoMetadataJson(row.metadata_json, next);
-    const root = safeParseJsonObject(json) ?? {};
-    const nextMeta = isTrip ? await touchValidateTrip(root) : root;
-    await updateTrankilV2IntentionMetadataJson(row.id, JSON.stringify(nextMeta, null, 2));
+    const root = safeParseJsonObject(row.metadata_json) ?? {};
+    const patch: Record<string, unknown> = {
+      checklist_v1: { items: next.map((it) => ({ uid: it.uid, text: it.text, checked: it.checked })) },
+    };
+    if (isTrip && !getTripMeta(root)?.validatedAtMs) {
+      patch.trip = { validatedAtMs: Date.now() };
+    }
+    await patchMetadata(row.id, patch);
   };
 
   const onToggleNewton = async () => {
@@ -627,16 +614,8 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const nextEnabled = !newtonEnabled;
     setNewtonEnabled(nextEnabled);
     const root = safeParseJsonObject(row.metadata_json) ?? {};
-    const tripMeta = getTripMeta(root) ?? {};
-    let nextMeta: Record<string, unknown> = {
-      ...root,
-      trip: {
-        ...tripMeta,
-        newtonEnabled: nextEnabled,
-      },
-    };
-    nextMeta = await touchValidateTrip(nextMeta);
-    await persistMeta(nextMeta);
+    const tripPatch = await touchValidateTrip(root, { newtonEnabled: nextEnabled });
+    await patchMetadata(row.id, { trip: tripPatch });
   };
 
   const onSelectTransportMode = async (mode: 'auto' | 'transit' | 'walking' | 'bike') => {
@@ -644,19 +623,9 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     setTransportMode(mode);
     onPatchRow?.(row.id, { transport_mode: mode });
     const root = safeParseJsonObject(row.metadata_json) ?? {};
-    const tripMeta = getTripMeta(root) ?? {};
-    let nextMeta: Record<string, unknown> = {
-      ...root,
-      trip: {
-        ...tripMeta,
-        transportMode: mode,
-      },
-    };
-    nextMeta = await touchValidateTrip(nextMeta);
-    await updateTrankilV2IntentionTransportMode(
-      row.id,
-      { transport_mode: mode, metadata_json: JSON.stringify(nextMeta, null, 2) },
-    );
+    await updateTrankilV2IntentionTransportMode(row.id, { transport_mode: mode }, { silent: true });
+    const tripPatch = await touchValidateTrip(root, { transportMode: mode });
+    await patchMetadata(row.id, { trip: tripPatch });
   };
 
   const persistDueDateTime = async (d: Date, opts?: { closePicker?: boolean; allDay?: boolean }) => {
@@ -668,7 +637,6 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const nextTimeHm = effectiveAllDay ? null : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
     const tripBase = isTrip && trip ? (trip as Record<string, unknown>) : null;
     const nextMeta: Record<string, unknown> = {
-      ...root,
       is_all_day: effectiveAllDay ? 1 : 0,
       dueDateTime: effectiveAllDay ? null : nextDue,
       dueDateYmd: ymd,
@@ -685,10 +653,11 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
             }
           : root.trip,
     };
-    onPatchRow?.(row.id, { due_date: nextDue, metadata_json: JSON.stringify(nextMeta, null, 2) });
+    onPatchRow?.(row.id, { due_date: nextDue });
     if (opts?.closePicker ?? true) setDatePickerOpen(false);
     setPickerDraft(d);
-    await updateTrankilV2IntentionTemporal(row.id, { due_date: nextDue, metadata_json: JSON.stringify(nextMeta, null, 2) });
+    await patchMetadata(row.id, nextMeta, { silent: true });
+    await updateTrankilV2IntentionTemporal(row.id, { due_date: nextDue });
   };
 
   const openTemporalPicker = () => {
@@ -819,9 +788,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                       sourceSaveTimer.current = setTimeout(() => {
                         sourceSaveTimer.current = null;
                         void (async () => {
-                          const root = safeParseJsonObject(row.metadata_json) ?? {};
-                          const nextMeta: Record<string, unknown> = { ...root, memo: String(text ?? '').trim() };
-                          await updateTrankilV2IntentionMetadataJson(row.id, JSON.stringify(nextMeta, null, 2));
+                          await patchMetadata(row.id, { memo: String(text ?? '').trim() }, { silent: true });
                         })();
                       }, 250);
                     }}
@@ -904,11 +871,8 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                             originSaveTimer.current = setTimeout(() => {
                               originSaveTimer.current = null;
                               void (async () => {
-                                const nextMeta = await touchValidateTrip({
-                                  ...root,
-                                  trip: { ...tripMeta, origin_address: raw },
-                                });
-                                await updateTrankilV2IntentionMetadataJson(row.id, JSON.stringify(nextMeta, null, 2));
+                                const tripPatch = await touchValidateTrip(root, { origin_address: raw });
+                                await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
                               })();
                             }, 250);
                           }}
@@ -921,17 +885,14 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                             const root = safeParseJsonObject(row.metadata_json) ?? {};
                             const tripMeta = getTripMeta(root) ?? {};
                             void (async () => {
-                              const nextMeta = await touchValidateTrip({
-                                ...root,
-                                trip: {
-                                  ...tripMeta,
-                                  origin_address: p.formattedAddress,
-                                  origin_place_id: p.placeId,
-                                  origin_lat: p.lat,
-                                  origin_lng: p.lng,
-                                },
+                              void tripMeta;
+                              const tripPatch = await touchValidateTrip(root, {
+                                origin_address: p.formattedAddress,
+                                origin_place_id: p.placeId,
+                                origin_lat: p.lat,
+                                origin_lng: p.lng,
                               });
-                              await updateTrankilV2IntentionMetadataJson(row.id, JSON.stringify(nextMeta, null, 2));
+                              await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
                             })();
                           }}
                           disabled={false}
@@ -972,20 +933,15 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                             arrivalSaveTimer.current = setTimeout(() => {
                               arrivalSaveTimer.current = null;
                               void (async () => {
-                                const nextMeta = await touchValidateTrip({
-                                  ...root,
-                                  trip: {
-                                    ...tripMeta,
-                                    location_address: raw,
-                                    location_place_id: null,
-                                    location_lat: null,
-                                    location_lng: null,
-                                  },
+                                void tripMeta;
+                                const tripPatch = await touchValidateTrip(root, {
+                                  location_address: raw,
+                                  location_place_id: null,
+                                  location_lat: null,
+                                  location_lng: null,
                                 });
-                                await updateTrankilV2IntentionLocationAddress(row.id, {
-                                  location_address: raw || null,
-                                  metadata_json: JSON.stringify(nextMeta, null, 2),
-                                });
+                                await updateTrankilV2IntentionLocationAddress(row.id, { location_address: raw || null }, { silent: true });
+                                await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
                               })();
                             }, 250);
                           }}
@@ -998,21 +954,16 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                             const root = safeParseJsonObject(row.metadata_json) ?? {};
                             const tripMeta = getTripMeta(root) ?? {};
                             void (async () => {
-                              const nextMeta = await touchValidateTrip({
-                                ...root,
-                                trip: {
-                                  ...tripMeta,
-                                  location_address: p.formattedAddress,
-                                  location_place_id: p.placeId,
-                                  location_lat: p.lat,
-                                  location_lng: p.lng,
-                                  location_source: 'places',
-                                },
-                              });
-                              await updateTrankilV2IntentionLocationAddress(row.id, {
+                              void tripMeta;
+                              const tripPatch = await touchValidateTrip(root, {
                                 location_address: p.formattedAddress,
-                                metadata_json: JSON.stringify(nextMeta, null, 2),
+                                location_place_id: p.placeId,
+                                location_lat: p.lat,
+                                location_lng: p.lng,
+                                location_source: 'places',
                               });
+                              await updateTrankilV2IntentionLocationAddress(row.id, { location_address: p.formattedAddress }, { silent: true });
+                              await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
                             })();
                           }}
                           disabled={false}

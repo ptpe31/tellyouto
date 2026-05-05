@@ -35,7 +35,7 @@ import {
   getTrankilV2IntentionById,
   getTrankilV2UnorganizedCount,
   insertTrankilV2Intention,
-  updateTrankilV2IntentionMetadataJson,
+  patchMetadata,
   updateTrankilV2IntentionPendingAiFlag,
 } from '../api/trankilV2Db';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
@@ -62,7 +62,7 @@ import { getAutoArchiveAfterCalendarSync } from '../services/premiumBridgeSettin
 import { logActivity } from '../services/UserActivityService';
 import type { AppTabParamList } from '../navigation/types';
 import { showAppToast } from '../services/appToast';
-import { applyOfflineFirstShellFailure, mergeIntentionMetadataJson } from '../services/captureOfflineFirstUtils';
+import { applyOfflineFirstShellFailure } from '../services/captureOfflineFirstUtils';
 import {
   applyPostCaptureEffects,
   buildFinalTranscriptForCapture,
@@ -793,11 +793,8 @@ export function TalkDebugScreen() {
         parseDueDateFromText,
       });
       const shellRow = await getTrankilV2IntentionById(shellId);
-      const mergedMeta = mergeIntentionMetadataJson(shellRow?.metadata_json, {
-        awaiting_project_validation: true,
-        offline_first_pending_ai: false,
-      });
-      await updateTrankilV2IntentionMetadataJson(shellId, mergedMeta);
+      void shellRow;
+      await patchMetadata(shellId, { awaiting_project_validation: true, offline_first_pending_ai: false });
       await updateTrankilV2IntentionPendingAiFlag(shellId, 0);
       DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
       setDeadlineModalVisible(false);

@@ -41,6 +41,7 @@ import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
+import { newUuidV4 } from '../utils/uuid';
 
 type CapturePayload = { transcript: string; audioUri: string | null; lang?: string };
 
@@ -60,7 +61,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 }
 
 function newId(): string {
-  return `intent_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  return newUuidV4();
 }
 
 function readDraftIntents(draft: OneTapUniversalResult): Record<string, unknown>[] {

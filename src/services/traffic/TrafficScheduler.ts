@@ -440,8 +440,15 @@ export class TrafficScheduler {
           last_error_at INTEGER,
           t_optimiste_ms INTEGER,
           t_pessimiste_ms INTEGER,
-          vigilance_status TEXT
+          vigilance_status TEXT,
+          updated_at INTEGER NOT NULL DEFAULT 0,
+          is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
+          server_version INTEGER NOT NULL DEFAULT 0
         );
+        CREATE INDEX IF NOT EXISTS idx_sentinel_trips_status
+          ON sentinel_trips (status);
+        CREATE INDEX IF NOT EXISTS idx_sentinel_trips_dirty_updated
+          ON sentinel_trips (is_dirty, updated_at DESC);
       `);
     });
   }
