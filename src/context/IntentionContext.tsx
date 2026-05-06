@@ -43,7 +43,7 @@ import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
 import { newUuidV4 } from '../utils/uuid';
 
-type CapturePayload = { transcript: string; audioUri: string | null; lang?: string };
+type CapturePayload = { transcript: string; audioUri: string | null; lang?: string; traceId?: string };
 
 type IntentionContextValue = {
   startCapture: () => void;
@@ -62,6 +62,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 
 function newId(): string {
   return newUuidV4();
+}
+
+function previewForLog(value: string, maxLen: number): string {
+  const s = String(value || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, maxLen)}…`;
 }
 
 function readDraftIntents(draft: OneTapUniversalResult): Record<string, unknown>[] {
@@ -425,16 +431,26 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       transcript: string;
       audioUri: string | null;
       lang?: string;
+      traceId?: string;
       openOnFirstIntent: boolean;
       onFirstIntent?: () => void;
       allowAlert: boolean;
     }) => {
       const cleaned = params.transcript.trim();
       if (!cleaned) return;
+      const isMic = Boolean(params.audioUri);
+      const trace = String(params.traceId || '').trim() || (isMic ? newId() : '');
+      if (__DEV__ && VERBOSE_DEBUG && isMic) {
+        const now = new Date();
+        console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
+        console.log(`********* [MIC STREAM] *********`);
+        console.log(`[MIC] 🧩 TRANSCRIPT (${cleaned.length}c): "${previewForLog(cleaned, 220)}" | TRACE: ${trace}`);
+      }
       const persistTranscript = cleaned;
       const uiLocale = params.lang || spectrum.locale || 'fr-FR';
       const seq = (geminiSeqRef.current += 1);
       let fired = false;
+      let loggedFirstSave = false;
       setRefining(true);
       const hasExisting = readDraftIntents(draftRef.current).length > 0;
       const skeleton = hasExisting ? draftRef.current : inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
@@ -474,6 +490,13 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                         firstSavedFiredRef.current = true;
                         firstSavedResolveRef.current?.();
                       }
+                      if (__DEV__ && VERBOSE_DEBUG && isMic) {
+                        if (!loggedFirstSave) {
+                          loggedFirstSave = true;
+                          console.log(`[MIC] ✅ FIRST SAVE | TRACE: ${trace}`);
+                        }
+                        console.log(`[DATABASE]   ✅ Pre-save (talkndone.db) | ID: ${pre.intentionId} | TYPE: ${built.predictedType}`);
+                      }
                     if (built.predictedType !== 'LIST') {
                       finalizedIdsRef.current[pre.intentionId] = true;
                       await finalizeOneTapOptimisticDraft({
@@ -484,6 +507,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                         habitsDefaultTitle,
                         birthdayLabel,
                       });
+                      if (__DEV__ && VERBOSE_DEBUG && isMic) {
+                        console.log(`[DATABASE]   ✅ Finalize (talkndone.db) | ID: ${pre.intentionId} | TYPE: ${built.predictedType}`);
+                      }
                     }
                       if (!fired && params.openOnFirstIntent) {
                         fired = true;
@@ -560,25 +586,37 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         if (params.allowAlert) proposeOfflineFallback({ transcript: cleaned, audioUri: params.audioUri, error: e, lang: params.lang });
       } finally {
         if (seq === geminiSeqRef.current) setRefining(false);
+        if (__DEV__ && VERBOSE_DEBUG && isMic) {
+          console.log(`[MIC] ✅ STREAM DONE | TRACE: ${trace}`);
+          console.log('***************************************');
+        }
       }
     },
     [proposeOfflineFallback, spectrum.locale],
   );
 
   const runGeminiBulkSequence = useCallback(
-    async (params: { transcript: string; audioUri: string | null; lang?: string; allowAlert: boolean }) => {
+    async (params: { transcript: string; audioUri: string | null; lang?: string; allowAlert: boolean; traceId?: string }) => {
       if (bulkProcessingRef.current) return;
       bulkProcessingRef.current = true;
       const base = String(params.transcript || '').trim();
       try {
         const chunks = splitBulkTranscript(base);
         if (chunks.length <= 1) {
+          if (__DEV__ && VERBOSE_DEBUG && params.audioUri) {
+            const now = new Date();
+            console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
+            console.log(`********* [MIC SINGLE] *********`);
+            console.log(`[MIC] 🚀 Traitement (stream) | TRACE: ${params.traceId || '—'}`);
+            console.log(`[MIC] 🧩 Chunk: "${previewForLog(base, 220)}"`);
+          }
           void runGeminiStreamRefine({
             transcript: base,
             audioUri: params.audioUri,
             lang: params.lang,
             allowAlert: params.allowAlert,
             openOnFirstIntent: false,
+            traceId: params.traceId,
           });
           return;
         }
@@ -707,9 +745,19 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const submitCapturePayload = useCallback(
-    async ({ transcript: rawTranscript, audioUri, lang }: CapturePayload) => {
+    async ({ transcript: rawTranscript, audioUri, lang, traceId }: CapturePayload) => {
       const cleaned = rawTranscript.trim();
       if (!cleaned) return;
+      const isMic = Boolean(audioUri);
+      const trace = String(traceId || '').trim() || (isMic ? newId() : '');
+      if (__DEV__ && VERBOSE_DEBUG && isMic) {
+        const now = new Date();
+        console.log(`************************************************************`);
+        console.log(`🎙️  MICRO CAPTURE → SUBMIT  | ${now.toLocaleString('fr-FR')} | TRACE: ${trace}`);
+        console.log(`************************************************************`);
+        console.log(`[MIC] 🧩 TRANSCRIPT (${cleaned.length}c): "${previewForLog(cleaned, 220)}"`);
+        console.log(`[MIC] 🎧 AUDIO_URI: ${audioUri ? 'yes' : 'no'} | LANG: ${lang || '—'}`);
+      }
       captureActiveRef.current = false;
       if (streamTimerRef.current) {
         clearTimeout(streamTimerRef.current);
@@ -726,17 +774,39 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
 
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
+      if (__DEV__ && VERBOSE_DEBUG && isMic) {
+        console.log(
+          `[MIC] 🛰️ NETINFO: isConnected=${String(net.isConnected)} | isInternetReachable=${String(net.isInternetReachable)} | online=${String(online)}`,
+        );
+      }
       if (!online) {
         const title = cleaned.slice(0, 56) || 'Memo audio';
-        if (audioUri) await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title, lang });
-        else await queueOfflineTextCapture({ transcript: cleaned, title, lang });
+        if (__DEV__ && VERBOSE_DEBUG && isMic) {
+          console.log(`[MIC] 📦 OFFLINE BRANCH → queue (title="${previewForLog(title, 80)}")`);
+        }
+        if (audioUri) {
+          const queued = await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title, lang });
+          if (__DEV__ && VERBOSE_DEBUG && isMic) {
+            console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
+          }
+        } else {
+          const queued = await queueOfflineTextCapture({ transcript: cleaned, title, lang });
+          if (__DEV__ && VERBOSE_DEBUG && isMic) {
+            console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
+          }
+        }
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
         return;
       }
 
       if (!geminiStartedRef.current) {
         geminiStartedRef.current = true;
-        void runGeminiBulkSequence({ transcript: cleaned, audioUri, lang, allowAlert: true });
+        if (__DEV__ && VERBOSE_DEBUG && isMic) {
+          console.log(`[MIC] 🚀 ONLINE BRANCH → Gemini bulk/stream | TRACE: ${trace}`);
+        }
+        void runGeminiBulkSequence({ transcript: cleaned, audioUri, lang, allowAlert: true, traceId: trace });
+      } else if (__DEV__ && VERBOSE_DEBUG && isMic) {
+        console.log(`[MIC] ⏳ SKIP Gemini (already started) | TRACE: ${trace}`);
       }
     },
     [runGeminiBulkSequence],

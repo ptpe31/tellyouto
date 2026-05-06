@@ -17,6 +17,18 @@ import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../u
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
+import { VERBOSE_DEBUG } from '../config/verboseDebug';
+
+function newMicTraceId(): string {
+  const rnd = Math.random().toString(16).slice(2, 8);
+  return `mic_${Date.now()}_${rnd}`;
+}
+
+function previewForMicLog(value: string, maxLen: number): string {
+  const s = String(value || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, maxLen)}…`;
+}
 
 export type TalkCaptureEndPayload = {
   transcript: string;
@@ -70,6 +82,8 @@ export function TalkCaptureMicButton({
   const recRef = useRef<Audio.Recording | null>(null);
   const liveScrollRef = useRef<ScrollView | null>(null);
   const sttLangRef = useRef<string>(resolveSpeechLangForSession(i18n.language));
+  const micTraceIdRef = useRef<string>('');
+  const sttLogGateRef = useRef<{ lastLen: number; firedStart: boolean }>({ lastLen: 0, firedStart: false });
   const successScale = useRef(new Animated.Value(0.8)).current;
   const successOpacity = useRef(new Animated.Value(1)).current;
 
@@ -78,6 +92,16 @@ export function TalkCaptureMicButton({
     if (text.trim().length > 0) {
       setRawTranscript(text);
       onTranscriptChange?.(text);
+      if (__DEV__ && VERBOSE_DEBUG && micTraceIdRef.current) {
+        const nextLen = text.trim().length;
+        const gate = sttLogGateRef.current;
+        const delta = nextLen - gate.lastLen;
+        if (!gate.firedStart || delta >= 24) {
+          gate.firedStart = true;
+          gate.lastLen = nextLen;
+          console.log(`[MIC] 🗣️ STT (${nextLen}c) | TRACE: ${micTraceIdRef.current} | "${previewForMicLog(text, 140)}"`);
+        }
+      }
     }
   });
 
@@ -97,6 +121,8 @@ export function TalkCaptureMicButton({
     } catch {
       /* ignore */
     }
+    micTraceIdRef.current = '';
+    sttLogGateRef.current = { lastLen: 0, firedStart: false };
     setIsPaused(false);
     setIsRecording(false);
     setPhase('idle');
@@ -153,11 +179,20 @@ export function TalkCaptureMicButton({
     }
     setRawTranscript('');
     setMeteringDb(-100);
+    micTraceIdRef.current = newMicTraceId();
+    sttLogGateRef.current = { lastLen: 0, firedStart: false };
     try {
       const ready = await ensureMicrophoneReady();
       if (!ready) return;
       onCaptureStart?.();
       intentionFlow?.startCapture();
+      if (__DEV__ && VERBOSE_DEBUG) {
+        const now = new Date();
+        console.log(`************************************************************`);
+        console.log(`🎙️  MICRO CAPTURE START | ${now.toLocaleString('fr-FR')} | TRACE: ${micTraceIdRef.current}`);
+        console.log(`************************************************************`);
+        console.log(`[MIC] 🔐 PERMS OK | STT_LANG=${resolveSpeechLangForSession(i18n.language)} | VARIANT=${variant}`);
+      }
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -230,6 +265,14 @@ export function TalkCaptureMicButton({
       setIsRecording(false);
       setIsPaused(false);
       const cleaned = cleanTranscriptText(String(transcript || '')).trim();
+      if (__DEV__ && VERBOSE_DEBUG) {
+        const now = new Date();
+        console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
+        console.log(`********* MICRO CAPTURE STOP *********`);
+        console.log(`[MIC] 🧩 RAW (${String(transcript || '').trim().length}c) → CLEAN (${cleaned.length}c) | TRACE: ${micTraceIdRef.current || '—'}`);
+        console.log(`[MIC] ✨ CLEAN: "${previewForMicLog(cleaned, 240)}"`);
+        console.log(`[MIC] 🎧 AUDIO_URI: ${uri ? 'yes' : 'no'} | INTENTION_CTX: ${intentionFlow ? 'yes' : 'no'}`);
+      }
       if (!cleaned) {
         resetInternal();
         Alert.alert(
@@ -240,6 +283,11 @@ export function TalkCaptureMicButton({
       }
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
+      if (__DEV__ && VERBOSE_DEBUG) {
+        console.log(
+          `[MIC] 🛰️ NETINFO: isConnected=${String(net.isConnected)} | isInternetReachable=${String(net.isInternetReachable)} | online=${String(online)}`,
+        );
+      }
       setPhase('success');
       setSuccessTone(online ? 'online' : 'offline');
       setSuccessLabel(
@@ -250,7 +298,16 @@ export function TalkCaptureMicButton({
             }),
       );
       if (intentionFlow) {
-        void intentionFlow.submitCapturePayload({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current });
+        void intentionFlow
+          .submitCapturePayload({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current, traceId: micTraceIdRef.current })
+          .catch((e) => {
+            if (__DEV__ && VERBOSE_DEBUG) {
+              console.log(`[MIC] ❌ submitCapturePayload failed | TRACE: ${micTraceIdRef.current} | ${e instanceof Error ? e.message : String(e)}`);
+            }
+          });
+      }
+      if (__DEV__ && VERBOSE_DEBUG) {
+        console.log(`[MIC] 📤 SUBMITTED → intentionFlow | TRACE: ${micTraceIdRef.current || '—'}`);
       }
       await onCaptureEnd?.({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current });
       if (RPlatform.OS !== 'web') {

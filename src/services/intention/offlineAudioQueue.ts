@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { insertTrankilV2Intention, withTrankilV2Database } from '../../api/trankilV2Db';
 import i18n from '../../locales/i18n';
 import { getNotifications } from '../notifications';
+import { VERBOSE_DEBUG } from '../../config/verboseDebug';
 import { newUuidV4 } from '../../utils/uuid';
 
 export const OFFLINE_AUDIO_CATEGORY_ID = 'offline_audio_queue_actions';
@@ -69,6 +70,13 @@ export async function queueOfflineAudioCapture(params: {
   title: string;
   lang?: string;
 }): Promise<{ intentionId: string; queueId: string; storedPath: string }> {
+  if (__DEV__ && VERBOSE_DEBUG) {
+    const now = new Date();
+    console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
+    console.log(`********* [OFFLINE_QUEUE AUDIO] *********`);
+    console.log(`[OFFLINE_QUEUE] 🧩 TRANSCRIPT (${params.transcript.length}c): "${String(params.transcript).slice(0, 160)}"`);
+    console.log(`[OFFLINE_QUEUE] 🎧 AUDIO_URI: yes | LANG: ${params.lang || '—'}`);
+  }
   await ensureOfflineAudioQueueTable();
   await ensureOfflineQueueDirectory();
   const queueId = newQueueId();
@@ -93,6 +101,10 @@ export async function queueOfflineAudioCapture(params: {
       [queueId, intentionId, params.transcript, targetPath, params.title, params.lang || null, now, now],
     );
   });
+  if (__DEV__ && VERBOSE_DEBUG) {
+    console.log(`[OFFLINE_QUEUE] ✅ QUEUED: queueId=${queueId} | intentionId=${intentionId}`);
+    console.log('***************************************');
+  }
   return { intentionId, queueId, storedPath: targetPath };
 }
 
@@ -101,6 +113,13 @@ export async function queueOfflineTextCapture(params: {
   title: string;
   lang?: string;
 }): Promise<{ intentionId: string; queueId: string }> {
+  if (__DEV__ && VERBOSE_DEBUG) {
+    const now = new Date();
+    console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
+    console.log(`********* [OFFLINE_QUEUE TEXT] *********`);
+    console.log(`[OFFLINE_QUEUE] 🧩 TRANSCRIPT (${params.transcript.length}c): "${String(params.transcript).slice(0, 160)}"`);
+    console.log(`[OFFLINE_QUEUE] 🎧 AUDIO_URI: no | LANG: ${params.lang || '—'}`);
+  }
   await ensureOfflineAudioQueueTable();
   const queueId = newQueueId();
   const intentionId = newIntentionId();
@@ -122,6 +141,10 @@ export async function queueOfflineTextCapture(params: {
       [queueId, intentionId, params.transcript, params.title, params.lang || null, now, now],
     );
   });
+  if (__DEV__ && VERBOSE_DEBUG) {
+    console.log(`[OFFLINE_QUEUE] ✅ QUEUED: queueId=${queueId} | intentionId=${intentionId}`);
+    console.log('***************************************');
+  }
   return { intentionId, queueId };
 }
 
