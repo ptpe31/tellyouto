@@ -530,6 +530,7 @@ Règles :
 
 - Modifier `IntentionContext.submitCapturePayload` :
   - Toute capture unitaire (micro) est routée vers `runGeminiBulkSequence` (même si le transcript ne contient pas `**`).
+  - Mécanique : le micro force un tableau `chunks=[transcript]` pour imposer le chemin “Séquenceur” (CHUNK 1/1), sans heuristique de split.
   - Le micro devient donc “Bulk(1)” : même sanitizer, mêmes logs `[SEQUENCER]`, mêmes règles de verrouillage/persistance, même ventilation.
 
 ### 3) Instrumentation Pass 2 (visibilité)
