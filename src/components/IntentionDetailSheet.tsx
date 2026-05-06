@@ -1168,50 +1168,54 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                 </View>
               ) : null}
 
-              <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+              {!isProject ? (
+                <>
+                  <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
 
-              <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelTiming')}</Text>
-              {subtitle ? (
-                <Pressable
-                  onPress={openTemporalPicker}
-                  android_ripple={{ color: 'rgba(15, 23, 42, 0.06)' }}
-                  style={({ pressed }) => [styles.subtitlePress, { opacity: pressed ? 0.88 : 1 }]}
-                >
-                  <View pointerEvents="none" style={styles.addrIconWrap}>
-                    <IconButton icon="calendar-month-outline" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.addrIcon} />
-                  </View>
-                  <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                    {subtitle}
-                  </Text>
-                </Pressable>
-              ) : null}
-
-              {datePickerOpen ? (
-                <View style={styles.pickerBlock}>
-                  <View style={styles.allDayRow}>
-                    <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.allDay')}</Text>
-                    <Switch
-                      value={isAllDay}
-                      onValueChange={(v) => {
-                        setIsAllDay(v);
-                        if (v) setNewtonEnabled(false);
-                        const now = new Date();
-                        const base = new Date(pickerDraft);
-                        if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
-                        setPickerDraft(base);
-                        void persistDueDateTime(base, { closePicker: false, allDay: v });
-                      }}
-                    />
-                  </View>
-                  {Platform.OS === 'ios' ? (
-                    <DateTimePickerLazy
-                      value={pickerDraft}
-                      mode={isAllDay ? 'date' : 'datetime'}
-                      display={isAllDay ? 'inline' : 'compact'}
-                      onChange={onPickedDateTimeIos}
-                    />
+                  <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelTiming')}</Text>
+                  {subtitle ? (
+                    <Pressable
+                      onPress={openTemporalPicker}
+                      android_ripple={{ color: 'rgba(15, 23, 42, 0.06)' }}
+                      style={({ pressed }) => [styles.subtitlePress, { opacity: pressed ? 0.88 : 1 }]}
+                    >
+                      <View pointerEvents="none" style={styles.addrIconWrap}>
+                        <IconButton icon="calendar-month-outline" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.addrIcon} />
+                      </View>
+                      <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                        {subtitle}
+                      </Text>
+                    </Pressable>
                   ) : null}
-                </View>
+
+                  {datePickerOpen ? (
+                    <View style={styles.pickerBlock}>
+                      <View style={styles.allDayRow}>
+                        <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.allDay')}</Text>
+                        <Switch
+                          value={isAllDay}
+                          onValueChange={(v) => {
+                            setIsAllDay(v);
+                            if (v) setNewtonEnabled(false);
+                            const now = new Date();
+                            const base = new Date(pickerDraft);
+                            if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
+                            setPickerDraft(base);
+                            void persistDueDateTime(base, { closePicker: false, allDay: v });
+                          }}
+                        />
+                      </View>
+                      {Platform.OS === 'ios' ? (
+                        <DateTimePickerLazy
+                          value={pickerDraft}
+                          mode={isAllDay ? 'date' : 'datetime'}
+                          display={isAllDay ? 'inline' : 'compact'}
+                          onChange={onPickedDateTimeIos}
+                        />
+                      ) : null}
+                    </View>
+                  ) : null}
+                </>
               ) : null}
 
               {isTrip ? (
