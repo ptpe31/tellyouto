@@ -596,12 +596,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const runGeminiBulkSequence = useCallback(
-    async (params: { transcript: string; audioUri: string | null; lang?: string; allowAlert: boolean; traceId?: string }) => {
+    async (params: { transcript: string; audioUri: string | null; lang?: string; allowAlert: boolean; traceId?: string; chunks?: string[] }) => {
       if (bulkProcessingRef.current) return;
       bulkProcessingRef.current = true;
       const base = String(params.transcript || '').trim();
       try {
-        const chunks = splitBulkTranscript(base);
+        const chunks = Array.isArray(params.chunks) && params.chunks.length ? params.chunks : splitBulkTranscript(base);
         const uiLocale = params.lang || spectrum.locale || 'fr-FR';
         const seq = (geminiSeqRef.current += 1);
         setRefining(true);
@@ -786,7 +786,14 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         if (__DEV__ && VERBOSE_DEBUG && isMic) {
           console.log(`[MIC] 🚀 ONLINE BRANCH → Gemini bulk/stream | TRACE: ${trace}`);
         }
-        void runGeminiBulkSequence({ transcript: cleaned, audioUri, lang, allowAlert: true, traceId: trace });
+        void runGeminiBulkSequence({
+          transcript: cleaned,
+          chunks: isMic ? [cleaned] : undefined,
+          audioUri,
+          lang,
+          allowAlert: true,
+          traceId: trace,
+        });
       } else if (__DEV__ && VERBOSE_DEBUG && isMic) {
         console.log(`[MIC] ⏳ SKIP Gemini (already started) | TRACE: ${trace}`);
       }
