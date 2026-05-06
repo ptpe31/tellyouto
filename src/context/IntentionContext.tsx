@@ -4,7 +4,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Alert, DeviceEventEmitter, Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import * as Haptics from 'expo-haptics';
-import { useSpeechRecognitionEvent } from 'expo-speech-recognition';
 
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import {
@@ -310,8 +309,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const captureActiveRef = useRef(false);
   const draftRef = useRef<OneTapUniversalResult>(draft);
   const transcriptRef = useRef(transcript);
-  const streamSeqRef = useRef(0);
-  const streamTimerRef = useRef<number | null>(null);
   const geminiSeqRef = useRef(0);
   const modalOpenTimerRef = useRef<number | null>(null);
   const geminiStartedRef = useRef(false);
@@ -328,11 +325,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     lastCaptureWasMicRef.current = false;
     lastAudioUriRef.current = null;
     captureActiveRef.current = true;
-    streamSeqRef.current = 0;
-    if (streamTimerRef.current) {
-      clearTimeout(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
     if (modalOpenTimerRef.current) {
       clearTimeout(modalOpenTimerRef.current);
       modalOpenTimerRef.current = null;
@@ -359,10 +351,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     lastAudioUriRef.current = null;
     captureActiveRef.current = false;
     geminiSeqRef.current += 1;
-    if (streamTimerRef.current) {
-      clearTimeout(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
     if (modalOpenTimerRef.current) {
       clearTimeout(modalOpenTimerRef.current);
       modalOpenTimerRef.current = null;
@@ -598,7 +586,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const runGeminiBulkSequence = useCallback(
     async (params: { transcript: string; audioUri: string | null; lang?: string; allowAlert: boolean; traceId?: string; chunks?: string[] }) => {
       if (bulkProcessingRef.current) return;
+      if (geminiStartedRef.current) return;
       bulkProcessingRef.current = true;
+      geminiStartedRef.current = true;
       const base = String(params.transcript || '').trim();
       try {
         const chunks = Array.isArray(params.chunks) && params.chunks.length ? params.chunks : splitBulkTranscript(base);
@@ -741,10 +731,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         console.log(`[MIC] 🎧 AUDIO_URI: ${audioUri ? 'yes' : 'no'} | LANG: ${lang || '—'}`);
       }
       captureActiveRef.current = false;
-      if (streamTimerRef.current) {
-        clearTimeout(streamTimerRef.current);
-        streamTimerRef.current = null;
-      }
       if (modalOpenTimerRef.current) {
         clearTimeout(modalOpenTimerRef.current);
         modalOpenTimerRef.current = null;
@@ -781,22 +767,17 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (!geminiStartedRef.current) {
-        geminiStartedRef.current = true;
-        if (__DEV__ && VERBOSE_DEBUG && isMic) {
-          console.log(`[MIC] 🚀 ONLINE BRANCH → Gemini bulk/stream | TRACE: ${trace}`);
-        }
-        void runGeminiBulkSequence({
-          transcript: cleaned,
-          chunks: isMic ? [cleaned] : undefined,
-          audioUri,
-          lang,
-          allowAlert: true,
-          traceId: trace,
-        });
-      } else if (__DEV__ && VERBOSE_DEBUG && isMic) {
-        console.log(`[MIC] ⏳ SKIP Gemini (already started) | TRACE: ${trace}`);
+      if (__DEV__ && VERBOSE_DEBUG && isMic) {
+        console.log(`[MIC] 🚀 ONLINE BRANCH → Gemini bulk/stream | TRACE: ${trace}`);
       }
+      void runGeminiBulkSequence({
+        transcript: cleaned,
+        chunks: isMic ? [cleaned] : undefined,
+        audioUri,
+        lang,
+        allowAlert: true,
+        traceId: trace,
+      });
     },
     [runGeminiBulkSequence],
   );
@@ -887,29 +868,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
-
-  useSpeechRecognitionEvent('result', (event) => {
-    if (!captureActiveRef.current) return;
-    const text = event.results?.[0]?.transcript ?? '';
-    if (!text.trim()) return;
-    setTranscript(text);
-    const seq = (streamSeqRef.current += 1);
-    if (streamTimerRef.current) clearTimeout(streamTimerRef.current);
-    streamTimerRef.current = setTimeout(() => {
-      void (async () => {
-        if (!captureActiveRef.current) return;
-        const snap = text.trim();
-        if (snap.length < 16) return;
-        const net = await NetInfo.fetch();
-        const online = net.isConnected === true && net.isInternetReachable === true;
-        if (!online) return;
-        if (seq !== streamSeqRef.current) return;
-        if (geminiStartedRef.current) return;
-        geminiStartedRef.current = true;
-        void runGeminiStreamRefine({ transcript: snap, audioUri: null, allowAlert: false, openOnFirstIntent: false });
-      })();
-    }, 850) as unknown as number;
-  });
 
   const analyzeLatestOfflineAudio = useCallback(
     async (queueId?: string) => {
