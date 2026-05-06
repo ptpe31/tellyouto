@@ -323,6 +323,29 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Adaptation interne : si le titre prend 2 lignes, le padding vertical interne de la carte peut être réduit pour maintenir la hauteur totale à 105dp sans déborder.
 - Contrat de lisibilité : pour les titres qui dépassent cette capacité, l’utilisateur doit pouvoir consulter le texte complet via un appui long ou via une vue détaillée (ex. TalkDebugScreen).
 
+### 6) Contrat Visuel Timeline (Ligne 1 / Ligne 2)
+
+- Principe : la Timeline est une vue “Zen” à charge cognitive minimale.
+- Épuration totale : aucun item / jalon / sous-détail (ex. `list_scalable_v1`) ne doit être rendu dans la carte Timeline.
+- Hauteur fixe : la carte Timeline conserve une hauteur fixe de 105dp, quel que soit le type d’intention.
+- Interaction : tap sur le corps de la carte ouvre la Bottom Sheet de détails (consultation/édition des jalons, liste, etc.).
+
+#### 6.a) Ligne 1 — Titre Purifié (DISPLAY TITLE CONTRACT)
+
+- Source de vérité : utiliser `CONTENT` (Gemini) / `display_title` (SQL Timeline) comme titre principal.
+- Interdiction : aucun résidu de date, heure, récurrence ou marqueur temporel ne doit apparaître dans la ligne 1.
+- Fallback : si `display_title` est vide, fallback sur `title` (SQLite) ou `content_raw` tronqué, sans enrichir la carte avec des détails secondaires.
+
+#### 6.b) Ligne 2 — Moment ou Badge NEW
+
+- Si l’intention a une heure :
+  - Détection : présence d’une heure (`dueTimeHm` / `dueDateTime` / `arrivalDue` / “time slot” selon type).
+  - Affichage : `{JourLabel} • {Heure}`.
+- Si l’intention n’a pas d’heure ET a été créée aujourd’hui :
+  - Remplacer le moment par un badge textuel `NEW` (i18n).
+- Si l’intention n’a pas d’heure ET est passée ou future :
+  - Afficher `{JourLabel} • Toute la journée` (i18n).
+
 ## Détails Intention (Bottom Sheet)
 
 ### 1) UI (Bottom Sheet) & Preuve de Source

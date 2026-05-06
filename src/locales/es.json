@@ -249,6 +249,7 @@
   },
   "timeline": {
     "allDuration": "Todo el día",
+    "newBadge": "NUEVO",
     "subtitle": "Riel del día — ventanas sugeridas según tu espectro (Momentum alto → bloques más profundos).",
     "now": "Ahora",
     "dayRail": "Posición en el día (6h–22h)",

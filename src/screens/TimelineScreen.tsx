@@ -47,9 +47,7 @@ import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
 import { IntentionCard } from '../components/IntentionCard';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
-import { ListIntentionCard } from '../components/ListIntentionCard';
 import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
-import { TimelineListItemRow } from '../components/TimelineListItemRow';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
@@ -245,7 +243,6 @@ function smartTitleAuditTime(due: string | null): string {
 const SECTION_HEADER_H = 36;
 const IDEA_BANK_H = 58;
 const CARD_ROW_H = 120;
-const LIST_CARD_H = 348;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
   if (bubble === 'HOME') return 'HOME';
@@ -269,13 +266,6 @@ type TimelineFlatItem =
       row: TrankilV2TimelineItemRow;
       listKey: string;
       rowVariant: 'default' | 'noPressure';
-    }
-  | {
-      kind: 'listCard';
-      id: string;
-      row: TrankilV2TimelineItemRow;
-      listKey: string;
-      rowVariant: 'default' | 'noPressure';
     };
 
 function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
@@ -287,9 +277,8 @@ function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
     }
     out.push({ kind: 'section', id: `sec-${e.listKey}-${e.titleKey}`, titleKey: e.titleKey });
     for (const r of e.rows) {
-      const isList = r.type === 'LIST' || r.section === 'LIST_CARD';
       out.push({
-        kind: isList ? 'listCard' : 'card',
+        kind: 'card',
         id: r.id,
         row: r,
         listKey: e.listKey,
@@ -308,119 +297,11 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
         ? SECTION_HEADER_H
         : it.kind === 'ideaBankRow'
           ? IDEA_BANK_H
-          : it.kind === 'listCard'
-            ? LIST_CARD_H
-            : CARD_ROW_H;
+          : CARD_ROW_H;
     const cur = { length: len, offset: off };
     off += len;
     return cur;
   });
-}
-
-type TimelineCardRowProps = {
-  row: TrankilV2TimelineItemRow;
-  listKey: string;
-  rowVariant: 'default' | 'noPressure';
-  dimmed?: boolean;
-  theme: MD3Theme;
-  spectrumIsPro: boolean;
-  anchorDate: Date;
-  titleText: string;
-  badgeLabel: string;
-  projectSuffix: string | null;
-  createdCaption: string;
-  progressLookupId: string | null;
-  showCompleteOrb: boolean;
-  pendingLocalDone: boolean;
-  childStats: Map<string, TrankilV2ChildTaskStats>;
-  onToggleComplete: () => void;
-  onMutationReload: () => void;
-  offlineAiChipLabel: string | null;
-  onRetryAiSort?: () => void;
-  retryAiSortBusy: boolean;
-};
-
-const TimelineCardRow = memo(function TimelineCardRow({
-  row,
-  listKey,
-  rowVariant,
-  dimmed,
-  theme,
-  spectrumIsPro,
-  anchorDate,
-  titleText,
-  badgeLabel,
-  projectSuffix,
-  createdCaption,
-  progressLookupId,
-  showCompleteOrb,
-  pendingLocalDone,
-  childStats,
-  onToggleComplete,
-  onMutationReload,
-  offlineAiChipLabel,
-  onRetryAiSort,
-  retryAiSortBusy,
-}: TimelineCardRowProps) {
-  const card = (
-    <TimelineListItemRow
-      row={row}
-      listKey={listKey}
-      dimmed={dimmed}
-      theme={theme}
-      titleText={titleText}
-      badgeLabel={badgeLabel}
-      projectSuffix={projectSuffix}
-      createdCaption={createdCaption}
-      isPro={spectrumIsPro}
-      showCompleteOrb={showCompleteOrb}
-      progressLookupId={progressLookupId}
-      childStats={childStats}
-      pendingLocalDone={pendingLocalDone}
-      onToggleComplete={onToggleComplete}
-      offlineAiChipLabel={offlineAiChipLabel}
-      onRetryAiSort={onRetryAiSort}
-      retryAiSortBusy={retryAiSortBusy}
-    />
-  );
-  return (
-    <IntentInteractionWrapper
-      intentionId={row.id}
-      anchorDate={anchorDate}
-      enabled={!dimmed}
-      onMutation={onMutationReload}
-    >
-      {rowVariant === 'noPressure' ? (
-        <View
-          style={{
-            borderRadius: 14,
-            borderWidth: 1,
-            borderStyle: 'dashed',
-            borderColor: theme.colors.primary,
-            backgroundColor: 'rgba(0, 128, 128, 0.06)',
-          }}
-        >
-          {card}
-        </View>
-      ) : (
-        card
-      )}
-    </IntentInteractionWrapper>
-  );
-});
-
-function formatCreatedLine(createdAt: number, locale?: string): string {
-  try {
-    const d = new Date(createdAt);
-    const loc = locale || Intl.DateTimeFormat().resolvedOptions().locale;
-    return new Intl.DateTimeFormat(loc, {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-    }).format(d);
-  } catch {
-    return '';
-  }
 }
 
 type RowSection = {
@@ -1114,16 +995,6 @@ export function TimelineScreen() {
                 {item.count} {t('timeline.ideaBank.button')}
             </Text>
             </Pressable>
-          </View>
-        );
-      }
-      if (item.kind === 'listCard') {
-        const row = item.row;
-        return (
-          <View style={{ paddingHorizontal: 16, paddingBottom: 2 }}>
-            <IntentInteractionWrapper intentionId={row.id} anchorDate={anchorDate} onMutation={reload}>
-              <ListIntentionCard row={row} theme={theme} spectrumIsPro={spectrum.isProUser} />
-            </IntentInteractionWrapper>
           </View>
         );
       }

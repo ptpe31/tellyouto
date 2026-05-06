@@ -16,6 +16,8 @@
   },
   "timeline": {
     "createdOn": "Skapad {{date}}",
+    "allDuration": "Hela dagen",
+    "newBadge": "NY",
     "skyClear": "Klar himmel — sinnet har utrymme.",
     "pilot": {
       "title": "Pilot",

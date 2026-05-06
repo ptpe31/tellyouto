@@ -44,6 +44,18 @@ function capitalizeFirst(raw: string): string {
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
+function hasTemporalResidue(raw: string): boolean {
+  const s = String(raw || '').toLowerCase();
+  if (!s.trim()) return false;
+  if (/\b(\d{1,2}[:h]\d{0,2}|am|pm)\b/.test(s)) return true;
+  if (/\b(today|tomorrow|tonight|yesterday)\b/.test(s)) return true;
+  if (/\b(aujourd'hui|demain|ce soir|hier|après-demain)\b/.test(s)) return true;
+  if (/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(s)) return true;
+  if (/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/.test(s)) return true;
+  if (/\b\d{4}-\d{2}-\d{2}\b/.test(s)) return true;
+  return false;
+}
+
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
   const s = String(raw ?? '').trim();
   if (!s) return null;
@@ -135,11 +147,12 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
   }, [meta]);
 
   const titleText = useMemo(() => {
-    const fallback = String(row.display_title || '').trim();
-    if (fallback) return fallback;
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
+    const direct = String(row.display_title || '').trim();
+    if (direct && !hasTemporalResidue(direct)) return direct;
     const smart = generateSmartTitle(row.content_raw || '', loc);
     if (smart) return smart;
+    if (direct) return direct;
     if (row.type === 'AUDIO') return t('timeline.memoAudio');
     if (row.type === 'NOTE') return t('timeline.note');
     return t('timeline.untitled');
@@ -150,10 +163,12 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
     const now = new Date();
     const todayKey = formatYmdLocal(now);
     const tomorrowKey = addDaysYmd(now, 1);
+    const createdKey = formatYmdLocal(new Date(row.created_at));
 
     const rootDueIso = str(meta, 'dueDateTime');
     const rootYmd = str(meta, 'dueDateYmd');
     const rootHm = parseHm(str(meta, 'dueTimeHm'));
+    const habitHm = parseHm(str(meta, 'preferredTimeHm'));
 
     const tripArrivalIso = str(trip, 'arrivalDue');
     const tripDueIso = str(trip, 'dueDateTime');
@@ -161,15 +176,14 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
     const tripHm = parseHm(str(trip, 'dueTimeHm'));
 
     const baseParsed = parseDueDate(row.due_date);
-    const isoSource = row.type === 'TASK' && trip ? tripArrivalIso || tripDueIso : rootDueIso;
-    const parsedIso = isoSource ? parseDueDate(isoSource) : rootDueIso ? parseDueDate(rootDueIso) : null;
+    const isoSource = tripArrivalIso || tripDueIso || rootDueIso;
+    const parsedIso = isoSource ? parseDueDate(isoSource) : null;
     const dateRef =
       parsedIso?.date ??
       (tripYmd ? parseDueDate(tripYmd)?.date : null) ??
       (rootYmd ? parseDueDate(rootYmd)?.date : null) ??
       baseParsed?.date ??
-      null;
-    if (!dateRef) return null;
+      new Date(row.created_at);
     const dueKey = formatYmdLocal(dateRef);
     const dayLabel =
       dueKey === todayKey
@@ -186,12 +200,11 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
         ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(baseParsed.date)
         : null;
     const timeLabel =
-      row.type === 'TASK' && trip
-        ? tripHm || isoTimeLabel || rootHm || baseTimeLabel || t('timeline.allDuration')
-        : rootHm || baseTimeLabel || t('timeline.allDuration');
-    const showRecurrence = hasTruthyRecurrence(meta) || row.type === 'HABIT';
-    return { dayLabel, timeLabel, showRecurrence };
-  }, [i18n.language, meta, row.due_date, row.type, t, trip]);
+      tripHm || isoTimeLabel || rootHm || habitHm || baseTimeLabel;
+    if (timeLabel) return { kind: 'moment' as const, text: `${dayLabel} • ${timeLabel}` };
+    if (createdKey === todayKey) return { kind: 'new' as const, text: t('timeline.newBadge') };
+    return { kind: 'moment' as const, text: `${dayLabel} • ${t('timeline.allDuration')}` };
+  }, [i18n.language, meta, row.created_at, row.due_date, t, trip]);
 
   const tripIcon = useMemo(() => {
     if (!trip) return null;
@@ -231,27 +244,24 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
 
         <View style={styles.textCol}>
           <View style={styles.titleRow}>
-            <Text style={[styles.title, { color: theme.colors.onSurface, opacity: titleOpacity }]} numberOfLines={1}>
+            <Text style={[styles.title, { color: theme.colors.onSurface, opacity: titleOpacity }]} numberOfLines={2}>
               {titleText}
             </Text>
           </View>
           {subtitle ? (
-            <View style={styles.subtitleRow}>
-              <Text
-                style={[styles.subtitle, styles.subtitleLead, { color: theme.colors.onSurfaceVariant }]}
-                numberOfLines={1}
-              >
-                {subtitle.dayLabel} •
-              </Text>
-              {subtitle.showRecurrence ? (
-                <View pointerEvents="none" style={styles.subtitleIconWrap}>
-                  <IconButton icon="repeat" size={14} iconColor={theme.colors.onSurfaceVariant} style={styles.subtitleIcon} />
+            subtitle.kind === 'new' ? (
+              <View style={styles.newBadgeRow}>
+                <View style={[styles.newBadge, { backgroundColor: theme.colors.primaryContainer }]}>
+                  <Text style={[styles.newBadgeText, { color: theme.colors.primary }]}>{subtitle.text}</Text>
                 </View>
-              ) : null}
-              <Text style={[styles.subtitle, styles.subtitleTail, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                {subtitle.timeLabel}
-              </Text>
-            </View>
+              </View>
+            ) : (
+              <View style={styles.subtitleRow}>
+                <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                  {subtitle.text}
+                </Text>
+              </View>
+            )
           ) : null}
         </View>
       </View>
@@ -278,8 +288,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
   subtitleRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
-  subtitleLead: { marginTop: 0, flexShrink: 0 },
-  subtitleIconWrap: { marginLeft: 4, marginRight: 2 },
-  subtitleIcon: { margin: 0, padding: 0 },
-  subtitleTail: { marginTop: 0, flexShrink: 1, minWidth: 0 },
+  newBadgeRow: { marginTop: 6, flexDirection: 'row', alignItems: 'center' },
+  newBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  newBadgeText: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
 });

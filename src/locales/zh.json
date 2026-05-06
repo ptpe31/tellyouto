@@ -248,6 +248,8 @@
     "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
   },
   "timeline": {
+    "allDuration": "全天",
+    "newBadge": "新",
     "subtitle": "今日轨道 — 按光谱建议时段（动能高 → 更深的工作块）。",
     "now": "现在",
     "dayRail": "在一天中的位置（6–22 点）",

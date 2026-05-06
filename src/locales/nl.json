@@ -16,6 +16,8 @@
   },
   "timeline": {
     "createdOn": "Gemaakt op {{date}}",
+    "allDuration": "Hele dag",
+    "newBadge": "NIEUW",
     "skyClear": "Strak blauw — je hoofd heeft ruimte.",
     "pilot": {
       "title": "Stuurpost",

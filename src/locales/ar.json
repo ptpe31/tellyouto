@@ -16,6 +16,8 @@
   },
   "timeline": {
     "createdOn": "أُنشئ في {{date}}",
+    "allDuration": "طوال اليوم",
+    "newBadge": "جديد",
     "skyClear": "سماء صافية — ذهنك أخف.",
     "pilot": {
       "title": "قيادة",

@@ -248,6 +248,8 @@
     "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
   },
   "timeline": {
+    "allDuration": "Den ganzen Tag",
+    "newBadge": "NEU",
     "subtitle": "Tages-Schiene — vorgeschlagene Fenster nach Spektrum (hohes Momentum → tiefere Blöcke).",
     "now": "Jetzt",
     "dayRail": "Position im Tag (6–22 Uhr)",

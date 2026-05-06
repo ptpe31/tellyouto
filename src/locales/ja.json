@@ -248,6 +248,8 @@
     "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
   },
   "timeline": {
+    "allDuration": "終日",
+    "newBadge": "新規",
     "subtitle": "今日のレール — スペクトルに沿った提案（モメンタム高め → 深いブロック）。",
     "now": "いま",
     "dayRail": "一日の中の位置（6–22時）",
