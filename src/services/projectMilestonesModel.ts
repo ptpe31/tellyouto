@@ -3,16 +3,34 @@ export const PROJECT_MILESTONES_METADATA_KEY = 'project_milestones_v1';
 export type ProjectDurationUnit = 'hours' | 'days' | 'weeks';
 
 export type ProjectMilestone = {
+  uid: string;
   title: string;
   estimated_duration: number;
   unit: ProjectDurationUnit;
   checked?: boolean;
+  pivot_date?: string | null;
+  note?: string | null;
 };
 
 export type ProjectMilestonesPayload = {
   title: string;
   milestones: ProjectMilestone[];
 };
+
+function newUid(prefix: string, idx: number): string {
+  const rnd = Math.random().toString(16).slice(2, 10);
+  return `${prefix}_${Date.now()}_${idx}_${rnd}`;
+}
+
+export function ensureProjectMilestoneUids(payload: ProjectMilestonesPayload): ProjectMilestonesPayload {
+  return {
+    ...payload,
+    milestones: payload.milestones.map((m, idx) => ({
+      ...m,
+      uid: String((m as any)?.uid ?? '').trim() || newUid('M', idx),
+    })),
+  };
+}
 
 export function parseProjectMilestonesPayloadFromMetadataJson(raw: string | null | undefined): ProjectMilestonesPayload | null {
   if (!raw) return null;
@@ -29,18 +47,29 @@ export function parseProjectMilestonesPayloadFromMetadataJson(raw: string | null
       .map((m) => {
         if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
         const r = m as Record<string, unknown>;
+        const uid = String(r.uid ?? '').trim();
         const t = String(r.title ?? '').trim();
         const n = Number(r.estimated_duration);
         const unit = String(r.unit ?? '').trim() as ProjectDurationUnit;
         const checked = Boolean(r.checked);
+        const pivot_date = typeof r.pivot_date === 'string' && r.pivot_date.trim() ? r.pivot_date.trim() : null;
+        const note = typeof r.note === 'string' && r.note.trim() ? r.note.trim() : null;
         if (!t) return null;
         if (!Number.isFinite(n) || n <= 0) return null;
         if (unit !== 'hours' && unit !== 'days' && unit !== 'weeks') return null;
-        return { title: t.slice(0, 200), estimated_duration: n, unit, checked };
+        return {
+          uid: uid || '',
+          title: t.slice(0, 200),
+          estimated_duration: n,
+          unit,
+          checked,
+          pivot_date: pivot_date && /^\d{4}-\d{2}-\d{2}$/.test(pivot_date) ? pivot_date : null,
+          note,
+        };
       })
       .filter(Boolean) as ProjectMilestone[];
     if (!milestones.length) return null;
-    return { title: title.slice(0, 200), milestones };
+    return ensureProjectMilestoneUids({ title: title.slice(0, 200), milestones });
   } catch {
     return null;
   }
@@ -62,9 +91,17 @@ export function parseGeminiProjectMilestonesJson(raw: string): ProjectMilestones
     if (!Number.isFinite(n) || n <= 0) throw new Error('PROJECT_JSON_BAD_DURATION');
     const unit = String(r.unit ?? '').trim();
     if (unit !== 'hours' && unit !== 'days' && unit !== 'weeks') throw new Error('PROJECT_JSON_BAD_UNIT');
-    return { title: t, estimated_duration: n, unit: unit as ProjectDurationUnit, checked: false };
+    return {
+      uid: '',
+      title: t,
+      estimated_duration: n,
+      unit: unit as ProjectDurationUnit,
+      checked: false,
+      pivot_date: null,
+      note: null,
+    };
   });
-  return { title, milestones };
+  return ensureProjectMilestoneUids({ title, milestones });
 }
 
 export function buildProjectMilestonesMetadataPatch(payload: ProjectMilestonesPayload): Record<string, unknown> {

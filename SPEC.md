@@ -512,15 +512,75 @@ Règles :
   - `project_milestones_v1` : payload jalons.
 - Les durées estimées remplacent le mécanisme de quantités (multiplicateur réservé à `LIST`).
 
-### Bottom Sheet — Date de départ (PROJECT)
+## Bottom Sheet PROJECT — “Temporalitas” (V2)
 
-- Ajout d’un sélecteur `start_date` (date seule) pour un projet.
-- Persistance immédiate dans `metadata_json.project.start_date`.
+### 1) Header — Bloc “Temporalitas”
 
-### Cascade temporelle (affichage PROJECT)
+- Conteneur : large surface neumorphique “Raised” en haut de la sheet, dédiée à la planification.
+- Colonne gauche (date de début) :
+  - Icône : `calendar-edit`.
+  - Texte cliquable : `start_date` (format `YYYY-MM-DD`), ou état vide si non défini.
+  - Interaction : tap ouvre un DatePicker (date seule).
+- Colonne droite (date de fin dynamique) :
+  - Calculée : `end_date = start_date + Σ(durées_jalons)` (en tenant compte du mode calendrier décrit ci-dessous).
+  - Affichage : date calendaire réelle si `start_date` est défini (sinon état “—”).
+- Validation (replanification) :
+  - Si l’utilisateur modifie une date (start_date ou pivot sur jalon), afficher un CTA explicite :
+    - Libellé : “Confirmer et replanifier la suite”.
+  - Tant que non confirmé, l’UI peut afficher un état “draft” (visuel à préciser) ; le mécanisme exact est laissé à l’implémentation.
 
-- Si `start_date` est vide : afficher chaque jalon sous forme `Étape : {estimated_duration} {unit}`.
-- Si `start_date` est renseignée : calculer une date cible cumulée (cascade) en additionnant les durées des jalons précédents, puis afficher `Étape : {YYYY-MM-DD}` (ou `{JourLabel}` selon conventions UI).
+### 2) Corps — Ligne de vie (Cascade tactîle)
+
+- Représentation : une “ligne de vie” verticale de jalons sous forme de pilules neumorphiques.
+- Pilule jalon :
+  - Large borderRadius.
+  - Contenu minimal : titre du jalon + indication temporelle (relative ou calendaire).
+- État actif (non terminé) :
+  - Relief Raised.
+- État terminé :
+  - Relief Inset (enfoncé).
+  - Texte barré + opacité ~50%.
+- Connecteur vertical :
+  - Ligne Inset reliant les centres des pilules (effet rail temporel).
+
+#### Hub d’édition (crayon)
+
+- Bouton rond à droite de chaque pilule (icône “pencil”).
+- Tap ouvre un sous-menu contextuel :
+  - Calendrier (Pivot) :
+    - Définit une date pivot pour ce jalon.
+    - La date pivot s’affiche avec un contour distinctif (border) sur la pilule.
+  - Note :
+    - Ajoute/modifie un mémo texte associé au jalon.
+    - Si note non vide, afficher une icône “post-it” sur la pilule.
+  - Supprimer :
+    - Retire le jalon.
+    - Recalcule la cascade immédiatement (effet domino).
+
+### 3) Logique — Calcul & scalabilité
+
+- Mode “Flottant” :
+  - Si aucune `start_date` n’est fixée (et aucun pivot), les jalons affichent des durées relatives : `+2j`, `+1h`, etc.
+- Mode “Calendrier” :
+  - Dès qu’une date est fixée (début ou pivot), tous les jalons suivants affichent la date calendaire réelle.
+- Effet domino :
+  - Tout changement de date sur un jalon intermédiaire recalcule l’amont et l’aval pour maintenir une cohérence logique.
+  - Le détail exact de la règle d’amont (recalcule rétroactif vs ancrage) est à préciser à l’implémentation, mais l’objectif est la cohérence globale.
+
+### 4) Contrat technique — Persistance
+
+- UID stables :
+  - Chaque jalon possède un identifiant unique stable (plus de gestion par index).
+  - Les mutations ciblent le jalon par `uid` (toggle terminé, note, pivot, suppression).
+- Metadata :
+  - Toute update passe par `patchMetadata(row.id, ..., { silent: true })` :
+    - statut terminé/non terminé,
+    - note,
+    - date pivot,
+    - suppression/édition de jalon,
+    - start_date.
+- Skeleton loading :
+  - Pendant `is_generating: true` (Pass 2), remplacer le spinner par un skeleton (formes pulsantes) cohérent avec les pilules.
 
 ### Correction de visibilité (critique)
 

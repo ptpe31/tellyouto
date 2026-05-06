@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
+  Alert,
   ActionSheetIOS,
   Animated,
   Dimensions,
@@ -38,7 +38,7 @@ import {
   parseProjectMilestonesPayloadFromMetadataJson,
   type ProjectMilestonesPayload,
 } from '../services/projectMilestonesModel';
-import { neumorphicInset } from '../theme/neumorphism';
+import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
   visible: boolean;
@@ -140,6 +140,13 @@ function formatLocalIsoNoZ(d: Date): string {
 
 function formatYmd(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function dateNoonFromYmd(ymd: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const [y, m, d] = ymd.split('-').map((x) => Number(x));
+  const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+  return Number.isFinite(dt.getTime()) ? dt : null;
 }
 
 function durationMs(unit: string, value: number): number {
@@ -392,6 +399,14 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [projectPayload, setProjectPayload] = useState<ProjectMilestonesPayload | null>(null);
   const [projectStartPickerOpen, setProjectStartPickerOpen] = useState(false);
   const [projectStartDraft, setProjectStartDraft] = useState<Date>(new Date());
+  const [projectStartDraftYmd, setProjectStartDraftYmd] = useState<string | null>(null);
+  const [projectPivotDraftByUid, setProjectPivotDraftByUid] = useState<Record<string, string | null>>({});
+  const [projectDatesDirty, setProjectDatesDirty] = useState(false);
+  const [pivotPickerUid, setPivotPickerUid] = useState<string | null>(null);
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [noteUid, setNoteUid] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const skeletonPulse = useRef(new Animated.Value(0.55)).current;
 
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
@@ -505,18 +520,36 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const allDayFlag = Boolean((meta as Record<string, unknown> | null)?.is_all_day);
     setIsAllDay(allDayFlag || Boolean(parsed && !parsed.hasTime));
     setListPayload(parseListScalablePayloadFromMetadataJson(row?.metadata_json));
-    setProjectPayload(parseProjectMilestonesPayloadFromMetadataJson(row?.metadata_json));
-    const start = (() => {
+    const nextProjectPayload = parseProjectMilestonesPayloadFromMetadataJson(row?.metadata_json);
+    setProjectPayload(nextProjectPayload);
+    const startYmd = (() => {
       const p = meta?.project;
       if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
       const ymd = String((p as Record<string, unknown>).start_date ?? '').trim();
-      if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
-      const [y, m, d] = ymd.split('-').map((x) => Number(x));
-      const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
-      return Number.isFinite(dt.getTime()) ? dt : null;
+      return ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
     })();
-    setProjectStartDraft(start ?? new Date());
+    setProjectStartDraftYmd(startYmd);
+    setProjectStartDraft(dateNoonFromYmd(startYmd ?? '') ?? new Date());
+    const pivots: Record<string, string | null> = {};
+    for (const m of nextProjectPayload?.milestones ?? []) {
+      pivots[m.uid] = m.pivot_date ?? null;
+    }
+    setProjectPivotDraftByUid(pivots);
+    setProjectDatesDirty(false);
     setProjectStartPickerOpen(false);
+    setPivotPickerUid(null);
+    setNoteModalOpen(false);
+    setNoteUid(null);
+    setNoteDraft('');
+    if (row?.type === 'PROJECT' && nextProjectPayload) {
+      const rawObj = safeParseJsonObject(row.metadata_json) ?? {};
+      const block = rawObj.project_milestones_v1 as any;
+      const rawMs = block && typeof block === 'object' && Array.isArray(block.milestones) ? (block.milestones as any[]) : [];
+      const missingUid = rawMs.some((x) => !x || typeof x !== 'object' || !String((x as any).uid ?? '').trim());
+      if (missingUid) {
+        void patchMetadata(row.id, buildProjectMilestonesMetadataPatch(nextProjectPayload), { silent: true });
+      }
+    }
   }, [meta, visible]);
 
   const comfortReady = useMemo(() => {
@@ -561,11 +594,11 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     await patchMetadata(row.id, buildListMetadataPatch(next), { silent: true });
   };
 
-  const persistProjectStartDate = async (date: Date) => {
-    if (!row) return;
+  const setProjectStartDraftFromDate = (date: Date) => {
     const ymd = formatYmd(date);
     setProjectStartDraft(date);
-    await patchMetadata(row.id, { project: { start_date: ymd } }, { silent: true });
+    setProjectStartDraftYmd(ymd);
+    setProjectDatesDirty(true);
   };
 
   const openProjectStartPicker = () => {
@@ -588,7 +621,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                 return;
               }
               if (date) {
-                void persistProjectStartDate(date);
+                setProjectStartDraftFromDate(date);
               }
               setProjectStartPickerOpen(false);
               resolve();
@@ -600,6 +633,21 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     }
     setProjectStartPickerOpen((v) => !v);
   };
+
+  useEffect(() => {
+    if (!visible || !isGenerating) return;
+    skeletonPulse.setValue(0.55);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(skeletonPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(skeletonPulse, { toValue: 0.55, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+    };
+  }, [isGenerating, skeletonPulse, visible]);
 
   useEffect(() => {
     if (!visible || !isTrip) return;
@@ -829,31 +877,232 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const arrivalDisplay = arrivalText.trim() ? arrivalText.trim() : favoriteArrival ? favoriteArrival : destinationLabel;
   const arrivalIsAddress = Boolean(arrivalText.trim() || favoriteArrival);
   const sheetTargetHeight = useMemo(() => Math.max(240, Math.round(windowHeight * (sourceExpanded ? 0.92 : 0.86))), [sourceExpanded, windowHeight]);
-  const projectStartYmd = useMemo(() => {
-    const p = meta?.project;
-    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
-    const ymd = String((p as Record<string, unknown>).start_date ?? '').trim();
-    return ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
-  }, [meta?.project]);
-  const projectMilestoneLines = useMemo(() => {
-    if (!projectPayload) return [];
-    const lng = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
-    if (!projectStartYmd) {
-      return projectPayload.milestones.map((m) => ({
+  const projectCalendarMode = useMemo(() => {
+    if (!isProject || !projectPayload) return false;
+    if (projectStartDraftYmd) return true;
+    return Object.values(projectPivotDraftByUid).some((v) => Boolean(v));
+  }, [isProject, projectPayload, projectPivotDraftByUid, projectStartDraftYmd]);
+  const projectSchedule = useMemo(() => {
+    if (!isProject || !projectPayload) return { items: [], endYmd: null };
+    const ms = projectPayload.milestones;
+    const pivotMsByUid = new Map<string, number>();
+    for (const m of ms) {
+      const ymd = projectPivotDraftByUid[m.uid] ?? m.pivot_date ?? null;
+      const dt = ymd ? dateNoonFromYmd(ymd) : null;
+      if (dt) pivotMsByUid.set(m.uid, dt.getTime());
+    }
+    if (!projectCalendarMode) {
+      const toShort = (unit: string) => (unit === 'hours' ? 'h' : unit === 'weeks' ? 'sem' : 'j');
+      const items = ms.map((m) => ({
+        uid: m.uid,
         title: m.title,
         checked: Boolean(m.checked),
-        tail: formatDurationLabel(m.estimated_duration, m.unit, lng),
+        note: m.note ?? null,
+        pivot_date: projectPivotDraftByUid[m.uid] ?? m.pivot_date ?? null,
+        label: `+${m.estimated_duration}${toShort(m.unit)}`,
       }));
+      return { items, endYmd: null };
     }
-    const [y, m, d] = projectStartYmd.split('-').map((x) => Number(x));
-    const start = new Date(y, m - 1, d, 12, 0, 0, 0);
-    let acc = 0;
-    return projectPayload.milestones.map((ms) => {
-      acc += durationMs(ms.unit, ms.estimated_duration);
-      const dt = new Date(start.getTime() + acc);
-      return { title: ms.title, checked: Boolean(ms.checked), tail: formatYmdLocal(dt) };
+    const endDates: Array<number | null> = ms.map(() => null);
+    const startMs = projectStartDraftYmd ? dateNoonFromYmd(projectStartDraftYmd)?.getTime() ?? null : null;
+    if (startMs) {
+      let cur = startMs;
+      for (let i = 0; i < ms.length; i++) {
+        cur += durationMs(ms[i].unit, ms[i].estimated_duration);
+        const pivot = pivotMsByUid.get(ms[i].uid);
+        if (pivot) cur = pivot;
+        endDates[i] = cur;
+      }
+    }
+    for (let i = 0; i < ms.length; i++) {
+      const pivot = pivotMsByUid.get(ms[i].uid);
+      if (!pivot) continue;
+      let cur = pivot;
+      endDates[i] = pivot;
+      for (let j = i - 1; j >= 0; j--) {
+        const prevPivot = pivotMsByUid.get(ms[j].uid);
+        if (prevPivot) {
+          cur = prevPivot;
+          endDates[j] = cur;
+          continue;
+        }
+        cur -= durationMs(ms[j + 1].unit, ms[j + 1].estimated_duration);
+        endDates[j] = cur;
+      }
+    }
+    let cur = endDates.find((x): x is number => x !== null) ?? null;
+    if (cur !== null) {
+      for (let i = 0; i < ms.length; i++) {
+        const pivot = pivotMsByUid.get(ms[i].uid);
+        if (pivot) {
+          cur = pivot;
+          endDates[i] = pivot;
+          continue;
+        }
+        if (endDates[i] !== null) {
+          cur = endDates[i] as number;
+          continue;
+        }
+        if (cur === null) break;
+        cur += durationMs(ms[i].unit, ms[i].estimated_duration);
+        endDates[i] = cur;
+      }
+    }
+    const items = ms.map((m, i) => {
+      const dt = endDates[i] !== null ? new Date(Number(endDates[i])) : null;
+      const ymd = dt ? formatYmdLocal(dt) : null;
+      const pivotYmd = projectPivotDraftByUid[m.uid] ?? m.pivot_date ?? null;
+      return {
+        uid: m.uid,
+        title: m.title,
+        checked: Boolean(m.checked),
+        note: m.note ?? null,
+        pivot_date: pivotYmd,
+        label: ymd ?? '—',
+      };
     });
-  }, [i18n.language, projectPayload, projectStartYmd]);
+    const last = endDates.length ? endDates[endDates.length - 1] : null;
+    const endYmd = last !== null ? formatYmdLocal(new Date(Number(last))) : null;
+    return { items, endYmd };
+  }, [isProject, projectCalendarMode, projectPayload, projectPivotDraftByUid, projectStartDraftYmd]);
+
+  const confirmProjectReplan = async () => {
+    if (!row || !projectPayload) return;
+    const start_date = projectStartDraftYmd ?? null;
+    const next: ProjectMilestonesPayload = {
+      ...projectPayload,
+      milestones: projectPayload.milestones.map((m) => ({
+        ...m,
+        pivot_date: projectPivotDraftByUid[m.uid] ?? null,
+      })),
+    };
+    setProjectPayload(next);
+    await patchMetadata(
+      row.id,
+      { project: { start_date }, ...buildProjectMilestonesMetadataPatch(next) },
+      { silent: true },
+    );
+    setProjectDatesDirty(false);
+    setProjectStartPickerOpen(false);
+    setPivotPickerUid(null);
+  };
+
+  const toggleProjectMilestoneDone = async (uid: string) => {
+    if (!row || !projectPayload) return;
+    const next: ProjectMilestonesPayload = {
+      ...projectPayload,
+      milestones: projectPayload.milestones.map((m) => (m.uid === uid ? { ...m, checked: !Boolean(m.checked) } : m)),
+    };
+    setProjectPayload(next);
+    await patchMetadata(row.id, buildProjectMilestonesMetadataPatch(next), { silent: true });
+  };
+
+  const deleteProjectMilestone = async (uid: string) => {
+    if (!row || !projectPayload) return;
+    const next: ProjectMilestonesPayload = {
+      ...projectPayload,
+      milestones: projectPayload.milestones.filter((m) => m.uid !== uid),
+    };
+    setProjectPayload(next);
+    setProjectPivotDraftByUid((prev) => {
+      const out = { ...prev };
+      delete out[uid];
+      return out;
+    });
+    await patchMetadata(row.id, buildProjectMilestonesMetadataPatch(next), { silent: true });
+  };
+
+  const openProjectPivotPicker = (uid: string) => {
+    if (!row) return;
+    const initialYmd = projectPivotDraftByUid[uid] ?? projectPayload?.milestones.find((m) => m.uid === uid)?.pivot_date ?? null;
+    const initial = dateNoonFromYmd(initialYmd ?? '') ?? projectStartDraft ?? new Date();
+    if (Platform.OS === 'android') {
+      void (async () => {
+        const m = await import('@react-native-community/datetimepicker');
+        const DateTimePickerAndroid = (m as unknown as { DateTimePickerAndroid?: any }).DateTimePickerAndroid;
+        if (!DateTimePickerAndroid?.open) return;
+        setPivotPickerUid(uid);
+        await new Promise<void>((resolve) => {
+          DateTimePickerAndroid.open({
+            value: initial,
+            mode: 'date',
+            is24Hour: true,
+            onChange: (event: { type?: string }, date?: Date) => {
+              if (String(event?.type ?? '') === 'dismissed') {
+                setPivotPickerUid(null);
+                resolve();
+                return;
+              }
+              if (date) {
+                const ymd = formatYmd(date);
+                setProjectPivotDraftByUid((prev) => ({ ...prev, [uid]: ymd }));
+                setProjectDatesDirty(true);
+              }
+              setPivotPickerUid(null);
+              resolve();
+            },
+          });
+        });
+      })();
+      return;
+    }
+    setPivotPickerUid(uid);
+  };
+
+  const openProjectMilestoneMenu = (uid: string) => {
+    const title = t('intentionDetail.projectMilestoneMenuTitle');
+    const labels = [
+      t('intentionDetail.projectMilestoneMenuPivot'),
+      t('intentionDetail.projectMilestoneMenuNote'),
+      t('intentionDetail.projectMilestoneMenuDelete'),
+      t('intentionDetail.cancel'),
+    ];
+    const onPick = (idx: number) => {
+      if (idx === 0) openProjectPivotPicker(uid);
+      if (idx === 1) {
+        const cur = projectPayload?.milestones.find((m) => m.uid === uid)?.note ?? '';
+        setNoteUid(uid);
+        setNoteDraft(cur || '');
+        setNoteModalOpen(true);
+      }
+      if (idx === 2) void deleteProjectMilestone(uid);
+    };
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { title, options: labels, cancelButtonIndex: 3, destructiveButtonIndex: 2 },
+        (buttonIndex) => {
+          if (typeof buttonIndex !== 'number' || buttonIndex === 3) return;
+          onPick(buttonIndex);
+        },
+      );
+      return;
+    }
+    Alert.alert(title, '', [
+      { text: labels[0], onPress: () => onPick(0) },
+      { text: labels[1], onPress: () => onPick(1) },
+      { text: labels[2], style: 'destructive', onPress: () => onPick(2) },
+      { text: labels[3], style: 'cancel' },
+    ]);
+  };
+
+  const saveProjectNote = async () => {
+    if (!row || !projectPayload || !noteUid) {
+      setNoteModalOpen(false);
+      return;
+    }
+    const raw = String(noteDraft ?? '').trim();
+    const next: ProjectMilestonesPayload = {
+      ...projectPayload,
+      milestones: projectPayload.milestones.map((m) =>
+        m.uid === noteUid ? { ...m, note: raw ? raw : null } : m,
+      ),
+    };
+    setProjectPayload(next);
+    setNoteModalOpen(false);
+    setNoteUid(null);
+    setNoteDraft('');
+    await patchMetadata(row.id, buildProjectMilestonesMetadataPatch(next), { silent: true });
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} hardwareAccelerated>
@@ -1194,76 +1443,182 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                   {isProject ? (
                     <View style={styles.section}>
                       <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
-                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.projectStartDate')}</Text>
-                      <Pressable
-                        onPress={openProjectStartPicker}
-                        android_ripple={{ color: 'rgba(15, 23, 42, 0.06)' }}
-                        style={({ pressed }) => [styles.subtitlePress, { opacity: pressed ? 0.88 : 1 }]}
+                      <View
+                        style={[
+                          neumorphicRaised(theme),
+                          styles.temporalitasCard,
+                          { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, borderWidth: 1 },
+                        ]}
                       >
-                        <View pointerEvents="none" style={styles.addrIconWrap}>
-                          <IconButton icon="calendar-month-outline" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.addrIcon} />
+                        <View style={styles.temporalitasRow}>
+                          <Pressable
+                            onPress={openProjectStartPicker}
+                            android_ripple={{ color: 'rgba(15, 23, 42, 0.06)' }}
+                            style={({ pressed }) => [styles.temporalitasSide, { opacity: pressed ? 0.88 : 1 }]}
+                          >
+                            <IconButton icon="calendar-edit" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.temporalitasIcon} />
+                            <Text style={[styles.temporalitasText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                              {projectStartDraftYmd ? projectStartDraftYmd : t('intentionDetail.projectStartDateEmpty')}
+                            </Text>
+                          </Pressable>
+                          <View style={[styles.temporalitasDividerV, { backgroundColor: theme.colors.outlineVariant }]} />
+                          <View style={styles.temporalitasSideRight}>
+                            <Text style={[styles.temporalitasText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                              {projectSchedule.endYmd ? projectSchedule.endYmd : '—'}
+                            </Text>
+                          </View>
                         </View>
-                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                          {projectStartYmd ? projectStartYmd : t('intentionDetail.projectStartDateEmpty')}
-                        </Text>
-                      </Pressable>
-                      {projectStartPickerOpen && Platform.OS === 'ios' ? (
-                        <View style={styles.pickerBlock}>
-                          <DateTimePickerLazy value={projectStartDraft} mode="date" display="inline" onChange={(_, date) => date && void persistProjectStartDate(date)} />
-                        </View>
-                      ) : null}
-                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.projectMilestones')}</Text>
-                      {isGenerating ? (
-                        <View style={[styles.loaderCard, neumorphicInset(theme), { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]}>
-                          <ActivityIndicator color={theme.colors.primary} />
-                        </View>
-                      ) : projectPayload ? (
-                        <View style={styles.checklist}>
-                          {projectMilestoneLines.map((m, idx) => (
-                            <Pressable
-                              key={`${idx}-${m.title}`}
-                              onPress={() => {
-                                if (!row || !projectPayload) return;
-                                const next: ProjectMilestonesPayload = {
-                                  ...projectPayload,
-                                  milestones: projectPayload.milestones.map((ms, i) =>
-                                    i === idx ? { ...ms, checked: !Boolean(ms.checked) } : ms,
-                                  ),
-                                };
-                                setProjectPayload(next);
-                                void patchMetadata(row.id, buildProjectMilestonesMetadataPatch(next), { silent: true });
+                        {projectStartPickerOpen && Platform.OS === 'ios' ? (
+                          <View style={styles.pickerBlock}>
+                            <DateTimePickerLazy
+                              value={projectStartDraft}
+                              mode="date"
+                              display="inline"
+                              onChange={(_, date) => date && setProjectStartDraftFromDate(date)}
+                            />
+                          </View>
+                        ) : null}
+                        {pivotPickerUid && Platform.OS === 'ios' ? (
+                          <View style={styles.pickerBlock}>
+                            <DateTimePickerLazy
+                              value={dateNoonFromYmd(projectPivotDraftByUid[pivotPickerUid] ?? '') ?? new Date()}
+                              mode="date"
+                              display="inline"
+                              onChange={(_, date) => {
+                                if (!date) return;
+                                const ymd = formatYmd(date);
+                                setProjectPivotDraftByUid((prev) => ({ ...prev, [pivotPickerUid]: ymd }));
+                                setProjectDatesDirty(true);
+                                setPivotPickerUid(null);
                               }}
-                              accessibilityRole="checkbox"
-                              accessibilityState={{ checked: Boolean(m.checked) }}
-                              style={({ pressed }) => [styles.checkRow, { opacity: pressed ? 0.9 : 1 }]}
-                            >
-                              <View
+                            />
+                          </View>
+                        ) : null}
+                        {projectDatesDirty ? (
+                          <Button mode="contained" onPress={() => void confirmProjectReplan()} style={styles.temporalitasCta}>
+                            {t('intentionDetail.confirmReplan')}
+                          </Button>
+                        ) : null}
+                      </View>
+
+                      <View style={styles.lifeWrap}>
+                        <View
+                          pointerEvents="none"
+                          style={[
+                            neumorphicInset(theme),
+                            styles.lifeLine,
+                            { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, borderWidth: 1 },
+                          ]}
+                        />
+                        {isGenerating ? (
+                          <View style={styles.lifeStack}>
+                            {[0, 1, 2].map((k) => (
+                              <Animated.View
+                                key={`sk-${k}`}
                                 style={[
-                                  styles.checkbox,
+                                  styles.skeletonPill,
+                                  neumorphicInset(theme),
                                   {
-                                    borderColor: m.checked ? theme.colors.primary : theme.colors.outline,
-                                    backgroundColor: m.checked ? theme.colors.primaryContainer : 'transparent',
+                                    backgroundColor: theme.colors.surface,
+                                    borderColor: theme.colors.outlineVariant,
+                                    borderWidth: 1,
+                                    opacity: skeletonPulse,
                                   },
                                 ]}
-                              >
-                                {m.checked ? <Text style={{ color: theme.colors.primary, fontWeight: '900' }}>✓</Text> : null}
-                              </View>
-                              <Text
-                                style={[
-                                  styles.checkText,
-                                  {
-                                    color: m.checked ? theme.colors.onSurfaceVariant : theme.colors.onSurface,
-                                    textDecorationLine: m.checked ? 'line-through' : 'none',
-                                  },
-                                ]}
-                                numberOfLines={2}
-                              >
-                                {m.title} : {m.tail}
-                              </Text>
-                            </Pressable>
-                          ))}
-                        </View>
-                      ) : null}
+                              />
+                            ))}
+                          </View>
+                        ) : projectPayload ? (
+                          <View style={styles.lifeStack}>
+                            {projectSchedule.items.map((m) => {
+                              const pivot = m.pivot_date;
+                              const checked = Boolean(m.checked);
+                              const note = String(m.note ?? '').trim();
+                              return (
+                                <View key={m.uid} style={styles.lifeRow}>
+                                  <View
+                                    style={[
+                                      checked ? neumorphicInset(theme) : neumorphicRaised(theme),
+                                      styles.milePill,
+                                      {
+                                        backgroundColor: theme.colors.surface,
+                                        borderColor: theme.colors.outlineVariant,
+                                        borderWidth: 1,
+                                        opacity: checked ? 0.5 : 1,
+                                      },
+                                    ]}
+                                  >
+                                    <Pressable
+                                      onPress={() => void toggleProjectMilestoneDone(m.uid)}
+                                      style={({ pressed }) => [
+                                        checked ? neumorphicInset(theme) : neumorphicRaised(theme),
+                                        styles.mileDoneBtn,
+                                        {
+                                          borderColor: checked ? theme.colors.primary : theme.colors.outlineVariant,
+                                          borderWidth: 1,
+                                          opacity: pressed ? 0.9 : 1,
+                                        },
+                                      ]}
+                                      accessibilityRole="checkbox"
+                                      accessibilityState={{ checked }}
+                                    >
+                                      <Text style={{ color: checked ? theme.colors.primary : theme.colors.onSurfaceVariant, fontWeight: '900' }}>
+                                        {checked ? '✓' : ''}
+                                      </Text>
+                                    </Pressable>
+                                    <View style={styles.mileTextCol}>
+                                      <Text
+                                        style={[
+                                          styles.mileTitle,
+                                          {
+                                            color: checked ? theme.colors.onSurfaceVariant : theme.colors.onSurface,
+                                            textDecorationLine: checked ? 'line-through' : 'none',
+                                          },
+                                        ]}
+                                        numberOfLines={2}
+                                      >
+                                        {m.title}
+                                      </Text>
+                                      <View style={styles.mileMetaRow}>
+                                        <View
+                                          style={[
+                                            styles.mileDateChip,
+                                            pivot ? { borderColor: theme.colors.primary, borderWidth: 1 } : { borderColor: theme.colors.outlineVariant, borderWidth: 1 },
+                                          ]}
+                                        >
+                                          <Text style={[styles.mileDateText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                                            {m.label}
+                                          </Text>
+                                        </View>
+                                        {note ? (
+                                          <IconButton icon="note-text-outline" size={16} iconColor={theme.colors.onSurfaceVariant} style={styles.mileNoteIcon} />
+                                        ) : null}
+                                      </View>
+                                    </View>
+                                    <Pressable
+                                      onPress={() => openProjectMilestoneMenu(m.uid)}
+                                      style={({ pressed }) => [
+                                        neumorphicRaised(theme),
+                                        styles.mileHubBtn,
+                                        {
+                                          backgroundColor: theme.colors.surface,
+                                          borderColor: theme.colors.outlineVariant,
+                                          borderWidth: 1,
+                                          opacity: pressed ? 0.88 : 1,
+                                        },
+                                      ]}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={t('intentionDetail.projectMilestoneMenuTitle')}
+                                    >
+                                      <IconButton icon="pencil" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.mileHubIcon} />
+                                    </Pressable>
+                                  </View>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </View>
                     </View>
                   ) : null}
 
@@ -1311,8 +1666,22 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                         </View>
                       ) : null}
                       {isGenerating ? (
-                        <View style={[styles.loaderCard, neumorphicInset(theme), { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]}>
-                          <ActivityIndicator color={theme.colors.primary} />
+                        <View style={styles.lifeStack}>
+                          {[0, 1, 2].map((k) => (
+                            <Animated.View
+                              key={`sk-list-${k}`}
+                              style={[
+                                styles.skeletonRow,
+                                neumorphicInset(theme),
+                                {
+                                  backgroundColor: theme.colors.surface,
+                                  borderColor: theme.colors.outlineVariant,
+                                  borderWidth: 1,
+                                  opacity: skeletonPulse,
+                                },
+                              ]}
+                            />
+                          ))}
                         </View>
                       ) : listPayload ? (
                         <View style={styles.checklist}>
@@ -1438,6 +1807,39 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                 </Button>
               </View>
             </View>
+
+            <Modal visible={noteModalOpen} transparent animationType="fade" onRequestClose={() => setNoteModalOpen(false)}>
+              <View style={styles.noteModalRoot}>
+                <Pressable style={styles.backdrop} onPress={() => setNoteModalOpen(false)} />
+                <View
+                  style={[
+                    neumorphicRaised(theme),
+                    styles.noteModalCard,
+                    { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, borderWidth: 1 },
+                  ]}
+                >
+                  <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                    {t('intentionDetail.projectMilestoneMenuNote')}
+                  </Text>
+                  <TextInput
+                    value={noteDraft}
+                    onChangeText={setNoteDraft}
+                    placeholder={t('intentionDetail.notePlaceholder')}
+                    placeholderTextColor="rgba(100,116,139,0.72)"
+                    multiline
+                    style={[styles.noteInput, { color: theme.colors.onSurface }]}
+                  />
+                  <View style={styles.noteModalActions}>
+                    <Button mode="outlined" onPress={() => setNoteModalOpen(false)} style={styles.noteModalBtn}>
+                      {t('intentionDetail.cancel')}
+                    </Button>
+                    <Button mode="contained" onPress={() => void saveProjectNote()} style={styles.noteModalBtn}>
+                      {t('intentionDetail.save')}
+                    </Button>
+                  </View>
+                </View>
+              </View>
+            </Modal>
           </KeyboardAvoidingView>
         </Animated.View>
       </View>
@@ -1493,7 +1895,35 @@ const styles = StyleSheet.create({
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   checkText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700' },
-  loaderCard: { borderWidth: 1, borderRadius: 14, paddingVertical: 18, alignItems: 'center', justifyContent: 'center' },
+  temporalitasCard: { borderRadius: 18, padding: 12, gap: 10 },
+  temporalitasRow: { flexDirection: 'row', alignItems: 'center' },
+  temporalitasSide: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  temporalitasSideRight: { flex: 1, minWidth: 0, alignItems: 'flex-end', justifyContent: 'center', paddingRight: 6 },
+  temporalitasDividerV: { width: StyleSheet.hairlineWidth, height: 34, opacity: 0.75 },
+  temporalitasIcon: { margin: 0, padding: 0 },
+  temporalitasText: { fontSize: 13, fontWeight: '900' },
+  temporalitasCta: { borderRadius: 14, alignSelf: 'stretch' },
+  lifeWrap: { marginTop: 6, position: 'relative', paddingLeft: 22 },
+  lifeLine: { position: 'absolute', left: 8, top: 8, bottom: 8, width: 6, borderRadius: 6, opacity: 0.95 },
+  lifeStack: { gap: 12 },
+  lifeRow: { minHeight: 56 },
+  skeletonPill: { height: 64, borderRadius: 22 },
+  skeletonRow: { height: 22, borderRadius: 12 },
+  milePill: { minHeight: 64, borderRadius: 24, paddingVertical: 10, paddingLeft: 10, paddingRight: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  mileDoneBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  mileTextCol: { flex: 1, minWidth: 0, gap: 6 },
+  mileTitle: { fontSize: 14, fontWeight: '900' },
+  mileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  mileDateChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  mileDateText: { fontSize: 12, fontWeight: '900' },
+  mileNoteIcon: { margin: 0, padding: 0 },
+  mileHubBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  mileHubIcon: { margin: 0, padding: 0 },
+  noteModalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 18 },
+  noteModalCard: { borderRadius: 18, padding: 14, gap: 10 },
+  noteInput: { minHeight: 90, maxHeight: 220, borderRadius: 14, borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, lineHeight: 18 },
+  noteModalActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
+  noteModalBtn: { borderRadius: 14 },
   multiplierRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   multBtn: { width: 44, height: 36, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   multBtnText: { fontSize: 18, fontWeight: '900' },

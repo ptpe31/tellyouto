@@ -26,7 +26,7 @@ import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engi
 import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
 import { activateSentinelTrip } from './traffic/sentinelActivation';
 import { geminiEnrichGenericList } from './geminiSemanticLab';
-import { buildProjectMilestonesMetadataPatch } from './projectMilestonesModel';
+import { buildProjectMilestonesMetadataPatch, ensureProjectMilestoneUids } from './projectMilestonesModel';
 
 
 export type PersistOneTapSuccess =
@@ -380,9 +380,14 @@ async function materializeOneTapIntentionRow(params: {
             .filter(Boolean);
         })
         .slice(0, 12)
-        .map((m) => ({ title: m.slice(0, 200), estimated_duration: 1, unit: 'days' as const }));
+        .map((m) => ({ uid: '', title: m.slice(0, 200), estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }));
       const mergedTitle = title.trim() || 'Projet';
-      const payload = { title: mergedTitle, milestones: milestones.length ? milestones : [{ title: mergedTitle, estimated_duration: 1, unit: 'days' as const }] };
+      const payload = ensureProjectMilestoneUids({
+        title: mergedTitle,
+        milestones: milestones.length
+          ? milestones
+          : [{ uid: '', title: mergedTitle, estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }],
+      });
       const meta = JSON.stringify({ ...buildProjectMilestonesMetadataPatch(payload), project: { start_date: null } });
       return {
         id: intentionId,
@@ -841,10 +846,10 @@ export async function persistOneTapDraft(params: {
       }
       case 'PROJECT': {
         const mergedTitle = title;
-        const placeholderPayload = {
+        const placeholderPayload = ensureProjectMilestoneUids({
           title: mergedTitle,
-          milestones: [{ title: 'Génération en cours...', estimated_duration: 1, unit: 'days' as const }],
-        };
+          milestones: [{ uid: '', title: 'Génération en cours...', estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }],
+        });
         const id = deps.newId();
         const metaBase = JSON.stringify(buildProjectMilestonesMetadataPatch(placeholderPayload));
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
