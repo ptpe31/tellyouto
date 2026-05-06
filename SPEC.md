@@ -438,25 +438,33 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Gestion clavier :
   - Utiliser `KeyboardAvoidingView` (ou équivalent) et un footer fixe (bouton itinéraire) pour que les champs Places restent accessibles au‑dessus du clavier.
 
-## OneTap LIST — Pipeline 2-Pass (Classification + Enrichissement)
+## OneTap LIST / PROJECT — Pipeline 2-Pass (Classification + Enrichissement)
 
 ### Objectif
 
-- Transformer les intentions de type `LIST` en listes actionnables (courses, projets, révisions) via un pipeline en **2 passes**.
+- Transformer les intentions de type `LIST` et `PROJECT` en structures actionnables via un pipeline en **2 passes** :
+  - `LIST` : inventaire scalable (quantités / multiplicateur).
+  - `PROJECT` : jalonnement temporel (durées estimées + cascade à partir d’une date de départ).
 
 ### Pass 1 — Classification (inchangé)
 
 - Format de réponse Gemini : **Bullet‑Pipe** uniquement (lignes `> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE`).
 - Rôle : détecter `TYPE === LIST` et extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT) + catégorie.
 
-### Pass 2 — Enrichissement (LIST uniquement)
+### Pass 2 — Enrichissement (LIST / PROJECT)
 
-- Déclenchement : si Pass 1 détecte `TYPE === LIST`, lancer immédiatement `enrichGenericList(content)`.
-- UI feedback : la LIST est insérée en base dès Pass 1 avec un état temporaire visible (ex. titre/ligne “Génération en cours…” ou flag dans `metadata_json`) afin que l’utilisateur voie l’item pendant l’enrichissement.
-- Sortie attendue : un **JSON strict** conforme au schéma `list_scalable_v1` (voir `LIST_METADATA_KEY = list_scalable_v1`).
-- Fusion : injecter le JSON enrichi dans `metadata_json.list` (ou la clé dédiée `list_scalable_v1` selon le modèle effectif) et persister en SQLite.
+- Déclenchement : si Pass 1 détecte `TYPE === LIST` ou `TYPE === PROJECT`, lancer immédiatement `enrichGenericList(content)` (Gemini Pass 2).
+- UI feedback : l’intention est insérée en base dès Pass 1 avec un état temporaire visible (`metadata_json.is_generating=true`, `list_enrich_status='pending'`) afin que l’utilisateur voie l’item pendant l’enrichissement.
+- Sorties attendues :
+  - `LIST` : JSON strict conforme au schéma `list_scalable_v1` (inventaire).
+  - `PROJECT` : JSON strict conforme au schéma `project_milestones_v1` (jalons + durées, sans dates).
+- Fusion :
+  - `LIST` : persister sous `metadata_json.list_scalable_v1` via `buildListMetadataPatch`.
+  - `PROJECT` : persister sous `metadata_json.project_milestones_v1` (et `metadata_json.project.start_date`).
 
 ### Prompt Système Gemini (Pass 2)
+
+#### Prompt LIST (inventaire scalable)
 
 ```
 Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
@@ -467,10 +475,52 @@ Analyse le domaine :
 - Si c'est une recette : décompose en ingrédients (Boucherie, Légumes, etc.).
 - Si c'est une étude/examen : décompose en chapitres ou sessions.
 - Si c'est un objectif/projet : décompose en jalons ou étapes clés.
-Unités adaptatives : Détecte l'unité la plus pertinente (kg, jours, chapitres, séances).
+Unités adaptatives : Détecte l'unité la plus pertinente (kg, personnes, chapitres, séances).
 Scalabilité : scalable=true pour les items dont la quantité dépend de la cible (ex: ingrédients pour X personnes).
 Format : Réponds uniquement par un objet JSON pur suivant le schéma list_scalable_v1. Ne mets aucune explication avant ou après.
 ```
+
+#### Prompt PROJECT (jalons temporels)
+
+```
+Tu es un expert en planification de projets. Ton rôle est de décomposer une intention en jalons/étapes clés.
+
+Consignes strictes :
+Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur.
+INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de "demain", pas d’horaires).
+À la place, fournis pour chaque jalon une durée estimée.
+
+Schéma attendu project_milestones_v1 :
+{
+  "title": "Titre projet",
+  "milestones": [
+    { "title": "Étape 1", "estimated_duration": 2, "unit": "hours|days|weeks" }
+  ]
+}
+
+Règles :
+- estimated_duration est un nombre positif (entier si possible).
+- unit ∈ { "hours", "days", "weeks" }.
+- Le nombre de jalons doit rester raisonnable (5 à 12).
+- Format : Réponds uniquement par un objet JSON pur. Aucune explication avant/après.
+```
+
+### Données projet (metadata_json)
+
+- Pour `PROJECT`, `metadata_json` doit contenir :
+  - `project.start_date` : `YYYY-MM-DD` (nullable) — “top départ” utilisateur.
+  - `project_milestones_v1` : payload jalons.
+- Les durées estimées remplacent le mécanisme de quantités (multiplicateur réservé à `LIST`).
+
+### Bottom Sheet — Date de départ (PROJECT)
+
+- Ajout d’un sélecteur `start_date` (date seule) pour un projet.
+- Persistance immédiate dans `metadata_json.project.start_date`.
+
+### Cascade temporelle (affichage PROJECT)
+
+- Si `start_date` est vide : afficher chaque jalon sous forme `Étape : {estimated_duration} {unit}`.
+- Si `start_date` est renseignée : calculer une date cible cumulée (cascade) en additionnant les durées des jalons précédents, puis afficher `Étape : {YYYY-MM-DD}` (ou `{JourLabel}` selon conventions UI).
 
 ### Correction de visibilité (critique)
 

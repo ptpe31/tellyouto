@@ -26,6 +26,7 @@ import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engi
 import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
 import { activateSentinelTrip } from './traffic/sentinelActivation';
 import { geminiEnrichGenericList } from './geminiSemanticLab';
+import { buildProjectMilestonesMetadataPatch } from './projectMilestonesModel';
 
 
 export type PersistOneTapSuccess =
@@ -367,20 +368,25 @@ async function materializeOneTapIntentionRow(params: {
     }
     case 'PROJECT': {
       const listBlock = draft.data.list && typeof draft.data.list === 'object' ? (draft.data.list as Record<string, unknown>) : null;
-      const fallback = {
-        title,
-        baseCount: 1,
-        unitLabel: 'etape',
-        categories: [{ name: '—', items: [{ name: '—', baseQuantity: 1, unit: 'piece', scalable: true, includeInSave: true }] }],
-      };
-      const jsonStr = buildListInventoryJsonStringFromDraftBlock(listBlock ?? fallback, title);
-      const parsedList = parseGeminiListInventoryJson(jsonStr);
-      const payload = geminiJsonToStoredPayload(parsedList);
-      const mergedTitle = title || payload.title;
-      const meta = JSON.stringify({ ...buildListMetadataPatch({ ...payload, title: mergedTitle }), project_mode: true });
+      const rawCats = listBlock && Array.isArray(listBlock.categories) ? (listBlock.categories as unknown[]) : [];
+      const milestones = rawCats
+        .flatMap((c) => {
+          if (!c || typeof c !== 'object' || Array.isArray(c)) return [];
+          const items = (c as Record<string, unknown>).items;
+          if (!Array.isArray(items)) return [];
+          return items
+            .filter((it) => (it as Record<string, unknown>).includeInSave !== false)
+            .map((it) => String((it as Record<string, unknown>).name ?? '').trim())
+            .filter(Boolean);
+        })
+        .slice(0, 12)
+        .map((m) => ({ title: m.slice(0, 200), estimated_duration: 1, unit: 'days' as const }));
+      const mergedTitle = title.trim() || 'Projet';
+      const payload = { title: mergedTitle, milestones: milestones.length ? milestones : [{ title: mergedTitle, estimated_duration: 1, unit: 'days' as const }] };
+      const meta = JSON.stringify({ ...buildProjectMilestonesMetadataPatch(payload), project: { start_date: null } });
       return {
         id: intentionId,
-        type: 'LIST',
+        type: 'PROJECT',
         title: mergedTitle,
         due_date: null,
         content_raw: raw,
@@ -796,7 +802,8 @@ export async function persistOneTapDraft(params: {
         });
         void (async () => {
           try {
-            const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale });
+            const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale, mode: 'LIST' });
+            if (enriched.mode !== 'LIST') throw new Error('LIST_ENRICH_MODE_MISMATCH');
             const payload = geminiJsonToStoredPayload(enriched.parsed);
             const nextTitle = mergedTitle || payload.title;
             await patchMetadata(id, {
@@ -836,27 +843,19 @@ export async function persistOneTapDraft(params: {
         const mergedTitle = title;
         const placeholderPayload = {
           title: mergedTitle,
-          baseCount: 1,
-          unitLabel: 'etape',
-          multiplier: 1,
-          categories: [
-            {
-              name: '—',
-              items: [{ uid: '', name: 'Génération en cours...', qty: 1, unit: 'piece', scalable: false, checked: false }],
-            },
-          ],
+          milestones: [{ title: 'Génération en cours...', estimated_duration: 1, unit: 'days' as const }],
         };
         const id = deps.newId();
-        const metaBase = JSON.stringify(buildListMetadataPatch(placeholderPayload));
+        const metaBase = JSON.stringify(buildProjectMilestonesMetadataPatch(placeholderPayload));
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
           is_generating: true,
           list_enrich_status: 'pending',
-          project_mode: true,
+          project: { start_date: null },
         });
         const categoryId = normalizeDomainCategoryId(draft.categoryTag);
         await insertTrankilV2Intention({
           id,
-          type: 'LIST',
+          type: 'PROJECT',
           title: mergedTitle,
           content_raw: raw,
           metadata_json: meta,
@@ -871,22 +870,21 @@ export async function persistOneTapDraft(params: {
         });
         void (async () => {
           try {
-            const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale });
-            const payload = geminiJsonToStoredPayload(enriched.parsed);
+            const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale, mode: 'PROJECT' });
+            if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
+            const payload = enriched.parsed;
             const nextTitle = mergedTitle || payload.title;
             await patchMetadata(id, {
-              ...buildListMetadataPatch({ ...payload, title: nextTitle }),
+              ...buildProjectMilestonesMetadataPatch({ ...payload, title: nextTitle }),
               is_generating: false,
               list_enrich_status: 'done',
               list_enrich_error: null,
-              project_mode: true,
             });
           } catch (e) {
             await patchMetadata(id, {
               is_generating: false,
               list_enrich_status: 'error',
               list_enrich_error: e instanceof Error ? e.message : String(e),
-              project_mode: true,
             });
           }
         })();

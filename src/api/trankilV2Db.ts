@@ -755,7 +755,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.parent_id AS parent_id,
         NULL AS project_title,
         i.title AS display_title,
-        CASE WHEN i.type = 'LIST' THEN 'LIST_CARD' ELSE 'NOTE_AUDIO' END AS section,
+        CASE WHEN i.type IN ('LIST', 'PROJECT') THEN 'LIST_CARD' ELSE 'NOTE_AUDIO' END AS section,
         COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
         i.category_id AS category_id,
         i.suggested_tags AS suggested_tags,
@@ -767,7 +767,7 @@ export async function listTrankilV2TimelineItemsByDate(
       FROM intentions i
       WHERE i.status = ?
         AND COALESCE(i.is_archived, 0) = 0
-        AND i.type IN ('NOTE', 'AUDIO', 'LIST')
+        AND i.type IN ('NOTE', 'AUDIO', 'LIST', 'PROJECT')
         ${ctx}
     )
     WHERE
@@ -877,7 +877,7 @@ WITH dated AS (
       i.parent_id AS parent_id,
       NULL AS project_title,
       i.title AS display_title,
-      CASE WHEN i.type = 'LIST' THEN 'LIST_CARD' ELSE 'NOTE_AUDIO' END AS section,
+      CASE WHEN i.type IN ('LIST', 'PROJECT') THEN 'LIST_CARD' ELSE 'NOTE_AUDIO' END AS section,
       COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
       i.category_id AS category_id,
       i.suggested_tags AS suggested_tags,
@@ -889,7 +889,7 @@ WITH dated AS (
     FROM intentions i
     WHERE i.status = ?
       AND COALESCE(i.is_archived, 0) = 0
-      AND i.type IN ('NOTE', 'AUDIO', 'LIST')
+      AND i.type IN ('NOTE', 'AUDIO', 'LIST', 'PROJECT')
       ${ctx}
   ) z
   WHERE z.effective_date = ?
@@ -1301,7 +1301,7 @@ export async function listTrankilV2IsArchivedIntentions(opts?: {
 export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow): TrankilV2TimelineItemRow {
   const pid = String(row.parent_id ?? '').trim();
   const section: TrankilV2TimelineItemRow['section'] =
-    row.type === 'LIST'
+    row.type === 'LIST' || row.type === 'PROJECT'
       ? 'LIST_CARD'
       : row.type === 'NOTE' || row.type === 'AUDIO'
         ? 'NOTE_AUDIO'

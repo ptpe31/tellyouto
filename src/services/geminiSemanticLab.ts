@@ -772,10 +772,29 @@ Return exactly this shape (keys in English as shown):
 
 export async function geminiEnrichGenericList(
   transcript: string,
-  options: { uiLocale: string },
-): Promise<{ parsed: GeminiListInventoryJson; rawResponseText: string }> {
+  options: { uiLocale: string; mode?: 'LIST' | 'PROJECT' },
+): Promise<
+  | { mode: 'LIST'; parsed: GeminiListInventoryJson; rawResponseText: string }
+  | { mode: 'PROJECT'; parsed: import('./projectMilestonesModel').ProjectMilestonesPayload; rawResponseText: string }
+> {
   const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
-  const prompt = `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
+  const mode = options.mode === 'PROJECT' ? 'PROJECT' : 'LIST';
+  const prompt =
+    mode === 'PROJECT'
+      ? `Tu es un expert en planification de projets. Ton rôle est de décomposer une intention en jalons/étapes clés.
+
+Consignes strictes :
+Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur.
+INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de "demain", pas d’horaires).
+À la place, fournis pour chaque jalon une durée estimée.
+
+Transcription:
+"""${safe.replace(/"/g, '\\"')}"""
+
+Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
+{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks"}]}
+`
+      : `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
 
 Consignes strictes :
 Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur (Français, Anglais, Espagnol, etc.).
@@ -803,8 +822,13 @@ Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
   });
   const rawResponseText = extractTextFromGenerateResponse(text);
   if (!rawResponseText) throw new Error('Gemini: empty list enrich response');
+  if (mode === 'PROJECT') {
+    const { parseGeminiProjectMilestonesJson } = await import('./projectMilestonesModel');
+    const parsed = parseGeminiProjectMilestonesJson(rawResponseText);
+    return { mode, parsed, rawResponseText };
+  }
   const parsed = parseGeminiListInventoryJson(rawResponseText);
-  return { parsed, rawResponseText };
+  return { mode, parsed, rawResponseText };
 }
 
 const JSON_EXTRACTOR_PREFIX = 'You are a JSON extractor. Output ONLY raw JSON. No chat, no markdown.\n\n';

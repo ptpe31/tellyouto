@@ -31,6 +31,8 @@ import {
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import { getLocationFavoriteByAlias } from '../services/traffic/locationFavorites';
+import { buildListMetadataPatch, parseListScalablePayloadFromMetadataJson, type ListScalablePayload } from '../services/listIntentionModel';
+import { parseProjectMilestonesPayloadFromMetadataJson, type ProjectMilestonesPayload } from '../services/projectMilestonesModel';
 
 type Props = {
   visible: boolean;
@@ -132,6 +134,28 @@ function formatLocalIsoNoZ(d: Date): string {
 
 function formatYmd(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function durationMs(unit: string, value: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (unit === 'hours') return n * 60 * 60 * 1000;
+  if (unit === 'weeks') return n * 7 * 24 * 60 * 60 * 1000;
+  return n * 24 * 60 * 60 * 1000;
+}
+
+function formatDurationLabel(value: number, unit: string, lng: string): string {
+  const n = Number(value);
+  const count = Number.isFinite(n) ? n : 0;
+  const isFr = String(lng || '').toLowerCase().startsWith('fr');
+  if (isFr) {
+    if (unit === 'hours') return `${count} heure${count > 1 ? 's' : ''}`;
+    if (unit === 'weeks') return `${count} semaine${count > 1 ? 's' : ''}`;
+    return `${count} jour${count > 1 ? 's' : ''}`;
+  }
+  if (unit === 'hours') return `${count} hour${count > 1 ? 's' : ''}`;
+  if (unit === 'weeks') return `${count} week${count > 1 ? 's' : ''}`;
+  return `${count} day${count > 1 ? 's' : ''}`;
 }
 
 function detectChecklistFromText(raw: string): ChecklistItem[] | null {
@@ -358,10 +382,17 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [originLng, setOriginLng] = useState<number | null>(null);
   const [arrivalLat, setArrivalLat] = useState<number | null>(null);
   const [arrivalLng, setArrivalLng] = useState<number | null>(null);
+  const [listPayload, setListPayload] = useState<ListScalablePayload | null>(null);
+  const listSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [projectPayload, setProjectPayload] = useState<ProjectMilestonesPayload | null>(null);
+  const [projectStartPickerOpen, setProjectStartPickerOpen] = useState(false);
+  const [projectStartDraft, setProjectStartDraft] = useState<Date>(new Date());
 
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
   const isTrip = Boolean(trip);
+  const isProject = Boolean(row && row.type === 'PROJECT');
+  const isList = Boolean(row && row.type === 'LIST');
 
   const subtitle = useMemo(() => {
     if (!row) return null;
@@ -467,6 +498,20 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     setPickerDraft(initialDate);
     const allDayFlag = Boolean((meta as Record<string, unknown> | null)?.is_all_day);
     setIsAllDay(allDayFlag || Boolean(parsed && !parsed.hasTime));
+    if (listSaveTimer.current) clearTimeout(listSaveTimer.current);
+    setListPayload(parseListScalablePayloadFromMetadataJson(row?.metadata_json));
+    setProjectPayload(parseProjectMilestonesPayloadFromMetadataJson(row?.metadata_json));
+    const start = (() => {
+      const p = meta?.project;
+      if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+      const ymd = String((p as Record<string, unknown>).start_date ?? '').trim();
+      if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+      const [y, m, d] = ymd.split('-').map((x) => Number(x));
+      const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+      return Number.isFinite(dt.getTime()) ? dt : null;
+    })();
+    setProjectStartDraft(start ?? new Date());
+    setProjectStartPickerOpen(false);
   }, [meta, visible]);
 
   const comfortReady = useMemo(() => {
@@ -502,9 +547,59 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
       if (arrivalSaveTimer.current) clearTimeout(arrivalSaveTimer.current);
       if (originSaveTimer.current) clearTimeout(originSaveTimer.current);
       if (sourceSaveTimer.current) clearTimeout(sourceSaveTimer.current);
+      if (listSaveTimer.current) clearTimeout(listSaveTimer.current);
     },
     [],
   );
+
+  const scheduleListPersist = (next: ListScalablePayload) => {
+    if (!row) return;
+    if (listSaveTimer.current) clearTimeout(listSaveTimer.current);
+    listSaveTimer.current = setTimeout(() => {
+      listSaveTimer.current = null;
+      void patchMetadata(row.id, buildListMetadataPatch(next), { silent: true });
+    }, 320);
+  };
+
+  const persistProjectStartDate = async (date: Date) => {
+    if (!row) return;
+    const ymd = formatYmd(date);
+    setProjectStartDraft(date);
+    await patchMetadata(row.id, { project: { start_date: ymd } }, { silent: true });
+  };
+
+  const openProjectStartPicker = () => {
+    if (!row) return;
+    if (Platform.OS === 'android') {
+      void (async () => {
+        const m = await import('@react-native-community/datetimepicker');
+        const DateTimePickerAndroid = (m as unknown as { DateTimePickerAndroid?: any }).DateTimePickerAndroid;
+        if (!DateTimePickerAndroid?.open) return;
+        setProjectStartPickerOpen(true);
+        await new Promise<void>((resolve) => {
+          DateTimePickerAndroid.open({
+            value: projectStartDraft,
+            mode: 'date',
+            is24Hour: true,
+            onChange: (event: { type?: string }, date?: Date) => {
+              if (String(event?.type ?? '') === 'dismissed') {
+                setProjectStartPickerOpen(false);
+                resolve();
+                return;
+              }
+              if (date) {
+                void persistProjectStartDate(date);
+              }
+              setProjectStartPickerOpen(false);
+              resolve();
+            },
+          });
+        });
+      })();
+      return;
+    }
+    setProjectStartPickerOpen((v) => !v);
+  };
 
   useEffect(() => {
     if (!visible || !isTrip) return;
@@ -734,6 +829,30 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const arrivalDisplay = arrivalText.trim() ? arrivalText.trim() : favoriteArrival ? favoriteArrival : destinationLabel;
   const arrivalIsAddress = Boolean(arrivalText.trim() || favoriteArrival);
   const sheetTargetHeight = useMemo(() => Math.max(240, Math.round(windowHeight * (sourceExpanded ? 0.92 : 0.86))), [sourceExpanded, windowHeight]);
+  const projectStartYmd = useMemo(() => {
+    const p = meta?.project;
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+    const ymd = String((p as Record<string, unknown>).start_date ?? '').trim();
+    return ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
+  }, [meta?.project]);
+  const projectMilestoneLines = useMemo(() => {
+    if (!projectPayload) return [];
+    const lng = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
+    if (!projectStartYmd) {
+      return projectPayload.milestones.map((m) => ({
+        title: m.title,
+        tail: formatDurationLabel(m.estimated_duration, m.unit, lng),
+      }));
+    }
+    const [y, m, d] = projectStartYmd.split('-').map((x) => Number(x));
+    const start = new Date(y, m - 1, d, 12, 0, 0, 0);
+    let acc = 0;
+    return projectPayload.milestones.map((ms) => {
+      acc += durationMs(ms.unit, ms.estimated_duration);
+      const dt = new Date(start.getTime() + acc);
+      return { title: ms.title, tail: formatYmdLocal(dt) };
+    });
+  }, [i18n.language, projectPayload, projectStartYmd]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} hardwareAccelerated>
@@ -1071,6 +1190,139 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                     ) : null
                   ) : null}
 
+                  {isProject && projectPayload ? (
+                    <View style={styles.section}>
+                      <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.projectStartDate')}</Text>
+                      <Pressable
+                        onPress={openProjectStartPicker}
+                        android_ripple={{ color: 'rgba(15, 23, 42, 0.06)' }}
+                        style={({ pressed }) => [styles.subtitlePress, { opacity: pressed ? 0.88 : 1 }]}
+                      >
+                        <View pointerEvents="none" style={styles.addrIconWrap}>
+                          <IconButton icon="calendar-month-outline" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.addrIcon} />
+                        </View>
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                          {projectStartYmd ? projectStartYmd : t('intentionDetail.projectStartDateEmpty')}
+                        </Text>
+                      </Pressable>
+                      {projectStartPickerOpen && Platform.OS === 'ios' ? (
+                        <View style={styles.pickerBlock}>
+                          <DateTimePickerLazy value={projectStartDraft} mode="date" display="inline" onChange={(_, date) => date && void persistProjectStartDate(date)} />
+                        </View>
+                      ) : null}
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.projectMilestones')}</Text>
+                      <View style={styles.checklist}>
+                        {projectMilestoneLines.map((m, idx) => (
+                          <View key={`${idx}-${m.title}`} style={styles.checkRow}>
+                            <View style={[styles.checkbox, { borderColor: theme.colors.outlineVariant }]} />
+                            <Text style={[styles.checkText, { color: theme.colors.onSurface }]} numberOfLines={2}>
+                              {m.title} : {m.tail}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {isList && listPayload ? (
+                    <View style={styles.section}>
+                      <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.listItems')}</Text>
+                      <View style={styles.multiplierRow}>
+                        <Pressable
+                          onPress={() => {
+                            if (!listPayload) return;
+                            const nextMult = Math.max(1, listPayload.multiplier - 1);
+                            const next = { ...listPayload, multiplier: nextMult };
+                            setListPayload(next);
+                            scheduleListPersist(next);
+                          }}
+                          style={({ pressed }) => [
+                            styles.multBtn,
+                            { borderColor: theme.colors.outlineVariant, opacity: pressed ? 0.86 : 1 },
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel="-"
+                        >
+                          <Text style={[styles.multBtnText, { color: theme.colors.onSurface }]}>−</Text>
+                        </Pressable>
+                        <Text style={[styles.multText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                          × {listPayload.multiplier}
+                        </Text>
+                        <Pressable
+                          onPress={() => {
+                            if (!listPayload) return;
+                            const nextMult = Math.max(1, listPayload.multiplier + 1);
+                            const next = { ...listPayload, multiplier: nextMult };
+                            setListPayload(next);
+                            scheduleListPersist(next);
+                          }}
+                          style={({ pressed }) => [
+                            styles.multBtn,
+                            { borderColor: theme.colors.outlineVariant, opacity: pressed ? 0.86 : 1 },
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel="+"
+                        >
+                          <Text style={[styles.multBtnText, { color: theme.colors.onSurface }]}>+</Text>
+                        </Pressable>
+                      </View>
+                      <View style={styles.checklist}>
+                        {listPayload.categories.flatMap((cat) =>
+                          cat.items.map((it) => {
+                            const qty = it.scalable ? it.qty * listPayload.multiplier : it.qty;
+                            const label = `${Math.round(qty * 1000) / 1000} ${it.unit}`;
+                            return (
+                              <Pressable
+                                key={it.uid}
+                                onPress={() => {
+                                  if (!listPayload) return;
+                                  const next: ListScalablePayload = {
+                                    ...listPayload,
+                                    categories: listPayload.categories.map((c) => ({
+                                      ...c,
+                                      items: c.items.map((x) => (x.uid === it.uid ? { ...x, checked: !x.checked } : x)),
+                                    })),
+                                  };
+                                  setListPayload(next);
+                                  scheduleListPersist(next);
+                                }}
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked: Boolean(it.checked) }}
+                                style={({ pressed }) => [styles.checkRow, { opacity: pressed ? 0.9 : 1 }]}
+                              >
+                                <View
+                                  style={[
+                                    styles.checkbox,
+                                    {
+                                      borderColor: it.checked ? theme.colors.primary : theme.colors.outline,
+                                      backgroundColor: it.checked ? theme.colors.primaryContainer : 'transparent',
+                                    },
+                                  ]}
+                                >
+                                  {it.checked ? <Text style={{ color: theme.colors.primary, fontWeight: '900' }}>✓</Text> : null}
+                                </View>
+                                <Text
+                                  style={[
+                                    styles.checkText,
+                                    {
+                                      color: it.checked ? theme.colors.onSurfaceVariant : theme.colors.onSurface,
+                                      textDecorationLine: it.checked ? 'line-through' : 'none',
+                                    },
+                                  ]}
+                                  numberOfLines={2}
+                                >
+                                  {it.name} · {label}
+                                </Text>
+                              </Pressable>
+                            );
+                          }),
+                        )}
+                      </View>
+                    </View>
+                  ) : null}
+
                   {checklist ? (
                     <View style={styles.section}>
                       <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
@@ -1193,6 +1445,10 @@ const styles = StyleSheet.create({
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   checkText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700' },
+  multiplierRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  multBtn: { width: 44, height: 36, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  multBtnText: { fontSize: 18, fontWeight: '900' },
+  multText: { fontSize: 14, fontWeight: '900' },
   switchLabel: { fontSize: 13, fontWeight: '800' },
   transportRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 18, marginTop: 4 },
   transportBtn: { width: 52, height: 52, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
