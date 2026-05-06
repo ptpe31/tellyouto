@@ -50,6 +50,12 @@ export type PersistOneTapSuccess =
       intentionId: string;
       successFeedbackI18nKey: string;
       consumedListFreeSlot: boolean;
+    }
+  | {
+      kind: 'project_persisted';
+      intentionId: string;
+      successFeedbackI18nKey: string;
+      consumedClassicFreeSlot: boolean;
     };
 
 export type PersistOneTapResult =
@@ -359,6 +365,38 @@ async function materializeOneTapIntentionRow(params: {
         ...aiMeta,
       };
     }
+    case 'PROJECT': {
+      const listBlock = draft.data.list && typeof draft.data.list === 'object' ? (draft.data.list as Record<string, unknown>) : null;
+      const fallback = {
+        title,
+        baseCount: 1,
+        unitLabel: 'etape',
+        categories: [{ name: '—', items: [{ name: '—', baseQuantity: 1, unit: 'piece', scalable: true, includeInSave: true }] }],
+      };
+      const jsonStr = buildListInventoryJsonStringFromDraftBlock(listBlock ?? fallback, title);
+      const parsedList = parseGeminiListInventoryJson(jsonStr);
+      const payload = geminiJsonToStoredPayload(parsedList);
+      const mergedTitle = title || payload.title;
+      const meta = JSON.stringify({ ...buildListMetadataPatch({ ...payload, title: mergedTitle }), project_mode: true });
+      return {
+        id: intentionId,
+        type: 'LIST',
+        title: mergedTitle,
+        due_date: null,
+        content_raw: raw,
+        metadata_json: meta,
+        suggested_tags: JSON.stringify(['sans_pression']),
+        category_id: domainCategoryId,
+        parent_id: null,
+        status: 'TODO',
+        is_organized: 0,
+        is_local_processed: 1,
+        complexity_level: 0,
+        created_at,
+        is_pending_ai: isPendingAi,
+        ...aiMeta,
+      };
+    }
     default:
       throw new Error('unsupported_type');
   }
@@ -544,6 +582,16 @@ export async function finalizeOneTapOptimisticDraft(params: {
             intentionId,
             successFeedbackI18nKey: 'talkDebug.listSavedToast',
             consumedListFreeSlot: !deps.spectrum.isProUser,
+          },
+        };
+      case 'PROJECT':
+        return {
+          ok: true,
+          outcome: {
+            kind: 'project_persisted',
+            intentionId,
+            successFeedbackI18nKey: 'talkDebug.projectSavedToast',
+            consumedClassicFreeSlot: consumedClassic,
           },
         };
       default:
@@ -784,6 +832,80 @@ export async function persistOneTapDraft(params: {
           },
         };
       }
+      case 'PROJECT': {
+        const mergedTitle = title;
+        const placeholderPayload = {
+          title: mergedTitle,
+          baseCount: 1,
+          unitLabel: 'etape',
+          multiplier: 1,
+          categories: [
+            {
+              name: '—',
+              items: [{ uid: '', name: 'Génération en cours...', qty: 1, unit: 'piece', scalable: false, checked: false }],
+            },
+          ],
+        };
+        const id = deps.newId();
+        const metaBase = JSON.stringify(buildListMetadataPatch(placeholderPayload));
+        const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
+          is_generating: true,
+          list_enrich_status: 'pending',
+          project_mode: true,
+        });
+        const categoryId = normalizeDomainCategoryId(draft.categoryTag);
+        await insertTrankilV2Intention({
+          id,
+          type: 'LIST',
+          title: mergedTitle,
+          content_raw: raw,
+          metadata_json: meta,
+          suggested_tags: JSON.stringify(['sans_pression']),
+          category_id: categoryId,
+          parent_id: null,
+          status: 'TODO',
+          is_organized: 0,
+          is_local_processed: 1,
+          complexity_level: 0,
+          created_at: Date.now(),
+        });
+        void (async () => {
+          try {
+            const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale });
+            const payload = geminiJsonToStoredPayload(enriched.parsed);
+            const nextTitle = mergedTitle || payload.title;
+            await patchMetadata(id, {
+              ...buildListMetadataPatch({ ...payload, title: nextTitle }),
+              is_generating: false,
+              list_enrich_status: 'done',
+              list_enrich_error: null,
+              project_mode: true,
+            });
+          } catch (e) {
+            await patchMetadata(id, {
+              is_generating: false,
+              list_enrich_status: 'error',
+              list_enrich_error: e instanceof Error ? e.message : String(e),
+              project_mode: true,
+            });
+          }
+        })();
+        void scheduleOneTapUniversalReminders({
+          intentionId: id,
+          title: mergedTitle,
+          data: draft.data,
+          translate: deps.translate,
+        });
+        return {
+          ok: true,
+          outcome: {
+            kind: 'project_persisted',
+            intentionId: id,
+            successFeedbackI18nKey: 'talkDebug.projectSavedToast',
+            consumedClassicFreeSlot: consumedClassic,
+          },
+        };
+      }
       default:
         return { ok: false, error: new Error('unsupported_type') };
     }
@@ -968,37 +1090,71 @@ export async function persistOneTapDraftVentilated(params: {
               : Array.isArray(r.items)
                 ? r.items.map((x) => String(x ?? '').trim()).filter(Boolean)
                 : [];
-          if (items.length > 0) {
-            const listBlock = buildListDraftBlock({
-              title,
-              items,
-              baseCount: Number(r.baseCount ?? 1),
-              unitLabel: typeof r.unitLabel === 'string' ? r.unitLabel : undefined,
-            });
-            const listDraft: OneTapUniversalResult = {
-              ...draft,
-              categoryTag,
-              title: title.trim().slice(0, 200) || draft.title,
-              predictedType: 'LIST',
-              data: { list: listBlock },
-            };
-            const pr = await persistAndDualWrite({
-              deps,
-              draft: listDraft,
-              transcript,
-              habitsDefaultTitle,
-              birthdayLabel,
-              entityLabel: 'LIST',
-            });
-            if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
-            if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
-            if (pr.ok) outcomes.push(pr.outcome);
-            else {
-              firstError = firstError ?? pr.error;
-              firstCode = firstCode ?? pr.code;
-            }
-          } else if (DEBUG_MODE_DOUANE) {
-            console.log('[DOUANE] ❌ Refoulé');
+          const listBlock = buildListDraftBlock({
+            title,
+            items,
+            baseCount: Number(r.baseCount ?? 1),
+            unitLabel: typeof r.unitLabel === 'string' ? r.unitLabel : undefined,
+          });
+          const listDraft: OneTapUniversalResult = {
+            ...draft,
+            categoryTag,
+            title: title.trim().slice(0, 200) || draft.title,
+            predictedType: 'LIST',
+            data: { list: listBlock },
+          };
+          const pr = await persistAndDualWrite({
+            deps,
+            draft: listDraft,
+            transcript,
+            habitsDefaultTitle,
+            birthdayLabel,
+            entityLabel: 'LIST',
+          });
+          if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
+          if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
+          if (pr.ok) outcomes.push(pr.outcome);
+          else {
+            firstError = firstError ?? pr.error;
+            firstCode = firstCode ?? pr.code;
+          }
+          continue;
+        }
+        if (type === 'PROJECT') {
+          const title = String(r.title ?? r.content ?? '').trim() || draft.title;
+          const items =
+            Array.isArray(r.items) && r.items.length > 0 && typeof r.items[0] === 'object'
+              ? (r.items as { name: string; baseQuantity?: number; unit?: string; scalable?: boolean }[])
+              : Array.isArray(r.items)
+                ? r.items.map((x) => String(x ?? '').trim()).filter(Boolean)
+                : [];
+          const listBlock = buildListDraftBlock({
+            title,
+            items,
+            baseCount: Number(r.baseCount ?? 1),
+            unitLabel: typeof r.unitLabel === 'string' ? r.unitLabel : undefined,
+          });
+          const projectDraft: OneTapUniversalResult = {
+            ...draft,
+            categoryTag,
+            title: title.trim().slice(0, 200) || draft.title,
+            predictedType: 'PROJECT',
+            data: { list: listBlock, project_mode: true },
+          };
+          const pr = await persistAndDualWrite({
+            deps,
+            draft: projectDraft,
+            transcript,
+            habitsDefaultTitle,
+            birthdayLabel,
+            entityLabel: 'PROJECT',
+          });
+          if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
+          if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
+          if (pr.ok) outcomes.push(pr.outcome);
+          else {
+            firstError = firstError ?? pr.error;
+            firstCode = firstCode ?? pr.code;
           }
           continue;
         }
@@ -1225,16 +1381,24 @@ export async function persistOneTapDraftVentilated(params: {
   }
 
   const listBlock = data.list;
-  const shouldWriteList = hasAnyListItems(listBlock);
+  const shouldWriteList =
+    draft.predictedType === 'LIST' || draft.predictedType === 'PROJECT'
+      ? Boolean(listBlock && typeof listBlock === 'object')
+      : hasAnyListItems(listBlock);
   if (shouldWriteList) {
-    const listDraft: OneTapUniversalResult = { ...draft, predictedType: 'LIST', data: { ...data, list: listBlock } };
+    const nextType = draft.predictedType === 'PROJECT' ? 'PROJECT' : 'LIST';
+    const listDraft: OneTapUniversalResult = {
+      ...draft,
+      predictedType: nextType,
+      data: { ...data, list: listBlock, ...(nextType === 'PROJECT' ? { project_mode: true } : null) },
+    };
     const r = await persistAndDualWrite({
       deps,
       draft: listDraft,
       transcript,
       habitsDefaultTitle,
       birthdayLabel,
-      entityLabel: 'LIST',
+      entityLabel: nextType,
     });
     if (r.ok) outcomes.push(r.outcome);
     else {

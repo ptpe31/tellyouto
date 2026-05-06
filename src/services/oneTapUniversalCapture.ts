@@ -96,6 +96,7 @@ export const ONE_TAP_PREDICTED_TYPES = [
   'HABIT',
   'TRIP',
   'LIST',
+  'PROJECT',
   'ANNIVERSARY',
   'NOTE',
 ] as const;
@@ -332,9 +333,8 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
       const due = String(it.due ?? '').trim();
       return { ...it, incomplete: suggestDue && !due };
     }
-    if (type === 'LIST') {
-      const itemsLen = Array.isArray(it.items) ? (it.items as unknown[]).length : 0;
-      return { ...it, incomplete: itemsLen <= 0 };
+    if (type === 'LIST' || type === 'PROJECT') {
+      return { ...it, incomplete: false };
     }
     return { ...it, incomplete: false };
   });
@@ -356,9 +356,9 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
     return trimmed;
   };
 
-  const normalizeType = (raw: string): 'TASK' | 'TRIP' | 'NOTE' | 'HABIT' | 'LIST' | '' => {
+  const normalizeType = (raw: string): 'TASK' | 'TRIP' | 'NOTE' | 'HABIT' | 'LIST' | 'PROJECT' | '' => {
     const t = String(raw || '').trim().toUpperCase();
-    if (t === 'TASK' || t === 'TRIP' || t === 'NOTE' || t === 'HABIT' || t === 'LIST') return t;
+    if (t === 'TASK' || t === 'TRIP' || t === 'NOTE' || t === 'HABIT' || t === 'LIST' || t === 'PROJECT') return t;
     return '';
   };
 
@@ -397,8 +397,11 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
       const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
       currentList = { type: 'LIST', title: content, baseCount, unitLabel: 'personne', items: [], category: categoryId };
       intents.push(currentList);
+    } else if (type === 'PROJECT') {
+      currentList = { type: 'PROJECT', title: content, baseCount: 1, unitLabel: 'etape', items: [], category: categoryId };
+      intents.push(currentList);
     }
-    currentList = type === 'LIST' ? currentList : null;
+    currentList = type === 'LIST' || type === 'PROJECT' ? currentList : null;
   }
   return intents;
 }
@@ -696,9 +699,9 @@ function normalizeWireHm(h: string): string | null {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-function normalizeIntentType(raw: string): 'TASK' | 'LIST' | 'HABIT' | 'TRIP' | 'NOTE' | null {
+function normalizeIntentType(raw: string): 'TASK' | 'LIST' | 'PROJECT' | 'HABIT' | 'TRIP' | 'NOTE' | null {
   const t = String(raw || '').trim().toUpperCase();
-  if (t === 'TASK' || t === 'LIST' || t === 'HABIT' || t === 'TRIP' || t === 'NOTE') return t;
+  if (t === 'TASK' || t === 'LIST' || t === 'PROJECT' || t === 'HABIT' || t === 'TRIP' || t === 'NOTE') return t;
   return null;
 }
 
@@ -778,13 +781,15 @@ function mergeIntentArrayIntoOneTapSkeleton(
   let categoryTag = skeleton.categoryTag;
   let hasTrip = false;
   let tripTitle = '';
+  let primaryType: OneTapPredictedType | null = null;
 
   for (const rawIntent of intents) {
     const type = normalizeIntentType(rawIntent?.type);
     if (!type) continue;
+    if (!primaryType) primaryType = type;
     const cat = typeof rawIntent.category === 'string' ? rawIntent.category.trim().slice(0, 80) : '';
     if (cat) categoryTag = cat;
-    if (type === 'LIST') {
+    if (type === 'LIST' || type === 'PROJECT') {
       const listTitle = typeof rawIntent.title === 'string' ? rawIntent.title.trim() : '';
       const baseCountRaw = Number((rawIntent as { baseCount?: unknown }).baseCount ?? 1);
       const baseCount = Number.isFinite(baseCountRaw) ? Math.max(1, Math.round(baseCountRaw)) : 1;
@@ -794,34 +799,33 @@ function mergeIntentArrayIntoOneTapSkeleton(
           : 'personne';
       const itemsObj = coerceListItems(rawIntent.items, baseCount);
       const itemsStr = itemsObj.length ? [] : coerceItemsArray(rawIntent.items);
-      if (itemsObj.length || itemsStr.length) {
-        out.list = {
-          title: (listTitle || skeleton.title).trim().slice(0, 120) || 'Liste',
-          baseCount,
-          unitLabel,
-          categories: [
-            {
-              name: '—',
-              items: itemsObj.length
-                ? itemsObj.map((it) => ({
-                    name: it.name,
-                    baseQuantity: it.baseQuantity,
-                    unit: it.unit,
-                    scalable: it.scalable,
-                    includeInSave: true,
-                  }))
-                : itemsStr.map((name) => ({
-                    name,
-                    baseQuantity: 1,
-                    unit: 'piece',
-                    scalable: true,
-                    includeInSave: true,
-                  })),
-            },
-          ],
-        };
-        if (listTitle) title = listTitle.slice(0, 200);
-      }
+      out.list = {
+        title: (listTitle || skeleton.title).trim().slice(0, 120) || 'Liste',
+        baseCount,
+        unitLabel,
+        categories: [
+          {
+            name: '—',
+            items: itemsObj.length
+              ? itemsObj.map((it) => ({
+                  name: it.name,
+                  baseQuantity: it.baseQuantity,
+                  unit: it.unit,
+                  scalable: it.scalable,
+                  includeInSave: true,
+                }))
+              : itemsStr.map((name) => ({
+                  name,
+                  baseQuantity: 1,
+                  unit: 'piece',
+                  scalable: true,
+                  includeInSave: true,
+                })),
+          },
+        ],
+      };
+      if (type === 'PROJECT') out.project_mode = true;
+      if (listTitle) title = listTitle.slice(0, 200);
     }
     if (type === 'TASK') {
       const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
@@ -870,7 +874,7 @@ function mergeIntentArrayIntoOneTapSkeleton(
   const data = normalizeUniversalTemporalInData(out);
   const rawNextTitle = (hasTrip ? tripTitle : title).trim().slice(0, 200) || skeleton.title;
   const nextTitle = rawNextTitle;
-  const baseType = hasTrip ? 'TRIP' : skeleton.predictedType;
+  const baseType = hasTrip ? 'TRIP' : (primaryType ?? skeleton.predictedType);
   return { ...skeleton, predictedType: baseType, categoryTag, title: nextTitle, data };
 }
 
@@ -1097,16 +1101,26 @@ Reply ONLY with Bullet-Pipe lines starting with ">".
 No JSON. No markdown. No explanations.
 
 Output format (one line per intent):
-> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE
+> TYPE | CONTENT | CATEGORY_CODE | SLOT_4
 
 Constraints:
-- TYPE: TRIP or TASK (prefer TRIP when movement/location is mentioned)
+- TYPE: TASK, TRIP, LIST, PROJECT, HABIT
+- DECISION RULES:
+  - Use HABIT if the user mentions recurrence (every day, weekly, "chaque jour", etc.) or a clear routine.
+  - Use PROJECT for broad objectives that require multiple steps (renovation, organizing a wedding, etc.). PROJECT MUST trigger Pass 2 downstream.
+  - Prefer TRIP when movement/location is mentioned.
 - CONTENT: keep the user's content in lang (do not translate); must follow DISPLAY TITLE CONTRACT above
 - CATEGORY_CODE: one of the 10 codes above (uppercase)
-- DUE_DATE: "YYYY-MM-DD HH:mm" or null
+- SLOT_4 meaning depends on TYPE:
+  - TASK/TRIP: DUE_DATE "YYYY-MM-DD HH:mm" or null
+  - HABIT: RECURRENCE_TEXT or null
+  - LIST/PROJECT: BASE_COUNT integer or null
 
 Examples:
-> TRIP | <CONTENT> | TRAVEL | null`;
+> TRIP | <CONTENT> | TRAVEL | null
+> TASK | <CONTENT> | PERSO | 2026-05-06 09:30
+> HABIT | <CONTENT> | HEALTH | every day at 06:00
+> PROJECT | <CONTENT> | HOME | null`;
 }
 
 /**
@@ -1638,6 +1652,19 @@ export function defaultOneTapDataForType(type: OneTapPredictedType): Record<stri
           ],
         },
       };
+    case 'PROJECT':
+      return {
+        ...u,
+        project_mode: true,
+        list: {
+          title: '',
+          baseCount: 1,
+          unitLabel: 'etape',
+          categories: [
+            { name: '—', items: [{ name: '—', baseQuantity: 1, unit: 'piece', scalable: true }] },
+          ],
+        },
+      };
     case 'ANNIVERSARY':
       return { ...u, personName: '', monthDay: '', reminderDaysBefore: 7 };
     case 'NOTE':
@@ -1663,13 +1690,13 @@ export function mergeOneTapDataOnTypeChange(
   if (prevType === nextType) return { ...prevData };
   const base = defaultOneTapDataForType(nextType);
   const tail = universalTailFromPrev(prevData);
-  if (nextType === 'LIST') {
+  if (nextType === 'LIST' || nextType === 'PROJECT') {
     const list = prevData.list && typeof prevData.list === 'object' ? (prevData.list as Record<string, unknown>) : null;
     if (list && Array.isArray(list.categories)) {
-      return { list, ...tail };
+      return { list, ...(nextType === 'PROJECT' ? { project_mode: true } : null), ...tail };
     }
     const b = base.list as Record<string, unknown>;
-    return { list: { ...b, title: title || String(b.title || '') }, ...tail };
+    return { list: { ...b, title: title || String(b.title || '') }, ...(nextType === 'PROJECT' ? { project_mode: true } : null), ...tail };
   }
   if (nextType === 'TASK') {
     return {

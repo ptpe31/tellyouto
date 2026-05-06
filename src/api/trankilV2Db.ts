@@ -145,7 +145,7 @@ export type BonusEventType =
   | 'zen_points'
   | 'super_bonus_local_streak';
 
-const DB_NAME = 'trankil_v2.db';
+const DB_NAME = 'talkndone.db';
 const DISABLE_TRANKIL_V2_PRAGMAS = true;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;

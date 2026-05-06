@@ -14,7 +14,7 @@
  * - Si `is_flexible === true`, **aucune** alarme matérielle n’est planifiée : le créneau peut bouger ;
  *   programmer le OS ici casserait la promesse produit.
  * - Toute modification du flux **doit** garder la cohérence avec la persistance des champs d'alarme
- *   dans `trankil_v2.db` (révision croisée obligatoire).
+ *   dans `talkndone.db` (révision croisée obligatoire).
  *
  * @module alarmManager
  */

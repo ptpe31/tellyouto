@@ -73,6 +73,15 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
   - “Reply ONLY with Bullet-Pipe lines starting with ">".”
   - “No JSON. No markdown. No explanations.”
   - forme : `> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE`.
+  - Types sémantiques autorisés (vision 2026) :
+    - `TASK` : action simple et unique.
+    - `TRIP` : action impliquant un déplacement (logistique).
+    - `LIST` : inventaire / liste de courses simple.
+    - `PROJECT` : objectif complexe nécessitant plusieurs étapes (déclenche Pass 2).
+    - `HABIT` : action récurrente / routine.
+  - Règles de décision (côté Gemini) :
+    - Utiliser impérativement `HABIT` si l’utilisateur mentionne une récurrence (chaque jour, hebdomadaire, etc.) ou une routine claire.
+    - Utiliser `PROJECT` pour les objectifs larges nécessitant plusieurs étapes.
 
 #### 3) Traitement de sortie (Douane & normalisation)
 
@@ -92,24 +101,21 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 
 2) Douane de persistance (côté DB) — [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L893-L1281)
 - Entrée : `draft.data.intents` (si présent) ou les champs “mono‑intention” (`data.list`, signaux temporels, logistique…).
-- Traitement : boucle `intents[]` + mapping type→draft (TASK/TRIP/HABIT/LIST/NOTE) + persistance SQLite (et dual write) avec logs `[DOUANE]` si `DEBUG_MODE_DOUANE=true` (valeur actuelle : true) : [oneTapPersist.ts:L62-L65](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L62-L65) et [oneTapPersist.ts:L908-L1166](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L908-L1166).
+- Traitement : boucle `intents[]` + mapping type→draft (TASK/TRIP/HABIT/LIST/PROJECT) + persistance SQLite (et dual write) avec logs `[DOUANE]` si `DEBUG_MODE_DOUANE=true` (valeur actuelle : true) : [oneTapPersist.ts:L62-L65](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts#L62-L65) et [oneTapPersist.ts:L908-L1166](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L908-L1166).
+- Enrichissement Pass 2 (LIST / PROJECT) :
+  - Si `TYPE` est `LIST` ou `PROJECT`, lancer systématiquement `geminiEnrichGenericList` (Pass 2) même si aucun item n’est extrait au premier tour.
+  - Pendant l’enrichissement : écrire `metadata_json.is_generating = true` et `metadata_json.list_enrich_status = 'pending'`.
+  - Après succès : écrire `metadata_json.is_generating = false` et `metadata_json.list_enrich_status = 'done'` + payload `list_scalable_v1`.
+  - Après échec : écrire `metadata_json.is_generating = false` et `metadata_json.list_enrich_status = 'error'` (+ `list_enrich_error`).
 - Gestion du vide / malformé (NOTE_FALLBACK) :
   - Si `intents[]` existe mais qu’aucune entité n’a pu être persistée : si `allowNoteFallback !== false`, création d’un draft NOTE avec `memo = transcript` et persistance sous label `NOTE_FALLBACK` : [oneTapPersist.ts:L1167-L1186](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L1167-L1186).
   - Si aucun résultat n’a été persisté après les branches list/temporal/trip : même fallback NOTE_FALLBACK : [oneTapPersist.ts:L1261-L1277](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L1261-L1277).
 
-##### 3.e) Enrichissement du Contrat d'Erreur Proxy (Anti-SPOF)
-
-- Problème : le proxy renvoie actuellement un code générique `gemini_failed`, masquant la cause réelle (blocage sécurité vs quota vs surcharge).
-- Nouveau contrat SSE : le proxy doit mapper les erreurs Gemini vers des types explicites :
-  - `SAFETY_BLOCK` : déclenché si les filtres de sécurité bloquent le prompt ou la réponse.
-  - `QUOTA_EXCEEDED` : limite de requêtes/crédits atteinte côté modèle.
-  - `SERVER_OVERLOAD` : erreur technique (5xx) côté Google ou proxy.
-- Comportement client : l’app doit logger ces erreurs distinctement. En cas de `SAFETY_BLOCK`, le fallback `NOTE_FALLBACK` doit être marqué par un tag spécifique afin d’éviter une incompréhension utilisateur.
-
 #### 4) Format de persistance final
 
 - Les champs persistés doivent impérativement être alignés sur le schéma SQLite Trankil‑v2 (ex. `due_date`).
-- `due_date` est stocké en ISO 8601 (`YYYY-MM-DDTHH:mm:ss.sssZ`).
+- `due_date` (SQLite) est un **jour clé** au format `YYYY-MM-DD` (date locale) utilisé pour la Timeline (filtre/tri par jour).
+- L’heure / timestamp précis (quand applicable) est porté par `metadata_json` (ex. `dueDateTime`, `dueTimeHm`, `trip.arrivalDue`).
 - IA & coûts (SQLite) :
   - Les tokens doivent être persistés dans `intentions.tokens_prompt`, `intentions.tokens_completion`, `intentions.tokens_total` (INTEGER).
   - Le coût estimé doit être persisté dans `intentions.cost` (REAL, USD) et non dans un champ `ai_cost_usd` (qui n’existe pas en DB). Le payload OneTap peut porter `ai_cost_usd`, mais il doit être mappé vers `cost` avant insertion.
@@ -147,13 +153,13 @@ Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la p
 
 ### 2.b) Standardisation base de données (Trankil-v2)
 
-- Outils de maintenance (debug) : les actions “Reconstruire la base” et “Vider la base” ciblent uniquement `intentions` (SQLite `trankil_v2.db`) en exécution séquentielle (table par table) via le wrapper singleton `withTrankilV2Database`.
+- Outils de maintenance (debug) : les actions “Reconstruire la base” et “Vider la base” ciblent uniquement `intentions` (SQLite `talkndone.db`) en exécution séquentielle (table par table) via le wrapper singleton `withTrankilV2Database`.
 - Vidage manuel (debug) : le vidage exécute `DELETE FROM intentions;` après confirmation utilisateur, puis journalise un feedback `[DATABASE] 🧹 Base vidée avec succès`.
 - Schéma : la source de vérité est la table SQLite `intentions` (Trankil‑v2). Les noms de colonnes sont stabilisés, notamment `due_date` (à utiliser partout côté Douane / insertions pour éviter tout conflit futur).
-- Format : le format de `due_date` en base est strictement ISO 8601 (`YYYY-MM-DDTHH:mm:ss.sssZ`) pour assurer la compatibilité avec le moteur de tri de la Timeline.
+- Format : `due_date` est stocké en `YYYY-MM-DD` (date locale), et sert de pivot pour le groupement/tri de la Timeline.
 - Initialisation atomique : interdire l’exécution du schéma SQL en un seul bloc géant via `execAsync`. L’initialisation doit exécuter les opérations séquentiellement (table par table, index par index) afin de limiter les timeouts au premier démarrage.
 - Auto-réparation (healthcheck) : exécuter un test d’écriture/lecture `System Ready` immédiatement après l’ouverture/initialisation. Si ce test échoue (timeout natif, `NativeDatabase.prepareAsync` rejeté / NPE), lever une exception bloquante plutôt que de laisser le séquenceur tourner à vide.
-- Mode de persistance : l’écriture est locale (SQLite `trankil_v2.db`) et constitue la source de vérité (base unique).
+- Mode de persistance : l’écriture est locale (SQLite `talkndone.db`) et constitue la source de vérité (base unique).
 - Sécurité production : aucune suppression du fichier DB (ex. `deleteDatabaseAsync`) n’est exécutée au démarrage. Toute purge de données éventuelle doit rester une action explicite (debug/outils), jamais un comportement automatique.
 - Migrations vs purge : le bootstrap DB peut exécuter des `DROP TABLE ...` uniquement dans des chemins de migration/normalisation de schéma (ex. contraintes `ARCHIVED`, ajout du type `LIST`) et non comme “purge périodique”. Voir [trankilV2Db.ts:L774-L843](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts#L774-L843) et [trankilV2Db.ts:L936-L1005](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/api/trankilV2Db.ts#L936-L1005).
 - Hard Reset manuel (debug) : un “factory reset” existe et efface SQLite + préférences + notifications sur action utilisateur confirmée (double confirmation). Implémentation : [factoryReset.ts:L7-L18](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/factoryReset.ts#L7-L18). Déclenchement UI : [DebugScreen.tsx:L153-L173](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/screens/DebugScreen.tsx#L153-L173) puis exécution [DebugScreen.tsx:L133-L151](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/screens/DebugScreen.tsx#L133-L151).
@@ -185,7 +191,7 @@ Objectif : préparer une synchronisation multi-appareil fiable (Firebase) en par
 
 #### 2.c.3) Écritures sérialisées (atomicité)
 
-- Queue d’écriture : toutes les opérations d’écriture sur `trankil_v2.db` passent par un exécuteur sérialisé (calqué sur [localDb.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/localDb.ts#L12-L31)).
+- Queue d’écriture : toutes les opérations d’écriture sur `talkndone.db` passent par un exécuteur sérialisé (calqué sur [localDb.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/localDb.ts#L12-L31)).
 - Toute mutation métier doit :
   - être exécutée dans une transaction SQL,
   - mettre `updated_at = nowMs`,
@@ -286,7 +292,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - Alignement types : ce format s’applique uniformément pour TASK et TRIP.
   - TRIP (source de vérité) : l’heure affichée est dérivée de `arrivalDue` (ISO) quand disponible ; sinon fallback sur `dueDateTime`/`dueTimeHm`.
   - Récurrence : si `recurrence` (objet OneTap) ou `recurrence_rrule` (SQLite) est non null/non vide, afficher une icône discrète “repeat” (flèches entrelacées) juste avant le bloc horaire, avec la même couleur grise que le sous-titre.
-- Mirroring temporel (priorité ISO) : l’affichage doit utiliser en priorité absolue un timestamp ISO (`due_date` SQLite / `dueDateTime` OneTap / `arrivalDue` pour TRIP) pour dériver JourLabel et Heure. Les champs `dueDateYmd` / `dueTimeHm` ne sont utilisés qu’en fallback si aucun ISO n’est disponible. L’affichage UI ne doit pas altérer le tri ni la valeur persistée.
+- Mirroring temporel (réalité actuelle) : `due_date` (SQLite) est un jour clé `YYYY-MM-DD`. L’heure affichée provient de `metadata_json` (`dueTimeHm` / `dueDateTime` / `trip.arrivalDue`) selon le type. L’affichage UI ne doit pas altérer le tri ni les valeurs persistées.
 
 ### 2) Découplage Pilotage / Contenu
 

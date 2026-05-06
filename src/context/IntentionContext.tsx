@@ -668,7 +668,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                 })
                 .filter(Boolean);
               const intentionId = ids[0] || '—';
-              console.log(`[DATABASE]   ✅ Persistance confirmée (trankil_v2.db) | ID: ${intentionId}`);
+              console.log(`[DATABASE]   ✅ Persistance confirmée (talkndone.db) | ID: ${intentionId}`);
               console.log(`[SEQUENCER]  ✅ Succès total pour le chunk ${i + 1}`);
               console.log('***************************************');
             } else {

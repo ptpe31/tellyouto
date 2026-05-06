@@ -3,7 +3,7 @@ import * as SQLite from 'expo-sqlite';
 import { initTrankilV2Schema } from '../api/trankilV2Db';
 import i18n from '../locales';
 
-const TRANKIL_V2_DB_NAME = 'trankil_v2.db';
+const TRANKIL_V2_DB_NAME = 'talkndone.db';
 const LOOKBACK_DAYS = 14;
 const LOOKBACK_MS = LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
 
