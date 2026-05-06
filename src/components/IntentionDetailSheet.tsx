@@ -38,7 +38,6 @@ import {
   parseProjectMilestonesPayloadFromMetadataJson,
   type ProjectMilestonesPayload,
 } from '../services/projectMilestonesModel';
-import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
   visible: boolean;
@@ -1443,30 +1442,24 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                   {isProject ? (
                     <View style={styles.section}>
                       <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
-                      <View
-                        style={[
-                          neumorphicRaised(theme),
-                          styles.temporalitasCard,
-                          { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, borderWidth: 1 },
-                        ]}
-                      >
-                        <View style={styles.temporalitasRow}>
+                      <View style={styles.temporalitasCardFlat}>
+                        <Text style={styles.temporalitasTitle} numberOfLines={2}>
+                          {row?.title ?? t('common.projects')}
+                        </Text>
+                        <View style={styles.temporalitasDividerFlat} />
+                        <View style={styles.temporalitasDatesRow}>
                           <Pressable
                             onPress={openProjectStartPicker}
                             android_ripple={{ color: 'rgba(15, 23, 42, 0.06)' }}
-                            style={({ pressed }) => [styles.temporalitasSide, { opacity: pressed ? 0.88 : 1 }]}
+                            style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
                           >
-                            <IconButton icon="calendar-edit" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.temporalitasIcon} />
-                            <Text style={[styles.temporalitasText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                            <Text style={styles.temporalitasStartLink} numberOfLines={1}>
                               {projectStartDraftYmd ? projectStartDraftYmd : t('intentionDetail.projectStartDateEmpty')}
                             </Text>
                           </Pressable>
-                          <View style={[styles.temporalitasDividerV, { backgroundColor: theme.colors.outlineVariant }]} />
-                          <View style={styles.temporalitasSideRight}>
-                            <Text style={[styles.temporalitasText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                              {projectSchedule.endYmd ? projectSchedule.endYmd : '—'}
-                            </Text>
-                          </View>
+                          <Text style={styles.temporalitasEndText} numberOfLines={1}>
+                            {projectSchedule.endYmd ? projectSchedule.endYmd : '—'}
+                          </Text>
                         </View>
                         {projectStartPickerOpen && Platform.OS === 'ios' ? (
                           <View style={styles.pickerBlock}>
@@ -1495,124 +1488,64 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                           </View>
                         ) : null}
                         {projectDatesDirty ? (
-                          <Button mode="contained" onPress={() => void confirmProjectReplan()} style={styles.temporalitasCta}>
+                          <Button mode="contained" onPress={() => void confirmProjectReplan()} style={styles.temporalitasCtaFlat}>
                             {t('intentionDetail.confirmReplan')}
                           </Button>
                         ) : null}
                       </View>
 
-                      <View style={styles.lifeWrap}>
-                        <View
-                          pointerEvents="none"
-                          style={[
-                            neumorphicInset(theme),
-                            styles.lifeLine,
-                            { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, borderWidth: 1 },
-                          ]}
-                        />
+                      <View style={styles.milestonesWrap}>
                         {isGenerating ? (
-                          <View style={styles.lifeStack}>
+                          <View style={styles.milestonesList}>
                             {[0, 1, 2].map((k) => (
-                              <Animated.View
-                                key={`sk-${k}`}
-                                style={[
-                                  styles.skeletonPill,
-                                  neumorphicInset(theme),
-                                  {
-                                    backgroundColor: theme.colors.surface,
-                                    borderColor: theme.colors.outlineVariant,
-                                    borderWidth: 1,
-                                    opacity: skeletonPulse,
-                                  },
-                                ]}
-                              />
+                              <View key={`sk-${k}`} style={[styles.milestoneRow, k < 2 ? styles.milestoneRowBorder : null]}>
+                                <View style={styles.milestoneCircle} />
+                                <View style={styles.milestoneTextColFlat}>
+                                  <Animated.View style={[styles.skeletonBarTitle, { opacity: skeletonPulse }]} />
+                                  <Animated.View style={[styles.skeletonBarMeta, { opacity: skeletonPulse }]} />
+                                </View>
+                                <View style={styles.milestoneMenuBtnFlat} />
+                              </View>
                             ))}
                           </View>
                         ) : projectPayload ? (
-                          <View style={styles.lifeStack}>
-                            {projectSchedule.items.map((m) => {
-                              const pivot = m.pivot_date;
+                          <View style={styles.milestonesList}>
+                            {projectSchedule.items.map((m, idx) => {
                               const checked = Boolean(m.checked);
-                              const note = String(m.note ?? '').trim();
+                              const isLast = idx === projectSchedule.items.length - 1;
                               return (
-                                <View key={m.uid} style={styles.lifeRow}>
-                                  <View
-                                    style={[
-                                      checked ? neumorphicInset(theme) : neumorphicRaised(theme),
-                                      styles.milePill,
-                                      {
-                                        backgroundColor: theme.colors.surface,
-                                        borderColor: theme.colors.outlineVariant,
-                                        borderWidth: 1,
-                                        opacity: checked ? 0.5 : 1,
-                                      },
+                                <View key={m.uid} style={[styles.milestoneRow, !isLast ? styles.milestoneRowBorder : null]}>
+                                  <Pressable
+                                    onPress={() => void toggleProjectMilestoneDone(m.uid)}
+                                    style={({ pressed }) => [
+                                      styles.milestoneCircle,
+                                      checked ? styles.milestoneCircleChecked : null,
+                                      pressed ? { opacity: 0.85 } : null,
                                     ]}
+                                    accessibilityRole="checkbox"
+                                    accessibilityState={{ checked }}
                                   >
-                                    <Pressable
-                                      onPress={() => void toggleProjectMilestoneDone(m.uid)}
-                                      style={({ pressed }) => [
-                                        checked ? neumorphicInset(theme) : neumorphicRaised(theme),
-                                        styles.mileDoneBtn,
-                                        {
-                                          borderColor: checked ? theme.colors.primary : theme.colors.outlineVariant,
-                                          borderWidth: 1,
-                                          opacity: pressed ? 0.9 : 1,
-                                        },
-                                      ]}
-                                      accessibilityRole="checkbox"
-                                      accessibilityState={{ checked }}
+                                    <Text style={[styles.milestoneCheck, checked ? styles.milestoneCheckOn : null]}>{checked ? '✓' : ''}</Text>
+                                  </Pressable>
+                                  <View style={styles.milestoneTextColFlat}>
+                                    <Text
+                                      style={[styles.milestoneTitleFlat, checked ? styles.milestoneTitleDoneFlat : null]}
+                                      numberOfLines={2}
                                     >
-                                      <Text style={{ color: checked ? theme.colors.primary : theme.colors.onSurfaceVariant, fontWeight: '900' }}>
-                                        {checked ? '✓' : ''}
-                                      </Text>
-                                    </Pressable>
-                                    <View style={styles.mileTextCol}>
-                                      <Text
-                                        style={[
-                                          styles.mileTitle,
-                                          {
-                                            color: checked ? theme.colors.onSurfaceVariant : theme.colors.onSurface,
-                                            textDecorationLine: checked ? 'line-through' : 'none',
-                                          },
-                                        ]}
-                                        numberOfLines={2}
-                                      >
-                                        {m.title}
-                                      </Text>
-                                      <View style={styles.mileMetaRow}>
-                                        <View
-                                          style={[
-                                            styles.mileDateChip,
-                                            pivot ? { borderColor: theme.colors.primary, borderWidth: 1 } : { borderColor: theme.colors.outlineVariant, borderWidth: 1 },
-                                          ]}
-                                        >
-                                          <Text style={[styles.mileDateText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                                            {m.label}
-                                          </Text>
-                                        </View>
-                                        {note ? (
-                                          <IconButton icon="note-text-outline" size={16} iconColor={theme.colors.onSurfaceVariant} style={styles.mileNoteIcon} />
-                                        ) : null}
-                                      </View>
-                                    </View>
-                                    <Pressable
-                                      onPress={() => openProjectMilestoneMenu(m.uid)}
-                                      style={({ pressed }) => [
-                                        neumorphicRaised(theme),
-                                        styles.mileHubBtn,
-                                        {
-                                          backgroundColor: theme.colors.surface,
-                                          borderColor: theme.colors.outlineVariant,
-                                          borderWidth: 1,
-                                          opacity: pressed ? 0.88 : 1,
-                                        },
-                                      ]}
-                                      accessibilityRole="button"
-                                      accessibilityLabel={t('intentionDetail.projectMilestoneMenuTitle')}
-                                    >
-                                      <IconButton icon="pencil" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.mileHubIcon} />
-                                    </Pressable>
+                                      {m.title}
+                                    </Text>
+                                    <Text style={styles.milestoneMetaFlat} numberOfLines={1}>
+                                      {m.label}
+                                    </Text>
                                   </View>
+                                  <Pressable
+                                    onPress={() => console.log('Open Modal')}
+                                    style={({ pressed }) => [styles.milestoneMenuBtnFlat, pressed ? { opacity: 0.7 } : null]}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={t('intentionDetail.projectMilestoneMenuTitle')}
+                                  >
+                                    <IconButton icon="dots-vertical" size={18} iconColor="#64748b" style={styles.milestoneMenuIconFlat} />
+                                  </Pressable>
                                 </View>
                               );
                             })}
@@ -1672,11 +1605,8 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                               key={`sk-list-${k}`}
                               style={[
                                 styles.skeletonRow,
-                                neumorphicInset(theme),
                                 {
-                                  backgroundColor: theme.colors.surface,
-                                  borderColor: theme.colors.outlineVariant,
-                                  borderWidth: 1,
+                                  backgroundColor: '#e5e7eb',
                                   opacity: skeletonPulse,
                                 },
                               ]}
@@ -1813,7 +1743,6 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                 <Pressable style={styles.backdrop} onPress={() => setNoteModalOpen(false)} />
                 <View
                   style={[
-                    neumorphicRaised(theme),
                     styles.noteModalCard,
                     { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, borderWidth: 1 },
                   ]}
@@ -1895,6 +1824,29 @@ const styles = StyleSheet.create({
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   checkText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700' },
+  temporalitasCardFlat: { borderRadius: 16, padding: 14, gap: 10, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' },
+  temporalitasTitle: { fontSize: 15, fontWeight: '600', color: '#000000' },
+  temporalitasDividerFlat: { height: StyleSheet.hairlineWidth, backgroundColor: '#e5e7eb' },
+  temporalitasDatesRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  temporalitasStartLink: { fontSize: 13, fontWeight: '600', color: '#0f766e', textDecorationLine: 'underline' },
+  temporalitasEndText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  temporalitasCtaFlat: { borderRadius: 12, alignSelf: 'stretch' },
+  milestonesWrap: { marginTop: 6 },
+  milestonesList: { borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb', backgroundColor: '#ffffff' },
+  milestoneRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 12 },
+  milestoneRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e7eb' },
+  milestoneCircle: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
+  milestoneCircleChecked: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
+  milestoneCheck: { fontSize: 12, fontWeight: '800', color: 'transparent' },
+  milestoneCheckOn: { color: '#ffffff' },
+  milestoneTextColFlat: { flex: 1, minWidth: 0, gap: 4 },
+  milestoneTitleFlat: { fontSize: 14, fontWeight: '600', color: '#000000' },
+  milestoneTitleDoneFlat: { color: '#64748b', textDecorationLine: 'line-through' },
+  milestoneMetaFlat: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
+  milestoneMenuBtnFlat: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  milestoneMenuIconFlat: { margin: 0, padding: 0 },
+  skeletonBarTitle: { height: 14, borderRadius: 7, backgroundColor: '#e5e7eb', width: '78%' },
+  skeletonBarMeta: { height: 11, borderRadius: 6, backgroundColor: '#e5e7eb', width: '42%', marginTop: 6 },
   temporalitasCard: { borderRadius: 18, padding: 12, gap: 10 },
   temporalitasRow: { flexDirection: 'row', alignItems: 'center' },
   temporalitasSide: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
