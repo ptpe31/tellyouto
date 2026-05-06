@@ -250,6 +250,7 @@
   "timeline": {
     "allDuration": "Den ganzen Tag",
     "newBadge": "NEU",
+    "createdTodayAt": "Heute erstellt um {{time}}",
     "subtitle": "Tages-Schiene — vorgeschlagene Fenster nach Spektrum (hohes Momentum → tiefere Blöcke).",
     "now": "Jetzt",
     "dayRail": "Position im Tag (6–22 Uhr)",

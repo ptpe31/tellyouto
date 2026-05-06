@@ -250,6 +250,7 @@
   "timeline": {
     "allDuration": "Tutto il giorno",
     "newBadge": "NUOVO",
+    "createdTodayAt": "Creato oggi alle {{time}}",
     "subtitle": "Binario della giornata — slot suggeriti in base allo spettro (Momentum alto → blocchi più profondi).",
     "now": "Adesso",
     "dayRail": "Posizione nella giornata (6–22)",

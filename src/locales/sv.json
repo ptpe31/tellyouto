@@ -18,6 +18,7 @@
     "createdOn": "Skapad {{date}}",
     "allDuration": "Hela dagen",
     "newBadge": "NY",
+    "createdTodayAt": "Skapad idag kl. {{time}}",
     "skyClear": "Klar himmel — sinnet har utrymme.",
     "pilot": {
       "title": "Pilot",

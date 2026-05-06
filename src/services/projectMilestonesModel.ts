@@ -6,6 +6,7 @@ export type ProjectMilestone = {
   title: string;
   estimated_duration: number;
   unit: ProjectDurationUnit;
+  checked?: boolean;
 };
 
 export type ProjectMilestonesPayload = {
@@ -31,10 +32,11 @@ export function parseProjectMilestonesPayloadFromMetadataJson(raw: string | null
         const t = String(r.title ?? '').trim();
         const n = Number(r.estimated_duration);
         const unit = String(r.unit ?? '').trim() as ProjectDurationUnit;
+        const checked = Boolean(r.checked);
         if (!t) return null;
         if (!Number.isFinite(n) || n <= 0) return null;
         if (unit !== 'hours' && unit !== 'days' && unit !== 'weeks') return null;
-        return { title: t.slice(0, 200), estimated_duration: n, unit };
+        return { title: t.slice(0, 200), estimated_duration: n, unit, checked };
       })
       .filter(Boolean) as ProjectMilestone[];
     if (!milestones.length) return null;
@@ -60,7 +62,7 @@ export function parseGeminiProjectMilestonesJson(raw: string): ProjectMilestones
     if (!Number.isFinite(n) || n <= 0) throw new Error('PROJECT_JSON_BAD_DURATION');
     const unit = String(r.unit ?? '').trim();
     if (unit !== 'hours' && unit !== 'days' && unit !== 'weeks') throw new Error('PROJECT_JSON_BAD_UNIT');
-    return { title: t, estimated_duration: n, unit: unit as ProjectDurationUnit };
+    return { title: t, estimated_duration: n, unit: unit as ProjectDurationUnit, checked: false };
   });
   return { title, milestones };
 }
@@ -68,4 +70,3 @@ export function parseGeminiProjectMilestonesJson(raw: string): ProjectMilestones
 export function buildProjectMilestonesMetadataPatch(payload: ProjectMilestonesPayload): Record<string, unknown> {
   return { [PROJECT_MILESTONES_METADATA_KEY]: payload };
 }
-

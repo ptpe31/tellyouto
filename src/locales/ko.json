@@ -18,6 +18,7 @@
     "createdOn": "{{date}}에 생성됨",
     "allDuration": "하루 종일",
     "newBadge": "신규",
+    "createdTodayAt": "오늘 {{time}}에 생성됨",
     "skyClear": "맑은 하늘처럼, 마음에 여유가 있어요.",
     "pilot": {
       "title": "조종석",

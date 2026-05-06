@@ -393,6 +393,7 @@
     "dueAt": "Échéance {{time}}",
     "allDuration": "Toute la journée",
     "newBadge": "NOUVEAU",
+    "createdTodayAt": "Créé aujourd’hui à {{time}}",
     "subtitle": "Rail du jour — créneaux suggérés selon ton spectre (Momentum élevé → blocs plus profonds).",
     "now": "Maintenant",
     "dayRail": "Position dans la journée (6h–22h)",

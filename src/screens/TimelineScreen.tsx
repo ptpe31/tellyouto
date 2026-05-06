@@ -102,6 +102,11 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+function capitalizeFirst(raw: string): string {
+  if (!raw) return raw;
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
 function toYmd(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
@@ -258,13 +263,12 @@ function takePage<T>(rows: T[], pageSize: number): { slice: T[]; hasMore: boolea
 }
 
 type TimelineFlatItem =
-  | { kind: 'section'; id: string; titleKey: string }
+  | { kind: 'section'; id: string; titleText: string }
   | { kind: 'ideaBankRow'; id: string; count: number }
   | {
       kind: 'card';
       id: string;
       row: TrankilV2TimelineItemRow;
-      listKey: string;
       rowVariant: 'default' | 'noPressure';
     };
 
@@ -275,13 +279,12 @@ function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
       out.push({ kind: 'ideaBankRow', id: 'ideaBank', count: e.count });
       continue;
     }
-    out.push({ kind: 'section', id: `sec-${e.listKey}-${e.titleKey}`, titleKey: e.titleKey });
+    out.push({ kind: 'section', id: `sec-${e.id}`, titleText: e.titleText });
     for (const r of e.rows) {
       out.push({
         kind: 'card',
         id: r.id,
         row: r,
-        listKey: e.listKey,
         rowVariant: e.rowVariant ?? 'default',
       });
     }
@@ -306,8 +309,8 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
 
 type RowSection = {
   kind: 'rows';
-  listKey: string;
-  titleKey: string;
+  id: string;
+  titleText: string;
   rows: TrankilV2TimelineItemRow[];
   dimmed?: boolean;
   rowVariant?: 'default' | 'noPressure';
@@ -799,87 +802,81 @@ export function TimelineScreen() {
     return unorganizedTodo.filter((r) => !visible.has(r.id));
   }, [filteredPool, unorganizedTodo]);
 
-  const listEntries = useMemo((): ListEntry[] => {
-    const taskHabit = filteredPool.filter((item) => item.section === 'TASK_HABIT');
-    const habitsDue = taskHabit.filter((r) => r.type === 'HABIT');
-    const allTasks = taskHabit.filter((r) => r.type === 'TASK');
-    const projectSubtasks = filteredPool.filter((item) => item.section === 'PROJECT_SUBTASK');
-    const noteAudio = filteredPool.filter((item) => item.section === 'NOTE_AUDIO');
-    const listRows = filteredPool.filter((item) => item.section === 'LIST_CARD');
-
-    const todayYmd = toYmd(anchorDate);
-    const splitTodayTasks =
-      timeNav === 'TODAY' &&
-      statusFilter === 'TODO' &&
-      contextBubble !== 'PIGGY' &&
-      contextBubble !== 'ARCHIVES';
-
-    let tasksScheduled: TrankilV2TimelineItemRow[] = [];
-    let tasksNoPressure: TrankilV2TimelineItemRow[] = [];
-    if (splitTodayTasks) {
-      for (const r of allTasks) {
-        const d = normalizeDueDateLocal(r.due_date);
-        if (d === todayYmd) tasksScheduled.push(r);
-        else tasksNoPressure.push(r);
+  const dayTitle = useCallback(
+    (ymd: string): string => {
+      const today = toYmd(anchorDate);
+      const tomorrow = toYmd(addDays(anchorDate, 1));
+      if (ymd === today) return t('horizons.today');
+      if (ymd === tomorrow) return t('horizons.tomorrow');
+      try {
+        const [y, m, d] = ymd.split('-').map((x) => Number(x));
+        const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+        const loc = Intl.DateTimeFormat().resolvedOptions().locale;
+        return capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long', month: 'short', day: '2-digit' }).format(dt));
+      } catch {
+        return ymd;
       }
+    },
+    [anchorDate, t],
+  );
+
+  const listEntries = useMemo((): ListEntry[] => {
+    const todayYmd = toYmd(anchorDate);
+    const isTodayView =
+      timeNav === 'TODAY' && contextBubble !== 'PIGGY' && contextBubble !== 'ARCHIVES';
+    const pool = isTodayView
+      ? filteredPool
+      : filteredPool.filter((r) => Boolean(normalizeDueDateLocal(r.due_date)));
+
+    const enriched = pool
+      .map((r) => {
+        const dueYmd = normalizeDueDateLocal(r.due_date);
+        const effectiveYmd = dueYmd ?? (isTodayView ? todayYmd : null);
+        if (!effectiveYmd) return null;
+        const sortMs = (() => {
+          const rawDue = String(r.due_date ?? '').trim();
+          if (rawDue && /\dT\d{2}:\d{2}/.test(rawDue)) {
+            const dt = new Date(rawDue);
+            const ms = dt.getTime();
+            if (Number.isFinite(ms)) return ms;
+          }
+          if (dueYmd) {
+            const [y, m, d] = dueYmd.split('-').map((x) => Number(x));
+            const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+            return dt.getTime();
+          }
+          return Number(r.created_at);
+        })();
+        return { row: r, effectiveYmd, sortMs };
+      })
+      .filter(Boolean) as Array<{ row: TrankilV2TimelineItemRow; effectiveYmd: string; sortMs: number }>;
+
+    enriched.sort((a, b) => (a.effectiveYmd === b.effectiveYmd ? a.sortMs - b.sortMs : a.effectiveYmd.localeCompare(b.effectiveYmd)));
+
+    const groups = new Map<string, TrankilV2TimelineItemRow[]>();
+    for (const it of enriched) {
+      const arr = groups.get(it.effectiveYmd) ?? [];
+      arr.push(it.row);
+      groups.set(it.effectiveYmd, arr);
     }
 
     const out: ListEntry[] = [];
-    if (habitsDue.length > 0) {
-      out.push({ kind: 'rows', listKey: 'habits', titleKey: 'timeline.habits.title', rows: habitsDue });
-    }
-    if (splitTodayTasks) {
-      if (tasksScheduled.length > 0) {
-        out.push({
-          kind: 'rows',
-          listKey: 'tasks',
-          titleKey: 'timeline.tasks.scheduledToday',
-          rows: tasksScheduled,
-        });
-      }
-      if (tasksNoPressure.length > 0) {
-        out.push({
-          kind: 'rows',
-          listKey: 'tasks',
-          titleKey: 'timeline.tasks.noPressure',
-          rows: tasksNoPressure,
-          rowVariant: 'noPressure',
-        });
-      }
-    } else if (allTasks.length > 0) {
-      out.push({ kind: 'rows', listKey: 'tasks', titleKey: 'timeline.tasks.title', rows: allTasks });
-    }
     if (contextBubble === 'ALL' && statusFilter === 'TODO' && hiddenUnorganizedForIdeaBank.length > 0) {
       out.push({ kind: 'ideaBank', listKey: 'ideaBank', count: hiddenUnorganizedForIdeaBank.length });
     }
-    if (projectSubtasks.length > 0) {
+    for (const [ymd, rows] of [...groups.entries()]) {
       out.push({
         kind: 'rows',
-        listKey: 'projects',
-        titleKey: 'timeline.projects.title',
-        rows: projectSubtasks,
-      });
-    }
-    if (listRows.length > 0) {
-      out.push({
-        kind: 'rows',
-        listKey: 'lists',
-        titleKey: 'timeline.lists.title',
-        rows: listRows,
-      });
-    }
-    if (noteAudio.length > 0) {
-      out.push({
-        kind: 'rows',
-        listKey: 'notes',
-        titleKey: 'timeline.notesAudio.title',
-        rows: noteAudio,
+        id: ymd,
+        titleText: dayTitle(ymd),
+        rows,
       });
     }
     return out;
   }, [
     anchorDate,
     contextBubble,
+    dayTitle,
     filteredPool,
     hiddenUnorganizedForIdeaBank.length,
     statusFilter,
@@ -976,7 +973,7 @@ export function TimelineScreen() {
       if (item.kind === 'section') {
         return (
           <View style={[styles.sectionHeaderOnly, { paddingHorizontal: 16 }]}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>{t(item.titleKey)}</Text>
+            <Text style={[styles.sectionTitle, { color: theme.colors.onSurface }]}>{item.titleText}</Text>
           </View>
         );
       }
@@ -999,7 +996,9 @@ export function TimelineScreen() {
         );
       }
       const row = item.row;
-      const showCompleteOrb = canShowCompleteOrb(item.listKey, statusFilter);
+      const pid = String(row.parent_id ?? '').trim();
+      const orbKey = row.type === 'HABIT' ? 'habits' : row.type === 'TASK' && pid ? 'projects' : row.type === 'TASK' ? 'tasks' : 'other';
+      const showCompleteOrb = canShowCompleteOrb(orbKey, statusFilter);
       const card = (
         <IntentionCard
           row={row}

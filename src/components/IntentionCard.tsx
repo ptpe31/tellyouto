@@ -163,7 +163,7 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
     const now = new Date();
     const todayKey = formatYmdLocal(now);
     const tomorrowKey = addDaysYmd(now, 1);
-    const createdKey = formatYmdLocal(new Date(row.created_at));
+    const createdAt = new Date(row.created_at);
 
     const rootDueIso = str(meta, 'dueDateTime');
     const rootYmd = str(meta, 'dueDateYmd');
@@ -178,19 +178,23 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
     const baseParsed = parseDueDate(row.due_date);
     const isoSource = tripArrivalIso || tripDueIso || rootDueIso;
     const parsedIso = isoSource ? parseDueDate(isoSource) : null;
-    const dateRef =
+    const dueRef =
       parsedIso?.date ??
       (tripYmd ? parseDueDate(tripYmd)?.date : null) ??
       (rootYmd ? parseDueDate(rootYmd)?.date : null) ??
       baseParsed?.date ??
-      new Date(row.created_at);
-    const dueKey = formatYmdLocal(dateRef);
+      null;
+    if (!dueRef) {
+      const createdTime = new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(createdAt);
+      return t('timeline.createdTodayAt', { time: createdTime });
+    }
+    const dueKey = formatYmdLocal(dueRef);
     const dayLabel =
       dueKey === todayKey
         ? t('horizons.today')
         : dueKey === tomorrowKey
           ? t('horizons.tomorrow')
-          : capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long' }).format(dateRef));
+          : capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long' }).format(dueRef));
     const isoTimeLabel =
       parsedIso?.hasTime && parsedIso.date
         ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(parsedIso.date)
@@ -201,9 +205,8 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
         : null;
     const timeLabel =
       tripHm || isoTimeLabel || rootHm || habitHm || baseTimeLabel;
-    if (timeLabel) return { kind: 'moment' as const, text: `${dayLabel} • ${timeLabel}` };
-    if (createdKey === todayKey) return { kind: 'new' as const, text: t('timeline.newBadge') };
-    return { kind: 'moment' as const, text: `${dayLabel} • ${t('timeline.allDuration')}` };
+    if (timeLabel) return `${dayLabel} • ${timeLabel}`;
+    return `${dayLabel} • ${t('timeline.allDuration')}`;
   }, [i18n.language, meta, row.created_at, row.due_date, t, trip]);
 
   const tripIcon = useMemo(() => {
@@ -249,19 +252,11 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
             </Text>
           </View>
           {subtitle ? (
-            subtitle.kind === 'new' ? (
-              <View style={styles.newBadgeRow}>
-                <View style={[styles.newBadge, { backgroundColor: theme.colors.primaryContainer }]}>
-                  <Text style={[styles.newBadgeText, { color: theme.colors.primary }]}>{subtitle.text}</Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.subtitleRow}>
-                <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                  {subtitle.text}
-                </Text>
-              </View>
-            )
+            <View style={styles.subtitleRow}>
+              <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            </View>
           ) : null}
         </View>
       </View>
@@ -288,7 +283,4 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
   subtitleRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
-  newBadgeRow: { marginTop: 6, flexDirection: 'row', alignItems: 'center' },
-  newBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  newBadgeText: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
 });

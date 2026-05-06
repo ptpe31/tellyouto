@@ -393,6 +393,7 @@
     "dueAt": "Due {{time}}",
     "allDuration": "All day",
     "newBadge": "NEW",
+    "createdTodayAt": "Created today at {{time}}",
     "subtitle": "Today’s rail — suggested slots follow your spectrum (high Momentum → deeper blocks).",
     "now": "Now",
     "dayRail": "Where you are in the day (6am–10pm)",

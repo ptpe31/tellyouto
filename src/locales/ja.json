@@ -250,6 +250,7 @@
   "timeline": {
     "allDuration": "終日",
     "newBadge": "新規",
+    "createdTodayAt": "本日 {{time}} に作成",
     "subtitle": "今日のレール — スペクトルに沿った提案（モメンタム高め → 深いブロック）。",
     "now": "いま",
     "dayRail": "一日の中の位置（6–22時）",

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   ActionSheetIOS,
   Animated,
   Dimensions,
@@ -32,7 +33,12 @@ import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import { getLocationFavoriteByAlias } from '../services/traffic/locationFavorites';
 import { buildListMetadataPatch, parseListScalablePayloadFromMetadataJson, type ListScalablePayload } from '../services/listIntentionModel';
-import { parseProjectMilestonesPayloadFromMetadataJson, type ProjectMilestonesPayload } from '../services/projectMilestonesModel';
+import {
+  buildProjectMilestonesMetadataPatch,
+  parseProjectMilestonesPayloadFromMetadataJson,
+  type ProjectMilestonesPayload,
+} from '../services/projectMilestonesModel';
+import { neumorphicInset } from '../theme/neumorphism';
 
 type Props = {
   visible: boolean;
@@ -383,7 +389,6 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [arrivalLat, setArrivalLat] = useState<number | null>(null);
   const [arrivalLng, setArrivalLng] = useState<number | null>(null);
   const [listPayload, setListPayload] = useState<ListScalablePayload | null>(null);
-  const listSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [projectPayload, setProjectPayload] = useState<ProjectMilestonesPayload | null>(null);
   const [projectStartPickerOpen, setProjectStartPickerOpen] = useState(false);
   const [projectStartDraft, setProjectStartDraft] = useState<Date>(new Date());
@@ -393,6 +398,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const isTrip = Boolean(trip);
   const isProject = Boolean(row && row.type === 'PROJECT');
   const isList = Boolean(row && row.type === 'LIST');
+  const isGenerating = Boolean(meta && (meta as Record<string, unknown>).is_generating);
 
   const subtitle = useMemo(() => {
     if (!row) return null;
@@ -498,7 +504,6 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     setPickerDraft(initialDate);
     const allDayFlag = Boolean((meta as Record<string, unknown> | null)?.is_all_day);
     setIsAllDay(allDayFlag || Boolean(parsed && !parsed.hasTime));
-    if (listSaveTimer.current) clearTimeout(listSaveTimer.current);
     setListPayload(parseListScalablePayloadFromMetadataJson(row?.metadata_json));
     setProjectPayload(parseProjectMilestonesPayloadFromMetadataJson(row?.metadata_json));
     const start = (() => {
@@ -547,18 +552,13 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
       if (arrivalSaveTimer.current) clearTimeout(arrivalSaveTimer.current);
       if (originSaveTimer.current) clearTimeout(originSaveTimer.current);
       if (sourceSaveTimer.current) clearTimeout(sourceSaveTimer.current);
-      if (listSaveTimer.current) clearTimeout(listSaveTimer.current);
     },
     [],
   );
 
-  const scheduleListPersist = (next: ListScalablePayload) => {
+  const persistListPayload = async (next: ListScalablePayload) => {
     if (!row) return;
-    if (listSaveTimer.current) clearTimeout(listSaveTimer.current);
-    listSaveTimer.current = setTimeout(() => {
-      listSaveTimer.current = null;
-      void patchMetadata(row.id, buildListMetadataPatch(next), { silent: true });
-    }, 320);
+    await patchMetadata(row.id, buildListMetadataPatch(next), { silent: true });
   };
 
   const persistProjectStartDate = async (date: Date) => {
@@ -841,6 +841,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     if (!projectStartYmd) {
       return projectPayload.milestones.map((m) => ({
         title: m.title,
+        checked: Boolean(m.checked),
         tail: formatDurationLabel(m.estimated_duration, m.unit, lng),
       }));
     }
@@ -850,7 +851,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     return projectPayload.milestones.map((ms) => {
       acc += durationMs(ms.unit, ms.estimated_duration);
       const dt = new Date(start.getTime() + acc);
-      return { title: ms.title, tail: formatYmdLocal(dt) };
+      return { title: ms.title, checked: Boolean(ms.checked), tail: formatYmdLocal(dt) };
     });
   }, [i18n.language, projectPayload, projectStartYmd]);
 
@@ -1190,7 +1191,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                     ) : null
                   ) : null}
 
-                  {isProject && projectPayload ? (
+                  {isProject ? (
                     <View style={styles.section}>
                       <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
                       <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.projectStartDate')}</Text>
@@ -1212,114 +1213,161 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                         </View>
                       ) : null}
                       <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.projectMilestones')}</Text>
-                      <View style={styles.checklist}>
-                        {projectMilestoneLines.map((m, idx) => (
-                          <View key={`${idx}-${m.title}`} style={styles.checkRow}>
-                            <View style={[styles.checkbox, { borderColor: theme.colors.outlineVariant }]} />
-                            <Text style={[styles.checkText, { color: theme.colors.onSurface }]} numberOfLines={2}>
-                              {m.title} : {m.tail}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
+                      {isGenerating ? (
+                        <View style={[styles.loaderCard, neumorphicInset(theme), { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]}>
+                          <ActivityIndicator color={theme.colors.primary} />
+                        </View>
+                      ) : projectPayload ? (
+                        <View style={styles.checklist}>
+                          {projectMilestoneLines.map((m, idx) => (
+                            <Pressable
+                              key={`${idx}-${m.title}`}
+                              onPress={() => {
+                                if (!row || !projectPayload) return;
+                                const next: ProjectMilestonesPayload = {
+                                  ...projectPayload,
+                                  milestones: projectPayload.milestones.map((ms, i) =>
+                                    i === idx ? { ...ms, checked: !Boolean(ms.checked) } : ms,
+                                  ),
+                                };
+                                setProjectPayload(next);
+                                void patchMetadata(row.id, buildProjectMilestonesMetadataPatch(next), { silent: true });
+                              }}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: Boolean(m.checked) }}
+                              style={({ pressed }) => [styles.checkRow, { opacity: pressed ? 0.9 : 1 }]}
+                            >
+                              <View
+                                style={[
+                                  styles.checkbox,
+                                  {
+                                    borderColor: m.checked ? theme.colors.primary : theme.colors.outline,
+                                    backgroundColor: m.checked ? theme.colors.primaryContainer : 'transparent',
+                                  },
+                                ]}
+                              >
+                                {m.checked ? <Text style={{ color: theme.colors.primary, fontWeight: '900' }}>✓</Text> : null}
+                              </View>
+                              <Text
+                                style={[
+                                  styles.checkText,
+                                  {
+                                    color: m.checked ? theme.colors.onSurfaceVariant : theme.colors.onSurface,
+                                    textDecorationLine: m.checked ? 'line-through' : 'none',
+                                  },
+                                ]}
+                                numberOfLines={2}
+                              >
+                                {m.title} : {m.tail}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
                   ) : null}
 
-                  {isList && listPayload ? (
+                  {(isList || (isProject && !projectPayload && listPayload)) ? (
                     <View style={styles.section}>
                       <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
                       <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.listItems')}</Text>
-                      <View style={styles.multiplierRow}>
-                        <Pressable
-                          onPress={() => {
-                            if (!listPayload) return;
-                            const nextMult = Math.max(1, listPayload.multiplier - 1);
-                            const next = { ...listPayload, multiplier: nextMult };
-                            setListPayload(next);
-                            scheduleListPersist(next);
-                          }}
-                          style={({ pressed }) => [
-                            styles.multBtn,
-                            { borderColor: theme.colors.outlineVariant, opacity: pressed ? 0.86 : 1 },
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityLabel="-"
-                        >
-                          <Text style={[styles.multBtnText, { color: theme.colors.onSurface }]}>−</Text>
-                        </Pressable>
-                        <Text style={[styles.multText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                          × {listPayload.multiplier}
-                        </Text>
-                        <Pressable
-                          onPress={() => {
-                            if (!listPayload) return;
-                            const nextMult = Math.max(1, listPayload.multiplier + 1);
-                            const next = { ...listPayload, multiplier: nextMult };
-                            setListPayload(next);
-                            scheduleListPersist(next);
-                          }}
-                          style={({ pressed }) => [
-                            styles.multBtn,
-                            { borderColor: theme.colors.outlineVariant, opacity: pressed ? 0.86 : 1 },
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityLabel="+"
-                        >
-                          <Text style={[styles.multBtnText, { color: theme.colors.onSurface }]}>+</Text>
-                        </Pressable>
-                      </View>
-                      <View style={styles.checklist}>
-                        {listPayload.categories.flatMap((cat) =>
-                          cat.items.map((it) => {
-                            const qty = it.scalable ? it.qty * listPayload.multiplier : it.qty;
-                            const label = `${Math.round(qty * 1000) / 1000} ${it.unit}`;
-                            return (
-                              <Pressable
-                                key={it.uid}
-                                onPress={() => {
-                                  if (!listPayload) return;
-                                  const next: ListScalablePayload = {
-                                    ...listPayload,
-                                    categories: listPayload.categories.map((c) => ({
-                                      ...c,
-                                      items: c.items.map((x) => (x.uid === it.uid ? { ...x, checked: !x.checked } : x)),
-                                    })),
-                                  };
-                                  setListPayload(next);
-                                  scheduleListPersist(next);
-                                }}
-                                accessibilityRole="checkbox"
-                                accessibilityState={{ checked: Boolean(it.checked) }}
-                                style={({ pressed }) => [styles.checkRow, { opacity: pressed ? 0.9 : 1 }]}
-                              >
-                                <View
-                                  style={[
-                                    styles.checkbox,
-                                    {
-                                      borderColor: it.checked ? theme.colors.primary : theme.colors.outline,
-                                      backgroundColor: it.checked ? theme.colors.primaryContainer : 'transparent',
-                                    },
-                                  ]}
+                      {isList && listPayload ? (
+                        <View style={styles.multiplierRow}>
+                          <Pressable
+                            onPress={() => {
+                              const nextMult = Math.max(1, listPayload.multiplier - 1);
+                              const next = { ...listPayload, multiplier: nextMult };
+                              setListPayload(next);
+                              void persistListPayload(next);
+                            }}
+                            style={({ pressed }) => [
+                              styles.multBtn,
+                              { borderColor: theme.colors.outlineVariant, opacity: pressed ? 0.86 : 1 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel="-"
+                          >
+                            <Text style={[styles.multBtnText, { color: theme.colors.onSurface }]}>−</Text>
+                          </Pressable>
+                          <Text style={[styles.multText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                            × {listPayload.multiplier}
+                          </Text>
+                          <Pressable
+                            onPress={() => {
+                              const nextMult = Math.max(1, listPayload.multiplier + 1);
+                              const next = { ...listPayload, multiplier: nextMult };
+                              setListPayload(next);
+                              void persistListPayload(next);
+                            }}
+                            style={({ pressed }) => [
+                              styles.multBtn,
+                              { borderColor: theme.colors.outlineVariant, opacity: pressed ? 0.86 : 1 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel="+"
+                          >
+                            <Text style={[styles.multBtnText, { color: theme.colors.onSurface }]}>+</Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                      {isGenerating ? (
+                        <View style={[styles.loaderCard, neumorphicInset(theme), { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]}>
+                          <ActivityIndicator color={theme.colors.primary} />
+                        </View>
+                      ) : listPayload ? (
+                        <View style={styles.checklist}>
+                          {listPayload.categories.flatMap((cat) =>
+                            cat.items.map((it) => {
+                              const mult = isList ? listPayload.multiplier : 1;
+                              const qty = it.scalable ? it.qty * mult : it.qty;
+                              const label = isList ? `${Math.round(qty * 1000) / 1000} ${it.unit}` : '';
+                              return (
+                                <Pressable
+                                  key={it.uid}
+                                  onPress={() => {
+                                    const next: ListScalablePayload = {
+                                      ...listPayload,
+                                      categories: listPayload.categories.map((c) => ({
+                                        ...c,
+                                        items: c.items.map((x) => (x.uid === it.uid ? { ...x, checked: !x.checked } : x)),
+                                      })),
+                                    };
+                                    setListPayload(next);
+                                    void persistListPayload(next);
+                                  }}
+                                  accessibilityRole="checkbox"
+                                  accessibilityState={{ checked: Boolean(it.checked) }}
+                                  style={({ pressed }) => [styles.checkRow, { opacity: pressed ? 0.9 : 1 }]}
                                 >
-                                  {it.checked ? <Text style={{ color: theme.colors.primary, fontWeight: '900' }}>✓</Text> : null}
-                                </View>
-                                <Text
-                                  style={[
-                                    styles.checkText,
-                                    {
-                                      color: it.checked ? theme.colors.onSurfaceVariant : theme.colors.onSurface,
-                                      textDecorationLine: it.checked ? 'line-through' : 'none',
-                                    },
-                                  ]}
-                                  numberOfLines={2}
-                                >
-                                  {it.name} · {label}
-                                </Text>
-                              </Pressable>
-                            );
-                          }),
-                        )}
-                      </View>
+                                  <View
+                                    style={[
+                                      styles.checkbox,
+                                      {
+                                        borderColor: it.checked ? theme.colors.primary : theme.colors.outline,
+                                        backgroundColor: it.checked ? theme.colors.primaryContainer : 'transparent',
+                                      },
+                                    ]}
+                                  >
+                                    {it.checked ? <Text style={{ color: theme.colors.primary, fontWeight: '900' }}>✓</Text> : null}
+                                  </View>
+                                  <Text
+                                    style={[
+                                      styles.checkText,
+                                      {
+                                        color: it.checked ? theme.colors.onSurfaceVariant : theme.colors.onSurface,
+                                        textDecorationLine: it.checked ? 'line-through' : 'none',
+                                      },
+                                    ]}
+                                    numberOfLines={2}
+                                  >
+                                    {it.name}{label ? ` · ${label}` : ''}
+                                  </Text>
+                                </Pressable>
+                              );
+                            }),
+                          )}
+                        </View>
+                      ) : null}
                     </View>
                   ) : null}
 
@@ -1445,6 +1493,7 @@ const styles = StyleSheet.create({
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   checkText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700' },
+  loaderCard: { borderWidth: 1, borderRadius: 14, paddingVertical: 18, alignItems: 'center', justifyContent: 'center' },
   multiplierRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   multBtn: { width: 44, height: 36, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   multBtnText: { fontSize: 18, fontWeight: '900' },
