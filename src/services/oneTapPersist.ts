@@ -156,6 +156,8 @@ async function materializeOneTapIntentionRow(params: {
   habitsDefaultTitle: string;
   birthdayLabel: string;
   isPendingAi: number;
+  parentId?: string | null;
+  parentJalonUid?: string | null;
 }): Promise<TrankilV2IntentionInsert> {
   const { draft, transcript, intentionId, habitsDefaultTitle, birthdayLabel, isPendingAi, deps } = params;
   const title = draft.title.trim() || transcript.trim().slice(0, 200);
@@ -196,7 +198,7 @@ async function materializeOneTapIntentionRow(params: {
         ),
         suggested_tags: JSON.stringify(['sans_pression']),
         category_id: domainCategoryId,
-        parent_id: null,
+        parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
         is_local_processed: 1,
@@ -215,6 +217,9 @@ async function materializeOneTapIntentionRow(params: {
         source: 'one_tap_universal',
         categoryTag: draft.categoryTag,
       };
+      if (params.parentJalonUid) {
+        metaExtra.zoom_parent_jalon_uid = params.parentJalonUid;
+      }
       if (draft.predictedType === 'RECURRING_TASK') {
         metaExtra.recurring_task = draft.data;
       }
@@ -231,7 +236,7 @@ async function materializeOneTapIntentionRow(params: {
         is_pending_ai: isPendingAi,
         created_at,
       });
-      return { ...row, ...aiMeta };
+      return { ...row, parent_id: params.parentId ?? null, ...aiMeta };
     }
     case 'TRIP': {
       let dueDateYmd = str(draft.data, 'dueDateYmd');
@@ -264,7 +269,7 @@ async function materializeOneTapIntentionRow(params: {
         is_pending_ai: isPendingAi,
         created_at,
       });
-      return { ...row, ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>), ...aiMeta };
+      return { ...row, parent_id: params.parentId ?? null, ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>), ...aiMeta };
     }
     case 'HABIT': {
       const habitTitle = (title || habitsDefaultTitle).slice(0, 200);
@@ -290,7 +295,7 @@ async function materializeOneTapIntentionRow(params: {
         ),
         suggested_tags: JSON.stringify(['sans_pression']),
         category_id: domainCategoryId,
-        parent_id: null,
+        parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
         is_local_processed: 1,
@@ -327,7 +332,7 @@ async function materializeOneTapIntentionRow(params: {
         metadata_json: metadataForSync,
         suggested_tags: JSON.stringify(dueDateYmd ? ['regulier'] : ['sans_pression']),
         category_id: domainCategoryId,
-        parent_id: null,
+        parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
         is_local_processed: 1,
@@ -356,7 +361,7 @@ async function materializeOneTapIntentionRow(params: {
         metadata_json: meta,
         suggested_tags: JSON.stringify(['sans_pression']),
         category_id: domainCategoryId,
-        parent_id: null,
+        parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
         is_local_processed: 1,
@@ -398,7 +403,7 @@ async function materializeOneTapIntentionRow(params: {
         metadata_json: meta,
         suggested_tags: JSON.stringify(['sans_pression']),
         category_id: domainCategoryId,
-        parent_id: null,
+        parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
         is_local_processed: 1,
@@ -629,6 +634,8 @@ export async function persistOneTapDraft(params: {
   transcript: string;
   habitsDefaultTitle: string;
   birthdayLabel: string;
+  parentId?: string | null;
+  parentJalonUid?: string | null;
 }): Promise<PersistOneTapResult> {
   const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
   const title = draft.title.trim() || transcript.trim().slice(0, 200);
@@ -647,6 +654,8 @@ export async function persistOneTapDraft(params: {
           habitsDefaultTitle,
           birthdayLabel,
           isPendingAi: 0,
+          parentId: params.parentId,
+          parentJalonUid: params.parentJalonUid,
         });
         await insertTrankilV2Intention({ ...row, metadata_json: buildMetadataJsonForInsert(row.metadata_json, draft) });
         void scheduleOneTapUniversalReminders({
@@ -676,6 +685,8 @@ export async function persistOneTapDraft(params: {
           habitsDefaultTitle,
           birthdayLabel,
           isPendingAi: 0,
+          parentId: params.parentId,
+          parentJalonUid: params.parentJalonUid,
         });
         await insertTrankilV2Intention({ ...row, metadata_json: buildMetadataJsonForInsert(row.metadata_json, draft) });
         void scheduleOneTapUniversalReminders({
@@ -708,6 +719,8 @@ export async function persistOneTapDraft(params: {
           habitsDefaultTitle,
           birthdayLabel,
           isPendingAi: 0,
+          parentId: params.parentId,
+          parentJalonUid: params.parentJalonUid,
         });
         await insertTrankilV2Intention({ ...row, metadata_json: buildMetadataJsonForInsert(row.metadata_json, draft) });
         void scheduleOneTapUniversalReminders({
@@ -741,6 +754,8 @@ export async function persistOneTapDraft(params: {
           habitsDefaultTitle,
           birthdayLabel,
           isPendingAi: 0,
+          parentId: params.parentId,
+          parentJalonUid: params.parentJalonUid,
         });
         await insertTrankilV2Intention({ ...row, metadata_json: buildMetadataJsonForInsert(row.metadata_json, draft) });
         void scheduleOneTapUniversalReminders({
@@ -788,6 +803,7 @@ export async function persistOneTapDraft(params: {
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
           is_generating: true,
           list_enrich_status: 'pending',
+          ...(params.parentJalonUid ? { zoom_parent_jalon_uid: params.parentJalonUid } : {}),
         });
         const categoryId = normalizeDomainCategoryId(draft.categoryTag);
         await insertTrankilV2Intention({
@@ -798,7 +814,7 @@ export async function persistOneTapDraft(params: {
           metadata_json: meta,
           suggested_tags: JSON.stringify(['sans_pression']),
           category_id: categoryId,
-          parent_id: null,
+          parent_id: params.parentId ?? null,
           status: 'TODO',
           is_organized: 0,
           is_local_processed: 1,
@@ -858,6 +874,7 @@ export async function persistOneTapDraft(params: {
           is_generating: true,
           list_enrich_status: 'pending',
           project: { start_date: null },
+          ...(params.parentJalonUid ? { zoom_parent_jalon_uid: params.parentJalonUid } : {}),
         });
         const categoryId = normalizeDomainCategoryId(draft.categoryTag);
         await insertTrankilV2Intention({
@@ -868,7 +885,7 @@ export async function persistOneTapDraft(params: {
           metadata_json: meta,
           suggested_tags: JSON.stringify(['sans_pression']),
           category_id: categoryId,
-          parent_id: null,
+          parent_id: params.parentId ?? null,
           status: 'TODO',
           is_organized: 0,
           is_local_processed: 1,
@@ -1045,6 +1062,8 @@ async function persistAndDualWrite(params: {
   habitsDefaultTitle: string;
   birthdayLabel: string;
   entityLabel: string;
+  parentId?: string | null;
+  parentJalonUid?: string | null;
 }): Promise<PersistOneTapResult> {
   const { entityLabel, ...persistParams } = params;
   const persistStart = Date.now();
@@ -1065,6 +1084,8 @@ export async function persistOneTapDraftVentilated(params: {
   habitsDefaultTitle: string;
   birthdayLabel: string;
   allowNoteFallback?: boolean;
+  parentId?: string | null;
+  parentJalonUid?: string | null;
 }): Promise<PersistOneTapVentilatedResult> {
   const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
   const allowNoteFallback = params.allowNoteFallback !== false;
@@ -1117,6 +1138,8 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'LIST',
+            parentId: params.parentId,
+            parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
@@ -1155,6 +1178,8 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'PROJECT',
+            parentId: params.parentId,
+            parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
@@ -1188,6 +1213,8 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'TASK',
+            parentId: params.parentId,
+            parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
@@ -1227,6 +1254,8 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'TRIP',
+            parentId: params.parentId,
+            parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
@@ -1258,6 +1287,8 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'HABIT',
+            parentId: params.parentId,
+            parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
@@ -1284,6 +1315,8 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'NOTE',
+            parentId: params.parentId,
+            parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
@@ -1326,6 +1359,8 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'TRIP_TASK',
+            parentId: params.parentId,
+            parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
@@ -1382,6 +1417,8 @@ export async function persistOneTapDraftVentilated(params: {
       habitsDefaultTitle,
       birthdayLabel,
       entityLabel: 'NOTE_FALLBACK',
+      parentId: params.parentId,
+      parentJalonUid: params.parentJalonUid,
     });
     if (r.ok) return { ok: true, outcomes: [r.outcome] };
     return { ok: false, error: r.error, code: r.code };
@@ -1406,6 +1443,8 @@ export async function persistOneTapDraftVentilated(params: {
       habitsDefaultTitle,
       birthdayLabel,
       entityLabel: nextType,
+      parentId: params.parentId,
+      parentJalonUid: params.parentJalonUid,
     });
     if (r.ok) outcomes.push(r.outcome);
     else {
@@ -1429,6 +1468,8 @@ export async function persistOneTapDraftVentilated(params: {
       habitsDefaultTitle,
       birthdayLabel,
       entityLabel: temporalType,
+      parentId: params.parentId,
+      parentJalonUid: params.parentJalonUid,
     });
     if (r.ok) {
       outcomes.push(r.outcome);
@@ -1481,6 +1522,8 @@ export async function persistOneTapDraftVentilated(params: {
       habitsDefaultTitle,
       birthdayLabel,
       entityLabel: 'NOTE_FALLBACK',
+      parentId: params.parentId,
+      parentJalonUid: params.parentJalonUid,
     });
     if (r.ok) return { ok: true, outcomes: [r.outcome] };
     return { ok: false, error: r.error, code: r.code };

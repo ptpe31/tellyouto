@@ -18,6 +18,7 @@ import {
   preSaveOneTapOptimisticDraft,
   persistOneTapDraftVentilated,
   replacePendingOneTapDraft,
+  type PersistOneTapSuccess,
 } from '../services/oneTapPersist';
 import { showAppToast } from '../services/appToast';
 import { deleteTrankilV2IntentionById } from '../api/trankilV2Db';
@@ -48,6 +49,14 @@ type IntentionContextValue = {
   startCapture: () => void;
   cancelCapture: () => void;
   submitCapturePayload: (payload: CapturePayload) => Promise<void>;
+  triggerJalonZoom: (params: {
+    projectIntentionId: string;
+    projectTitle: string;
+    originalIntent: string;
+    parentJalonUid: string;
+    parentJalonTitle: string;
+    parentJalonDurationLabel: string;
+  }) => Promise<{ ok: true; children: { id: string; title: string }[] } | { ok: false; error: unknown }>;
 };
 
 const IntentionContext = createContext<IntentionContextValue | null>(null);
@@ -329,7 +338,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(modalOpenTimerRef.current);
       modalOpenTimerRef.current = null;
     }
-    geminiStartedRef.current = false;
     firstSavedFiredRef.current = false;
     firstSavedResolveRef.current = null;
     finalizedIdsRef.current = {};
@@ -355,7 +363,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(modalOpenTimerRef.current);
       modalOpenTimerRef.current = null;
     }
-    geminiStartedRef.current = false;
     firstSavedFiredRef.current = false;
     firstSavedResolveRef.current = null;
     finalizedIdsRef.current = {};
@@ -584,7 +591,18 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const runGeminiBulkSequence = useCallback(
-    async (params: { transcript: string; audioUri: string | null; lang?: string; allowAlert: boolean; traceId?: string; chunks?: string[] }) => {
+    async (params: {
+      transcript: string;
+      audioUri: string | null;
+      lang?: string;
+      allowAlert: boolean;
+      traceId?: string;
+      chunks?: string[];
+      parentId?: string | null;
+      parentJalonUid?: string | null;
+      silent?: boolean;
+      onPersisted?: (outcomes: PersistOneTapSuccess[]) => void;
+    }) => {
       if (bulkProcessingRef.current) return;
       if (geminiStartedRef.current) return;
       bulkProcessingRef.current = true;
@@ -609,8 +627,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             console.log(`********* [CHUNK ${i + 1}/${total}] *********`);
             console.log(`[SEQUENCER] 🚀 Traitement : "${chunk}"`);
             const progressLabel = `Création de ${i + 1}/${chunks.length}...`;
-            setTranscript(progressLabel);
-            showAppToast(progressLabel, 1200);
+            if (!params.silent) {
+              setTranscript(progressLabel);
+              showAppToast(progressLabel, 1200);
+            }
             const skeleton = inferOneTapSkeletonFromTranscript(chunk, { uiLocale });
             const res = await refineOneTapWithGeminiCompressed(chunk, skeleton, {
               uiLocale,
@@ -667,10 +687,13 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               habitsDefaultTitle,
               birthdayLabel,
               allowNoteFallback: false,
+              parentId: params.parentId,
+              parentJalonUid: params.parentJalonUid,
             });
             if (vr.ok) {
               savedAny = true;
               DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+              params.onPersisted?.(vr.outcomes);
               const ids = vr.outcomes
                 .map((o) => {
                   if (o && typeof (o as { intentionId?: unknown }).intentionId === 'string') return (o as { intentionId: string }).intentionId;
@@ -711,6 +734,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       } finally {
         bulkProgressIndexRef.current = -1;
         bulkProcessingRef.current = false;
+        geminiStartedRef.current = false;
       }
     },
     [proposeOfflineFallback, spectrum.isProUser, spectrum.locale],
@@ -780,6 +804,55 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       });
     },
     [runGeminiBulkSequence],
+  );
+
+  const triggerJalonZoom = useCallback(
+    async (params: {
+      projectIntentionId: string;
+      projectTitle: string;
+      originalIntent: string;
+      parentJalonUid: string;
+      parentJalonTitle: string;
+      parentJalonDurationLabel: string;
+    }): Promise<{ ok: true; children: { id: string; title: string }[] } | { ok: false; error: unknown }> => {
+      try {
+        const uiLocale = spectrum.locale || 'fr-FR';
+        const original = String(params.originalIntent || '').trim();
+        const projectTitle = String(params.projectTitle || '').trim();
+        const parentTitle = String(params.parentJalonTitle || '').trim();
+        const parentDuration = String(params.parentJalonDurationLabel || '').trim();
+        const prompt =
+          `ZOOM IA — Décomposition en sous-tâches\n` +
+          `Projet: ${projectTitle || '—'}\n` +
+          `Intention originale: ${original || '—'}\n` +
+          `Étape à décomposer: ${parentTitle || '—'}\n` +
+          `Durée de l’étape: ${parentDuration || '—'}\n\n` +
+          `Consigne: Décompose uniquement cette étape en sous-tâches concrètes et actionnables.`;
+        const children: { id: string; title: string }[] = [];
+        await runGeminiBulkSequence({
+          transcript: prompt,
+          chunks: [prompt],
+          audioUri: null,
+          lang: uiLocale,
+          allowAlert: true,
+          traceId: `zoom_${Date.now().toString(16)}`,
+          parentId: params.projectIntentionId,
+          parentJalonUid: params.parentJalonUid,
+          silent: true,
+          onPersisted: (outcomes) => {
+            for (const o of outcomes) {
+              if (o.kind === 'persisted_temporal' && o.mirrorType === 'TASK') {
+                children.push({ id: o.intentionId, title: o.title });
+              }
+            }
+          },
+        });
+        return { ok: true, children };
+      } catch (e) {
+        return { ok: false, error: e };
+      }
+    },
+    [runGeminiBulkSequence, spectrum.locale],
   );
 
   const confirm = useCallback(async () => {
@@ -916,8 +989,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       startCapture,
       cancelCapture,
       submitCapturePayload,
+      triggerJalonZoom,
     }),
-    [cancelCapture, startCapture, submitCapturePayload],
+    [cancelCapture, startCapture, submitCapturePayload, triggerJalonZoom],
   );
 
   return (

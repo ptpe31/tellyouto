@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MD3Theme } from 'react-native-paper';
 import { Button, IconButton, Switch } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
+import * as Haptics from 'expo-haptics';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import {
@@ -38,6 +39,7 @@ import {
   parseProjectMilestonesPayloadFromMetadataJson,
   type ProjectMilestonesPayload,
 } from '../services/projectMilestonesModel';
+import { useOptionalIntentionContext } from '../context/IntentionContext';
 
 type Props = {
   visible: boolean;
@@ -406,6 +408,11 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [noteUid, setNoteUid] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const skeletonPulse = useRef(new Animated.Value(0.55)).current;
+  const intentionFlow = useOptionalIntentionContext();
+  const [zoomConfirmUid, setZoomConfirmUid] = useState<string | null>(null);
+  const [zoomBusyUid, setZoomBusyUid] = useState<string | null>(null);
+  const [zoomChildrenByUid, setZoomChildrenByUid] = useState<Record<string, { id: string; title: string }[]>>({});
+  const [zoomExpandedByUid, setZoomExpandedByUid] = useState<Record<string, boolean>>({});
 
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
@@ -964,6 +971,10 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const endYmd = last !== null ? formatYmdLocal(new Date(Number(last))) : null;
     return { items, endYmd };
   }, [isProject, projectCalendarMode, projectPayload, projectPivotDraftByUid, projectStartDraftYmd]);
+  const zoomConfirmItem = useMemo(() => {
+    if (!zoomConfirmUid) return null;
+    return projectSchedule.items.find((x) => x.uid === zoomConfirmUid) ?? null;
+  }, [projectSchedule.items, zoomConfirmUid]);
 
   const confirmProjectReplan = async () => {
     if (!row || !projectPayload) return;
@@ -1517,40 +1528,101 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                             {projectSchedule.items.map((m, idx) => {
                               const checked = Boolean(m.checked);
                               const isLast = idx === projectSchedule.items.length - 1;
+                              const zoomChildren = zoomChildrenByUid[m.uid] ?? [];
+                              const zoomCount = zoomChildren.length;
+                              const zoomExpanded = zoomExpandedByUid[m.uid] ?? false;
+                              const zoomBusy = zoomBusyUid === m.uid;
                               return (
-                                <View key={m.uid} style={[styles.milestoneRow, !isLast ? styles.milestoneRowBorder : null]}>
+                                <React.Fragment key={m.uid}>
                                   <Pressable
-                                    onPress={() => void toggleProjectMilestoneDone(m.uid)}
-                                    style={({ pressed }) => [
-                                      styles.milestoneCircle,
-                                      checked ? styles.milestoneCircleChecked : null,
-                                      pressed ? { opacity: 0.85 } : null,
-                                    ]}
-                                    accessibilityRole="checkbox"
-                                    accessibilityState={{ checked }}
+                                    onLongPress={() => {
+                                      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                      setZoomConfirmUid(m.uid);
+                                    }}
+                                    delayLongPress={260}
+                                    style={[styles.milestoneRow, !isLast ? styles.milestoneRowBorder : null]}
                                   >
-                                    <Text style={[styles.milestoneCheck, checked ? styles.milestoneCheckOn : null]}>{checked ? '✓' : ''}</Text>
-                                  </Pressable>
-                                  <View style={styles.milestoneTextColFlat}>
-                                    <Text
-                                      style={[styles.milestoneTitleFlat, checked ? styles.milestoneTitleDoneFlat : null]}
-                                      numberOfLines={2}
+                                    <Pressable
+                                      onPress={() => void toggleProjectMilestoneDone(m.uid)}
+                                      style={({ pressed }) => [
+                                        styles.milestoneCircle,
+                                        checked ? styles.milestoneCircleChecked : null,
+                                        pressed ? { opacity: 0.85 } : null,
+                                      ]}
+                                      accessibilityRole="checkbox"
+                                      accessibilityState={{ checked }}
                                     >
-                                      {m.title}
-                                    </Text>
-                                    <Text style={styles.milestoneMetaFlat} numberOfLines={1}>
-                                      {m.label}
-                                    </Text>
-                                  </View>
-                                  <Pressable
-                                    onPress={() => console.log('Open Modal')}
-                                    style={({ pressed }) => [styles.milestoneMenuBtnFlat, pressed ? { opacity: 0.7 } : null]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={t('intentionDetail.projectMilestoneMenuTitle')}
-                                  >
-                                    <IconButton icon="dots-vertical" size={18} iconColor="#64748b" style={styles.milestoneMenuIconFlat} />
+                                      <Text style={[styles.milestoneCheck, checked ? styles.milestoneCheckOn : null]}>{checked ? '✓' : ''}</Text>
+                                    </Pressable>
+                                    <View style={styles.milestoneTextColFlat}>
+                                      <Text
+                                        style={[styles.milestoneTitleFlat, checked ? styles.milestoneTitleDoneFlat : null]}
+                                        numberOfLines={2}
+                                      >
+                                        {m.title}
+                                      </Text>
+                                      <Text style={styles.milestoneMetaFlat} numberOfLines={1}>
+                                        {m.label}
+                                      </Text>
+                                    </View>
+                                    {zoomCount > 0 ? (
+                                      <Pressable
+                                        onPress={() => setZoomExpandedByUid((prev) => ({ ...prev, [m.uid]: !zoomExpanded }))}
+                                        style={({ pressed }) => [styles.zoomBadge, pressed ? { opacity: 0.7 } : null]}
+                                      >
+                                        <Text style={styles.zoomBadgeText}>{`+${zoomCount}`}</Text>
+                                      </Pressable>
+                                    ) : null}
+                                    <Pressable
+                                      onPress={() => console.log('Open Modal')}
+                                      style={({ pressed }) => [styles.milestoneMenuBtnFlat, pressed ? { opacity: 0.7 } : null]}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={t('intentionDetail.projectMilestoneMenuTitle')}
+                                    >
+                                      <IconButton
+                                        icon="dots-vertical"
+                                        size={18}
+                                        iconColor="#64748b"
+                                        style={styles.milestoneMenuIconFlat}
+                                      />
+                                    </Pressable>
                                   </Pressable>
-                                </View>
+                                  {zoomBusy ? (
+                                    <View style={styles.zoomChildrenWrap}>
+                                      {[0, 1].map((k) => (
+                                        <View key={`zsk-${m.uid}-${k}`} style={styles.zoomChildRow}>
+                                          <View style={styles.zoomConnectorCol}>
+                                            <View style={styles.zoomConnectorV} />
+                                            <View style={styles.zoomConnectorH} />
+                                          </View>
+                                          <View style={styles.zoomChildTextCol}>
+                                            <Animated.View style={[styles.skeletonBarTitle, { opacity: skeletonPulse }]} />
+                                            <Animated.View style={[styles.skeletonBarMeta, { opacity: skeletonPulse }]} />
+                                          </View>
+                                        </View>
+                                      ))}
+                                    </View>
+                                  ) : zoomCount > 0 && zoomExpanded ? (
+                                    <View style={styles.zoomChildrenWrap}>
+                                      {zoomChildren.map((c) => (
+                                        <View key={c.id} style={styles.zoomChildRow}>
+                                          <View style={styles.zoomConnectorCol}>
+                                            <View style={styles.zoomConnectorV} />
+                                            <View style={styles.zoomConnectorH} />
+                                          </View>
+                                          <View style={styles.zoomChildTextCol}>
+                                            <Text style={styles.zoomChildTitle} numberOfLines={2}>
+                                              {c.title}
+                                            </Text>
+                                            <Text style={styles.zoomChildMeta} numberOfLines={1}>
+                                              —
+                                            </Text>
+                                          </View>
+                                        </View>
+                                      ))}
+                                    </View>
+                                  ) : null}
+                                </React.Fragment>
                               );
                             })}
                           </View>
@@ -1773,6 +1845,73 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                 </View>
               </View>
             </Modal>
+
+            <Modal
+              visible={Boolean(zoomConfirmUid)}
+              transparent
+              animationType="fade"
+              onRequestClose={() => {
+                if (zoomBusyUid) return;
+                setZoomConfirmUid(null);
+              }}
+            >
+              <View style={styles.zoomModalRoot}>
+                <Pressable
+                  style={styles.backdrop}
+                  onPress={() => {
+                    if (zoomBusyUid) return;
+                    setZoomConfirmUid(null);
+                  }}
+                />
+                <View style={styles.zoomModalCard}>
+                  <Text style={styles.zoomModalText} numberOfLines={3}>
+                    Voulez-vous que l'IA décompose cette étape en sous-tâches ?
+                  </Text>
+                  <Text style={styles.zoomModalMeta} numberOfLines={2}>
+                    {zoomConfirmItem?.title ?? ''}
+                  </Text>
+                  <View style={styles.zoomModalActions}>
+                    <Button
+                      mode="outlined"
+                      onPress={() => setZoomConfirmUid(null)}
+                      disabled={Boolean(zoomBusyUid)}
+                      style={styles.zoomModalBtn}
+                    >
+                      Annuler
+                    </Button>
+                    <Button
+                      mode="contained"
+                      onPress={() => {
+                        if (!row || !zoomConfirmUid || !zoomConfirmItem) return;
+                        if (!intentionFlow) return;
+                        const uid = zoomConfirmUid;
+                        setZoomConfirmUid(null);
+                        setZoomBusyUid(uid);
+                        void (async () => {
+                          const res = await intentionFlow.triggerJalonZoom({
+                            projectIntentionId: row.id,
+                            projectTitle: String(row.title ?? '').trim(),
+                            originalIntent: String(row.content_raw ?? '').trim(),
+                            parentJalonUid: uid,
+                            parentJalonTitle: zoomConfirmItem.title,
+                            parentJalonDurationLabel: zoomConfirmItem.label,
+                          });
+                          if (res.ok) {
+                            setZoomChildrenByUid((prev) => ({ ...prev, [uid]: res.children }));
+                            setZoomExpandedByUid((prev) => ({ ...prev, [uid]: true }));
+                          }
+                          setZoomBusyUid(null);
+                        })();
+                      }}
+                      disabled={Boolean(zoomBusyUid) || !intentionFlow || !zoomConfirmItem}
+                      style={styles.zoomModalBtn}
+                    >
+                      Décomposer
+                    </Button>
+                  </View>
+                </View>
+              </View>
+            </Modal>
           </KeyboardAvoidingView>
         </Animated.View>
       </View>
@@ -1849,6 +1988,22 @@ const styles = StyleSheet.create({
   milestoneMetaFlat: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
   milestoneMenuBtnFlat: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   milestoneMenuIconFlat: { margin: 0, padding: 0 },
+  zoomBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#f1f5f9' },
+  zoomBadgeText: { fontSize: 12, fontWeight: '800', color: '#0f172a' },
+  zoomChildrenWrap: { paddingLeft: 16, paddingBottom: 6 },
+  zoomChildRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingLeft: 14, paddingRight: 14, paddingTop: 10 },
+  zoomConnectorCol: { width: 22, height: 22, position: 'relative' },
+  zoomConnectorV: { position: 'absolute', left: 10, top: -10, bottom: 0, width: StyleSheet.hairlineWidth, backgroundColor: '#e2e8f0' },
+  zoomConnectorH: { position: 'absolute', left: 10, top: 11, width: 10, height: StyleSheet.hairlineWidth, backgroundColor: '#e2e8f0' },
+  zoomChildTextCol: { flex: 1, minWidth: 0, gap: 4, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e7eb' },
+  zoomChildTitle: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
+  zoomChildMeta: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
+  zoomModalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 18 },
+  zoomModalCard: { borderRadius: 18, padding: 14, gap: 10, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' },
+  zoomModalText: { fontSize: 14, fontWeight: '700', color: '#0f172a', lineHeight: 20 },
+  zoomModalMeta: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  zoomModalActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
+  zoomModalBtn: { borderRadius: 14 },
   skeletonBarTitle: { height: 14, borderRadius: 7, backgroundColor: '#e5e7eb', width: '78%' },
   skeletonBarMeta: { height: 11, borderRadius: 6, backgroundColor: '#e5e7eb', width: '42%', marginTop: 6 },
   temporalitasCard: { borderRadius: 18, padding: 12, gap: 10 },
