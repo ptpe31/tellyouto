@@ -807,6 +807,7 @@ export async function persistOneTapDraft(params: {
         });
         void (async () => {
           try {
+            console.log(`[Pass2] 🚀 START_ENRICHMENT | ID: ${id} | Type: LIST`);
             const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale, mode: 'LIST' });
             if (enriched.mode !== 'LIST') throw new Error('LIST_ENRICH_MODE_MISMATCH');
             const payload = geminiJsonToStoredPayload(enriched.parsed);
@@ -817,6 +818,7 @@ export async function persistOneTapDraft(params: {
               list_enrich_status: 'done',
               list_enrich_error: null,
             });
+            console.log(`[Pass2] ✅ SUCCESS_ENRICHMENT | ID: ${id}`);
           } catch (e) {
             await patchMetadata(id, {
               is_generating: false,
@@ -875,6 +877,7 @@ export async function persistOneTapDraft(params: {
         });
         void (async () => {
           try {
+            console.log(`[Pass2] 🚀 START_ENRICHMENT | ID: ${id} | Type: PROJECT`);
             const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale, mode: 'PROJECT' });
             if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
             const payload = enriched.parsed;
@@ -885,6 +888,7 @@ export async function persistOneTapDraft(params: {
               list_enrich_status: 'done',
               list_enrich_error: null,
             });
+            console.log(`[Pass2] ✅ SUCCESS_ENRICHMENT | ID: ${id}`);
           } catch (e) {
             await patchMetadata(id, {
               is_generating: false,

@@ -4,7 +4,6 @@ import * as Calendar from 'expo-calendar';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as chrono from 'chrono-node';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -52,7 +51,6 @@ import {
 } from '../services/ProjectPlanFlowService';
 import { cleanTranscriptText, generateSmartTitle, shouldLockSmartTitle } from '../services/smartTitle';
 import { formatYmdLocal } from '../services/TimeSorter';
-import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../utils/nativeModuleErrorAlert';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import {
   getDefaultCalendarId,
@@ -140,7 +138,6 @@ export function TalkDebugScreen() {
   const [freeQuotaSnapshot, setFreeQuotaSnapshot] = useState<{ remaining: number; max: number } | null>(null);
   const [deadlineModalVisible, setDeadlineModalVisible] = useState(false);
   const [deadlineText, setDeadlineText] = useState('');
-  const [isDeadlineListening, setIsDeadlineListening] = useState(false);
   const [deadlineError, setDeadlineError] = useState('');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [autoArchiveAfterCalendarSync, setAutoArchiveAfterCalendarSync] = useState(false);
@@ -165,7 +162,6 @@ export function TalkDebugScreen() {
     selectedTaskIndexes: number[];
     taskAlarmIndexes: number[];
   }>(null);
-  const deadlineCaptureActiveRef = useRef(false);
   const projectShellIdRef = useRef<string | null>(null);
   const [todayTodoCount, setTodayTodoCount] = useState(0);
   const [headerUnorganizedCount, setHeaderUnorganizedCount] = useState(0);
@@ -246,30 +242,7 @@ export function TalkDebugScreen() {
     [spectrum.locale],
   );
 
-  useSpeechRecognitionEvent('result', (event) => {
-    const text = event.results?.[0]?.transcript ?? '';
-    if (text.trim().length > 0) {
-      if (deadlineCaptureActiveRef.current) {
-        setDeadlineText(text.trim());
-        deadlineCaptureActiveRef.current = false;
-        setIsDeadlineListening(false);
-        try {
-          ExpoSpeechRecognitionModule.stop();
-        } catch {
-          // ignore
-        }
-        return;
-      }
-    }
-  });
-
   const hardResetToIdle = useCallback(() => {
-    deadlineCaptureActiveRef.current = false;
-    try {
-      ExpoSpeechRecognitionModule.stop();
-    } catch {
-      // ignore
-    }
     setCaptureStep('idle');
     setRawTranscript('');
     setTranscriptDraft('');
@@ -279,7 +252,6 @@ export function TalkDebugScreen() {
     setHasManualTitleEdit(false);
     setAudioUri(null);
     setDeadlineModalVisible(false);
-    setIsDeadlineListening(false);
     setDeadlineText('');
     setDeadlineError('');
     setIsGeneratingPlan(false);
@@ -684,62 +656,6 @@ export function TalkDebugScreen() {
     ],
   );
 
-  const ensureDeadlineSpeechReady = useCallback(async (): Promise<boolean> => {
-    try {
-      let speechPerm = await ExpoSpeechRecognitionModule.getPermissionsAsync();
-      if (!speechPerm.granted) {
-        speechPerm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      }
-      if (!speechPerm.granted) {
-        Alert.alert(
-          t('talkHome.microphonePermissionTitle'),
-          t('talkHome.microphonePermissionDeniedBody'),
-          [
-            { text: t('channelSwitch.cancel'), style: 'cancel' },
-            { text: t('ally.openSettings'), onPress: () => void Linking.openSettings() },
-          ],
-        );
-        return false;
-      }
-    } catch {
-      return true;
-    }
-    return true;
-  }, [t]);
-
-  const toggleDeadlineDictation = useCallback(async () => {
-    if (isDeadlineListening) {
-      deadlineCaptureActiveRef.current = false;
-      setIsDeadlineListening(false);
-      try {
-        ExpoSpeechRecognitionModule.stop();
-      } catch {
-        // ignore
-      }
-      return;
-    }
-    try {
-      const ready = await ensureDeadlineSpeechReady();
-      if (!ready) return;
-      deadlineCaptureActiveRef.current = true;
-      setIsDeadlineListening(true);
-      await ExpoSpeechRecognitionModule.start({
-        lang: resolveSpeechLangForSession(i18n.language),
-        interimResults: true,
-        continuous: false,
-        maxAlternatives: 1,
-      });
-    } catch (e) {
-      deadlineCaptureActiveRef.current = false;
-      setIsDeadlineListening(false);
-      if (isLikelyMissingNativeModuleError(e)) {
-        alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
-      } else {
-        Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
-      }
-    }
-  }, [ensureDeadlineSpeechReady, i18n.language, isDeadlineListening, t]);
-
   useEffect(() => {
     if (!projectPlanPreview) return;
     void ensureWritableCalendars();
@@ -1066,26 +982,10 @@ export function TalkDebugScreen() {
               placeholderTextColor="#94a3b8"
               style={styles.deadlineInput}
             />
-            <Pressable
-              style={[styles.overlayActionBtn, isDeadlineListening ? styles.quickDeadlineBtn : null]}
-              onPress={() => void toggleDeadlineDictation()}
-              disabled={isGeneratingPlan}
-            >
-              <Text style={styles.fanBtnText}>
-                {isDeadlineListening ? t('talkHome.status.listening') : t('talkHome.voiceWhen')}
-              </Text>
-            </Pressable>
             <View style={styles.overlayActions}>
               <Pressable
                 style={[styles.overlayActionBtn, styles.cancelBtn]}
                 onPress={() => {
-                  deadlineCaptureActiveRef.current = false;
-                  setIsDeadlineListening(false);
-                  try {
-                    ExpoSpeechRecognitionModule.stop();
-                  } catch {
-                    // ignore
-                  }
                   setDeadlineModalVisible(false);
                 }}
                 disabled={isGeneratingPlan}

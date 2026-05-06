@@ -512,6 +512,37 @@ Règles :
   - `project_milestones_v1` : payload jalons.
 - Les durées estimées remplacent le mécanisme de quantités (multiplicateur réservé à `LIST`).
 
+## Pipeline Unique — “Micro as a Bulk(1)”
+
+### Objectif
+
+- Unifier définitivement la qualité de traitement : une dictée micro est traitée exactement comme un Bulk de taille 1.
+- Supprimer les divergences de validation/ventilation : la “Douane” Bulk devient la source de vérité pour Micro.
+- Garantir un `category_id` non nul partout (via normalisation systématique).
+
+### 1) Unification du matériel (UI)
+
+- TalkDebugScreen ne doit contenir **aucune logique maison** de capture audio / STT.
+- TalkDebugScreen doit importer et utiliser `TalkCaptureMicButton` (même composant que Timeline).
+- Contrat : permissions, STT natif, enregistrement audio, animation et logs capture sont identiques Debug/Timeline.
+
+### 2) Unification du cerveau (IntentionContext)
+
+- Modifier `IntentionContext.submitCapturePayload` :
+  - Toute capture unitaire (micro) est routée vers `runGeminiBulkSequence` (même si le transcript ne contient pas `**`).
+  - Le micro devient donc “Bulk(1)” : même sanitizer, mêmes logs `[SEQUENCER]`, mêmes règles de verrouillage/persistance, même ventilation.
+
+### 3) Instrumentation Pass 2 (visibilité)
+
+- Ajouter des logs explicites pour confirmer l’enrichissement asynchrone :
+  - `LOG [Pass2] 🚀 START_ENRICHMENT | ID: {id} | Type: {type}`
+  - `LOG [Pass2] ✅ SUCCESS_ENRICHMENT | ID: {id}`
+
+### 4) Sécurité catégorie (category_id non nul)
+
+- Contrat : toute persistance doit passer par `normalizeDomainCategoryId(...)` pour produire un `category_id` non-null.
+- En cas de code inconnu : fallback explicite `PERSO`.
+
 ## Bottom Sheet PROJECT — “Temporalitas” (V2)
 
 ### 1) Header — Bloc “Temporalitas”

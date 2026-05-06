@@ -602,24 +602,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       const base = String(params.transcript || '').trim();
       try {
         const chunks = splitBulkTranscript(base);
-        if (chunks.length <= 1) {
-          if (__DEV__ && VERBOSE_DEBUG && params.audioUri) {
-            const now = new Date();
-            console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
-            console.log(`********* [MIC SINGLE] *********`);
-            console.log(`[MIC] 🚀 Traitement (stream) | TRACE: ${params.traceId || '—'}`);
-            console.log(`[MIC] 🧩 Chunk: "${previewForLog(base, 220)}"`);
-          }
-          void runGeminiStreamRefine({
-            transcript: base,
-            audioUri: params.audioUri,
-            lang: params.lang,
-            allowAlert: params.allowAlert,
-            openOnFirstIntent: false,
-            traceId: params.traceId,
-          });
-          return;
-        }
         const uiLocale = params.lang || spectrum.locale || 'fr-FR';
         const seq = (geminiSeqRef.current += 1);
         setRefining(true);
@@ -741,7 +723,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         bulkProcessingRef.current = false;
       }
     },
-    [proposeOfflineFallback, runGeminiStreamRefine, spectrum.isProUser, spectrum.locale],
+    [proposeOfflineFallback, spectrum.isProUser, spectrum.locale],
   );
 
   const submitCapturePayload = useCallback(
