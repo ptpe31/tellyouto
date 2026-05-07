@@ -676,6 +676,7 @@ export async function listTrankilV2TimelineItemsByDate(
   opts?: { paging?: TimelinePaging; context?: TimelineSqlContext },
 ): Promise<TrankilV2TimelineItemRow[]> {
   const ctx = timelineContextWhere(opts?.context ?? 'ALL');
+  const reserved = `AND i.title != 'System Ready'`;
   await initTrankilV2Schema();
   const db = await getDb();
   const inner = `
@@ -707,6 +708,7 @@ export async function listTrankilV2TimelineItemsByDate(
         AND COALESCE(i.is_archived, 0) = 0
         AND i.type IN ('TASK', 'HABIT')
         AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+        ${reserved}
         ${ctx}
 
       UNION ALL
@@ -739,6 +741,7 @@ export async function listTrankilV2TimelineItemsByDate(
         AND i.type = 'TASK'
         AND i.parent_id IS NOT NULL
         AND trim(i.parent_id) != ''
+        ${reserved}
         ${ctx}
 
       UNION ALL
@@ -768,6 +771,7 @@ export async function listTrankilV2TimelineItemsByDate(
       WHERE i.status = ?
         AND COALESCE(i.is_archived, 0) = 0
         AND i.type IN ('NOTE', 'AUDIO', 'LIST', 'PROJECT')
+        ${reserved}
         ${ctx}
     )
     WHERE
@@ -799,6 +803,7 @@ export async function listTrankilV2MergedTodayTimelineWithLowPressure(
   paging: TimelinePaging,
 ): Promise<TrankilV2TimelineItemRow[]> {
   const ctx = timelineContextWhere(context);
+  const reserved = `AND i.title != 'System Ready'`;
   const ymdCompact = selectedDateYmd.replace(/-/g, '');
   const lim = Math.max(1, Math.min(500, Math.floor(Number(paging.limit ?? TIMELINE_PAGE_SIZE))));
   const off = Math.max(0, Math.floor(Number(paging.offset ?? 0)));
@@ -833,6 +838,7 @@ WITH dated AS (
       AND COALESCE(i.is_archived, 0) = 0
       AND i.type IN ('TASK', 'HABIT')
       AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+      ${reserved}
       ${ctx}
     UNION ALL
     SELECT
@@ -863,6 +869,7 @@ WITH dated AS (
       AND i.type = 'TASK'
       AND i.parent_id IS NOT NULL
       AND trim(i.parent_id) != ''
+      ${reserved}
       ${ctx}
     UNION ALL
     SELECT
@@ -890,6 +897,7 @@ WITH dated AS (
     WHERE i.status = ?
       AND COALESCE(i.is_archived, 0) = 0
       AND i.type IN ('NOTE', 'AUDIO', 'LIST', 'PROJECT')
+      ${reserved}
       ${ctx}
   ) z
   WHERE z.effective_date = ?
@@ -925,6 +933,7 @@ lowp AS (
       (i.due_date IS NULL OR trim(i.due_date) = '')
       OR (instr(i.suggested_tags, '"a_trier"') > 0)
     )
+    ${reserved}
     ${ctx}
     AND NOT EXISTS (SELECT 1 FROM dated d WHERE d.id = i.id)
 )
