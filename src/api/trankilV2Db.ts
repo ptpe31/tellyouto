@@ -2356,6 +2356,50 @@ export async function getTrankilV2IntentionById(id: string): Promise<TrankilV2In
   );
 }
 
+export async function countZoomChildrenForProjectMilestone(params: {
+  projectId: string;
+  parentJalonUid: string;
+}): Promise<number> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const pid = String(params.projectId || '').trim();
+  const uid = String(params.parentJalonUid || '').trim();
+  if (!pid || !uid) return 0;
+  const like = `%\"zoom_parent_jalon_uid\":\"${uid.replace(/"/g, '\\"')}\"%`;
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n
+     FROM intentions
+     WHERE parent_id = ?
+       AND metadata_json LIKE ?`,
+    [pid, like],
+  );
+  return Number(row?.n ?? 0);
+}
+
+export async function listZoomChildrenForProjectMilestone(params: {
+  projectId: string;
+  parentJalonUid: string;
+}): Promise<Array<{ id: string; title: string }>> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const pid = String(params.projectId || '').trim();
+  const uid = String(params.parentJalonUid || '').trim();
+  if (!pid || !uid) return [];
+  const like = `%\"zoom_parent_jalon_uid\":\"${uid.replace(/"/g, '\\"')}\"%`;
+  const rows =
+    (await db.getAllAsync<{ id: string; title: string }>(
+      `SELECT id, title
+       FROM intentions
+       WHERE parent_id = ?
+         AND metadata_json LIKE ?
+       ORDER BY created_at ASC`,
+      [pid, like],
+    )) ?? [];
+  return rows
+    .map((r) => ({ id: String(r.id || '').trim(), title: String(r.title || '').trim() }))
+    .filter((x) => x.id && x.title);
+}
+
 export async function updateTrankilV2IntentionPendingAiFlag(id: string, is_pending_ai: number): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();

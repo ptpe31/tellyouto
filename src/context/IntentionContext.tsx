@@ -21,7 +21,7 @@ import {
   type PersistOneTapSuccess,
 } from '../services/oneTapPersist';
 import { showAppToast } from '../services/appToast';
-import { deleteTrankilV2IntentionById } from '../api/trankilV2Db';
+import { deleteTrankilV2IntentionById, getTrankilV2IntentionById } from '../api/trankilV2Db';
 import {
   getOfflineAudioById,
   getLatestPendingOfflineAudio,
@@ -39,6 +39,7 @@ import { useUserSpectrum } from './UserSpectrumContext';
 import i18n from '../locales/i18n';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { generateSmartTitle } from '../services/smartTitle';
+import { parseProjectMilestonesPayloadFromMetadataJson } from '../services/projectMilestonesModel';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
 import { newUuidV4 } from '../utils/uuid';
@@ -51,11 +52,7 @@ type IntentionContextValue = {
   submitCapturePayload: (payload: CapturePayload) => Promise<void>;
   triggerJalonZoom: (params: {
     projectIntentionId: string;
-    projectTitle: string;
-    originalIntent: string;
     parentJalonUid: string;
-    parentJalonTitle: string;
-    parentJalonDurationLabel: string;
   }) => Promise<{ ok: true; children: { id: string; title: string }[] } | { ok: false; error: unknown }>;
 };
 
@@ -809,22 +806,22 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const triggerJalonZoom = useCallback(
     async (params: {
       projectIntentionId: string;
-      projectTitle: string;
-      originalIntent: string;
       parentJalonUid: string;
-      parentJalonTitle: string;
-      parentJalonDurationLabel: string;
     }): Promise<{ ok: true; children: { id: string; title: string }[] } | { ok: false; error: unknown }> => {
       try {
         const uiLocale = spectrum.locale || 'fr-FR';
-        const original = String(params.originalIntent || '').trim();
-        const projectTitle = String(params.projectTitle || '').trim();
-        const parentTitle = String(params.parentJalonTitle || '').trim();
-        const parentDuration = String(params.parentJalonDurationLabel || '').trim();
+        const projectId = String(params.projectIntentionId || '').trim();
+        const parentUid = String(params.parentJalonUid || '').trim();
+        const projectRow = projectId ? await getTrankilV2IntentionById(projectId) : null;
+        const projectTitle = String(projectRow?.title ?? '').trim();
+        const original = String(projectRow?.content_raw ?? '').trim();
+        const projectPayload = parseProjectMilestonesPayloadFromMetadataJson(projectRow?.metadata_json);
+        const parentMilestone = projectPayload?.milestones.find((m) => m.uid === parentUid) ?? null;
+        const parentTitle = String(parentMilestone?.title ?? '').trim();
+        const parentDuration = parentMilestone ? `+${parentMilestone.estimated_duration}${parentMilestone.unit === 'hours' ? 'h' : parentMilestone.unit === 'weeks' ? 'sem' : 'j'}` : '';
+        const persona = String(parentMilestone?.expert_persona ?? '').trim() || 'Assistant Personnel';
         const prompt =
-          `ZOOM IA — Décomposition en sous-tâches\n` +
-          `Projet: ${projectTitle || '—'}\n` +
-          `Intention originale: ${original || '—'}\n` +
+          `Tu es un ${persona}. Ton objectif est de décomposer cette étape en sous-tâches chirurgicales et concrètes, en tenant compte du projet global : ${projectTitle || '—'} et de l'intention initiale : ${original || '—'}.\n\n` +
           `Étape à décomposer: ${parentTitle || '—'}\n` +
           `Durée de l’étape: ${parentDuration || '—'}\n\n` +
           `Consigne: Décompose uniquement cette étape en sous-tâches concrètes et actionnables.`;
@@ -836,8 +833,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           lang: uiLocale,
           allowAlert: true,
           traceId: `zoom_${Date.now().toString(16)}`,
-          parentId: params.projectIntentionId,
-          parentJalonUid: params.parentJalonUid,
+          parentId: projectId,
+          parentJalonUid: parentUid,
           silent: true,
           onPersisted: (outcomes) => {
             for (const o of outcomes) {
@@ -847,6 +844,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             }
           },
         });
+        console.log(`[SQL_TRACE] ✅ Persistance sous-jalons (${children.length}) pour Parent ID: ${projectId}`);
         return { ok: true, children };
       } catch (e) {
         return { ok: false, error: e };

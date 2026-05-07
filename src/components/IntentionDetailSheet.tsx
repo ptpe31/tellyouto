@@ -26,6 +26,8 @@ import * as Haptics from 'expo-haptics';
 import type { TrankilV2TimelineItemRow } from '../api';
 import {
   patchMetadata,
+  countZoomChildrenForProjectMilestone,
+  listZoomChildrenForProjectMilestone,
   updateTrankilV2IntentionLocationAddress,
   updateTrankilV2IntentionTemporal,
   updateTrankilV2IntentionTransportMode,
@@ -412,6 +414,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [zoomConfirmUid, setZoomConfirmUid] = useState<string | null>(null);
   const [zoomBusyUid, setZoomBusyUid] = useState<string | null>(null);
   const [zoomChildrenByUid, setZoomChildrenByUid] = useState<Record<string, { id: string; title: string }[]>>({});
+  const [zoomCountByUid, setZoomCountByUid] = useState<Record<string, number>>({});
   const [zoomExpandedByUid, setZoomExpandedByUid] = useState<Record<string, boolean>>({});
 
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
@@ -976,6 +979,22 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     return projectSchedule.items.find((x) => x.uid === zoomConfirmUid) ?? null;
   }, [projectSchedule.items, zoomConfirmUid]);
 
+  useEffect(() => {
+    if (!row || !isProject || !projectSchedule.items.length) return;
+    let cancelled = false;
+    void (async () => {
+      const next: Record<string, number> = {};
+      for (const m of projectSchedule.items) {
+        next[m.uid] = await countZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: m.uid });
+      }
+      if (cancelled) return;
+      setZoomCountByUid(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isProject, projectSchedule.items, row]);
+
   const confirmProjectReplan = async () => {
     if (!row || !projectPayload) return;
     const start_date = projectStartDraftYmd ?? null;
@@ -1529,7 +1548,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                               const checked = Boolean(m.checked);
                               const isLast = idx === projectSchedule.items.length - 1;
                               const zoomChildren = zoomChildrenByUid[m.uid] ?? [];
-                              const zoomCount = zoomChildren.length;
+                              const zoomCount = Number(zoomCountByUid[m.uid] ?? 0);
                               const zoomExpanded = zoomExpandedByUid[m.uid] ?? false;
                               const zoomBusy = zoomBusyUid === m.uid;
                               return (
@@ -1567,7 +1586,16 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                     </View>
                                     {zoomCount > 0 ? (
                                       <Pressable
-                                        onPress={() => setZoomExpandedByUid((prev) => ({ ...prev, [m.uid]: !zoomExpanded }))}
+                                        onPress={() => {
+                                          if (!row) return;
+                                          const nextOpen = !zoomExpanded;
+                                          setZoomExpandedByUid((prev) => ({ ...prev, [m.uid]: nextOpen }));
+                                          if (!nextOpen) return;
+                                          void (async () => {
+                                            const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: m.uid });
+                                            setZoomChildrenByUid((prev) => ({ ...prev, [m.uid]: children }));
+                                          })();
+                                        }}
                                         style={({ pressed }) => [styles.zoomBadge, pressed ? { opacity: 0.7 } : null]}
                                       >
                                         <Text style={styles.zoomBadgeText}>{`+${zoomCount}`}</Text>
@@ -1890,14 +1918,13 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                         void (async () => {
                           const res = await intentionFlow.triggerJalonZoom({
                             projectIntentionId: row.id,
-                            projectTitle: String(row.title ?? '').trim(),
-                            originalIntent: String(row.content_raw ?? '').trim(),
                             parentJalonUid: uid,
-                            parentJalonTitle: zoomConfirmItem.title,
-                            parentJalonDurationLabel: zoomConfirmItem.label,
                           });
                           if (res.ok) {
-                            setZoomChildrenByUid((prev) => ({ ...prev, [uid]: res.children }));
+                            const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+                            const count = await countZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+                            setZoomChildrenByUid((prev) => ({ ...prev, [uid]: children }));
+                            setZoomCountByUid((prev) => ({ ...prev, [uid]: count }));
                             setZoomExpandedByUid((prev) => ({ ...prev, [uid]: true }));
                           }
                           setZoomBusyUid(null);

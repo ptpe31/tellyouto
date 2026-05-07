@@ -787,12 +787,13 @@ Consignes strictes :
 Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur.
 INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de "demain", pas d’horaires).
 À la place, fournis pour chaque jalon une durée estimée.
+Pour chaque jalon, identifie l'expert métier le plus qualifié (ex: Électricien, Acousticien, Diététicien, Wedding Planner). Si le contexte est général, utilise "Assistant Personnel".
 
 Transcription:
 """${safe.replace(/"/g, '\\"')}"""
 
 Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
-{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks"}]}
+{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}
 `
       : `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
 

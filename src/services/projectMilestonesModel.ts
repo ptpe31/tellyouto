@@ -7,6 +7,7 @@ export type ProjectMilestone = {
   title: string;
   estimated_duration: number;
   unit: ProjectDurationUnit;
+  expert_persona?: string;
   checked?: boolean;
   pivot_date?: string | null;
   note?: string | null;
@@ -28,6 +29,7 @@ export function ensureProjectMilestoneUids(payload: ProjectMilestonesPayload): P
     milestones: payload.milestones.map((m, idx) => ({
       ...m,
       uid: String((m as any)?.uid ?? '').trim() || newUid('M', idx),
+      expert_persona: String((m as any)?.expert_persona ?? '').trim() || 'Assistant Personnel',
     })),
   };
 }
@@ -51,6 +53,7 @@ export function parseProjectMilestonesPayloadFromMetadataJson(raw: string | null
         const t = String(r.title ?? '').trim();
         const n = Number(r.estimated_duration);
         const unit = String(r.unit ?? '').trim() as ProjectDurationUnit;
+        const expert_persona = String(r.expert_persona ?? '').trim();
         const checked = Boolean(r.checked);
         const pivot_date = typeof r.pivot_date === 'string' && r.pivot_date.trim() ? r.pivot_date.trim() : null;
         const note = typeof r.note === 'string' && r.note.trim() ? r.note.trim() : null;
@@ -62,6 +65,7 @@ export function parseProjectMilestonesPayloadFromMetadataJson(raw: string | null
           title: t.slice(0, 200),
           estimated_duration: n,
           unit,
+          expert_persona: expert_persona || 'Assistant Personnel',
           checked,
           pivot_date: pivot_date && /^\d{4}-\d{2}-\d{2}$/.test(pivot_date) ? pivot_date : null,
           note,
@@ -91,11 +95,13 @@ export function parseGeminiProjectMilestonesJson(raw: string): ProjectMilestones
     if (!Number.isFinite(n) || n <= 0) throw new Error('PROJECT_JSON_BAD_DURATION');
     const unit = String(r.unit ?? '').trim();
     if (unit !== 'hours' && unit !== 'days' && unit !== 'weeks') throw new Error('PROJECT_JSON_BAD_UNIT');
+    const expert_persona = String(r.expert_persona ?? '').trim();
     return {
       uid: '',
       title: t,
       estimated_duration: n,
       unit: unit as ProjectDurationUnit,
+      expert_persona: expert_persona || 'Assistant Personnel',
       checked: false,
       pivot_date: null,
       note: null,
