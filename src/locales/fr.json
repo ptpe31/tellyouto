@@ -941,6 +941,7 @@
   },
   "common": {
     "continue": "Continuer",
+    "cancel": "Annuler",
     "habits": "Habitudes",
     "projects": "Projets",
     "premiumQuota": "Quota Premium",
@@ -949,6 +950,19 @@
     "tryAgainSoon": "Reessaie dans un instant.",
     "active": "Actif",
     "inactive": "Inactif"
+  },
+  "project": {
+    "title_placeholder": "Titre du projet",
+    "zoom_confirm_title": "Voulez-vous que l'IA décompose cette étape ?",
+    "zoom_action_start": "Décomposer",
+    "zoom_generating_status": "Création des étapes en cours",
+    "zoom_background_action": "Traiter en arrière-plan",
+    "status_processing": "Traitement en cours…",
+    "zoom_success_count_one": "{{count}} étape générée avec succès !",
+    "zoom_success_count_other": "{{count}} étapes générées avec succès !",
+    "zoom_view_steps": "Voir les étapes",
+    "step_count_one": "{{count}} sous-tâche",
+    "step_count_other": "{{count}} sous-tâches"
   },
   "talkHome": {
     "brandName": "TalkNDone",

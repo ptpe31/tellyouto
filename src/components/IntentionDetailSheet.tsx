@@ -28,6 +28,7 @@ import {
   patchMetadata,
   countZoomChildrenForProjectMilestone,
   listZoomChildrenForProjectMilestone,
+  updateIntention,
   updateTrankilV2IntentionLocationAddress,
   updateTrankilV2IntentionTemporal,
   updateTrankilV2IntentionTransportMode,
@@ -410,12 +411,20 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [noteUid, setNoteUid] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const skeletonPulse = useRef(new Animated.Value(0.55)).current;
+  const titleInputRef = useRef<TextInput | null>(null);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [titleEditing, setTitleEditing] = useState(false);
+  const lastTitleRef = useRef('');
   const intentionFlow = useOptionalIntentionContext();
-  const [zoomConfirmUid, setZoomConfirmUid] = useState<string | null>(null);
-  const [zoomBusyUid, setZoomBusyUid] = useState<string | null>(null);
+  const [zoomModalUid, setZoomModalUid] = useState<string | null>(null);
+  const [zoomModalPhase, setZoomModalPhase] = useState<'confirm' | 'generating' | 'success'>('confirm');
+  const [zoomModalSuccessCount, setZoomModalSuccessCount] = useState(0);
+  const [zoomDots, setZoomDots] = useState('');
+  const [zoomProcessingUid, setZoomProcessingUid] = useState<string | null>(null);
   const [zoomChildrenByUid, setZoomChildrenByUid] = useState<Record<string, { id: string; title: string }[]>>({});
   const [zoomCountByUid, setZoomCountByUid] = useState<Record<string, number>>({});
   const [zoomExpandedByUid, setZoomExpandedByUid] = useState<Record<string, boolean>>({});
+  const zoomModalUidRef = useRef<string | null>(null);
 
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
@@ -423,6 +432,33 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const isProject = Boolean(row && row.type === 'PROJECT');
   const isList = Boolean(row && row.type === 'LIST');
   const isGenerating = Boolean(meta && (meta as Record<string, unknown>).is_generating);
+
+  useEffect(() => {
+    const next = String(row?.display_title ?? '').trim();
+    setTitleDraft(next);
+    lastTitleRef.current = next;
+    setTitleEditing(false);
+  }, [row?.id, row?.display_title]);
+
+  const persistTitleIfNeeded = async () => {
+    if (!row) return;
+    const prev = String(lastTitleRef.current || '').trim();
+    const next = String(titleDraft || '').trim();
+    if (!next) {
+      setTitleDraft(prev);
+      setTitleEditing(false);
+      return;
+    }
+    if (next === prev) {
+      setTitleEditing(false);
+      return;
+    }
+    await updateIntention(row.id, { content: next });
+    lastTitleRef.current = next;
+    setTitleDraft(next);
+    setTitleEditing(false);
+    onPatchRow?.(row.id, { display_title: next });
+  };
 
   const subtitle = useMemo(() => {
     if (!row) return null;
@@ -974,10 +1010,27 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const endYmd = last !== null ? formatYmdLocal(new Date(Number(last))) : null;
     return { items, endYmd };
   }, [isProject, projectCalendarMode, projectPayload, projectPivotDraftByUid, projectStartDraftYmd]);
-  const zoomConfirmItem = useMemo(() => {
-    if (!zoomConfirmUid) return null;
-    return projectSchedule.items.find((x) => x.uid === zoomConfirmUid) ?? null;
-  }, [projectSchedule.items, zoomConfirmUid]);
+  const zoomModalItem = useMemo(() => {
+    if (!zoomModalUid) return null;
+    return projectSchedule.items.find((x) => x.uid === zoomModalUid) ?? null;
+  }, [projectSchedule.items, zoomModalUid]);
+
+  useEffect(() => {
+    zoomModalUidRef.current = zoomModalUid;
+  }, [zoomModalUid]);
+
+  useEffect(() => {
+    if (zoomModalPhase !== 'generating' || !zoomModalUid) {
+      setZoomDots('');
+      return;
+    }
+    let tick = 0;
+    const timer = setInterval(() => {
+      tick = (tick + 1) % 3;
+      setZoomDots('.'.repeat(tick + 1));
+    }, 450);
+    return () => clearInterval(timer);
+  }, [zoomModalPhase, zoomModalUid]);
 
   useEffect(() => {
     if (!row || !isProject || !projectSchedule.items.length) return;
@@ -1162,9 +1215,43 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
             <View style={styles.fixedBlock}>
               <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelIntention')}</Text>
               <View style={styles.intentionRow}>
-                <Text style={[styles.intentionTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
-                  {String(row?.display_title ?? '').trim() || t('timeline.untitled')}
-                </Text>
+                {isProject ? (
+                  titleEditing ? (
+                    <TextInput
+                      ref={(r) => {
+                        titleInputRef.current = r;
+                      }}
+                      value={titleDraft}
+                      onChangeText={setTitleDraft}
+                      onBlur={() => void persistTitleIfNeeded()}
+                      onSubmitEditing={() => void persistTitleIfNeeded()}
+                      placeholder={t('project.title_placeholder')}
+                      placeholderTextColor="rgba(100,116,139,0.72)"
+                      returnKeyType="done"
+                      blurOnSubmit
+                      style={[
+                        styles.intentionTitleInput,
+                        { color: theme.colors.onSurface, borderBottomColor: theme.colors.outlineVariant },
+                      ]}
+                    />
+                  ) : (
+                    <Pressable
+                      onPress={() => {
+                        setTitleEditing(true);
+                        requestAnimationFrame(() => titleInputRef.current?.focus());
+                      }}
+                      style={({ pressed }) => [{ flex: 1, minWidth: 0, opacity: pressed ? 0.9 : 1 }]}
+                    >
+                      <Text style={[styles.intentionTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+                        {String(titleDraft ?? '').trim() || t('timeline.untitled')}
+                      </Text>
+                    </Pressable>
+                  )
+                ) : (
+                  <Text style={[styles.intentionTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+                    {String(row?.display_title ?? '').trim() || t('timeline.untitled')}
+                  </Text>
+                )}
                 <IconButton
                   icon="note-text-outline"
                   size={18}
@@ -1550,19 +1637,25 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                               const zoomChildren = zoomChildrenByUid[m.uid] ?? [];
                               const zoomCount = Number(zoomCountByUid[m.uid] ?? 0);
                               const zoomExpanded = zoomExpandedByUid[m.uid] ?? false;
-                              const zoomBusy = zoomBusyUid === m.uid;
+                              const zoomBusy = zoomProcessingUid === m.uid;
+                              const zoomLocked = zoomBusy;
                               return (
                                 <React.Fragment key={m.uid}>
                                   <Pressable
                                     onLongPress={() => {
+                                      if (zoomLocked) return;
                                       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                      setZoomConfirmUid(m.uid);
+                                      setZoomModalUid(m.uid);
+                                      setZoomModalPhase('confirm');
+                                      setZoomModalSuccessCount(0);
                                     }}
                                     delayLongPress={260}
+                                    disabled={zoomLocked}
                                     style={[styles.milestoneRow, !isLast ? styles.milestoneRowBorder : null]}
                                   >
                                     <Pressable
                                       onPress={() => void toggleProjectMilestoneDone(m.uid)}
+                                      disabled={zoomLocked}
                                       style={({ pressed }) => [
                                         styles.milestoneCircle,
                                         checked ? styles.milestoneCircleChecked : null,
@@ -1581,28 +1674,36 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                         {m.title}
                                       </Text>
                                       <Text style={styles.milestoneMetaFlat} numberOfLines={1}>
-                                        {m.label}
+                                        {zoomBusy ? t('project.status_processing') : m.label}
                                       </Text>
                                     </View>
                                     {zoomCount > 0 ? (
                                       <Pressable
                                         onPress={() => {
                                           if (!row) return;
+                                          if (zoomLocked) return;
                                           const nextOpen = !zoomExpanded;
-                                          setZoomExpandedByUid((prev) => ({ ...prev, [m.uid]: nextOpen }));
+                                          setZoomExpandedByUid((prev) => {
+                                            const out: Record<string, boolean> = {};
+                                            for (const k of Object.keys(prev)) out[k] = false;
+                                            if (nextOpen) out[m.uid] = true;
+                                            return out;
+                                          });
                                           if (!nextOpen) return;
                                           void (async () => {
                                             const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: m.uid });
                                             setZoomChildrenByUid((prev) => ({ ...prev, [m.uid]: children }));
                                           })();
                                         }}
+                                        disabled={zoomLocked}
                                         style={({ pressed }) => [styles.zoomBadge, pressed ? { opacity: 0.7 } : null]}
                                       >
-                                        <Text style={styles.zoomBadgeText}>{`+${zoomCount}`}</Text>
+                                        <Text style={styles.zoomBadgeText}>{t('project.step_count', { count: zoomCount })}</Text>
                                       </Pressable>
                                     ) : null}
                                     <Pressable
                                       onPress={() => console.log('Open Modal')}
+                                      disabled={zoomLocked}
                                       style={({ pressed }) => [styles.milestoneMenuBtnFlat, pressed ? { opacity: 0.7 } : null]}
                                       accessibilityRole="button"
                                       accessibilityLabel={t('intentionDetail.projectMilestoneMenuTitle')}
@@ -1875,66 +1976,107 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
             </Modal>
 
             <Modal
-              visible={Boolean(zoomConfirmUid)}
+              visible={Boolean(zoomModalUid)}
               transparent
               animationType="fade"
               onRequestClose={() => {
-                if (zoomBusyUid) return;
-                setZoomConfirmUid(null);
+                if (zoomModalPhase === 'generating') return;
+                setZoomModalUid(null);
               }}
             >
               <View style={styles.zoomModalRoot}>
                 <Pressable
                   style={styles.backdrop}
                   onPress={() => {
-                    if (zoomBusyUid) return;
-                    setZoomConfirmUid(null);
+                    if (zoomModalPhase === 'generating') return;
+                    setZoomModalUid(null);
                   }}
                 />
                 <View style={styles.zoomModalCard}>
                   <Text style={styles.zoomModalText} numberOfLines={3}>
-                    Voulez-vous que l'IA décompose cette étape en sous-tâches ?
+                    {zoomModalPhase === 'confirm'
+                      ? t('project.zoom_confirm_title')
+                      : zoomModalPhase === 'generating'
+                        ? `${t('project.zoom_generating_status')}${zoomDots}`
+                        : t('project.zoom_success_count', { count: zoomModalSuccessCount })}
                   </Text>
                   <Text style={styles.zoomModalMeta} numberOfLines={2}>
-                    {zoomConfirmItem?.title ?? ''}
+                    {zoomModalItem?.title ?? ''}
                   </Text>
                   <View style={styles.zoomModalActions}>
-                    <Button
-                      mode="outlined"
-                      onPress={() => setZoomConfirmUid(null)}
-                      disabled={Boolean(zoomBusyUid)}
-                      style={styles.zoomModalBtn}
-                    >
-                      Annuler
-                    </Button>
-                    <Button
-                      mode="contained"
-                      onPress={() => {
-                        if (!row || !zoomConfirmUid || !zoomConfirmItem) return;
-                        if (!intentionFlow) return;
-                        const uid = zoomConfirmUid;
-                        setZoomConfirmUid(null);
-                        setZoomBusyUid(uid);
-                        void (async () => {
-                          const res = await intentionFlow.triggerJalonZoom({
-                            projectIntentionId: row.id,
-                            parentJalonUid: uid,
+                    {zoomModalPhase === 'confirm' ? (
+                      <>
+                        <Button mode="outlined" onPress={() => setZoomModalUid(null)} style={styles.zoomModalBtn}>
+                          {t('common.cancel')}
+                        </Button>
+                        <Button
+                          mode="contained"
+                          onPress={() => {
+                            if (!row || !zoomModalUid) return;
+                            if (!intentionFlow) return;
+                            if (zoomProcessingUid) return;
+                            const uid = zoomModalUid;
+                            setZoomModalPhase('generating');
+                            setZoomProcessingUid(uid);
+                            void (async () => {
+                              try {
+                                const res = await intentionFlow.triggerJalonZoom({
+                                  projectIntentionId: row.id,
+                                  parentJalonUid: uid,
+                                });
+                                if (res.ok) {
+                                  const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+                                  const count = await countZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+                                  setZoomChildrenByUid((prev) => ({ ...prev, [uid]: children }));
+                                  setZoomCountByUid((prev) => ({ ...prev, [uid]: count }));
+                                  if (zoomModalUidRef.current === uid) {
+                                    setZoomModalSuccessCount(count);
+                                    setZoomModalPhase('success');
+                                  }
+                                } else {
+                                  setZoomModalUid(null);
+                                  setZoomModalPhase('confirm');
+                                }
+                              } finally {
+                                setZoomProcessingUid(null);
+                              }
+                            })();
+                          }}
+                          disabled={!intentionFlow || Boolean(zoomProcessingUid)}
+                          style={styles.zoomModalBtn}
+                        >
+                          {t('project.zoom_action_start')}
+                        </Button>
+                      </>
+                    ) : zoomModalPhase === 'generating' ? (
+                      <Button mode="contained" onPress={() => setZoomModalUid(null)} style={styles.zoomModalBtn}>
+                        {t('project.zoom_background_action')}
+                      </Button>
+                    ) : (
+                      <Button
+                        mode="contained"
+                        onPress={() => {
+                          if (!row || !zoomModalUid) return;
+                          const uid = zoomModalUid;
+                          setZoomModalUid(null);
+                          setZoomModalPhase('confirm');
+                          setZoomModalSuccessCount(0);
+                          setZoomExpandedByUid((prev) => {
+                            const out: Record<string, boolean> = {};
+                            for (const k of Object.keys(prev)) out[k] = false;
+                            out[uid] = true;
+                            return out;
                           });
-                          if (res.ok) {
+                          void (async () => {
                             const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
-                            const count = await countZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
                             setZoomChildrenByUid((prev) => ({ ...prev, [uid]: children }));
-                            setZoomCountByUid((prev) => ({ ...prev, [uid]: count }));
-                            setZoomExpandedByUid((prev) => ({ ...prev, [uid]: true }));
-                          }
-                          setZoomBusyUid(null);
-                        })();
-                      }}
-                      disabled={Boolean(zoomBusyUid) || !intentionFlow || !zoomConfirmItem}
-                      style={styles.zoomModalBtn}
-                    >
-                      Décomposer
-                    </Button>
+                          })();
+                        }}
+                        style={styles.zoomModalBtn}
+                      >
+                        {t('project.zoom_view_steps')}
+                      </Button>
+                    )}
                   </View>
                 </View>
               </View>
@@ -1962,6 +2104,15 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 12, fontWeight: '700', opacity: 0.7 },
   intentionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   intentionTitle: { flex: 1, minWidth: 0, fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  intentionTitleInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 22,
+    borderBottomWidth: 1,
+    paddingBottom: 2,
+  },
   noteIcon: { margin: 0, padding: 0, marginTop: -2 },
   warningWrap: { marginTop: -6 },
   sourceWrap: { gap: 6 },

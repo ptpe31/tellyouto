@@ -2135,6 +2135,13 @@ export async function updateTrankilV2IntentionTitle(id: string, title: string): 
   notifyIntentionsChanged({ id, reason: 'title' });
 }
 
+export async function updateIntention(id: string, patch: { content?: string | null }): Promise<void> {
+  if (!patch) return;
+  if (patch.content !== undefined && patch.content !== null) {
+    await updateTrankilV2IntentionTitle(id, patch.content);
+  }
+}
+
 export async function getProjectsAndLists(): Promise<TrankilV2IntentionRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();
