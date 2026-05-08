@@ -25,6 +25,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import { useTheme } from 'react-native-paper';
 
 import {
   consumeFreeCaptureSuccessOnce,
@@ -37,12 +38,18 @@ import {
   patchMetadata,
   updateTrankilV2IntentionPendingAiFlag,
 } from '../api/trankilV2Db';
-import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
+import {
+  INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
+  INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
+  INTENTIONS_CHANGED_EVENT_NAME,
+} from '../constants/intentionEvents';
+import { mapTrankilIntentionToTimelineItemRow, type TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
 import { PassProModal } from '../components/PassProModal';
 import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
+import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import type { GeminiExpertIntention } from '../services/GeminiExpert';
 import {
@@ -111,6 +118,15 @@ function perfNowMs(): number {
     : Date.now();
 }
 
+function normalizeCategoryId(raw: unknown): string {
+  const up = String(raw ?? '').trim().toUpperCase();
+  if (!up) return 'PERSO';
+  if (up === 'FAMILLE') return 'HOME';
+  if (up === 'PRO') return 'WORK';
+  if (['HOME', 'WORK', 'PERSO', 'HEALTH', 'FINANCE', 'TRAVEL', 'SOCIAL', 'SHOP', 'LEARN', 'OTHER'].includes(up)) return up;
+  return 'PERSO';
+}
+
 const LAST_CALENDAR_STORAGE_KEY = '@tellyouto/talk_debug_last_calendar_id';
 const CALENDAR_SYNC_PREFS_KEY = '@tellyouto/talk_debug_calendar_sync_prefs';
 const ALARM_SYNC_PREFS_KEY = '@tellyouto/talk_debug_alarm_sync_prefs';
@@ -121,8 +137,13 @@ export function TalkDebugScreen() {
   const intentionFlow = useOptionalIntentionContext();
   const [passProVisible, setPassProVisible] = useState(false);
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const windowH = Dimensions.get('window').height;
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
+  const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
+  const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
   const [phoenixInput, setPhoenixInput] = useState('');
   const [phoenixSubmitting, setPhoenixSubmitting] = useState(false);
   const [captureStep, setCaptureStep] = useState<'idle' | 'recording'>('idle');
@@ -474,9 +495,63 @@ export function TalkDebugScreen() {
     setTranscriptDraft(payload.transcript);
   }, []);
 
+  const openPeekAfterOk = useCallback(() => {
+    const snap = peekSnapshotRef.current;
+    const categoryId = normalizeCategoryId(snap?.categoryTag);
+    const peekRow = {
+      id: 'peek_pending',
+      type: 'NOTE',
+      category_id: categoryId,
+      display_title: '',
+      title: '',
+      due_date: null,
+      metadata_json: '{}',
+      status: 'TODO',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      is_archived: 0,
+      is_dirty: 0,
+    } as unknown as TrankilV2TimelineItemRow;
+    setDetailRow(peekRow);
+    setDetailPosition('peek');
+    setDetailOpen(true);
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setDetailOpen(false);
+    setDetailRow(null);
+    setDetailPosition('full');
+  }, []);
+
+  useEffect(() => {
+    const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
+      peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
+    });
+    const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
+      const intentionId = String((payload as any)?.intentionId ?? '').trim();
+      if (!intentionId) return;
+      void (async () => {
+        const full = await getTrankilV2IntentionById(intentionId);
+        if (!full) return;
+        const mapped = mapTrankilIntentionToTimelineItemRow(full);
+        setDetailRow((prev) => {
+          if (!prev) return prev;
+          if (!detailOpen) return prev;
+          if (detailPosition !== 'peek') return prev;
+          return mapped;
+        });
+      })();
+    });
+    return () => {
+      subSnap.remove();
+      subFirstSave.remove();
+    };
+  }, [detailOpen, detailPosition]);
+
   const onMicValidated = useCallback(() => {
     setCaptureStep('idle');
-  }, []);
+    openPeekAfterOk();
+  }, [openPeekAfterOk]);
 
   const onMicCancel = useCallback(async () => {
     hardResetToIdle();
@@ -856,6 +931,13 @@ export function TalkDebugScreen() {
       <PassProModal
         visible={passProVisible}
         onDismiss={() => setPassProVisible(false)}
+      />
+      <IntentionDetailSheet
+        visible={detailOpen}
+        row={detailRow}
+        theme={theme}
+        onClose={closeDetail}
+        initialPosition={detailPosition}
       />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>
