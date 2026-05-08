@@ -104,7 +104,9 @@
     "labelTransport": "Transport",
     "comfortTitle": "Confort de trajet",
     "comfortFixed": "Créneau de départ fixe : {{time}}",
-    "comfortOptimized": "Créneau de départ optimisé"
+    "comfortOptimized": "Créneau de départ optimisé",
+    "remindToLeave": "Me prévenir quand partir",
+    "surveillanceMissingInfo": "Ajoute une destination valide et une heure d’arrivée pour activer Newton."
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",

@@ -2248,6 +2248,27 @@ export async function updateTrankilV2IntentionTemporal(
   notifyIntentionsChanged({ id, reason: 'temporal' });
 }
 
+export async function updateTrankilV2IntentionRemindToLeave(
+  id: string,
+  remindToLeave: boolean,
+): Promise<void> {
+  await initTrankilV2Schema();
+  const now = Date.now();
+  const v = remindToLeave ? 1 : 0;
+  await withTrankilV2Database(async (db) => {
+    await db.runAsync(
+      `UPDATE intentions
+       SET remind_to_leave = ?,
+           updated_at = ?,
+           is_dirty = 1
+       WHERE id = ?`,
+      [v, now, id],
+    );
+  });
+  await syncAfterIntentionWrite('updateTrankilV2IntentionRemindToLeave');
+  notifyIntentionsChanged({ id, reason: 'user_edit' });
+}
+
 export async function updateTrankilV2IntentionOrganization(
   id: string,
   patch: { is_organized: number; title?: string; category_id?: string | null },

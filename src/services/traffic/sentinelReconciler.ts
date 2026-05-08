@@ -43,6 +43,7 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
   const row = await getTrankilV2IntentionById(id);
   if (!row) return;
 
+  const remindToLeave = Boolean(row.remind_to_leave);
   const meta = safeParseJsonObject(row.metadata_json);
   const trip = meta.trip && typeof meta.trip === 'object' && !Array.isArray(meta.trip) ? (meta.trip as Record<string, unknown>) : null;
   if (!trip) return;
@@ -61,7 +62,7 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
 
   await ensureSentinelTripsSchema();
 
-  if (!newtonEnabled) {
+  if (!remindToLeave || !newtonEnabled) {
     await withTrankilV2Database(async (db) => {
       await db.runAsync(`UPDATE sentinel_trips SET status = 'PAUSED' WHERE id = ?`, [id]);
     });
@@ -71,6 +72,11 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
   }
 
   if (!destination || !Number.isFinite(destLat) || !Number.isFinite(destLng) || !placeId || !arrivalMs) {
+    await withTrankilV2Database(async (db) => {
+      await db.runAsync(`UPDATE sentinel_trips SET status = 'PAUSED' WHERE id = ?`, [id]);
+    });
+    const scheduler = getSentinelScheduler();
+    if (scheduler) await scheduler.cancelTask(id);
     return;
   }
 

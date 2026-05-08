@@ -258,6 +258,68 @@ Le flux OneTap doit éviter toute complexité liée au parsing de streaming mult
 
 - `syncAfterIntentionWrite` (synchronisation des notifications système / alarmes natives) est une opération non-critique et fire-and-forget. Elle ne doit jamais retarder la persistance ni le traitement du chunk suivant.
 
+---
+
+## IntentionDetailSheet — Hiérarchie Progressive (Trajets)
+
+Objectif : réduire la friction sur les trajets en introduisant une hiérarchie progressive à 3 niveaux, sans dégrader le flux “Note” validé.
+
+### Niveau 1 — Capture (déjà validé, ne pas modifier)
+Mode par défaut (équivalent “Note”) :
+- Afficher uniquement : **Titre**, **Note**, **Moment** (Date ou Jour/Heure).
+- Aucune exigence de destination/transport/Newton à ce niveau.
+
+### Niveau 2 — Engagement
+Ajouter un switch i18n :
+- Libellé : `intentionDetail.remindToLeave` (à créer si absent)
+- Intention UX : “Me prévenir quand partir”
+
+Contrat fonctionnel :
+- OFF (par défaut) : le trajet reste en mode simple, aucune UI “Mission” n’est affichée.
+- ON : déverrouille le bloc “Mission” (Niveau 3).
+
+Persistance :
+- Stocker l’état dans la ligne intention (colonne SQLite existante) : `intentions.remind_to_leave` (0/1).
+- Miroir optionnel dans `metadata_json.trip.remindToLeave` si nécessaire pour compat UI, mais la source de vérité DB reste `remind_to_leave`.
+
+### Niveau 3 — Mission (masqué par défaut)
+Le bloc “Mission” ne s’affiche que si `remind_to_leave` est ON.
+
+Contenu du bloc :
+- Sélecteurs destination (adresse validée) + origine si exposée dans l’UI actuelle
+- Sélecteur du mode de transport
+
+#### Logique Newton (visibilité conditionnelle)
+Le switch/bouton i18n “Activer Newton” doit être **invisible** tant que les conditions de surveillance ne sont pas remplies.
+
+Conditions minimales “surveillable” :
+- **Adresse valide** (destination) :
+  - `trip.location_place_id` non vide
+  - `trip.location_lat` et `trip.location_lng` finies
+  - `trip.location_address` non vide
+- **Heure d’arrivée précise** :
+  - `metadata_json.trip.arrivalDue` ou `metadata_json.trip.dueDateTime` défini (ISO)
+  - et `meta.is_all_day` == false (donc pas “All Day”)
+
+Règle UI :
+- Si non surveillable : Newton est caché (pas disabled).
+- Si surveillable : Newton devient visible (et activable).
+
+#### Aide visuelle (surveillabilité)
+Afficher un indicateur visuel (ex: triangle jaune) dans le bloc “Mission” si des informations manquent pour rendre le trajet surveillable par Newton.
+
+Contrat d’affichage :
+- Indicateur visible si `remind_to_leave` est ON et que `surveillable === false`.
+- Tooltip/texte d’aide i18n à prévoir (clé à créer si absent) :
+  - `intentionDetail.surveillanceMissingInfo`
+  - Message attendu : expliquer ce qui manque (ex: “Ajoute une destination valide et une heure d’arrivée pour activer Newton.”)
+
+### Critères d’acceptation
+- Un trajet fraîchement créé reste en “Niveau 1” sans aucune UI de mission tant que l’utilisateur n’a pas activé “Me prévenir quand partir”.
+- Une fois le switch ON, le bloc Mission apparaît immédiatement.
+- Newton n’apparaît jamais tant que destination valide + heure précise ne sont pas réunies.
+- Un trajet “All Day” ne peut pas afficher Newton (car heure imprécise), et doit afficher l’indicateur “infos manquantes” si Mission activée.
+
 Composants principaux :
 - Capture & parsing : [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)
 - Client réseau Gemini (streaming SSE) : [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/geminiSemanticLab.ts)

@@ -28,11 +28,13 @@ import * as Haptics from 'expo-haptics';
 import type { TrankilV2TimelineItemRow } from '../api';
 import {
   patchMetadata,
+  getTrankilV2IntentionById,
   getZoomChildrenStatsForProjectMilestone,
   listZoomChildrenForProjectMilestone,
   toggleIntentionDone,
   updateIntention,
   updateTrankilV2IntentionLocationAddress,
+  updateTrankilV2IntentionRemindToLeave,
   updateTrankilV2IntentionTemporal,
   updateTrankilV2IntentionTransportMode,
 } from '../api/trankilV2Db';
@@ -398,6 +400,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [pickerDraft, setPickerDraft] = useState<Date>(new Date());
   const [isAllDay, setIsAllDay] = useState(false);
+  const [remindToLeaveEnabled, setRemindToLeaveEnabled] = useState(false);
   const [showTripControls, setShowTripControls] = useState(false);
   const [originLat, setOriginLat] = useState<number | null>(null);
   const [originLng, setOriginLng] = useState<number | null>(null);
@@ -443,6 +446,20 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const isProject = Boolean(row && row.type === 'PROJECT');
   const isList = Boolean(row && row.type === 'LIST');
   const isGenerating = Boolean(meta && (meta as Record<string, unknown>).is_generating);
+
+  useEffect(() => {
+    if (!visible || !row || !isTrip) return;
+    let cancelled = false;
+    const id = row.id;
+    void (async () => {
+      const full = await getTrankilV2IntentionById(id);
+      if (cancelled) return;
+      setRemindToLeaveEnabled(Boolean(full?.remind_to_leave));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTrip, row?.id, visible]);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -625,6 +642,22 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     return Number.isFinite(Number(arrivalLat)) && Number.isFinite(Number(arrivalLng));
   }, [arrivalLat, arrivalLng, isTrip]);
 
+  const showMission = isTrip && showTripControls;
+  const isNewtonSurveillable = useMemo(() => {
+    if (!showMission) return false;
+    if (isAllDay) return false;
+    const placeId = String(str(trip as any, 'location_place_id') ?? '').trim();
+    const address = String(str(trip as any, 'location_address') ?? str(meta as any, 'location_address') ?? '').trim();
+    const lat = Number((trip as any)?.location_lat);
+    const lng = Number((trip as any)?.location_lng);
+    const arrivalIso = String(
+      str(trip as any, 'arrivalDue') ?? str(trip as any, 'dueDateTime') ?? str(meta as any, 'dueDateTime') ?? '',
+    ).trim();
+    const arrivalOk = arrivalIso ? Number.isFinite(Date.parse(arrivalIso)) : false;
+    return Boolean(placeId && address && Number.isFinite(lat) && Number.isFinite(lng) && arrivalOk);
+  }, [isAllDay, meta, showMission, trip]);
+  const showSurveillanceMissing = showMission && !isNewtonSurveillable;
+
   const routeReady = useMemo(() => {
     if (!isTrip) return false;
     return (
@@ -636,7 +669,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   }, [arrivalLat, arrivalLng, isTrip, originLat, originLng]);
 
   useEffect(() => {
-    if (comfortReady) {
+    if (remindToLeaveEnabled) {
       setShowTripControls(true);
       tripControlsOpacity.stopAnimation();
       Animated.timing(tripControlsOpacity, { toValue: 1, duration: 180, useNativeDriver: true }).start();
@@ -646,7 +679,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     Animated.timing(tripControlsOpacity, { toValue: 0, duration: 140, useNativeDriver: true }).start(() => {
       setShowTripControls(false);
     });
-  }, [comfortReady, tripControlsOpacity]);
+  }, [remindToLeaveEnabled, tripControlsOpacity]);
 
   useEffect(
     () => () => {
@@ -804,6 +837,20 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const tMeta = getTripMeta(root);
     if (tMeta && tMeta.validatedAtMs) return patchTrip;
     return { ...patchTrip, validatedAtMs: Date.now() };
+  };
+
+  const onToggleRemindToLeave = async () => {
+    if (!row) return;
+    const next = !remindToLeaveEnabled;
+    setRemindToLeaveEnabled(next);
+    await updateTrankilV2IntentionRemindToLeave(row.id, next);
+    if (!next && newtonEnabled) {
+      setNewtonEnabled(false);
+      const root = safeParseJsonObject(row.metadata_json) ?? {};
+      const tripPatch = await touchValidateTrip(root, { newtonEnabled: false });
+      await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+    }
+    await reconcileSentinelForIntentionId(row.id);
   };
 
   const onToggleChecklistItem = async (uid: string) => {
@@ -1422,7 +1469,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                 </>
               ) : null}
 
-              {isTrip ? (
+              {isTrip && showTripControls ? (
                 <>
                   <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
                   <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelItinerary')}</Text>
@@ -1581,75 +1628,104 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
               {entered ? (
                 <>
                   {isTrip ? (
-                    showTripControls ? (
-                      <Animated.View style={[styles.section, { opacity: tripControlsOpacity }]}>
-                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
-                        {t('intentionDetail.labelTransport')}
-                      </Text>
-                      <View style={styles.transportRow}>
-                        {(
-                          [
-                            { key: 'auto', icon: 'car', label: t('intentionDetail.transportAuto') },
-                            { key: 'transit', icon: 'bus', label: t('intentionDetail.transportTransit') },
-                            { key: 'walking', icon: 'walk', label: t('intentionDetail.transportWalking') },
-                            { key: 'bike', icon: 'bike', label: t('intentionDetail.transportBike') },
-                          ] as const
-                        ).map((m) => {
-                          const active = transportMode === m.key;
-                          return (
-                            <Pressable
-                              key={m.key}
-                              onPress={() => void onSelectTransportMode(m.key)}
-                              style={({ pressed }) => [
-                                styles.transportBtn,
-                                {
-                                  borderColor: active ? theme.colors.primary : theme.colors.outlineVariant,
-                                  backgroundColor: active ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
-                                  opacity: pressed ? 0.88 : 1,
-                                },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={m.label}
-                            >
-                              <IconButton icon={m.icon} size={22} iconColor={theme.colors.onSurface} style={styles.transportIcon} />
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-
-                      <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
-
-                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
-                        {t('intentionDetail.comfortTitle')}
-                      </Text>
-
-                      <View style={styles.newtonRow}>
-                        <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.newton')}</Text>
-                        <Switch value={newtonEnabled} disabled={isAllDay} onValueChange={() => void onToggleNewton()} />
-                      </View>
-
-                      <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
-                        {t('intentionDetail.comfortFixed', { time: `${pad2(pickerDraft.getHours())}:${pad2(pickerDraft.getMinutes())}` })}
-                      </Text>
-                      <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
-                        {t('intentionDetail.comfortOptimized')}
-                      </Text>
-
-                      <View style={styles.impactSlot}>
-                        {ecoBadge ? (
-                          <View style={[styles.badge, { backgroundColor: theme.colors.tertiaryContainer }]}>
-                            <Text style={[styles.badgeText, { color: theme.colors.onTertiaryContainer }]}>
-                              {t('intentionDetail.ecoFriendly')}
-                            </Text>
-                          </View>
-                        ) : (
-                          <Text style={[styles.co2Text, { color: theme.colors.onSurfaceVariant }]}>
-                            {t('intentionDetail.co2Standard')}
+                    <>
+                      <View style={styles.section}>
+                        <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                          {t('intentionDetail.trip')}
+                        </Text>
+                        <View style={styles.newtonRow}>
+                          <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>
+                            {t('intentionDetail.remindToLeave')}
                           </Text>
-                        )}
+                          <Switch value={remindToLeaveEnabled} onValueChange={() => void onToggleRemindToLeave()} />
+                        </View>
                       </View>
-                      </Animated.View>
-                    ) : null
+
+                      {showTripControls ? (
+                        <Animated.View style={[styles.section, { opacity: tripControlsOpacity }]}>
+                          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                            {t('intentionDetail.labelTransport')}
+                          </Text>
+                          <View style={styles.transportRow}>
+                            {(
+                              [
+                                { key: 'auto', icon: 'car', label: t('intentionDetail.transportAuto') },
+                                { key: 'transit', icon: 'bus', label: t('intentionDetail.transportTransit') },
+                                { key: 'walking', icon: 'walk', label: t('intentionDetail.transportWalking') },
+                                { key: 'bike', icon: 'bike', label: t('intentionDetail.transportBike') },
+                              ] as const
+                            ).map((m) => {
+                              const active = transportMode === m.key;
+                              return (
+                                <Pressable
+                                  key={m.key}
+                                  onPress={() => void onSelectTransportMode(m.key)}
+                                  style={({ pressed }) => [
+                                    styles.transportBtn,
+                                    {
+                                      borderColor: active ? theme.colors.primary : theme.colors.outlineVariant,
+                                      backgroundColor: active ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
+                                      opacity: pressed ? 0.88 : 1,
+                                    },
+                                  ]}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={m.label}
+                                >
+                                  <IconButton icon={m.icon} size={22} iconColor={theme.colors.onSurface} style={styles.transportIcon} />
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+
+                          <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+
+                          <View style={styles.newtonRow}>
+                            <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                              {t('intentionDetail.comfortTitle')}
+                            </Text>
+                            {showSurveillanceMissing ? (
+                              <IconButton icon="alert" size={18} iconColor="#eab308" style={styles.addrIcon} />
+                            ) : null}
+                          </View>
+
+                          {showSurveillanceMissing ? (
+                            <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
+                              {t('intentionDetail.surveillanceMissingInfo')}
+                            </Text>
+                          ) : null}
+
+                          {isNewtonSurveillable ? (
+                            <View style={styles.newtonRow}>
+                              <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>
+                                {t('intentionDetail.newton')}
+                              </Text>
+                              <Switch value={newtonEnabled} onValueChange={() => void onToggleNewton()} />
+                            </View>
+                          ) : null}
+
+                          <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
+                            {t('intentionDetail.comfortFixed', { time: `${pad2(pickerDraft.getHours())}:${pad2(pickerDraft.getMinutes())}` })}
+                          </Text>
+                          <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
+                            {t('intentionDetail.comfortOptimized')}
+                          </Text>
+
+                          <View style={styles.impactSlot}>
+                            {ecoBadge ? (
+                              <View style={[styles.badge, { backgroundColor: theme.colors.tertiaryContainer }]}>
+                                <Text style={[styles.badgeText, { color: theme.colors.onTertiaryContainer }]}>
+                                  {t('intentionDetail.ecoFriendly')}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={[styles.co2Text, { color: theme.colors.onSurfaceVariant }]}>
+                                {t('intentionDetail.co2Standard')}
+                              </Text>
+                            )}
+                          </View>
+                        </Animated.View>
+                      ) : null}
+                    </>
                   ) : null}
 
                   {isProject ? (

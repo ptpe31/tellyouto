@@ -104,7 +104,9 @@
     "labelTransport": "Transport",
     "comfortTitle": "Trip comfort",
     "comfortFixed": "Fixed departure slot: {{time}}",
-    "comfortOptimized": "Optimized departure slot"
+    "comfortOptimized": "Optimized departure slot",
+    "remindToLeave": "Remind me when to leave",
+    "surveillanceMissingInfo": "Add a valid destination and a precise arrival time to enable Newton."
   },
   "talk": {
     "title": "Talk (dev)",
