@@ -533,26 +533,40 @@ export function TalkDebugScreen() {
     const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
       const intentionId = String((payload as any)?.intentionId ?? '').trim();
       if (!intentionId) return;
+      const title = String((payload as any)?.title ?? '').trim();
+      const transcript = String((payload as any)?.transcript ?? '').trim();
+      const categoryId = normalizeCategoryId((payload as any)?.categoryTag);
+      const type = String((payload as any)?.predictedType ?? 'NOTE').trim().toUpperCase();
+      const previewRow = {
+        id: intentionId,
+        type,
+        category_id: categoryId,
+        display_title: title || t('timeline.untitled'),
+        content_raw: transcript,
+        due_date: null,
+        metadata_json: '{}',
+        status: 'TODO',
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        is_archived: 0,
+        is_dirty: 0,
+      } as unknown as TrankilV2TimelineItemRow;
+      setDetailRow(previewRow);
+      setDetailPosition('peek');
+      setDetailPeekHeightPx(200);
+      setDetailOpen(true);
       void (async () => {
         const full = await getTrankilV2IntentionById(intentionId);
         if (!full) return;
         const mapped = mapTrankilIntentionToTimelineItemRow(full);
-        setDetailRow((prev) => {
-          if (!prev) return prev;
-          if (!detailOpen) return prev;
-          if (detailPosition !== 'peek') return prev;
-          return mapped;
-        });
-        if (detailOpen && detailPosition === 'peek') {
-          setDetailPeekHeightPx(200);
-        }
+        setDetailRow((prev) => (prev && prev.id === intentionId ? mapped : prev));
       })();
     });
     return () => {
       subSnap.remove();
       subFirstSave.remove();
     };
-  }, [detailOpen, detailPosition]);
+  }, [t]);
 
   const onMicValidated = useCallback(() => {
     setCaptureStep('idle');
@@ -1046,7 +1060,6 @@ export function TalkDebugScreen() {
           onCaptureStart={onMicStart}
           onCaptureEnd={onMicEnd}
           onCaptureCancel={onMicCancel}
-          onPeekStart={openPeekAfterOk}
           onValidated={onMicValidated}
           onTranscriptChange={onMicTranscript}
         />

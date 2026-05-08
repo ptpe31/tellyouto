@@ -20,6 +20,7 @@ import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locatio
 import {
   finalizeOneTapOptimisticDraft,
   preSaveOneTapOptimisticDraft,
+  persistOneTapDraft,
   persistOneTapDraftVentilated,
   replacePendingOneTapDraft,
   type PersistOneTapSuccess,
@@ -804,19 +805,74 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (__DEV__ && VERBOSE_DEBUG && isMic) {
-        console.log(`[MIC] 🚀 ONLINE BRANCH → Gemini bulk/stream | TRACE: ${trace}`);
-      }
-      void runGeminiBulkSequence({
-        transcript: cleaned,
-        chunks: isMic ? [cleaned] : undefined,
-        audioUri,
-        lang,
-        allowAlert: true,
-        traceId: trace,
-      });
+      void (async () => {
+        const uiLocale = lang || spectrum.locale || 'fr-FR';
+        const seq = (geminiSeqRef.current += 1);
+        setRefining(true);
+        const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
+        const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
+        const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
+        DeviceEventEmitter.emit(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, {
+          categoryTag: skeleton.categoryTag,
+          predictedType: skeleton.predictedType,
+          title: skeleton.title,
+        });
+        try {
+          const res = await refineOneTapWithGeminiCompressed(cleaned, skeleton, {
+            uiLocale,
+            lang,
+            useStream: false,
+            forceComplete: true,
+          });
+          if (seq !== geminiSeqRef.current) return;
+          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
+          if (seq !== geminiSeqRef.current) return;
+          const intents = readDraftIntents(hydrated).filter(isCompleteIntent);
+          const built =
+            intents.length > 0 ? buildOneTapDraftFromIntent({ baseDraft: hydrated, intent: intents[0] }) ?? hydrated : hydrated;
+          const saved = await persistOneTapDraft({
+            deps,
+            draft: built,
+            transcript: cleaned,
+            habitsDefaultTitle,
+            birthdayLabel,
+          });
+          if (!saved.ok) throw saved.error;
+          const outcome = saved.outcome as any;
+          const intentionId = String(outcome?.intentionId ?? '').trim();
+          if (intentionId) {
+            DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
+              intentionId,
+              categoryTag: built.categoryTag,
+              predictedType: built.predictedType,
+              title: built.title,
+              transcript: cleaned,
+            });
+          }
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          if (isMic) {
+            void consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
+          }
+          setTimeout(() => {
+            void generateSmartTitle(cleaned, uiLocale);
+          }, 0);
+        } catch (e) {
+          const title = cleaned.slice(0, 56) || 'Memo audio';
+          try {
+            if (audioUri) {
+              await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title, lang });
+            } else {
+              await queueOfflineTextCapture({ transcript: cleaned, title, lang });
+            }
+            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+          } catch {}
+          proposeOfflineFallback({ transcript: cleaned, audioUri, error: e, lang });
+        } finally {
+          if (seq === geminiSeqRef.current) setRefining(false);
+        }
+      })();
     },
-    [runGeminiBulkSequence],
+    [deps, proposeOfflineFallback, spectrum.isProUser, spectrum.locale],
   );
 
   const triggerJalonZoom = useCallback(
