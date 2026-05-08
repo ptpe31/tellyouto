@@ -280,6 +280,7 @@ export class TrafficScheduler {
           task.tPessimisteMs ?? Math.round(task.arrivalAtMs - durationMs - 5 * 60 * 1000);
         await this.notificationManager.update({
           tripTaskId: task.id,
+          stateVersion: 0,
           destination: task.destination,
           targetArrivalMs: task.arrivalAtMs,
           nowMs,
@@ -348,6 +349,7 @@ export class TrafficScheduler {
                 : String(nextVigilanceStatus);
         await this.notificationManager.update({
           tripTaskId: task.id,
+          stateVersion: 0,
           destination: task.destination,
           targetArrivalMs: task.arrivalAtMs,
           nowMs,

@@ -461,6 +461,10 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Fusion :
   - `LIST` : persister sous `metadata_json.list_scalable_v1` via `buildListMetadataPatch`.
   - `PROJECT` : persister sous `metadata_json.project_milestones_v1` (et `metadata_json.project.start_date`).
+- Standardisation “Hidden Persona” :
+  - Contrat : chaque jalon généré (Pass 2 PROJECT) doit inclure `expert_persona` (obligatoire).
+  - Si le contexte est général : utiliser `"Assistant Personnel"`.
+  - Stockage : persister `expert_persona` en SQL au niveau jalon (colonne dédiée si disponible, sinon via `metadata_json.project_milestones_v1.milestones[].expert_persona` + patch SQL).
 
 ### Prompt Système Gemini (Pass 2)
 
@@ -494,13 +498,14 @@ Schéma attendu project_milestones_v1 :
 {
   "title": "Titre projet",
   "milestones": [
-    { "title": "Étape 1", "estimated_duration": 2, "unit": "hours|days|weeks" }
+    { "title": "Étape 1", "estimated_duration": 2, "unit": "hours|days|weeks", "expert_persona": "Électricien" }
   ]
 }
 
 Règles :
 - estimated_duration est un nombre positif (entier si possible).
 - unit ∈ { "hours", "days", "weeks" }.
+- expert_persona est obligatoire et doit être un métier fantôme pertinent (ex: Électricien, Acousticien, Diététicien, Wedding Planner). Si incertain, "Assistant Personnel".
 - Le nombre de jalons doit rester raisonnable (5 à 12).
 - Format : Réponds uniquement par un objet JSON pur. Aucune explication avant/après.
 ```
@@ -532,6 +537,11 @@ Règles :
   - Toute capture unitaire (micro) est routée vers `runGeminiBulkSequence` (même si le transcript ne contient pas `**`).
   - Mécanique : le micro force un tableau `chunks=[transcript]` pour imposer le chemin “Séquenceur” (CHUNK 1/1), sans heuristique de split.
   - Le micro devient donc “Bulk(1)” : même sanitizer, mêmes logs `[SEQUENCER]`, mêmes règles de verrouillage/persistance, même ventilation.
+- Désactiver le “stream global” parasite :
+  - Supprimer le `useSpeechRecognitionEvent('result', ...)` et le timer 850ms dans `IntentionContext` (vestige legacy).
+  - Interdiction : aucun déclenchement Gemini pendant la dictée (`oneTap.wire.stream`).
+  - `geminiStartedRef` ne doit être manipulé que par le chemin `submitCapturePayload → runGeminiBulkSequence`.
+  - Le log `[MIC] ⏳ SKIP Gemini (already started)` doit disparaître (plus de compétition de verrous).
 
 ### 3) Instrumentation Pass 2 (visibilité)
 
@@ -544,50 +554,247 @@ Règles :
 - Contrat : toute persistance doit passer par `normalizeDomainCategoryId(...)` pour produire un `category_id` non-null.
 - En cas de code inconnu : fallback explicite `PERSO`.
 
-## Bottom Sheet PROJECT — “Temporalitas” (V2)
+## Bottom Sheet PROJECT — “Temporalitas” (V3 — Flat / Drive)
 
 ### 1) Header — Bloc “Temporalitas”
 
-- Conteneur : large surface neumorphique “Raised” en haut de la sheet, dédiée à la planification.
-- Colonne gauche (date de début) :
-  - Icône : `calendar-edit`.
-  - Texte cliquable : `start_date` (format `YYYY-MM-DD`), ou état vide si non défini.
+- Design : à plat, sans neumorphisme (pas d’ombres “inset/raised”).
+- Structure :
+  - Titre projet : en haut (typographie standard, noir pur, poids moyen) — éditable inline (V3.2).
+  - Séparateur : ligne fine sous le titre (1px).
+  - Ligne dates : date de début (cliquable) + date de fin (statique) sur une seule ligne.
+- Date de départ :
+  - Affichage : texte cliquable simple (souligné ou couleur primaire).
   - Interaction : tap ouvre un DatePicker (date seule).
-- Colonne droite (date de fin dynamique) :
-  - Calculée : `end_date = start_date + Σ(durées_jalons)` (en tenant compte du mode calendrier décrit ci-dessous).
-  - Affichage : date calendaire réelle si `start_date` est défini (sinon état “—”).
-- Validation (replanification) :
-  - Si l’utilisateur modifie une date (start_date ou pivot sur jalon), afficher un CTA explicite :
-    - Libellé : “Confirmer et replanifier la suite”.
-  - Tant que non confirmé, l’UI peut afficher un état “draft” (visuel à préciser) ; le mécanisme exact est laissé à l’implémentation.
+- Date de fin (dynamique) :
+  - Calculée : `end_date = start_date + Σ(durées_jalons)` (selon le mode calendrier décrit ci-dessous).
+  - Affichage : texte statique à côté de la date de départ (ou “—” si pas de start_date).
 
 ### 2) Corps — Ligne de vie (Cascade tactîle)
 
-- Représentation : une “ligne de vie” verticale de jalons sous forme de pilules neumorphiques.
-- Pilule jalon :
-  - Large borderRadius.
-  - Contenu minimal : titre du jalon + indication temporelle (relative ou calendaire).
-- État actif (non terminé) :
-  - Relief Raised.
-- État terminé :
-  - Relief Inset (enfoncé).
-  - Texte barré + opacité ~50%.
-- Connecteur vertical :
-  - Ligne Inset reliant les centres des pilules (effet rail temporel).
+- Objectif : lisibilité et scannabilité (style Google Drive), rail graphique invisible.
+- Règle de mise en page :
+  - Les cercles de gauche doivent être verticalement alignés (effet “rail” implicite).
+  - Whitespace suffisant entre les lignes ; pas de connecteur dessiné.
+  - Séparation par bordure fine entre jalons (`border-b` 1px) plutôt que par ombres.
 
-#### Hub d’édition (crayon)
+#### Structure d’une ligne (jalon)
 
-- Bouton rond à droite de chaque pilule (icône “pencil”).
-- Tap ouvre un sous-menu contextuel :
-  - Calendrier (Pivot) :
-    - Définit une date pivot pour ce jalon.
-    - La date pivot s’affiche avec un contour distinctif (border) sur la pilule.
-  - Note :
-    - Ajoute/modifie un mémo texte associé au jalon.
-    - Si note non vide, afficher une icône “post-it” sur la pilule.
-  - Supprimer :
-    - Retire le jalon.
-    - Recalcule la cascade immédiatement (effet domino).
+- Colonne gauche (actionnable) :
+  - Cercle fin discret (stroke 1px).
+  - Toggle “fait” : au clic, le cercle se remplit avec un check et passe en couleur “success”.
+- Colonne centrale (texte) :
+  - Titre : noir pur, poids moyen, taille standard.
+  - Sous-titre : gris clair, petite taille, durée relative (ex. `+2j`, `+1sem`).
+- Colonne droite (menu) :
+  - Icône `more-vert` (3 points verticaux).
+  - Interaction (V3.0) : `console.log('Open Modal')` uniquement.
+
+### 2.b) Skeleton (Pass 2)
+
+- Pendant `list_enrich_status === 'pending'` :
+  - Remplacer titres + sous-titres par des skeletons à plat : formes grises arrondies, pulsantes (style Drive/YouTube).
+  - Le skeleton remplace le contenu texte, sans déplacer la structure (cercle gauche + séparateurs inchangés).
+
+### 2.c) Zoom IA (appui long) — Décomposition hiérarchique
+
+#### Déclencheur UI (Power Gesture)
+
+- Sur chaque ligne de jalon (milestone), ajouter `onLongPress`.
+- Feedback : vibration légère lors de l’appui long.
+- Action : afficher une modale de confirmation épurée (style Drive) :
+  - Texte : “Voulez-vous que l’IA décompose cette étape en sous-tâches ?”
+  - CTA : Annuler / Décomposer
+
+#### Arborescence (accordéon)
+
+- Objectif : permettre l’affichage de sous-jalons sous un jalon parent (V3.1).
+- UI :
+  - Indentation : +16px vers la droite pour chaque niveau enfant.
+  - Connecteur : ligne fine en “L” entre parent et groupe d’enfants (vertical discret + retour horizontal).
+  - Badge de zoom : si un jalon possède des enfants, afficher un badge `+N` à droite du titre.
+  - Interaction badge : tap replie/déplie l’accordéon.
+
+#### Pipeline contextuel (Quadruple verrou)
+
+- Implémenter `triggerJalonZoom(jalonId)` qui prépare le contexte IA :
+  - `original_intent` : texte brut de l’intention (stocké dans `memo`).
+  - `project_title` : titre global du projet.
+  - `parent_jalon_title` : titre du jalon à décomposer.
+  - `parent_jalon_duration` : durée du jalon (valeur + unité).
+  - `parent_jalon_expert_persona` : métier fantôme du jalon (obligatoire, fallback "Assistant Personnel").
+
+#### Prompt Zoom (expert-first)
+
+- Le prompt Zoom doit commencer par :
+  - `Tu es un [expert_persona]. Ton objectif est de décomposer cette étape en sous-tâches chirurgicales et concrètes, en tenant compte du projet global : [TITRE PROJET] et de l'intention initiale : [MEMO].`
+
+#### Architecture “Urbanisation Totale” (réutilisation des outils)
+
+- Principe : détourner le Bulk et traiter le Zoom comme une capture “Bulk(1)” injectée dans une branche enfant.
+- Contraintes :
+  - Zéro nouveau validateur : réutiliser la Douane.
+  - Zéro nouveau séquenceur : réutiliser `runGeminiBulkSequence`.
+
+##### 1) Réutilisation de la Douane (validation)
+
+- Sortie IA attendue : une liste d’intentions enfants de type `TASK` (titres actionnables, durée cohérente si fournie).
+- Validation : la Douane Bulk valide la structure (titre non vide, types supportés, champs temporels cohérents).
+
+##### 2) Réutilisation du Séquenceur (Bulk)
+
+- Ajout d’un mode Zoom :
+  - `runGeminiBulkSequence({ ..., isZoomMode: true, parent_id, parent_jalon_uid })`
+  - Le texte injecté est un unique chunk construit par `triggerJalonZoom`.
+- Règle : si `parent_id` est présent, la persistance route les résultats vers une branche “enfant” (relation hiérarchique) au lieu de créer uniquement des entrées racines.
+
+##### 3) Réutilisation de Pass 2 (fractal)
+
+- Même une sous-tâche peut être complexe :
+  - Si l’IA détecte `LIST/PROJECT` dans un child (ou si le normalizer le remappe), l’enrichissement Pass 2 (`list_enrich_generic`) se déclenche de la même manière.
+
+##### 4) Normalizer & hiérarchie
+
+- Étendre le Normalizer commun pour accepter un `parent_id` (et/ou `parent_jalon_uid`) et le transporter jusqu’à la persistance.
+- Contrat : les sous-tâches générées par le zoom doivent être liées au jalon parent (jalonId/uid) de manière stable.
+- Persistance SQL stricte :
+  - Insertion immédiate en base à réception des intentions enfants.
+  - Log : `[SQL_TRACE] ✅ Persistance sous-jalons (N) pour Parent ID: [ID]`.
+
+#### Simulation de chargement
+
+- Pendant la génération IA :
+  - Afficher des skeletons indentés sous le jalon parent (même style Drive/YouTube).
+  - Le parent reste visible ; les children apparaissent progressivement (si streaming) ou d’un bloc (si non-stream).
+
+#### Badge & synchronisation SQL
+
+- Le badge `+N` doit refléter le nombre réel de lignes enfants en base (`parent_id` + `zoom_parent_jalon_uid`), pas un compteur UI local.
+
+### 2.d) V3.2 — Édition du titre projet (Direct Manipulation)
+
+#### Composant UI (Editable Title)
+
+- Dans la BottomSheet PROJECT, rendre le titre éditable inline :
+  - Composant : `TextInput` stylisé (ou `EditableText`) qui ressemble à un `Text` normal.
+  - Interaction : tap → focus + curseur ; pas d’icône crayon.
+  - Feedback focus : bordure inférieure fine (1px) pendant l’édition.
+
+#### Validation & persistance SQL
+
+- Déclencheur : persister sur `onSubmitEditing` (Entrée) ou `onBlur`.
+- Validation :
+  - Interdire titre vide.
+  - Si l’utilisateur efface tout puis valide/perd le focus, restaurer l’ancien titre (modif ignorée).
+- Action SQL :
+  - Appeler `trankilV2Db.updateIntention(id, { content: newTitle })` (colonne content/titre uniquement).
+  - Ne pas toucher à `memo` / `gemini_universal_draft` / contenu IA (rappel critique : l’intention originale doit rester intacte pour les prochains zooms).
+
+#### Refresh UI
+
+- Après update SQL : la Timeline doit refléter immédiatement le nouveau titre (refresh event / invalidation) dès fermeture de la sheet.
+
+#### i18n
+
+- Placeholder (si champ vide temporairement) : `t('project.title_placeholder')`.
+
+#### Polissage V3.2 — Flux “Double‑Mode” (Modale progressive + arrière‑plan) + i18n
+
+##### 1) Modale Zoom IA (progressif)
+
+- État initial (onLongPress) :
+  - Titre : `t('project.zoom_confirm_title')`
+  - Boutons : `t('common.cancel')` et `t('project.zoom_action_start')`
+- État “génération en cours” (après clic sur Décomposer) :
+  - Remplacer le texte par `t('project.zoom_generating_status')` + animation de points de suspension.
+  - Ajouter un bouton : `t('project.zoom_background_action')` (ferme la modale, traitement continue).
+- État “arrière‑plan” :
+  - Si l’utilisateur a envoyé en arrière‑plan : fermer la modale.
+  - Sur le jalon parent (liste) : afficher `t('project.status_processing')` à la place du sous‑titre.
+  - Verrouillage : désactiver l’interaction (tap / long press / menu) sur ce jalon tant que la génération est en cours.
+- État “fin de génération” (si la modale est restée ouverte) :
+  - Texte : `t('project.zoom_success_count', { count: N })`
+  - Bouton : `t('project.zoom_view_steps')` (ferme la modale + déploie l’accordéon automatiquement).
+
+##### 2) Badge dynamique & focus unique
+
+- Badge (dans la ligne jalon) : `t('project.step_count', { count: N })` (ex: “5 sous‑tâches”).
+- Focus unique : ouvrir un accordéon replie automatiquement tout accordéon déjà ouvert dans la BottomSheet.
+
+##### 3) Règle i18n (strict)
+
+- Toutes les nouvelles chaînes UI doivent être définies dans les fichiers de traduction sous `project.*` (et `common.*` existant), aucune chaîne en dur dans l’UI.
+
+#### V3.4 — Rendu “Things‑like” des sous‑jalons (BottomSheet)
+
+##### 1) Logique de rendu (mode focus unique)
+
+- Un seul jalon parent peut être déplié à la fois.
+- Interaction : cliquer sur le badge ou le titre d’un jalon B replie automatiquement le jalon A.
+- Source de données :
+  - Les sous‑jalons affichés sont les lignes SQL dont `parent_id` correspond à l’ID du jalon sélectionné.
+
+##### 2) Design encart (inspiré Things 3)
+
+- Lorsqu’un jalon est déplié :
+  - Afficher ses sous‑jalons dans un encart avec fond légèrement grisé (ex: `rgba(0,0,0,0.03)`).
+  - Titre jalon parent : passer en gras (`fontWeight: '600'`).
+  - Sous‑jalons :
+    - Typo légèrement réduite (ex: 14px).
+    - Indentation : 20px.
+    - Connecteur : “L” inversé discret (trait fin gris) devant chaque sous‑jalon.
+
+##### 3) État & interactions
+
+- Checkboxes :
+  - Chaque sous‑jalon a sa checkbox circulaire.
+  - Cocher/décocher déclenche un update SQL immédiat (sans fermer la BottomSheet).
+- Barre de progression :
+  - Ajouter une micro‑barre (hauteur 2px) sous le titre du jalon parent déplié.
+  - Valeur : `% sous‑jalons complétés`.
+- Animation :
+  - Ouverture / fermeture fluide via `LayoutAnimation` ou `Animated` (Expo / React Native).
+
+##### 4) i18n (badge)
+
+- Si N=0 : afficher `t('project.add_steps')` (ex: “+”).
+- Si N>0 : afficher `t('project.step_count', { count: N })` (ex: “5 étapes”).
+
+#### V3.4.1 — UX magique + SQL robuste + persistance d’état (Zoom IA)
+
+##### 1) SQL robuste (abandon JSON LIKE)
+
+- Ajouter une colonne dédiée dans `intentions` :
+  - `zoom_parent_jalon_uid TEXT` (nullable).
+- Indexer pour requêtes rapides :
+  - `CREATE INDEX IF NOT EXISTS idx_intentions_parent_zoom_uid_created_at ON intentions (parent_id, zoom_parent_jalon_uid, created_at);`
+  - (optionnel) `CREATE INDEX IF NOT EXISTS idx_intentions_parent_zoom_uid_status ON intentions (parent_id, zoom_parent_jalon_uid, status);`
+- Migration :
+  - `ALTER TABLE intentions ADD COLUMN zoom_parent_jalon_uid TEXT;` (si absent)
+  - Backfill (best‑effort) : si `metadata_json` contient `"zoom_parent_jalon_uid":"<uid>"`, copier dans la colonne (puis le JSON peut rester tel quel, mais le filtering doit utiliser la colonne).
+- Toutes les requêtes “zoom children” passent exclusivement par :
+  - `WHERE parent_id = ? AND zoom_parent_jalon_uid = ?`
+
+##### 2) UX magique (post‑décomposition)
+
+- À la fin de la décomposition (bouton “Voir les étapes” ou auto‑succès) :
+  - Fermer la modale.
+  - Auto‑open l’accordéon du jalon parent (focus unique).
+  - Auto‑scroll : caler le jalon parent en haut du viewport (ou au plus proche), pour que l’encart soit visible immédiatement.
+
+##### 3) Persistance d’état (dernier jalon ouvert)
+
+- Mémoriser le dernier jalon déplié :
+  - Option A (recommandé) : `metadata_json.project.last_open_milestone_uid = <uid>` via `patchMetadata(..., { silent: true })`.
+  - Option B : store local (si on ne veut pas polluer metadata).
+- À la ré‑ouverture de la BottomSheet :
+  - Si `last_open_milestone_uid` existe et a des children → rouvrir l’accordéon et charger les children depuis SQL.
+
+##### 4) Skeleton UI (préchargement optimiste)
+
+- Lors d’un open accordéon (tap badge/titre ou auto‑open post‑zoom) :
+  - Ouvrir l’encart immédiatement avec skeletons (perception instantanée).
+  - Remplacer par les children SQL dès la requête terminée.
 
 ### 3) Logique — Calcul & scalabilité
 

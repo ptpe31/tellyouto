@@ -1385,7 +1385,14 @@ export async function persistOneTapDraftVentilated(params: {
                   lat,
                   lng,
                   sentinelMode: quota.mode,
+                  transportMode: typeof (taskDraft.data as any)?.transport_mode === 'string' ? String((taskDraft.data as any).transport_mode) : null,
                 });
+                try {
+                  const m = await import('./traffic/sentinelActivation');
+                  if (typeof (m as any).kickSentinelAfterActivation === 'function') {
+                    await (m as any).kickSentinelAfterActivation(taskOutcomeId);
+                  }
+                } catch {}
                 console.log(`[VENTILATION-WRITE] ✅ TRIP_SENTINEL | ID: ${taskOutcomeId}`);
               }
             }
@@ -1504,7 +1511,14 @@ export async function persistOneTapDraftVentilated(params: {
         lat,
         lng,
         sentinelMode: quota.mode,
+        transportMode: typeof data.transport_mode === 'string' ? String(data.transport_mode) : null,
       });
+      try {
+        const m = await import('./traffic/sentinelActivation');
+        if (typeof (m as any).kickSentinelAfterActivation === 'function') {
+          await (m as any).kickSentinelAfterActivation(taskOutcomeId);
+        }
+      } catch {}
       console.log(`[VENTILATION-WRITE] ✅ TRIP_SENTINEL | ID: ${taskOutcomeId}`);
     }
   }

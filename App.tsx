@@ -14,6 +14,7 @@ import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { IntentionSyncBootstrap } from './src/components/IntentionSyncBootstrap';
 import { MorningDewModal } from './src/components/MorningDewModal';
 import { OfflineFirstPendingBootstrap } from './src/components/OfflineFirstPendingBootstrap';
+import { SentinelBootstrap } from './src/components/SentinelBootstrap';
 import { StartupPerfBanner } from './src/components/StartupPerfBanner';
 import { SystemHealthBanner } from './src/components/SystemHealthBanner';
 import { AllyProvider } from './src/context/AllyContext';
@@ -110,6 +111,7 @@ export default function App() {
                           <SaturationProvider>
                             <FocusProtectionProvider>
                               <IntentionSyncBootstrap />
+                                <SentinelBootstrap />
                               <OfflineFirstPendingBootstrap />
                               <SystemHealthBanner />
                               <MorningDewModal />

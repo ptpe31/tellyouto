@@ -17,6 +17,7 @@ type SentinelPayload = {
 
 let listenerRegistered = false;
 const coordsByTrip = new Map<string, { lat: number; lng: number }>();
+const lastVersionByTrip = new Map<string, number>();
 
 async function ensureSentinelChannel(): Promise<void> {
   const n = getNotifications();
@@ -110,18 +111,27 @@ function ensureResponseListener(): void {
 export class SentinelNotificationManager {
   async update(input: {
     tripTaskId: string;
+    stateVersion: number;
     destination: string;
     targetArrivalMs: number;
     nowMs: number;
     tOptimisteMs: number;
+    displayedWindowStartMs?: number;
+    displayedWindowEndMs?: number;
+    nextRealUpdateAtMs?: number | null;
     vigilanceStatus: string;
     trafficLabel?: string;
     lat?: number;
     lng?: number;
     staticDepartureAtMs?: number;
+    modeSafety?: boolean;
   }): Promise<void> {
     const n = getNotifications();
     if (!n) return;
+    const safeVersion = Number.isFinite(Number(input.stateVersion)) ? Number(input.stateVersion) : 0;
+    const lastVersion = lastVersionByTrip.get(input.tripTaskId) ?? -1;
+    if (safeVersion < lastVersion) return;
+    lastVersionByTrip.set(input.tripTaskId, safeVersion);
     await ensureSentinelChannel();
     await ensureSentinelCategory();
     ensureResponseListener();
@@ -148,13 +158,40 @@ export class SentinelNotificationManager {
     const staticDepartureAtMs = Number.isFinite(Number(input.staticDepartureAtMs))
       ? Number(input.staticDepartureAtMs)
       : null;
-    const body = staticDepartureAtMs !== null
-      ? `${i18n.t('sentinel.notifDepartureAt', { time: fmtHm(staticDepartureAtMs) })}\n${statusLine} • ${updatedAt}`
-      : `${buildNewtonGauge({
-          nowMs: input.nowMs,
-          tOptimisteMs: input.tOptimisteMs,
-          arrivalMs: input.targetArrivalMs,
-        })}\n${statusLine} • ${updatedAt}`;
+    const displayedStartMs = Number.isFinite(Number(input.displayedWindowStartMs))
+      ? Number(input.displayedWindowStartMs)
+      : null;
+    const displayedEndMs = Number.isFinite(Number(input.displayedWindowEndMs))
+      ? Number(input.displayedWindowEndMs)
+      : null;
+    const nextRealUpdateAtMs = Number.isFinite(Number(input.nextRealUpdateAtMs))
+      ? Number(input.nextRealUpdateAtMs)
+      : null;
+    const safetyLine = input.modeSafety === true ? i18n.t('sentinel.notifModeSafety') : null;
+    const comfortLine =
+      displayedStartMs !== null && displayedEndMs !== null
+        ? i18n.t('sentinel.notifDepartureWindow', {
+            start: fmtHm(displayedStartMs),
+            end: fmtHm(displayedEndMs),
+          })
+        : null;
+    const planLine =
+      nextRealUpdateAtMs !== null
+        ? i18n.t('sentinel.notifNextRealUpdateAt', { time: fmtHm(nextRealUpdateAtMs) })
+        : null;
+    const fallbackGauge = buildNewtonGauge({
+      nowMs: input.nowMs,
+      tOptimisteMs: input.tOptimisteMs,
+      arrivalMs: input.targetArrivalMs,
+    });
+    const bodyParts = [
+      staticDepartureAtMs !== null
+        ? i18n.t('sentinel.notifDepartureAt', { time: fmtHm(staticDepartureAtMs) })
+        : comfortLine ?? fallbackGauge,
+      safetyLine ? `${safetyLine} • ${statusLine} • ${updatedAt}` : `${statusLine} • ${updatedAt}`,
+      planLine,
+    ].filter((x): x is string => Boolean(x));
+    const body = bodyParts.join('\n');
     await n.scheduleNotificationAsync({
       identifier,
       content: {
@@ -176,6 +213,7 @@ export class SentinelNotificationManager {
     if (!n) return;
     const identifier = `sentinel_${tripTaskId}`;
     coordsByTrip.delete(tripTaskId);
+    lastVersionByTrip.delete(tripTaskId);
     try {
       await n.dismissNotificationAsync(identifier);
     } catch {

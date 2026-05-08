@@ -1,7 +1,12 @@
 import { withTrankilV2Database } from '../../api/trankilV2Db';
 import { computeNewtonWindow } from './TrafficEngine';
-import { SentinelNotificationManager } from './TrafficNotificationService';
-import i18n from '../../locales/i18n';
+import { startSentinelRuntime } from './sentinelRuntime';
+
+async function tryAddColumn(db: { execAsync: (sql: string) => Promise<void> }, sql: string) {
+  try {
+    await db.execAsync(sql);
+  } catch {}
+}
 
 export async function ensureSentinelTripsSchema(): Promise<void> {
   await withTrankilV2Database(async (db) => {
@@ -30,6 +35,33 @@ export async function ensureSentinelTripsSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_sentinel_trips_dirty_updated
         ON sentinel_trips (is_dirty, updated_at DESC);
     `);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN fingerprint TEXT;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan_count INTEGER NOT NULL DEFAULT 0;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN flow_calibrated INTEGER NOT NULL DEFAULT 0;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN v_flow_sec_per_min REAL NOT NULL DEFAULT 10;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN last_real_scan_at_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan1_at_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan1_duration_sec REAL;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan2_at_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan2_duration_sec REAL;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN base_t_optimiste_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN base_t_pessimiste_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN internal_t_pessimiste_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN displayed_t_optimiste_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN displayed_t_pessimiste_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN last_ui_update_at_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN mode_safety INTEGER NOT NULL DEFAULT 0;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN next_real_scan_at_ms INTEGER;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN next_real_scan_reason TEXT;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN api_calls_total INTEGER NOT NULL DEFAULT 0;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN api_calls_avoided_cache INTEGER NOT NULL DEFAULT 0;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN api_calls_avoided_extrapolation INTEGER NOT NULL DEFAULT 0;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN origin_lat REAL;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN origin_lng REAL;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN dest_lat REAL;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN dest_lng REAL;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN transport_mode TEXT;`);
   });
 }
 
@@ -41,6 +73,7 @@ export async function activateSentinelTrip(input: {
   lat?: number;
   lng?: number;
   sentinelMode?: 'SENTINEL' | 'STATIC';
+  transportMode?: string | null;
 }): Promise<{ tOptimisteMs: number; tPessimisteMs: number }> {
   const nowMs = Date.now();
   const durationSec = Math.max(0, Number(input.initialDurationSec ?? 25 * 60) || 0);
@@ -57,13 +90,41 @@ export async function activateSentinelTrip(input: {
 
   await ensureSentinelTripsSchema();
   await withTrankilV2Database(async (db) => {
+    const lat = typeof input.lat === 'number' && Number.isFinite(input.lat) ? input.lat : null;
+    const lng = typeof input.lng === 'number' && Number.isFinite(input.lng) ? input.lng : null;
+    const mode = input.transportMode == null ? null : String(input.transportMode || '').trim() || null;
+    const fp =
+      lat != null && lng != null
+        ? `${Math.round(lat * 10_000) / 10_000},${Math.round(lng * 10_000) / 10_000}|${Math.round(
+            input.targetArrivalMs,
+          )}|${mode || 'driving'}`
+        : `na,na|${Math.round(input.targetArrivalMs)}|${mode || 'driving'}`;
     await db.runAsync(
       `INSERT OR REPLACE INTO sentinel_trips (
         id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,
         internal_scan_count, next_check_at, gate_prompted_at, last_error_at,
         t_optimiste_ms, t_pessimiste_ms, vigilance_status,
-        updated_at, is_dirty, server_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 1, 0)`,
+        updated_at, is_dirty, server_version,
+        state_version, fingerprint, scan_count, flow_calibrated, v_flow_sec_per_min,
+        last_real_scan_at_ms, scan1_at_ms, scan1_duration_sec, scan2_at_ms, scan2_duration_sec,
+        base_t_optimiste_ms, base_t_pessimiste_ms, internal_t_pessimiste_ms,
+        displayed_t_optimiste_ms, displayed_t_pessimiste_ms, last_ui_update_at_ms,
+        mode_safety, next_real_scan_at_ms, next_real_scan_reason,
+        api_calls_total, api_calls_avoided_cache, api_calls_avoided_extrapolation,
+        origin_lat, origin_lng, dest_lat, dest_lng, transport_mode
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, NULL, NULL, NULL,
+        ?, ?, ?, ?,
+        ?, 1, 0,
+        ?, ?, ?, ?, ?,
+        NULL, NULL, NULL, NULL, NULL,
+        ?, ?, NULL,
+        ?, ?, ?,
+        0, ?, ?, ?,
+        0, 0, 0,
+        NULL, NULL, ?, ?, ?
+      )`,
       [
         input.tripTaskId,
         input.formattedAddress.trim(),
@@ -77,37 +138,32 @@ export async function activateSentinelTrip(input: {
         tPessimisteMs,
         vigilanceStatus,
         nowMs,
+        1,
+        fp,
+        0,
+        0,
+        10,
+        tOptimisteMs,
+        tPessimisteMs,
+        tOptimisteMs,
+        tPessimisteMs,
+        nowMs,
+        vigilanceStatus === 'FINISHED' ? null : nowMs,
+        vigilanceStatus === 'FINISHED' ? null : 'SCAN1_INITIAL',
+        lat,
+        lng,
+        mode,
       ]
     );
   });
 
-  const manager = new SentinelNotificationManager();
-  if (vigilanceStatus === 'FINISHED') {
-    await manager.cancel(input.tripTaskId);
-  } else {
-    const trafficLabel =
-      sentinelMode === 'STATIC'
-        ? i18n.t('sentinel.notifStatusStatic')
-        : vigilanceStatus === 'VIGILANCE_BLUE'
-          ? i18n.t('sentinel.notifStatusBlue')
-          : vigilanceStatus === 'VIGILANCE_ORANGE'
-            ? i18n.t('sentinel.notifStatusOrange')
-            : vigilanceStatus === 'VIGILANCE_RED'
-              ? i18n.t('sentinel.notifStatusRed')
-              : String(vigilanceStatus);
-    await manager.update({
-      tripTaskId: input.tripTaskId,
-      destination: input.formattedAddress.trim(),
-      targetArrivalMs: input.targetArrivalMs,
-      nowMs,
-      tOptimisteMs,
-      vigilanceStatus,
-      lat: typeof input.lat === 'number' ? input.lat : undefined,
-      lng: typeof input.lng === 'number' ? input.lng : undefined,
-      staticDepartureAtMs: sentinelMode === 'STATIC' ? tPessimisteMs : undefined,
-      trafficLabel,
-    });
-  }
-
   return { tOptimisteMs, tPessimisteMs };
+}
+
+export async function kickSentinelAfterActivation(tripTaskId: string): Promise<void> {
+  try {
+    const scheduler = await startSentinelRuntime();
+    await scheduler.refreshTask(tripTaskId);
+    await scheduler.tickNow(tripTaskId);
+  } catch {}
 }

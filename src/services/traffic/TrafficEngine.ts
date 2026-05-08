@@ -1,4 +1,9 @@
 /**
+ * INTELLIGENCE HEADER — SENTINEL V4 DOCTRINE
+ * Référence stratégique: docs/SENTINEL_V4_DOCTRINE.md
+ */
+
+/**
  * TrafficEngine: coeur mathématique pur pour la surveillance trajet.
  * Aucun accès réseau, DB, notifications ou SDK natif.
  */

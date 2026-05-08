@@ -38,6 +38,7 @@ import {
 } from '../api/trankilV2Db';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
+import { reconcileSentinelForIntentionId } from '../services/traffic/sentinelReconciler';
 import { getLocationFavoriteByAlias } from '../services/traffic/locationFavorites';
 import { buildListMetadataPatch, parseListScalablePayloadFromMetadataJson, type ListScalablePayload } from '../services/listIntentionModel';
 import {
@@ -826,6 +827,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     const root = safeParseJsonObject(row.metadata_json) ?? {};
     const tripPatch = await touchValidateTrip(root, { newtonEnabled: nextEnabled });
     await patchMetadata(row.id, { trip: tripPatch });
+    await reconcileSentinelForIntentionId(row.id);
   };
 
   const onSelectTransportMode = async (mode: 'auto' | 'transit' | 'walking' | 'bike') => {
@@ -836,6 +838,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     await updateTrankilV2IntentionTransportMode(row.id, { transport_mode: mode }, { silent: true });
     const tripPatch = await touchValidateTrip(root, { transportMode: mode });
     await patchMetadata(row.id, { trip: tripPatch });
+    await reconcileSentinelForIntentionId(row.id);
   };
 
   const persistDueDateTime = async (d: Date, opts?: { closePicker?: boolean; allDay?: boolean }) => {
@@ -868,6 +871,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     setPickerDraft(d);
     await patchMetadata(row.id, nextMeta, { silent: true });
     await updateTrankilV2IntentionTemporal(row.id, { due_date: nextDue });
+    await reconcileSentinelForIntentionId(row.id);
   };
 
   const openTemporalPicker = () => {
@@ -1514,6 +1518,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                 });
                                 await updateTrankilV2IntentionLocationAddress(row.id, { location_address: raw || null }, { silent: true });
                                 await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+                                await reconcileSentinelForIntentionId(row.id);
                               })();
                             }, 250);
                           }}
@@ -1536,6 +1541,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                               });
                               await updateTrankilV2IntentionLocationAddress(row.id, { location_address: p.formattedAddress }, { silent: true });
                               await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+                              await reconcileSentinelForIntentionId(row.id);
                             })();
                           }}
                           disabled={false}

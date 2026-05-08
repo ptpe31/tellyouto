@@ -121,7 +121,8 @@ export type UserActivityLogActionType =
   | 'AI_CALL'
   | 'SYNC_PUSH'
   | 'SYNC_PULL'
-  | 'USER_EDIT';
+  | 'USER_EDIT'
+  | 'SENTINEL_TRACE';
 
 export type UserActivityLogRow = {
   id: string;
