@@ -364,6 +364,7 @@ export function TimelineScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
+  const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(40);
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
@@ -400,6 +401,7 @@ export function TimelineScreen() {
     } as unknown as TrankilV2TimelineItemRow;
     setDetailRow(peekRow);
     setDetailPosition('peek');
+    setDetailPeekHeightPx(40);
     setDetailOpen(true);
   }, []);
 
@@ -414,6 +416,7 @@ export function TimelineScreen() {
     setDetailOpen(false);
     setDetailRow(null);
     setDetailPosition('full');
+    setDetailPeekHeightPx(40);
   }, []);
 
   useEffect(() => {
@@ -433,6 +436,9 @@ export function TimelineScreen() {
           if (detailPosition !== 'peek') return prev;
           return mapped;
         });
+        if (detailOpen && detailPosition === 'peek') {
+          setDetailPeekHeightPx(200);
+        }
       })();
     });
     return () => {
@@ -1186,6 +1192,8 @@ export function TimelineScreen() {
         onClose={closeDetail}
         onPatchRow={patchRow}
         initialPosition={detailPosition}
+        peekHeightPx={detailPeekHeightPx}
+        validationMode
       />
 
       <TimelineFilterModal

@@ -367,6 +367,61 @@ Au moment où la dictée est validée (après le “OK vert”) :
 - Sans interaction utilisateur, la sheet se ferme automatiquement après 4 secondes.
 - L’ajout d’intercalaires ne casse aucune feature existante (édition, toggles, itinerary, listes, projets, etc.).
 
+---
+
+## Capture Flash — Pass 1 / Pass 2 (Enrichir vs Terminer)
+
+Objectif : après la dictée, offrir 2 choix clairs : **Enrichir** (Pass 2) ou **Terminer** (fermer), tout en garantissant une persistance immédiate dès le Pass 1.
+
+### 1) Flux Pass 1 (Capture Flash)
+- Par défaut, Gemini traite l’intention comme **complète** dès le premier appel :
+  - `incomplete: false` (ou équivalent) forcé / attendu côté prompt/contrat.
+- Persistance :
+  - Sauvegarder l’intention en base immédiatement après la réponse du Pass 1.
+  - Le “Pass 1 ready” signifie : catégorie + titre clean disponibles et row persistée (ID stable).
+- Audit :
+  - L’audit SmartTitle s’exécute **en arrière-plan** et ne doit pas bloquer l’UI.
+
+### 2) UI — Peek 40px puis Vue Validation 200px
+#### Peek 40px (immédiat)
+- Toujours présent dès la fin de la dictée (OK vert).
+- Affiche uniquement l’intercalaire (catégorie + couleur pastel).
+
+#### Transition 40px → 200px (quand Pass 1 est prêt)
+- Passage fluide vers une hauteur **200px** dès que le Pass 1 a persisté l’intention.
+- Cette vue “Validation” affiche uniquement :
+  1) **Intercalaire** (header) : onglet arrondi “classeur” avec le nom de la catégorie (`SHOP`, `TRAVEL`, etc.) + couleur pastel.
+  2) **Titre clean** : résultat du Pass 1 (ex: “Gâteau au yaourt”).
+  3) **Footer actions** : 2 boutons.
+
+### 3) Footer actions (Vue 200px)
+#### Bouton de mutation (Pass 2 — Enrichir)
+- Proéminent, libellé i18n dépendant de la catégorie :
+  - `SHOP` / `LIST` → “📝 Générer la liste”
+  - `TRAVEL` / `TRIP` → “📍 Préparer le trajet”
+  - `HEALTH` / `HABIT` → “🔄 Planifier la routine”
+  - Autre → “✨ Générer des étapes”
+- Action :
+  - Lance le Pass 2 (enrichissement).
+  - Déploie la sheet en **plein écran**.
+- Feedback :
+  - Afficher une jauge/loader dans l’intercalaire pendant que le Pass 2 mouline.
+
+#### Bouton secondaire (Terminer)
+- Libellé i18n : “Fermer” / “Terminer” (à préciser en i18n).
+- Action : ferme la sheet.
+- Important : l’intention étant déjà persistée au Pass 1, aucune action supplémentaire n’est requise.
+
+### 4) Stabilité technique (contrats)
+- Fermer la sheet (bouton ou swipe down) ne doit **jamais** annuler l’enregistrement du Pass 1.
+- Le Pass 2 est optionnel : son annulation/fermeture n’impacte pas la row persistée.
+
+### 5) Critères d’acceptation
+- Après dictée : peek 40px immédiat (catégorie visible).
+- Dès que Pass 1 est prêt : transition vers 200px + titre clean + 2 boutons.
+- “Terminer” ferme sans effet secondaire (la row est déjà en base).
+- “Enrichir” lance Pass 2 + full screen + loader sur l’onglet.
+
 Composants principaux :
 - Capture & parsing : [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)
 - Client réseau Gemini (streaming SSE) : [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/geminiSemanticLab.ts)

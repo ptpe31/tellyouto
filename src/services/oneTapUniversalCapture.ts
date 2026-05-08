@@ -1276,6 +1276,7 @@ export type OneTapRefineOptions = {
   onPartial?: (draft: OneTapUniversalResult) => void;
   /** false = un seul aller-retour HTTP (ex. machine à intentions). */
   useStream?: boolean;
+  forceComplete?: boolean;
   /**
    * Repères `performance.now()` (Talk) pour le log terminal `[OneTapPerf] 🏁 END_TO_END_CHAIN`.
    * `t0` = fin capture, `t1` = entrée lot async (après squelette local).
@@ -1330,11 +1331,15 @@ export async function refineOneTapWithGeminiCompressed(
 
   let lastEmittedCount = 0;
   let lastPartialSig = '';
+  const normalizeIncompletes = (intents: OneTapIntentJson[]) => {
+    if (options.forceComplete) return intents.map((it) => ({ ...it, incomplete: false }));
+    return annotateIncompletes(intents, transcript, skeleton);
+  };
   const applyBuffer = (buf: string) => {
     const parsedIntents = parseBulletPipeIntentsFromBuffer(buf, useStream);
     const extractedIntents = parsedIntents.length ? parsedIntents : parseJsonIntentsFromBuffer(buf, useStream);
     if (!extractedIntents.length) return;
-    const intents = annotateIncompletes(extractedIntents, transcript, skeleton);
+    const intents = normalizeIncompletes(extractedIntents);
     const sig = intents
       .map((it) => {
         const t = String(it.type ?? '').toUpperCase();
@@ -1388,12 +1393,12 @@ export async function refineOneTapWithGeminiCompressed(
   const bp = parseBulletPipeIntentsFromBuffer(rawModelText, false);
   const extractedFinal = bp.length ? bp : parseJsonIntentsFromBuffer(rawModelText, false);
   if (extractedFinal.length) {
-    parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, annotateIncompletes(extractedFinal, transcript, skeleton));
+    parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, normalizeIncompletes(extractedFinal));
   } else {
     if (rawModelText.includes('"intents"')) {
       const forced = parseJsonIntentsFromBuffer(rawModelText, false);
       if (forced.length) {
-        parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, annotateIncompletes(forced, transcript, skeleton));
+        parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, normalizeIncompletes(forced));
       } else if (VERBOSE_DEBUG) {
         console.log('[GeminiDebug] ⚠️ INVALID_BULLET_PIPE_OUTPUT:', rawModelText.slice(0, 600));
       }

@@ -106,7 +106,12 @@
     "comfortFixed": "Créneau de départ fixe : {{time}}",
     "comfortOptimized": "Créneau de départ optimisé",
     "remindToLeave": "Me prévenir quand partir",
-    "surveillanceMissingInfo": "Ajoute une destination valide et une heure d’arrivée pour activer Newton."
+    "surveillanceMissingInfo": "Ajoute une destination valide et une heure d’arrivée pour activer Newton.",
+    "pass2List": "📝 Générer la liste",
+    "pass2Trip": "📍 Préparer le trajet",
+    "pass2Habit": "🔄 Planifier la routine",
+    "pass2Steps": "✨ Générer des étapes",
+    "finish": "Terminer"
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",

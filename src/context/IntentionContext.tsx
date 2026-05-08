@@ -461,6 +461,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           uiLocale,
           lang: params.lang,
           useStream: true,
+          forceComplete: true,
           onPartial: (partial) => {
             if (seq !== geminiSeqRef.current) return;
             if (userEditedRef.current) return;

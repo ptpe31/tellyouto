@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MD3Theme } from 'react-native-paper';
-import { Button, IconButton, Switch } from 'react-native-paper';
+import { ActivityIndicator, Button, IconButton, Switch } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import * as Haptics from 'expo-haptics';
 
@@ -42,12 +42,18 @@ import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import { reconcileSentinelForIntentionId } from '../services/traffic/sentinelReconciler';
 import { getLocationFavoriteByAlias } from '../services/traffic/locationFavorites';
-import { buildListMetadataPatch, parseListScalablePayloadFromMetadataJson, type ListScalablePayload } from '../services/listIntentionModel';
+import {
+  buildListMetadataPatch,
+  geminiJsonToStoredPayload,
+  parseListScalablePayloadFromMetadataJson,
+  type ListScalablePayload,
+} from '../services/listIntentionModel';
 import {
   buildProjectMilestonesMetadataPatch,
   parseProjectMilestonesPayloadFromMetadataJson,
   type ProjectMilestonesPayload,
 } from '../services/projectMilestonesModel';
+import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 
 type Props = {
@@ -58,6 +64,7 @@ type Props = {
   onPatchRow?: (id: string, patch: Partial<TrankilV2TimelineItemRow>) => void;
   initialPosition?: 'peek' | 'full';
   peekHeightPx?: number;
+  validationMode?: boolean;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -397,7 +404,16 @@ async function openNavigationUniversal(params: {
   await Linking.openURL(buildGoogleMapsDirectionsUrlWithOrigin({ origin, destination, mode: params.mode }));
 }
 
-export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow, initialPosition, peekHeightPx }: Props) {
+export function IntentionDetailSheet({
+  visible,
+  row,
+  theme,
+  onClose,
+  onPatchRow,
+  initialPosition,
+  peekHeightPx,
+  validationMode,
+}: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
   const peekHeight = Math.max(40, Math.round(Number(peekHeightPx ?? 40) || 40));
@@ -418,6 +434,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
   const peekTranslateY = useMemo(() => Math.max(0, sheetTargetHeight - peekHeight), [peekHeight, sheetTargetHeight]);
   const [sheetPosition, setSheetPosition] = useState<'peek' | 'full'>('full');
   const peekAutoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pass2Running, setPass2Running] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [pickerDraft, setPickerDraft] = useState<Date>(new Date());
   const [isAllDay, setIsAllDay] = useState(false);
@@ -489,6 +506,21 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
   }, [multiIntents]);
   const showSlot2 = multiIntents.length > 1;
   const showSlot3 = multiIntents.length > 2;
+  const isValidationView = Boolean(validationMode) && visible && sheetPosition === 'peek' && peekHeight >= 200;
+  const validationTitle = useMemo(() => {
+    const a = String(row?.display_title ?? '').trim();
+    if (a) return a;
+    const b = String(row?.content_raw ?? '').trim();
+    return b ? b.slice(0, 200) : '';
+  }, [row?.content_raw, row?.display_title]);
+  const pass2CtaLabel = useMemo(() => {
+    const type = String(row?.type ?? '').trim().toUpperCase();
+    const cat = String(row?.category_id ?? '').trim().toUpperCase();
+    if (type === 'LIST' || cat === 'SHOP') return t('intentionDetail.pass2List');
+    if (type === 'TRIP' || cat === 'TRAVEL') return t('intentionDetail.pass2Trip');
+    if (type === 'HABIT' || cat === 'HEALTH') return t('intentionDetail.pass2Habit');
+    return t('intentionDetail.pass2Steps');
+  }, [row?.category_id, row?.type, t]);
 
   useEffect(() => {
     if (!visible || !row || !isTrip) return;
@@ -861,7 +893,11 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
               useNativeDriver: true,
             }).start();
             if (peekAutoCloseTimer.current) clearTimeout(peekAutoCloseTimer.current);
-            peekAutoCloseTimer.current = setTimeout(closeWithSpring, 4000);
+            if (peekHeight === 40) {
+              peekAutoCloseTimer.current = setTimeout(closeWithSpring, 4000);
+            } else {
+              peekAutoCloseTimer.current = null;
+            }
           };
           const openFull = () => {
             setSheetPosition('full');
@@ -896,7 +932,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
           openFull();
         },
       }),
-    [onClose, peekTranslateY, sheetHeight, sheetPosition, translateY, windowHeight],
+    [onClose, peekHeight, peekTranslateY, sheetHeight, sheetPosition, translateY, windowHeight],
   );
 
   useEffect(() => {
@@ -928,7 +964,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
       }),
     ]).start(() => {
       setEntered(true);
-      if (startPos === 'peek') {
+      if (startPos === 'peek' && peekHeight === 40) {
         if (peekAutoCloseTimer.current) clearTimeout(peekAutoCloseTimer.current);
         peekAutoCloseTimer.current = setTimeout(() => {
           setClosing(true);
@@ -946,12 +982,98 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
         }, 4000);
       }
     });
-  }, [initialPosition, onClose, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
+  }, [initialPosition, onClose, peekHeight, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
+
+  useEffect(() => {
+    if (!visible) return;
+    if (!entered) return;
+    if (sheetPosition !== 'peek') return;
+    if (peekAutoCloseTimer.current && peekHeight !== 40) {
+      clearTimeout(peekAutoCloseTimer.current);
+      peekAutoCloseTimer.current = null;
+    }
+    translateY.stopAnimation();
+    Animated.spring(translateY, {
+      toValue: peekTranslateY,
+      damping: 28,
+      stiffness: 220,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start();
+  }, [entered, peekHeight, peekTranslateY, sheetPosition, translateY, visible]);
 
   const touchValidateTrip = async (root: Record<string, unknown>, patchTrip: Record<string, unknown>) => {
     const tMeta = getTripMeta(root);
     if (tMeta && tMeta.validatedAtMs) return patchTrip;
     return { ...patchTrip, validatedAtMs: Date.now() };
+  };
+
+  const openFullSheet = () => {
+    if (peekAutoCloseTimer.current) {
+      clearTimeout(peekAutoCloseTimer.current);
+      peekAutoCloseTimer.current = null;
+    }
+    setSheetPosition('full');
+    Animated.spring(translateY, {
+      toValue: 0,
+      damping: 28,
+      stiffness: 220,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const onPressPass2 = async () => {
+    if (!row || pass2Running) return;
+    setPass2Running(true);
+    openFullSheet();
+    try {
+      const raw = String(row.content_raw ?? '').trim();
+      const uiLocale = i18n.language || 'fr';
+      if (row.type === 'LIST') {
+        await patchMetadata(
+          row.id,
+          { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
+          { silent: true },
+        );
+        const enriched = await geminiEnrichGenericList(raw, { uiLocale, mode: 'LIST' });
+        if (enriched.mode !== 'LIST') throw new Error('LIST_ENRICH_MODE_MISMATCH');
+        const payload = geminiJsonToStoredPayload(enriched.parsed);
+        const nextTitle = validationTitle || payload.title;
+        await patchMetadata(row.id, {
+          ...buildListMetadataPatch({ ...payload, title: nextTitle }),
+          is_generating: false,
+          list_enrich_status: 'done',
+          list_enrich_error: null,
+        });
+      } else if (row.type === 'PROJECT') {
+        await patchMetadata(
+          row.id,
+          { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
+          { silent: true },
+        );
+        const enriched = await geminiEnrichGenericList(raw, { uiLocale, mode: 'PROJECT' });
+        if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
+        const payload = enriched.parsed;
+        const nextTitle = validationTitle || payload.title;
+        await patchMetadata(row.id, {
+          ...buildProjectMilestonesMetadataPatch({ ...payload, title: nextTitle }),
+          is_generating: false,
+          list_enrich_status: 'done',
+          list_enrich_error: null,
+        });
+      }
+    } catch (e) {
+      if (row) {
+        await patchMetadata(row.id, {
+          is_generating: false,
+          list_enrich_status: 'error',
+          list_enrich_error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    } finally {
+      setPass2Running(false);
+    }
   };
 
   const onToggleRemindToLeave = async () => {
@@ -1456,19 +1578,8 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
           <Pressable
             disabled={closing}
             onPress={() => {
-              if (peekAutoCloseTimer.current) {
-                clearTimeout(peekAutoCloseTimer.current);
-                peekAutoCloseTimer.current = null;
-              }
               if (sheetPosition !== 'peek') return;
-              setSheetPosition('full');
-              Animated.spring(translateY, {
-                toValue: 0,
-                damping: 28,
-                stiffness: 220,
-                mass: 0.9,
-                useNativeDriver: true,
-              }).start();
+              openFullSheet();
             }}
             style={({ pressed }) => [
               styles.peekHeader,
@@ -1477,9 +1588,12 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
           >
             <View style={styles.tabRow}>
               <View style={[styles.tabSlot, { backgroundColor: '#D6E9FF' }]}>
-                <Text style={[styles.tabText, { color: theme.colors.onSurface }]} numberOfLines={1}>
-                  {categoryTabLabel}
-                </Text>
+                <View style={styles.tabInner}>
+                  <Text style={[styles.tabText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                    {categoryTabLabel}
+                  </Text>
+                  {pass2Running ? <ActivityIndicator size={12} color={theme.colors.onSurface} /> : null}
+                </View>
               </View>
               {showSlot2 ? (
                 <View style={[styles.tabSlot, { backgroundColor: '#D7F5E8' }]}>
@@ -1497,12 +1611,31 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
               ) : null}
             </View>
           </Pressable>
-          <KeyboardAvoidingView
-            enabled={Platform.OS === 'ios'}
-            behavior="padding"
-            keyboardVerticalOffset={24}
-            style={styles.kbRoot}
-          >
+          {isValidationView ? (
+            <View style={styles.validationWrap}>
+              <Text style={[styles.validationTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+                {validationTitle || t('timeline.untitled')}
+              </Text>
+              <View style={styles.validationFooter}>
+                <Button
+                  mode="contained"
+                  disabled={pass2Running || !row || row.id === 'peek_pending'}
+                  onPress={() => void onPressPass2()}
+                >
+                  {pass2CtaLabel}
+                </Button>
+                <Button mode="outlined" disabled={pass2Running} onPress={onClose}>
+                  {t('intentionDetail.finish')}
+                </Button>
+              </View>
+            </View>
+          ) : (
+            <KeyboardAvoidingView
+              enabled={Platform.OS === 'ios'}
+              behavior="padding"
+              keyboardVerticalOffset={24}
+              style={styles.kbRoot}
+            >
             <View style={styles.fixedBlock}>
               <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelIntention')}</Text>
               <View style={styles.intentionRow}>
@@ -1551,6 +1684,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
                   onPress={() => setSourceExpanded((v) => !v)}
                 />
               </View>
+            
 
               {sourceExpanded ? (
                 <View style={styles.sourceWrap}>
@@ -2487,6 +2621,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
               </View>
             </Modal>
           </KeyboardAvoidingView>
+          )}
         </Animated.View>
       </View>
     </Modal>
@@ -2531,7 +2666,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
+  tabInner: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8 },
   tabText: { fontSize: 12, fontWeight: '800' },
+  validationWrap: { paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
+  validationTitle: { fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  validationFooter: { gap: 10 },
   fixedBlock: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
   divider: { height: StyleSheet.hairlineWidth, width: '100%', opacity: 0.65 },
   sectionLabel: { fontSize: 12, fontWeight: '700', opacity: 0.7 },

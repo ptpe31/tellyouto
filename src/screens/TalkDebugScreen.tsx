@@ -143,6 +143,7 @@ export function TalkDebugScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
+  const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(40);
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
   const [phoenixInput, setPhoenixInput] = useState('');
   const [phoenixSubmitting, setPhoenixSubmitting] = useState(false);
@@ -514,6 +515,7 @@ export function TalkDebugScreen() {
     } as unknown as TrankilV2TimelineItemRow;
     setDetailRow(peekRow);
     setDetailPosition('peek');
+    setDetailPeekHeightPx(40);
     setDetailOpen(true);
   }, []);
 
@@ -521,6 +523,7 @@ export function TalkDebugScreen() {
     setDetailOpen(false);
     setDetailRow(null);
     setDetailPosition('full');
+    setDetailPeekHeightPx(40);
   }, []);
 
   useEffect(() => {
@@ -540,6 +543,9 @@ export function TalkDebugScreen() {
           if (detailPosition !== 'peek') return prev;
           return mapped;
         });
+        if (detailOpen && detailPosition === 'peek') {
+          setDetailPeekHeightPx(200);
+        }
       })();
     });
     return () => {
@@ -937,7 +943,8 @@ export function TalkDebugScreen() {
         theme={theme}
         onClose={closeDetail}
         initialPosition={detailPosition}
-        peekHeightPx={200}
+        peekHeightPx={detailPeekHeightPx}
+        validationMode
       />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>
