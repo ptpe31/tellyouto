@@ -926,7 +926,10 @@ export class TrafficSchedulerV4 {
     const sets = cols.map(([c]) => `${c} = ?`).join(', ');
     const values = cols.map(([, v]) => v);
     await withTrankilV2Database(async (db) => {
-      await db.runAsync(`UPDATE ${this.tableName} SET ${sets} WHERE id = ?`, [...values, taskId]);
+      await db.runAsync(
+        `UPDATE ${this.tableName} SET ${sets} WHERE id = ?`,
+        [...values, taskId] as any[],
+      );
     });
   }
 

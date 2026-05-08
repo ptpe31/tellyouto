@@ -1,5 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { getTrankilV2IntentionById, withTrankilV2Database } from '../../api/trankilV2Db';
 import { consumeSentinelQuotaOnTripValidation } from '../QuotaManager';
+import { USER_SPECTRUM_STORAGE_KEY } from '../../context/UserSpectrumContext';
 import { activateSentinelTrip, ensureSentinelTripsSchema, kickSentinelAfterActivation } from './sentinelActivation';
 import { getSentinelScheduler, startSentinelRuntime } from './sentinelRuntime';
 
@@ -21,6 +24,17 @@ function msFromUnknown(v: unknown): number | null {
   const t = Date.parse(s);
   if (Number.isFinite(t)) return t;
   return null;
+}
+
+async function readIsProUserLocal(): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(USER_SPECTRUM_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { isProUser?: unknown } | null;
+    return Boolean(parsed && parsed.isProUser === true);
+  } catch {
+    return false;
+  }
 }
 
 export async function reconcileSentinelForIntentionId(intentionId: string): Promise<void> {
@@ -60,7 +74,8 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
     return;
   }
 
-  const quota = await consumeSentinelQuotaOnTripValidation();
+  const isProUser = await readIsProUserLocal();
+  const quota = await consumeSentinelQuotaOnTripValidation({ isProUser });
   const sentinelMode = quota.mode === 'STATIC' ? 'STATIC' : 'SENTINEL';
 
   await activateSentinelTrip({

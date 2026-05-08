@@ -1657,7 +1657,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                       <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
                       <View style={styles.temporalitasCardFlat}>
                         <Text style={styles.temporalitasTitle} numberOfLines={2}>
-                          {row?.title ?? t('common.projects')}
+                          {row?.display_title ?? t('timeline.untitled')}
                         </Text>
                         <View style={styles.temporalitasDividerFlat} />
                         <View style={styles.temporalitasDatesRow}>
