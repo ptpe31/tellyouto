@@ -143,7 +143,7 @@ export function TalkDebugScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
-  const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(40);
+  const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(200);
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
   const [phoenixInput, setPhoenixInput] = useState('');
   const [phoenixSubmitting, setPhoenixSubmitting] = useState(false);
@@ -515,7 +515,7 @@ export function TalkDebugScreen() {
     } as unknown as TrankilV2TimelineItemRow;
     setDetailRow(peekRow);
     setDetailPosition('peek');
-    setDetailPeekHeightPx(40);
+    setDetailPeekHeightPx(200);
     setDetailOpen(true);
   }, []);
 
@@ -523,7 +523,7 @@ export function TalkDebugScreen() {
     setDetailOpen(false);
     setDetailRow(null);
     setDetailPosition('full');
-    setDetailPeekHeightPx(40);
+    setDetailPeekHeightPx(200);
   }, []);
 
   useEffect(() => {
