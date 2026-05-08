@@ -937,6 +937,7 @@ export function TalkDebugScreen() {
         theme={theme}
         onClose={closeDetail}
         initialPosition={detailPosition}
+        peekHeightPx={200}
       />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>

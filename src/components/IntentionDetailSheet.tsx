@@ -57,6 +57,7 @@ type Props = {
   onClose: () => void;
   onPatchRow?: (id: string, patch: Partial<TrankilV2TimelineItemRow>) => void;
   initialPosition?: 'peek' | 'full';
+  peekHeightPx?: number;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -396,10 +397,10 @@ async function openNavigationUniversal(params: {
   await Linking.openURL(buildGoogleMapsDirectionsUrlWithOrigin({ origin, destination, mode: params.mode }));
 }
 
-export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow, initialPosition }: Props) {
+export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow, initialPosition, peekHeightPx }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
-  const peekHeight = 40;
+  const peekHeight = Math.max(40, Math.round(Number(peekHeightPx ?? 40) || 40));
   const translateY = useRef(new Animated.Value(0)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
   const tripControlsOpacity = useRef(new Animated.Value(0)).current;
@@ -410,7 +411,11 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
   const [sourceDraft, setSourceDraft] = useState('');
   const sourceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const windowHeight = useMemo(() => Math.max(1, Dimensions.get('window').height), []);
-  const peekTranslateY = useMemo(() => Math.max(0, windowHeight - peekHeight), [peekHeight, windowHeight]);
+  const sheetTargetHeight = useMemo(
+    () => Math.max(240, Math.round(windowHeight * (sourceExpanded ? 0.92 : 0.86))),
+    [sourceExpanded, windowHeight],
+  );
+  const peekTranslateY = useMemo(() => Math.max(0, sheetTargetHeight - peekHeight), [peekHeight, sheetTargetHeight]);
   const [sheetPosition, setSheetPosition] = useState<'peek' | 'full'>('full');
   const peekAutoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -1104,7 +1109,6 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow,
   const originDisplay = originText.trim() ? originText.trim() : t('intentionDetail.currentPosition');
   const arrivalDisplay = arrivalText.trim() ? arrivalText.trim() : favoriteArrival ? favoriteArrival : destinationLabel;
   const arrivalIsAddress = Boolean(arrivalText.trim() || favoriteArrival);
-  const sheetTargetHeight = useMemo(() => Math.max(240, Math.round(windowHeight * (sourceExpanded ? 0.92 : 0.86))), [sourceExpanded, windowHeight]);
   const projectCalendarMode = useMemo(() => {
     if (!isProject || !projectPayload) return false;
     if (projectStartDraftYmd) return true;
