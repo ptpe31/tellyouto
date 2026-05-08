@@ -6,6 +6,7 @@ import {
   Dimensions,
   Easing,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Linking,
   Modal,
   PanResponder,
@@ -15,6 +16,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,8 +28,9 @@ import * as Haptics from 'expo-haptics';
 import type { TrankilV2TimelineItemRow } from '../api';
 import {
   patchMetadata,
-  countZoomChildrenForProjectMilestone,
+  getZoomChildrenStatsForProjectMilestone,
   listZoomChildrenForProjectMilestone,
+  toggleIntentionDone,
   updateIntention,
   updateTrankilV2IntentionLocationAddress,
   updateTrankilV2IntentionTemporal,
@@ -421,8 +424,11 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [zoomModalSuccessCount, setZoomModalSuccessCount] = useState(0);
   const [zoomDots, setZoomDots] = useState('');
   const [zoomProcessingUid, setZoomProcessingUid] = useState<string | null>(null);
-  const [zoomChildrenByUid, setZoomChildrenByUid] = useState<Record<string, { id: string; title: string }[]>>({});
+  const [zoomChildrenByUid, setZoomChildrenByUid] = useState<
+    Record<string, { id: string; title: string; status: 'TODO' | 'DONE' | 'ARCHIVED' }[]>
+  >({});
   const [zoomCountByUid, setZoomCountByUid] = useState<Record<string, number>>({});
+  const [zoomDoneByUid, setZoomDoneByUid] = useState<Record<string, number>>({});
   const [zoomExpandedByUid, setZoomExpandedByUid] = useState<Record<string, boolean>>({});
   const zoomModalUidRef = useRef<string | null>(null);
 
@@ -432,6 +438,14 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const isProject = Boolean(row && row.type === 'PROJECT');
   const isList = Boolean(row && row.type === 'LIST');
   const isGenerating = Boolean(meta && (meta as Record<string, unknown>).is_generating);
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      const fn = (UIManager as unknown as { setLayoutAnimationEnabledExperimental?: (enabled: boolean) => void })
+        .setLayoutAnimationEnabledExperimental;
+      fn?.(true);
+    }
+  }, []);
 
   useEffect(() => {
     const next = String(row?.display_title ?? '').trim();
@@ -1037,16 +1051,41 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     let cancelled = false;
     void (async () => {
       const next: Record<string, number> = {};
+      const nextDone: Record<string, number> = {};
       for (const m of projectSchedule.items) {
-        next[m.uid] = await countZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: m.uid });
+        const stats = await getZoomChildrenStatsForProjectMilestone({ projectId: row.id, parentJalonUid: m.uid });
+        next[m.uid] = stats.total;
+        nextDone[m.uid] = stats.done;
       }
       if (cancelled) return;
       setZoomCountByUid(next);
+      setZoomDoneByUid(nextDone);
     })();
     return () => {
       cancelled = true;
     };
   }, [isProject, projectSchedule.items, row]);
+
+  const openZoomAccordion = async (uid: string) => {
+    if (!row) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setZoomExpandedByUid((prev) => {
+      const out: Record<string, boolean> = {};
+      for (const k of Object.keys(prev)) out[k] = false;
+      out[uid] = true;
+      return out;
+    });
+    const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+    const stats = await getZoomChildrenStatsForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+    setZoomChildrenByUid((prev) => ({ ...prev, [uid]: children }));
+    setZoomCountByUid((prev) => ({ ...prev, [uid]: stats.total }));
+    setZoomDoneByUid((prev) => ({ ...prev, [uid]: stats.done }));
+  };
+
+  const closeZoomAccordion = (uid: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setZoomExpandedByUid((prev) => ({ ...prev, [uid]: false }));
+  };
 
   const confirmProjectReplan = async () => {
     if (!row || !projectPayload) return;
@@ -1636,9 +1675,12 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                               const isLast = idx === projectSchedule.items.length - 1;
                               const zoomChildren = zoomChildrenByUid[m.uid] ?? [];
                               const zoomCount = Number(zoomCountByUid[m.uid] ?? 0);
+                              const zoomDone = Number(zoomDoneByUid[m.uid] ?? 0);
                               const zoomExpanded = zoomExpandedByUid[m.uid] ?? false;
                               const zoomBusy = zoomProcessingUid === m.uid;
                               const zoomLocked = zoomBusy;
+                              const zoomPct = zoomCount > 0 ? Math.max(0, Math.min(1, zoomDone / zoomCount)) : 0;
+                              const zoomBadgeLabel = zoomCount > 0 ? t('project.step_count', { count: zoomCount }) : t('project.add_steps');
                               return (
                                 <React.Fragment key={m.uid}>
                                   <Pressable
@@ -1666,41 +1708,65 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                     >
                                       <Text style={[styles.milestoneCheck, checked ? styles.milestoneCheckOn : null]}>{checked ? '✓' : ''}</Text>
                                     </Pressable>
-                                    <View style={styles.milestoneTextColFlat}>
+                                    <Pressable
+                                      onPress={() => {
+                                        if (zoomLocked) return;
+                                        if (zoomCount <= 0) {
+                                          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                          setZoomModalUid(m.uid);
+                                          setZoomModalPhase('confirm');
+                                          setZoomModalSuccessCount(0);
+                                          return;
+                                        }
+                                        if (zoomExpanded) {
+                                          closeZoomAccordion(m.uid);
+                                        } else {
+                                          void openZoomAccordion(m.uid);
+                                        }
+                                      }}
+                                      disabled={zoomLocked}
+                                      style={({ pressed }) => [styles.milestoneTextColFlat, pressed ? { opacity: 0.9 } : null]}
+                                    >
                                       <Text
-                                        style={[styles.milestoneTitleFlat, checked ? styles.milestoneTitleDoneFlat : null]}
+                                        style={[
+                                          styles.milestoneTitleFlat,
+                                          zoomExpanded ? styles.milestoneTitleExpanded : null,
+                                          checked ? styles.milestoneTitleDoneFlat : null,
+                                        ]}
                                         numberOfLines={2}
                                       >
                                         {m.title}
                                       </Text>
+                                      {zoomExpanded && zoomCount > 0 ? (
+                                        <View style={styles.zoomProgressTrack}>
+                                          <View style={[styles.zoomProgressFill, { width: `${Math.round(zoomPct * 100)}%` }]} />
+                                        </View>
+                                      ) : null}
                                       <Text style={styles.milestoneMetaFlat} numberOfLines={1}>
                                         {zoomBusy ? t('project.status_processing') : m.label}
                                       </Text>
-                                    </View>
-                                    {zoomCount > 0 ? (
-                                      <Pressable
-                                        onPress={() => {
-                                          if (!row) return;
-                                          if (zoomLocked) return;
-                                          const nextOpen = !zoomExpanded;
-                                          setZoomExpandedByUid((prev) => {
-                                            const out: Record<string, boolean> = {};
-                                            for (const k of Object.keys(prev)) out[k] = false;
-                                            if (nextOpen) out[m.uid] = true;
-                                            return out;
-                                          });
-                                          if (!nextOpen) return;
-                                          void (async () => {
-                                            const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: m.uid });
-                                            setZoomChildrenByUid((prev) => ({ ...prev, [m.uid]: children }));
-                                          })();
-                                        }}
-                                        disabled={zoomLocked}
-                                        style={({ pressed }) => [styles.zoomBadge, pressed ? { opacity: 0.7 } : null]}
-                                      >
-                                        <Text style={styles.zoomBadgeText}>{t('project.step_count', { count: zoomCount })}</Text>
-                                      </Pressable>
-                                    ) : null}
+                                    </Pressable>
+                                    <Pressable
+                                      onPress={() => {
+                                        if (zoomLocked) return;
+                                        if (zoomCount <= 0) {
+                                          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                          setZoomModalUid(m.uid);
+                                          setZoomModalPhase('confirm');
+                                          setZoomModalSuccessCount(0);
+                                          return;
+                                        }
+                                        if (zoomExpanded) {
+                                          closeZoomAccordion(m.uid);
+                                        } else {
+                                          void openZoomAccordion(m.uid);
+                                        }
+                                      }}
+                                      disabled={zoomLocked}
+                                      style={({ pressed }) => [styles.zoomBadge, pressed ? { opacity: 0.7 } : null]}
+                                    >
+                                      <Text style={styles.zoomBadgeText}>{zoomBadgeLabel}</Text>
+                                    </Pressable>
                                     <Pressable
                                       onPress={() => console.log('Open Modal')}
                                       disabled={zoomLocked}
@@ -1716,39 +1782,71 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                       />
                                     </Pressable>
                                   </Pressable>
-                                  {zoomBusy ? (
-                                    <View style={styles.zoomChildrenWrap}>
-                                      {[0, 1].map((k) => (
-                                        <View key={`zsk-${m.uid}-${k}`} style={styles.zoomChildRow}>
-                                          <View style={styles.zoomConnectorCol}>
-                                            <View style={styles.zoomConnectorV} />
-                                            <View style={styles.zoomConnectorH} />
-                                          </View>
-                                          <View style={styles.zoomChildTextCol}>
-                                            <Animated.View style={[styles.skeletonBarTitle, { opacity: skeletonPulse }]} />
-                                            <Animated.View style={[styles.skeletonBarMeta, { opacity: skeletonPulse }]} />
-                                          </View>
-                                        </View>
-                                      ))}
-                                    </View>
-                                  ) : zoomCount > 0 && zoomExpanded ? (
-                                    <View style={styles.zoomChildrenWrap}>
-                                      {zoomChildren.map((c) => (
-                                        <View key={c.id} style={styles.zoomChildRow}>
-                                          <View style={styles.zoomConnectorCol}>
-                                            <View style={styles.zoomConnectorV} />
-                                            <View style={styles.zoomConnectorH} />
-                                          </View>
-                                          <View style={styles.zoomChildTextCol}>
-                                            <Text style={styles.zoomChildTitle} numberOfLines={2}>
-                                              {c.title}
-                                            </Text>
-                                            <Text style={styles.zoomChildMeta} numberOfLines={1}>
-                                              —
-                                            </Text>
-                                          </View>
-                                        </View>
-                                      ))}
+                                  {zoomBusy || zoomExpanded ? (
+                                    <View style={styles.zoomPanel}>
+                                      {zoomBusy ? (
+                                        <>
+                                          {[0, 1].map((k) => (
+                                            <View key={`zsk-${m.uid}-${k}`} style={styles.zoomChildRowV34}>
+                                              <View style={styles.zoomConnectorColV34}>
+                                                <View style={styles.zoomConnectorV} />
+                                                <View style={styles.zoomConnectorH} />
+                                              </View>
+                                              <View style={styles.zoomChildTextColV34}>
+                                                <Animated.View style={[styles.skeletonBarTitle, { opacity: skeletonPulse }]} />
+                                                <Animated.View style={[styles.skeletonBarMeta, { opacity: skeletonPulse }]} />
+                                              </View>
+                                            </View>
+                                          ))}
+                                        </>
+                                      ) : zoomCount > 0 ? (
+                                        <>
+                                          {zoomChildren.map((c) => {
+                                            const cDone = c.status === 'DONE';
+                                            return (
+                                              <View key={c.id} style={styles.zoomChildRowV34}>
+                                                <Pressable
+                                                  onPress={() => {
+                                                    if (zoomLocked) return;
+                                                    void (async () => {
+                                                      await toggleIntentionDone(c.id);
+                                                      const children = await listZoomChildrenForProjectMilestone({
+                                                        projectId: row?.id ?? '',
+                                                        parentJalonUid: m.uid,
+                                                      });
+                                                      const stats = await getZoomChildrenStatsForProjectMilestone({
+                                                        projectId: row?.id ?? '',
+                                                        parentJalonUid: m.uid,
+                                                      });
+                                                      setZoomChildrenByUid((prev) => ({ ...prev, [m.uid]: children }));
+                                                      setZoomCountByUid((prev) => ({ ...prev, [m.uid]: stats.total }));
+                                                      setZoomDoneByUid((prev) => ({ ...prev, [m.uid]: stats.done }));
+                                                    })();
+                                                  }}
+                                                  style={({ pressed }) => [
+                                                    styles.zoomChildCircle,
+                                                    cDone ? styles.zoomChildCircleChecked : null,
+                                                    pressed ? { opacity: 0.85 } : null,
+                                                  ]}
+                                                  accessibilityRole="checkbox"
+                                                  accessibilityState={{ checked: cDone }}
+                                                >
+                                                  <Text style={[styles.zoomChildCheck, cDone ? styles.zoomChildCheckOn : null]}>{cDone ? '✓' : ''}</Text>
+                                                </Pressable>
+                                                <View style={styles.zoomConnectorColV34}>
+                                                  <View style={styles.zoomConnectorV} />
+                                                  <View style={styles.zoomConnectorH} />
+                                                </View>
+                                                <View style={styles.zoomChildTextColV34}>
+                                                  <Text style={styles.zoomChildTitleV34} numberOfLines={2}>
+                                                    {c.title}
+                                                  </Text>
+                                                </View>
+                                              </View>
+                                            );
+                                          })}
+                                        </>
+                                      ) : null}
                                     </View>
                                   ) : null}
                                 </React.Fragment>
@@ -2026,11 +2124,12 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                 });
                                 if (res.ok) {
                                   const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
-                                  const count = await countZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+                                  const stats = await getZoomChildrenStatsForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
                                   setZoomChildrenByUid((prev) => ({ ...prev, [uid]: children }));
-                                  setZoomCountByUid((prev) => ({ ...prev, [uid]: count }));
+                                  setZoomCountByUid((prev) => ({ ...prev, [uid]: stats.total }));
+                                  setZoomDoneByUid((prev) => ({ ...prev, [uid]: stats.done }));
                                   if (zoomModalUidRef.current === uid) {
-                                    setZoomModalSuccessCount(count);
+                                    setZoomModalSuccessCount(stats.total);
                                     setZoomModalPhase('success');
                                   }
                                 } else {
@@ -2061,16 +2160,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                           setZoomModalUid(null);
                           setZoomModalPhase('confirm');
                           setZoomModalSuccessCount(0);
-                          setZoomExpandedByUid((prev) => {
-                            const out: Record<string, boolean> = {};
-                            for (const k of Object.keys(prev)) out[k] = false;
-                            out[uid] = true;
-                            return out;
-                          });
-                          void (async () => {
-                            const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
-                            setZoomChildrenByUid((prev) => ({ ...prev, [uid]: children }));
-                          })();
+                          void openZoomAccordion(uid);
                         }}
                         style={styles.zoomModalBtn}
                       >
@@ -2161,18 +2251,30 @@ const styles = StyleSheet.create({
   milestoneCheck: { fontSize: 12, fontWeight: '800', color: 'transparent' },
   milestoneCheckOn: { color: '#ffffff' },
   milestoneTextColFlat: { flex: 1, minWidth: 0, gap: 4 },
-  milestoneTitleFlat: { fontSize: 14, fontWeight: '600', color: '#000000' },
+  milestoneTitleFlat: { fontSize: 14, fontWeight: '500', color: '#000000' },
+  milestoneTitleExpanded: { fontWeight: '600' },
   milestoneTitleDoneFlat: { color: '#64748b', textDecorationLine: 'line-through' },
   milestoneMetaFlat: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
   milestoneMenuBtnFlat: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   milestoneMenuIconFlat: { margin: 0, padding: 0 },
   zoomBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#f1f5f9' },
   zoomBadgeText: { fontSize: 12, fontWeight: '800', color: '#0f172a' },
+  zoomProgressTrack: { height: 2, borderRadius: 2, backgroundColor: '#e5e7eb', overflow: 'hidden' },
+  zoomProgressFill: { height: 2, borderRadius: 2, backgroundColor: '#0f766e' },
+  zoomPanel: { marginLeft: 20, marginRight: 14, marginBottom: 8, marginTop: -2, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.03)' },
+  zoomChildRowV34: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 12, paddingRight: 12, paddingVertical: 10 },
+  zoomChildCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
+  zoomChildCircleChecked: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
+  zoomChildCheck: { fontSize: 10, fontWeight: '800', color: 'transparent' },
+  zoomChildCheckOn: { color: '#ffffff' },
+  zoomConnectorColV34: { width: 16, height: 18, position: 'relative' },
+  zoomChildTextColV34: { flex: 1, minWidth: 0 },
+  zoomChildTitleV34: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
   zoomChildrenWrap: { paddingLeft: 16, paddingBottom: 6 },
   zoomChildRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingLeft: 14, paddingRight: 14, paddingTop: 10 },
   zoomConnectorCol: { width: 22, height: 22, position: 'relative' },
-  zoomConnectorV: { position: 'absolute', left: 10, top: -10, bottom: 0, width: StyleSheet.hairlineWidth, backgroundColor: '#e2e8f0' },
-  zoomConnectorH: { position: 'absolute', left: 10, top: 11, width: 10, height: StyleSheet.hairlineWidth, backgroundColor: '#e2e8f0' },
+  zoomConnectorV: { position: 'absolute', left: 7, top: -6, bottom: 0, width: StyleSheet.hairlineWidth, backgroundColor: '#cbd5e1' },
+  zoomConnectorH: { position: 'absolute', left: 7, top: 9, width: 9, height: StyleSheet.hairlineWidth, backgroundColor: '#cbd5e1' },
   zoomChildTextCol: { flex: 1, minWidth: 0, gap: 4, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e7eb' },
   zoomChildTitle: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
   zoomChildMeta: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },

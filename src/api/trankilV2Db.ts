@@ -2392,10 +2392,32 @@ export async function countZoomChildrenForProjectMilestone(params: {
   return Number(row?.n ?? 0);
 }
 
+export async function getZoomChildrenStatsForProjectMilestone(params: {
+  projectId: string;
+  parentJalonUid: string;
+}): Promise<{ total: number; done: number }> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const pid = String(params.projectId || '').trim();
+  const uid = String(params.parentJalonUid || '').trim();
+  if (!pid || !uid) return { total: 0, done: 0 };
+  const like = `%\"zoom_parent_jalon_uid\":\"${uid.replace(/"/g, '\\"')}\"%`;
+  const row = await db.getFirstAsync<{ total: number; done: number }>(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) AS done
+     FROM intentions
+     WHERE parent_id = ?
+       AND metadata_json LIKE ?`,
+    [pid, like],
+  );
+  return { total: Number(row?.total ?? 0), done: Number(row?.done ?? 0) };
+}
+
 export async function listZoomChildrenForProjectMilestone(params: {
   projectId: string;
   parentJalonUid: string;
-}): Promise<Array<{ id: string; title: string }>> {
+}): Promise<Array<{ id: string; title: string; status: TrankilIntentStatus }>> {
   await initTrankilV2Schema();
   const db = await getDb();
   const pid = String(params.projectId || '').trim();
@@ -2403,8 +2425,8 @@ export async function listZoomChildrenForProjectMilestone(params: {
   if (!pid || !uid) return [];
   const like = `%\"zoom_parent_jalon_uid\":\"${uid.replace(/"/g, '\\"')}\"%`;
   const rows =
-    (await db.getAllAsync<{ id: string; title: string }>(
-      `SELECT id, title
+    (await db.getAllAsync<{ id: string; title: string; status: TrankilIntentStatus }>(
+      `SELECT id, title, status
        FROM intentions
        WHERE parent_id = ?
          AND metadata_json LIKE ?
@@ -2412,7 +2434,11 @@ export async function listZoomChildrenForProjectMilestone(params: {
       [pid, like],
     )) ?? [];
   return rows
-    .map((r) => ({ id: String(r.id || '').trim(), title: String(r.title || '').trim() }))
+    .map((r) => ({
+      id: String(r.id || '').trim(),
+      title: String(r.title || '').trim(),
+      status: (r.status as TrankilIntentStatus) ?? 'TODO',
+    }))
     .filter((x) => x.id && x.title);
 }
 
