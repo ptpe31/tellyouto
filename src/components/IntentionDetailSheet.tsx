@@ -56,6 +56,7 @@ type Props = {
   theme: MD3Theme;
   onClose: () => void;
   onPatchRow?: (id: string, patch: Partial<TrankilV2TimelineItemRow>) => void;
+  initialPosition?: 'peek' | 'full';
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -127,6 +128,17 @@ function parseDueDate(due_date: string | null): { date: Date; hasTime: boolean }
   }
   const iso = new Date(raw);
   if (Number.isFinite(iso.getTime())) return { date: iso, hasTime: true };
+  return null;
+}
+
+function categoryLabelKey(raw: string | null | undefined): string | null {
+  const up = String(raw || '').trim().toUpperCase();
+  if (!up) return null;
+  if (up === 'FAMILLE') return 'category.HOME';
+  if (up === 'PRO') return 'category.WORK';
+  if (['HOME', 'WORK', 'PERSO', 'HEALTH', 'FINANCE', 'TRAVEL', 'SOCIAL', 'SHOP', 'LEARN', 'OTHER'].includes(up)) {
+    return `category.${up}`;
+  }
   return null;
 }
 
@@ -384,9 +396,10 @@ async function openNavigationUniversal(params: {
   await Linking.openURL(buildGoogleMapsDirectionsUrlWithOrigin({ origin, destination, mode: params.mode }));
 }
 
-export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow }: Props) {
+export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow, initialPosition }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
+  const peekHeight = 40;
   const translateY = useRef(new Animated.Value(0)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
   const tripControlsOpacity = useRef(new Animated.Value(0)).current;
@@ -397,6 +410,9 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [sourceDraft, setSourceDraft] = useState('');
   const sourceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const windowHeight = useMemo(() => Math.max(1, Dimensions.get('window').height), []);
+  const peekTranslateY = useMemo(() => Math.max(0, windowHeight - peekHeight), [peekHeight, windowHeight]);
+  const [sheetPosition, setSheetPosition] = useState<'peek' | 'full'>('full');
+  const peekAutoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [pickerDraft, setPickerDraft] = useState<Date>(new Date());
   const [isAllDay, setIsAllDay] = useState(false);
@@ -446,6 +462,28 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const isProject = Boolean(row && row.type === 'PROJECT');
   const isList = Boolean(row && row.type === 'LIST');
   const isGenerating = Boolean(meta && (meta as Record<string, unknown>).is_generating);
+  const categoryTabLabel = useMemo(() => {
+    const key = categoryLabelKey(row?.category_id);
+    if (key) return t(key);
+    const raw = String(row?.category_id ?? '').trim();
+    return raw ? raw : t('category.OTHER');
+  }, [row?.category_id, t]);
+  const multiIntents = useMemo(() => {
+    const raw = (meta as any)?.intents;
+    return Array.isArray(raw) ? raw : [];
+  }, [meta]);
+  const slot2Label = useMemo(() => {
+    const it = multiIntents[1] as any;
+    const v = typeof it?.type === 'string' ? it.type : '';
+    return v ? v : '2';
+  }, [multiIntents]);
+  const slot3Label = useMemo(() => {
+    const it = multiIntents[2] as any;
+    const v = typeof it?.type === 'string' ? it.type : '';
+    return v ? v : '3';
+  }, [multiIntents]);
+  const showSlot2 = multiIntents.length > 1;
+  const showSlot3 = multiIntents.length > 2;
 
   useEffect(() => {
     if (!visible || !row || !isTrip) return;
@@ -781,35 +819,79 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
         onPanResponderMove: (_, g) => {
-          if (g.dy <= 0) return;
-          translateY.setValue(g.dy);
+          if (peekAutoCloseTimer.current) {
+            clearTimeout(peekAutoCloseTimer.current);
+            peekAutoCloseTimer.current = null;
+          }
+          if (sheetPosition === 'full') {
+            if (g.dy <= 0) return;
+            translateY.setValue(g.dy);
+            return;
+          }
+          const next = Math.max(0, Math.min(windowHeight, peekTranslateY + g.dy));
+          translateY.setValue(next);
         },
         onPanResponderRelease: (_, g) => {
-          const refH = sheetHeight > 0 ? sheetHeight : windowHeight;
-          const shouldClose = g.vy > 0.8 || g.dy > Math.min(220, refH * 0.25);
-          if (shouldClose) {
+          const closeWithSpring = () => {
             setClosing(true);
-            Animated.timing(translateY, {
+            Animated.spring(translateY, {
               toValue: windowHeight,
-              duration: 260,
-              easing: Easing.out(Easing.quad),
+              damping: 30,
+              stiffness: 220,
+              mass: 0.9,
               useNativeDriver: true,
             }).start(() => {
               setClosing(false);
               translateY.setValue(0);
               onClose();
             });
+          };
+          const snapPeek = () => {
+            setSheetPosition('peek');
+            Animated.spring(translateY, {
+              toValue: peekTranslateY,
+              damping: 28,
+              stiffness: 220,
+              mass: 0.9,
+              useNativeDriver: true,
+            }).start();
+            if (peekAutoCloseTimer.current) clearTimeout(peekAutoCloseTimer.current);
+            peekAutoCloseTimer.current = setTimeout(closeWithSpring, 4000);
+          };
+          const openFull = () => {
+            setSheetPosition('full');
+            Animated.spring(translateY, {
+              toValue: 0,
+              damping: 28,
+              stiffness: 220,
+              mass: 0.9,
+              useNativeDriver: true,
+            }).start();
+          };
+
+          if (sheetPosition === 'peek') {
+            if (g.vy > 0.85 && g.dy > 40) {
+              closeWithSpring();
+              return;
+            }
+            if (g.dy < -60) {
+              openFull();
+              return;
+            }
+            snapPeek();
             return;
           }
-          Animated.timing(translateY, {
-            toValue: 0,
-            duration: 260,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }).start();
+
+          const refH = sheetHeight > 0 ? sheetHeight : windowHeight;
+          const shouldClose = g.vy > 0.8 || g.dy > Math.min(220, refH * 0.25);
+          if (shouldClose) {
+            closeWithSpring();
+            return;
+          }
+          openFull();
         },
       }),
-    [onClose, sheetHeight, translateY, windowHeight],
+    [onClose, peekTranslateY, sheetHeight, sheetPosition, translateY, windowHeight],
   );
 
   useEffect(() => {
@@ -817,21 +899,49 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
       setEntered(false);
       sheetOpacity.setValue(0);
       translateY.setValue(0);
+      setSheetPosition('full');
+      if (peekAutoCloseTimer.current) {
+        clearTimeout(peekAutoCloseTimer.current);
+        peekAutoCloseTimer.current = null;
+      }
       return;
     }
     setEntered(false);
     sheetOpacity.setValue(0);
     translateY.setValue(windowHeight);
+    const startPos: 'peek' | 'full' = initialPosition === 'peek' ? 'peek' : 'full';
+    setSheetPosition(startPos);
+    const targetY = startPos === 'peek' ? peekTranslateY : 0;
     Animated.parallel([
       Animated.timing(sheetOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 460,
-        easing: Easing.out(Easing.quad),
+      Animated.spring(translateY, {
+        toValue: targetY,
+        damping: 28,
+        stiffness: 220,
+        mass: 0.9,
         useNativeDriver: true,
       }),
-    ]).start(() => setEntered(true));
-  }, [sheetOpacity, translateY, visible, windowHeight]);
+    ]).start(() => {
+      setEntered(true);
+      if (startPos === 'peek') {
+        if (peekAutoCloseTimer.current) clearTimeout(peekAutoCloseTimer.current);
+        peekAutoCloseTimer.current = setTimeout(() => {
+          setClosing(true);
+          Animated.spring(translateY, {
+            toValue: windowHeight,
+            damping: 30,
+            stiffness: 220,
+            mass: 0.9,
+            useNativeDriver: true,
+          }).start(() => {
+            setClosing(false);
+            translateY.setValue(0);
+            onClose();
+          });
+        }, 4000);
+      }
+    });
+  }, [initialPosition, onClose, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
 
   const touchValidateTrip = async (root: Record<string, unknown>, patchTrip: Record<string, unknown>) => {
     const tMeta = getTripMeta(root);
@@ -1339,7 +1449,50 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
           ]}
           {...panResponder.panHandlers}
         >
-          <View style={[styles.grabber, { backgroundColor: theme.colors.outlineVariant }]} />
+          <Pressable
+            disabled={closing}
+            onPress={() => {
+              if (peekAutoCloseTimer.current) {
+                clearTimeout(peekAutoCloseTimer.current);
+                peekAutoCloseTimer.current = null;
+              }
+              if (sheetPosition !== 'peek') return;
+              setSheetPosition('full');
+              Animated.spring(translateY, {
+                toValue: 0,
+                damping: 28,
+                stiffness: 220,
+                mass: 0.9,
+                useNativeDriver: true,
+              }).start();
+            }}
+            style={({ pressed }) => [
+              styles.peekHeader,
+              { borderTopColor: theme.colors.outlineVariant, opacity: pressed ? 0.92 : 1 },
+            ]}
+          >
+            <View style={styles.tabRow}>
+              <View style={[styles.tabSlot, { backgroundColor: '#D6E9FF' }]}>
+                <Text style={[styles.tabText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                  {categoryTabLabel}
+                </Text>
+              </View>
+              {showSlot2 ? (
+                <View style={[styles.tabSlot, { backgroundColor: '#D7F5E8' }]}>
+                  <Text style={[styles.tabText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                    {slot2Label}
+                  </Text>
+                </View>
+              ) : null}
+              {showSlot3 ? (
+                <View style={[styles.tabSlot, { backgroundColor: '#E8DCFF' }]}>
+                  <Text style={[styles.tabText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                    {slot3Label}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </Pressable>
           <KeyboardAvoidingView
             enabled={Platform.OS === 'ios'}
             behavior="padding"
@@ -2342,11 +2495,21 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
-    paddingTop: 10,
+    paddingTop: 0,
     overflow: 'hidden',
   },
   kbRoot: { flex: 1 },
   grabber: { alignSelf: 'center', width: 56, height: 5, borderRadius: 5, marginBottom: 12 },
+  peekHeader: {
+    height: 40,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  tabRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  tabSlot: { flex: 1, minWidth: 0, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  tabText: { fontSize: 12, fontWeight: '800' },
   fixedBlock: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
   divider: { height: StyleSheet.hairlineWidth, width: '100%', opacity: 0.65 },
   sectionLabel: { fontSize: 12, fontWeight: '700', opacity: 0.7 },

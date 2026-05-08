@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   bulkTrankilV2TaskChildStatsByParentIds,
+  getLastTrankilV2IntentionRaw,
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2TimelineItemsByDate,
@@ -349,6 +350,7 @@ export function TimelineScreen() {
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
+  const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
@@ -361,6 +363,16 @@ export function TimelineScreen() {
 
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
     setDetailRow(r);
+    setDetailPosition('full');
+    setDetailOpen(true);
+  }, []);
+
+  const openLastIntentionPeek = useCallback(async () => {
+    const last = await getLastTrankilV2IntentionRaw();
+    if (!last) return;
+    const mapped = mapTrankilIntentionToTimelineItemRow(last);
+    setDetailRow(mapped);
+    setDetailPosition('peek');
     setDetailOpen(true);
   }, []);
 
@@ -374,6 +386,7 @@ export function TimelineScreen() {
   const closeDetail = useCallback(() => {
     setDetailOpen(false);
     setDetailRow(null);
+    setDetailPosition('full');
   }, []);
 
   useFocusEffect(
@@ -1120,6 +1133,7 @@ export function TimelineScreen() {
         theme={theme}
         onClose={closeDetail}
         onPatchRow={patchRow}
+        initialPosition={detailPosition}
       />
 
       <TimelineFilterModal
@@ -1151,6 +1165,7 @@ export function TimelineScreen() {
       >
         <TalkCaptureMicButton
           compact
+          onValidated={() => void openLastIntentionPeek()}
           onCaptureEnd={({ transcript }) => {
             DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, {
               mode: 'quick',

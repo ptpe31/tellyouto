@@ -320,6 +320,53 @@ Contrat d’affichage :
 - Newton n’apparaît jamais tant que destination valide + heure précise ne sont pas réunies.
 - Un trajet “All Day” ne peut pas afficher Newton (car heure imprécise), et doit afficher l’indicateur “infos manquantes” si Mission activée.
 
+---
+
+## IntentionDetailSheet — Intercalaires (Header à 3 slots) + Peek
+
+Objectif : ajouter une armature d’intercalaires (onglets) dans le header de `IntentionDetailSheet` et une cinématique “peek” après validation de la dictée, sans modifier la logique interne ni le contenu des fiches.
+
+### 1) Intégrité du contenu (contrainte absolue)
+- Ne pas modifier le corps de la BottomSheet : tous les contenus existants (Trip, Liste, Projet, Habitude, etc.) restent strictement identiques une fois la sheet déployée.
+- Les intercalaires ne sont qu’un header visuel + poignée de tirage, solidaire du haut de la fiche lors du déploiement.
+- L’IA peut continuer à remplir/enrichir la fiche en arrière-plan pendant que la sheet est en position “peek”.
+
+### 2) Structure des intercalaires (armature à 3 slots)
+Refonte limitée au **header** de `IntentionDetailSheet` :
+
+- 3 slots d’onglets **fixes** (slot 1/2/3) dans un container horizontal.
+- Design : forme arrondie “onglet de navigateur / intercalaire”.
+- Slot 1 :
+  - Affiche le **nom de la catégorie IA** en texte clair.
+  - La catégorie est la valeur existante de l’intention (ex. `category_id`) rendue en label i18n.
+- Slots 2 & 3 :
+  - Masqués par défaut.
+  - Ne s’activent que pour des intentions multiples (multi‑items / multi‑résultats), sans changer la logique des fiches.
+  - Règle d’activation : uniquement si une source amont fournit un “multiple” (ex. `draft.data.intents.length > 1` ou équivalent), sinon invisibles.
+
+#### Couleurs (pastels uniquement)
+- Utiliser des fonds pastels : Bleu / Vert / Violet.
+- Interdits : Rose, Rouge, Orange.
+- Le texte doit rester lisible (contraste suffisant).
+
+### 3) Cinématique “Peek” (40px)
+Au moment où la dictée est validée (après le “OK vert”) :
+
+- Montée fluide : la sheet monte en position **collapsed** à **40px** de hauteur (seul le header/intercalaire visible en bas de l’écran).
+- Le header sert de poignée : c’est la seule zone visible à 40px.
+- Physique : animation `spring` avec damping élevé et stiffness modérée (glissement organique).
+- Auto‑fermeture : si aucune interaction après **4 secondes**, la sheet redescend (retour à hidden).
+
+#### Interactions attendues
+- Swipe up depuis le “peek” : déploie la sheet et affiche le contenu existant.
+- Swipe down / fermeture : conserve la logique actuelle.
+
+### 4) Critères d’acceptation
+- Après validation de la dictée, le mode “peek 40px” est visible et stable.
+- À 40px, seul le header (intercalaire) est visible ; aucun contenu de la fiche ne dépasse.
+- Sans interaction utilisateur, la sheet se ferme automatiquement après 4 secondes.
+- L’ajout d’intercalaires ne casse aucune feature existante (édition, toggles, itinerary, listes, projets, etc.).
+
 Composants principaux :
 - Capture & parsing : [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)
 - Client réseau Gemini (streaming SSE) : [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/geminiSemanticLab.ts)

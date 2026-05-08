@@ -74,6 +74,7 @@ export {
   getTrankilV2IntentionById,
   getProjectsAndLists,
   bootstrapTrankilV2Database,
+  getLastTrankilV2IntentionRaw,
 } from './trankilV2Db';
 export type {
   TrankilIntentStatus,
