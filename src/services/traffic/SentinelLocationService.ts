@@ -1,5 +1,3 @@
-import * as Location from 'expo-location';
-
 type CachedPosition = {
   lat: number;
   lng: number;
@@ -15,6 +13,7 @@ export async function getForegroundOriginSnapshot(params?: {
   const maxAgeMs = Math.max(0, Math.round(params?.maxAgeMs ?? 60_000));
   if (lastPosition && nowMs - lastPosition.capturedAtMs <= maxAgeMs) return lastPosition;
 
+  const Location = await import('expo-location');
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== Location.PermissionStatus.GRANTED) {
     throw new Error('Location permission denied');

@@ -506,11 +506,54 @@ export class TrafficSchedulerV4 {
     let originLat = task.originLat;
     let originLng = task.originLng;
     if ((originLat == null || originLng == null) && reason === 'SCAN1_INITIAL') {
-      const pos = await getForegroundOriginSnapshot({ maxAgeMs: 60_000 });
-      originLat = pos.lat;
-      originLng = pos.lng;
-      patch.originLat = originLat;
-      patch.originLng = originLng;
+      try {
+        const pos = await getForegroundOriginSnapshot({ maxAgeMs: 60_000 });
+        originLat = pos.lat;
+        originLng = pos.lng;
+        patch.originLat = originLat;
+        patch.originLng = originLng;
+      } catch {
+        patch.lastErrorAt = nowMs;
+        patch.status = 'ERROR';
+        patch.modeSafety = true;
+        patch.vigilanceStatus = 'VIGILANCE_RED';
+        patch.stateVersion = task.stateVersion + 1;
+        patch.displayedTOptimisteMs = task.displayedTOptimisteMs ?? nowMs;
+        patch.displayedTPessimisteMs = task.displayedTPessimisteMs ?? nowMs;
+        patch.lastUiUpdateAtMs = nowMs;
+        return {
+          patch,
+          ui: {
+            stateVersion: patch.stateVersion,
+            displayedStartMs: patch.displayedTOptimisteMs,
+            displayedEndMs: patch.displayedTPessimisteMs,
+            internalStartMs: patch.displayedTOptimisteMs,
+            internalEndMs: patch.displayedTPessimisteMs,
+            flowMode: 'REAL',
+            vFlowSecPerMin: task.vFlowSecPerMin,
+            nextRealScanAtMs: null,
+            nextRealScanReason: null,
+            apiCallsTotal: task.apiCallsTotal,
+            apiCallsAvoidedCache: task.apiCallsAvoidedCache,
+            apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
+          },
+          trace: {
+            displayedStartMs: patch.displayedTOptimisteMs,
+            displayedEndMs: patch.displayedTPessimisteMs,
+            internalStartMs: patch.displayedTOptimisteMs,
+            internalEndMs: patch.displayedTPessimisteMs,
+            flowMode: 'REAL',
+            vFlowSecPerMin: task.vFlowSecPerMin,
+            nextRealScanAtMs: null,
+            nextRealScanReason: null,
+            apiCallsTotal: task.apiCallsTotal,
+            apiCallsAvoidedCache: task.apiCallsAvoidedCache,
+            apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
+          },
+          traceForce: true,
+          done: false,
+        };
+      }
     }
 
     if (
