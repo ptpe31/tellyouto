@@ -430,7 +430,11 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
   const [zoomCountByUid, setZoomCountByUid] = useState<Record<string, number>>({});
   const [zoomDoneByUid, setZoomDoneByUid] = useState<Record<string, number>>({});
   const [zoomExpandedByUid, setZoomExpandedByUid] = useState<Record<string, boolean>>({});
+  const [zoomLoadingByUid, setZoomLoadingByUid] = useState<Record<string, boolean>>({});
   const zoomModalUidRef = useRef<string | null>(null);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const milestoneYRef = useRef<Record<string, number>>({});
+  const restoredZoomRef = useRef(false);
 
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
@@ -453,6 +457,10 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     lastTitleRef.current = next;
     setTitleEditing(false);
   }, [row?.id, row?.display_title]);
+
+  useEffect(() => {
+    restoredZoomRef.current = false;
+  }, [row?.id]);
 
   const persistTitleIfNeeded = async () => {
     if (!row) return;
@@ -1066,8 +1074,9 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
     };
   }, [isProject, projectSchedule.items, row]);
 
-  const openZoomAccordion = async (uid: string) => {
-    if (!row) return;
+  const openZoomAccordion = async (uid: string): Promise<number> => {
+    if (!row) return 0;
+    setZoomLoadingByUid((prev) => ({ ...prev, [uid]: true }));
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setZoomExpandedByUid((prev) => {
       const out: Record<string, boolean> = {};
@@ -1075,17 +1084,52 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
       out[uid] = true;
       return out;
     });
-    const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
-    const stats = await getZoomChildrenStatsForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
-    setZoomChildrenByUid((prev) => ({ ...prev, [uid]: children }));
-    setZoomCountByUid((prev) => ({ ...prev, [uid]: stats.total }));
-    setZoomDoneByUid((prev) => ({ ...prev, [uid]: stats.done }));
+    void patchMetadata(row.id, { project: { last_open_milestone_uid: uid } }, { silent: true });
+    requestAnimationFrame(() => {
+      const y = milestoneYRef.current[uid];
+      if (typeof y !== 'number') return;
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 6), animated: true });
+    });
+    let total = 0;
+    try {
+      const children = await listZoomChildrenForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+      const stats = await getZoomChildrenStatsForProjectMilestone({ projectId: row.id, parentJalonUid: uid });
+      total = stats.total;
+      setZoomChildrenByUid((prev) => ({ ...prev, [uid]: children }));
+      setZoomCountByUid((prev) => ({ ...prev, [uid]: stats.total }));
+      setZoomDoneByUid((prev) => ({ ...prev, [uid]: stats.done }));
+    } finally {
+      setZoomLoadingByUid((prev) => ({ ...prev, [uid]: false }));
+    }
+    return total;
   };
 
   const closeZoomAccordion = (uid: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setZoomExpandedByUid((prev) => ({ ...prev, [uid]: false }));
+    setZoomLoadingByUid((prev) => ({ ...prev, [uid]: false }));
+    if (row) void patchMetadata(row.id, { project: { last_open_milestone_uid: null } }, { silent: true });
   };
+
+  useEffect(() => {
+    if (!row || !isProject) return;
+    if (restoredZoomRef.current) return;
+    const project = meta && typeof meta === 'object' ? (meta as Record<string, unknown>).project : null;
+    const lastUidRaw =
+      project && typeof project === 'object' ? (project as Record<string, unknown>).last_open_milestone_uid : null;
+    const lastUid = typeof lastUidRaw === 'string' ? lastUidRaw.trim() : '';
+    if (!lastUid) {
+      restoredZoomRef.current = true;
+      return;
+    }
+    const exists = projectSchedule.items.some((x) => x.uid === lastUid);
+    if (!exists) {
+      restoredZoomRef.current = true;
+      return;
+    }
+    restoredZoomRef.current = true;
+    void openZoomAccordion(lastUid);
+  }, [isProject, meta, projectSchedule.items, row]);
 
   const confirmProjectReplan = async () => {
     if (!row || !projectPayload) return;
@@ -1520,6 +1564,9 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
             </View>
 
             <ScrollView
+              ref={(r) => {
+                scrollRef.current = r;
+              }}
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
@@ -1674,10 +1721,12 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                               const checked = Boolean(m.checked);
                               const isLast = idx === projectSchedule.items.length - 1;
                               const zoomChildren = zoomChildrenByUid[m.uid] ?? [];
-                              const zoomCount = Number(zoomCountByUid[m.uid] ?? 0);
+                              const zoomCountKnown = Object.prototype.hasOwnProperty.call(zoomCountByUid, m.uid);
+                              const zoomCount = zoomCountKnown ? Number(zoomCountByUid[m.uid] ?? 0) : 0;
                               const zoomDone = Number(zoomDoneByUid[m.uid] ?? 0);
                               const zoomExpanded = zoomExpandedByUid[m.uid] ?? false;
                               const zoomBusy = zoomProcessingUid === m.uid;
+                              const zoomLoading = zoomLoadingByUid[m.uid] ?? false;
                               const zoomLocked = zoomBusy;
                               const zoomPct = zoomCount > 0 ? Math.max(0, Math.min(1, zoomDone / zoomCount)) : 0;
                               const zoomBadgeLabel = zoomCount > 0 ? t('project.step_count', { count: zoomCount }) : t('project.add_steps');
@@ -1693,6 +1742,9 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                     }}
                                     delayLongPress={260}
                                     disabled={zoomLocked}
+                                    onLayout={(e) => {
+                                      milestoneYRef.current[m.uid] = e.nativeEvent.layout.y;
+                                    }}
                                     style={[styles.milestoneRow, !isLast ? styles.milestoneRowBorder : null]}
                                   >
                                     <Pressable
@@ -1711,6 +1763,18 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                     <Pressable
                                       onPress={() => {
                                         if (zoomLocked) return;
+                                        if (!zoomCountKnown) {
+                                          void (async () => {
+                                            const total = await openZoomAccordion(m.uid);
+                                            if (total > 0) return;
+                                            closeZoomAccordion(m.uid);
+                                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                            setZoomModalUid(m.uid);
+                                            setZoomModalPhase('confirm');
+                                            setZoomModalSuccessCount(0);
+                                          })();
+                                          return;
+                                        }
                                         if (zoomCount <= 0) {
                                           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                           setZoomModalUid(m.uid);
@@ -1749,6 +1813,18 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                     <Pressable
                                       onPress={() => {
                                         if (zoomLocked) return;
+                                        if (!zoomCountKnown) {
+                                          void (async () => {
+                                            const total = await openZoomAccordion(m.uid);
+                                            if (total > 0) return;
+                                            closeZoomAccordion(m.uid);
+                                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                            setZoomModalUid(m.uid);
+                                            setZoomModalPhase('confirm');
+                                            setZoomModalSuccessCount(0);
+                                          })();
+                                          return;
+                                        }
                                         if (zoomCount <= 0) {
                                           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                           setZoomModalUid(m.uid);
@@ -1784,7 +1860,7 @@ export function IntentionDetailSheet({ visible, row, theme, onClose, onPatchRow 
                                   </Pressable>
                                   {zoomBusy || zoomExpanded ? (
                                     <View style={styles.zoomPanel}>
-                                      {zoomBusy ? (
+                                      {zoomBusy || zoomLoading ? (
                                         <>
                                           {[0, 1].map((k) => (
                                             <View key={`zsk-${m.uid}-${k}`} style={styles.zoomChildRowV34}>

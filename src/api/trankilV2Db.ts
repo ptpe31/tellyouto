@@ -19,6 +19,7 @@ export type TrankilV2IntentionRow = {
   category_id: string | null;
   category?: string | null;
   parent_id: string | null;
+  zoom_parent_jalon_uid?: string | null;
   status: TrankilIntentStatus;
   is_organized: number;
   is_local_processed: number;
@@ -374,6 +375,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         category_id TEXT,
         category TEXT,
         parent_id TEXT,
+        zoom_parent_jalon_uid TEXT,
         status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE', 'ARCHIVED')),
         is_organized INTEGER NOT NULL DEFAULT 0 CHECK (is_organized IN (0, 1)),
         is_local_processed INTEGER NOT NULL DEFAULT 0 CHECK (is_local_processed IN (0, 1)),
@@ -417,6 +419,44 @@ export async function initTrankilV2Schema(): Promise<void> {
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_parent_id ON intentions (parent_id);`);
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_location_id ON intentions (location_id);`);
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_intentions_ai_model_used ON intentions (ai_model_used);`);
+
+    const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(intentions);`);
+    const hasZoomUid = columns.some((c) => c.name === 'zoom_parent_jalon_uid');
+    if (!hasZoomUid) {
+      await db.execAsync(`ALTER TABLE intentions ADD COLUMN zoom_parent_jalon_uid TEXT;`);
+    }
+    await db.execAsync(
+      `CREATE INDEX IF NOT EXISTS idx_intentions_parent_zoom_uid_created_at ON intentions (parent_id, zoom_parent_jalon_uid, created_at);`,
+    );
+    await db.execAsync(
+      `CREATE INDEX IF NOT EXISTS idx_intentions_parent_zoom_uid_status ON intentions (parent_id, zoom_parent_jalon_uid, status);`,
+    );
+
+    const toBackfill = await db.getAllAsync<{ id: string; metadata_json: string }>(
+      `SELECT id, metadata_json
+       FROM intentions
+       WHERE (zoom_parent_jalon_uid IS NULL OR trim(zoom_parent_jalon_uid) = '')
+         AND instr(metadata_json, '"zoom_parent_jalon_uid"') > 0
+       LIMIT 2000`,
+    );
+    if (toBackfill.length) {
+      await db.execAsync('BEGIN;');
+      try {
+        for (const r of toBackfill) {
+          const parsed = safeParseJsonRecord(r.metadata_json);
+          const raw = parsed.zoom_parent_jalon_uid;
+          const next = typeof raw === 'string' ? raw.trim() : '';
+          if (!next) continue;
+          await db.runAsync(`UPDATE intentions SET zoom_parent_jalon_uid = ? WHERE id = ?`, [next, r.id]);
+        }
+        await db.execAsync('COMMIT;');
+      } catch (e) {
+        try {
+          await db.execAsync('ROLLBACK;');
+        } catch {}
+        throw e;
+      }
+    }
 
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS categories (
@@ -1185,6 +1225,7 @@ export async function rebuildTrankilV2IntentionsTableForDebug(): Promise<void> {
       category_id TEXT,
       category TEXT,
       parent_id TEXT,
+      zoom_parent_jalon_uid TEXT,
       status TEXT NOT NULL DEFAULT 'TODO',
       is_organized INTEGER NOT NULL DEFAULT 0,
       is_local_processed INTEGER NOT NULL DEFAULT 0,
@@ -1861,6 +1902,7 @@ export type TrankilV2IntentionInsert = {
   suggested_tags?: string;
   category_id?: string | null;
   parent_id?: string | null;
+  zoom_parent_jalon_uid?: string | null;
   status?: TrankilIntentStatus;
   is_organized?: number;
   is_local_processed?: number;
@@ -1942,14 +1984,24 @@ export async function insertTrankilV2Intention(
   const serverVersion = row.server_version ?? 0;
   const remindLeave = row.remind_to_leave ?? 0;
   const locAddr = row.location_address?.trim() ? row.location_address.trim() : null;
+  let zoomUid = row.zoom_parent_jalon_uid?.trim() ? String(row.zoom_parent_jalon_uid).trim() : null;
+  if (!zoomUid) {
+    const initialMeta = typeof row.metadata_json === 'string' ? row.metadata_json.trim() : '';
+    if (initialMeta) {
+      const parsed = safeParseJsonRecord(initialMeta);
+      const raw = parsed.zoom_parent_jalon_uid;
+      const next = typeof raw === 'string' ? raw.trim() : '';
+      if (next) zoomUid = next;
+    }
+  }
   const sql =
     `INSERT INTO intentions (
-      id, type, title, due_date, content_raw, suggested_tags, category_id, category, parent_id, status, is_organized, is_local_processed, complexity_level, created_at, updated_at, is_dirty, server_version, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+      id, type, title, due_date, content_raw, suggested_tags, category_id, category, parent_id, zoom_parent_jalon_uid, status, is_organized, is_local_processed, complexity_level, created_at, updated_at, is_dirty, server_version, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
       is_pending_ai,
       remind_to_leave, location_address,
       ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, debug_tokens, debug_latency_ms, location_id,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
   const args = [
     row.id,
     row.type,
@@ -1960,6 +2012,7 @@ export async function insertTrankilV2Intention(
     row.category_id ?? null,
     row.category_id ?? null,
     row.parent_id ?? null,
+    zoomUid,
     row.status ?? 'TODO',
     row.is_organized ?? 0,
     row.is_local_processed ?? 0,
@@ -2381,13 +2434,12 @@ export async function countZoomChildrenForProjectMilestone(params: {
   const pid = String(params.projectId || '').trim();
   const uid = String(params.parentJalonUid || '').trim();
   if (!pid || !uid) return 0;
-  const like = `%\"zoom_parent_jalon_uid\":\"${uid.replace(/"/g, '\\"')}\"%`;
   const row = await db.getFirstAsync<{ n: number }>(
     `SELECT COUNT(*) AS n
      FROM intentions
      WHERE parent_id = ?
-       AND metadata_json LIKE ?`,
-    [pid, like],
+       AND zoom_parent_jalon_uid = ?`,
+    [pid, uid],
   );
   return Number(row?.n ?? 0);
 }
@@ -2401,15 +2453,14 @@ export async function getZoomChildrenStatsForProjectMilestone(params: {
   const pid = String(params.projectId || '').trim();
   const uid = String(params.parentJalonUid || '').trim();
   if (!pid || !uid) return { total: 0, done: 0 };
-  const like = `%\"zoom_parent_jalon_uid\":\"${uid.replace(/"/g, '\\"')}\"%`;
   const row = await db.getFirstAsync<{ total: number; done: number }>(
     `SELECT
        COUNT(*) AS total,
        SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) AS done
      FROM intentions
      WHERE parent_id = ?
-       AND metadata_json LIKE ?`,
-    [pid, like],
+       AND zoom_parent_jalon_uid = ?`,
+    [pid, uid],
   );
   return { total: Number(row?.total ?? 0), done: Number(row?.done ?? 0) };
 }
@@ -2423,15 +2474,14 @@ export async function listZoomChildrenForProjectMilestone(params: {
   const pid = String(params.projectId || '').trim();
   const uid = String(params.parentJalonUid || '').trim();
   if (!pid || !uid) return [];
-  const like = `%\"zoom_parent_jalon_uid\":\"${uid.replace(/"/g, '\\"')}\"%`;
   const rows =
     (await db.getAllAsync<{ id: string; title: string; status: TrankilIntentStatus }>(
       `SELECT id, title, status
        FROM intentions
        WHERE parent_id = ?
-         AND metadata_json LIKE ?
+         AND zoom_parent_jalon_uid = ?
        ORDER BY created_at ASC`,
-      [pid, like],
+      [pid, uid],
     )) ?? [];
   return rows
     .map((r) => ({
@@ -2540,8 +2590,8 @@ export async function patchMetadata(
   await withTrankilV2Database(async (db) => {
     await db.execAsync('BEGIN IMMEDIATE;');
     try {
-      const row = await db.getFirstAsync<{ metadata_json: string }>(
-        `SELECT metadata_json FROM intentions WHERE id = ? LIMIT 1`,
+      const row = await db.getFirstAsync<{ metadata_json: string; zoom_parent_jalon_uid: string | null }>(
+        `SELECT metadata_json, zoom_parent_jalon_uid FROM intentions WHERE id = ? LIMIT 1`,
         [key],
       );
       if (!row) {
@@ -2555,11 +2605,14 @@ export async function patchMetadata(
         base = {};
       }
       const merged = deepMergeObjects(base, partialObject);
+      const rawZoom = (partialObject as Record<string, unknown>).zoom_parent_jalon_uid;
+      const nextZoom =
+        rawZoom === undefined ? row.zoom_parent_jalon_uid : typeof rawZoom === 'string' ? rawZoom.trim() || null : null;
       const now = Date.now();
       const isDirty = opts?.fromSync ? 0 : 1;
       await db.runAsync(
-        `UPDATE intentions SET metadata_json = ?, updated_at = ?, is_dirty = ? WHERE id = ?`,
-        [JSON.stringify(merged ?? {}, null, 2), now, isDirty, key],
+        `UPDATE intentions SET metadata_json = ?, zoom_parent_jalon_uid = ?, updated_at = ?, is_dirty = ? WHERE id = ?`,
+        [JSON.stringify(merged ?? {}, null, 2), nextZoom, now, isDirty, key],
       );
       await db.execAsync('COMMIT;');
       if (VERBOSE_DEBUG) {
