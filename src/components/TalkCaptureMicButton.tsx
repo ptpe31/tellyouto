@@ -42,6 +42,7 @@ export type TalkCaptureMicButtonProps = {
   onCaptureStart?: () => void;
   onCaptureEnd?: (payload: TalkCaptureEndPayload) => void | Promise<void>;
   onCaptureCancel?: () => void | Promise<void>;
+  onPeekStart?: () => void;
   onValidated?: () => void;
   onTranscriptChange?: (text: string) => void;
   disabled?: boolean;
@@ -59,6 +60,7 @@ export function TalkCaptureMicButton({
   onCaptureStart,
   onCaptureEnd,
   onCaptureCancel,
+  onPeekStart,
   onValidated,
   onTranscriptChange,
   disabled,
@@ -320,22 +322,30 @@ export function TalkCaptureMicButton({
     if (phase !== 'success') return;
     successScale.setValue(0.8);
     successOpacity.setValue(1);
-    const anim = Animated.sequence([
+    let cancelled = false;
+    const part1 = Animated.sequence([
       Animated.timing(successScale, { toValue: 1.1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       Animated.timing(successScale, { toValue: 1.0, duration: 120, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]);
+    const part2 = Animated.sequence([
       Animated.delay(1200),
       Animated.timing(successOpacity, { toValue: 0, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]);
-    anim.start(({ finished }) => {
-      if (finished) {
+    part1.start(({ finished }) => {
+      if (!finished || cancelled) return;
+      onPeekStart?.();
+      part2.start(({ finished }) => {
+        if (!finished || cancelled) return;
         onValidated?.();
         resetInternal();
-      }
+      });
     });
     return () => {
-      anim.stop();
+      cancelled = true;
+      part1.stop();
+      part2.stop();
     };
-  }, [onValidated, phase, resetInternal, successOpacity, successScale]);
+  }, [onPeekStart, onValidated, phase, resetInternal, successOpacity, successScale]);
 
   const cancelRecording = useCallback(async () => {
     try {

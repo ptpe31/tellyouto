@@ -1217,7 +1217,7 @@ export function TimelineScreen() {
       >
         <TalkCaptureMicButton
           compact
-          onValidated={() => void openLastIntentionPeek()}
+          onPeekStart={() => void openLastIntentionPeek()}
           onCaptureEnd={({ transcript }) => {
             DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, {
               mode: 'quick',

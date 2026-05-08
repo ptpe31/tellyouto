@@ -550,8 +550,7 @@ export function TalkDebugScreen() {
 
   const onMicValidated = useCallback(() => {
     setCaptureStep('idle');
-    openPeekAfterOk();
-  }, [openPeekAfterOk]);
+  }, []);
 
   const onMicCancel = useCallback(async () => {
     hardResetToIdle();
@@ -1039,6 +1038,7 @@ export function TalkDebugScreen() {
           onCaptureStart={onMicStart}
           onCaptureEnd={onMicEnd}
           onCaptureCancel={onMicCancel}
+          onPeekStart={openPeekAfterOk}
           onValidated={onMicValidated}
           onTranscriptChange={onMicTranscript}
         />
