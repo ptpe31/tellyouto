@@ -245,20 +245,6 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
   return null;
 }
 
-function smartTitleAuditTime(due: string | null): string {
-  const raw = String(due ?? '').trim();
-  if (!raw) return '—';
-  if (/^\d{8}$/.test(raw)) {
-    return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const d = new Date(raw);
-  if (!Number.isFinite(d.getTime())) return raw;
-  const ymd = formatYmdLocal(d);
-  const time = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
-  return `${ymd} ${time}`;
-}
-
 const SECTION_HEADER_H = 36;
 const IDEA_BANK_H = 58;
 const CARD_ROW_H = 120;
@@ -578,14 +564,6 @@ export function TimelineScreen() {
           context: ctx,
         });
         const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
-        if (__DEV__ && VERBOSE_DEBUG) {
-          for (const r of slice) {
-            const rawText = String(r.content_raw ?? '');
-            const clean = generateSmartTitle(rawText);
-            const time = smartTitleAuditTime(r.due_date);
-            console.log(`[SmartTitle Audit] RAW: "${rawText}" -> CLEAN: "${clean}" | TIME: "${time}"`);
-          }
-        }
         return {
           unorganizedTodo: unorganizedRaw,
           primary: slice,
@@ -602,14 +580,6 @@ export function TimelineScreen() {
         });
         const mapped = raw.map(mapTrankilIntentionToTimelineItemRow);
         const { slice, hasMore } = takePage(mapped, TIMELINE_PAGE_SIZE);
-        if (__DEV__ && VERBOSE_DEBUG) {
-          for (const r of slice) {
-            const rawText = String(r.content_raw ?? '');
-            const clean = generateSmartTitle(rawText);
-            const time = smartTitleAuditTime(r.due_date);
-            console.log(`[SmartTitle Audit] RAW: "${rawText}" -> CLEAN: "${clean}" | TIME: "${time}"`);
-          }
-        }
         return {
           unorganizedTodo: unorganizedRaw,
           primary: [],
@@ -633,14 +603,6 @@ export function TimelineScreen() {
         });
       }
       const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
-      if (__DEV__ && VERBOSE_DEBUG) {
-        for (const r of slice) {
-          const rawText = String(r.content_raw ?? '');
-          const clean = generateSmartTitle(rawText);
-          const time = smartTitleAuditTime(r.due_date);
-          console.log(`[SmartTitle Audit] RAW: "${rawText}" -> CLEAN: "${clean}" | TIME: "${time}"`);
-        }
-      }
       return {
         unorganizedTodo: unorganizedRaw,
         primary: slice,

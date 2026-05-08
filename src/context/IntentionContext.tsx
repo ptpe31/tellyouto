@@ -546,14 +546,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           },
         });
         if (seq !== geminiSeqRef.current) return;
-        if (__DEV__ && VERBOSE_DEBUG) {
-          const clean = generateSmartTitle(cleaned, uiLocale);
-          const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
-          const ymd = typeof d.dueDateYmd === 'string' ? d.dueDateYmd.trim() : '';
-          const hm = typeof d.dueTimeHm === 'string' ? d.dueTimeHm.trim() : '';
-          const time = ymd ? `${ymd}${hm ? ' ' + hm : ''}` : '—';
-          console.log(`[SmartTitle Audit] RAW: "${cleaned}" -> CLEAN: "${clean}" | TIME: "${time}"`);
-        }
         const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
         if (seq !== geminiSeqRef.current) return;
         setDraft(hydrated);
