@@ -5,7 +5,11 @@ import { Alert, DeviceEventEmitter, Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import * as Haptics from 'expo-haptics';
 
-import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
+import {
+  INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
+  INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
+  INTENTIONS_CHANGED_EVENT_NAME,
+} from '../constants/intentionEvents';
 import {
   inferOneTapSkeletonFromTranscript,
   refineOneTapWithGeminiCompressed,
@@ -447,6 +451,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       const hasExisting = readDraftIntents(draftRef.current).length > 0;
       const skeleton = hasExisting ? draftRef.current : inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
       if (!hasExisting) setDraft(skeleton);
+      DeviceEventEmitter.emit(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, {
+        categoryTag: skeleton.categoryTag,
+        predictedType: skeleton.predictedType,
+        title: skeleton.title,
+      });
       try {
         const res = await refineOneTapWithGeminiCompressed(cleaned, skeleton, {
           uiLocale,
@@ -481,6 +490,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                       if (!firstSavedFiredRef.current) {
                         firstSavedFiredRef.current = true;
                         firstSavedResolveRef.current?.();
+                        DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
+                          intentionId: pre.intentionId,
+                          categoryTag: built.categoryTag,
+                          predictedType: built.predictedType,
+                          title: built.title,
+                        });
                       }
                       if (__DEV__ && VERBOSE_DEBUG && isMic) {
                         if (!loggedFirstSave) {

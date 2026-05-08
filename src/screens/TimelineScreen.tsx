@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   bulkTrankilV2TaskChildStatsByParentIds,
-  getLastTrankilV2IntentionRaw,
+  getTrankilV2IntentionById,
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2TimelineItemsByDate,
@@ -37,7 +37,11 @@ import {
   type TrankilV2TimelineDateMode,
   type TrankilV2TimelineItemRow,
 } from '../api';
-import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
+import {
+  INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
+  INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
+  INTENTIONS_CHANGED_EVENT_NAME,
+} from '../constants/intentionEvents';
 import type { AppTabParamList } from '../navigation/types';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import { showAppToast } from '../services/appToast';
@@ -77,6 +81,15 @@ async function safeMediumHaptic(): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+function normalizeCategoryId(raw: unknown): string {
+  const up = String(raw ?? '').trim().toUpperCase();
+  if (!up) return 'PERSO';
+  if (up === 'FAMILLE') return 'HOME';
+  if (up === 'PRO') return 'WORK';
+  if (['HOME', 'WORK', 'PERSO', 'HEALTH', 'FINANCE', 'TRAVEL', 'SOCIAL', 'SHOP', 'LEARN', 'OTHER'].includes(up)) return up;
+  return 'PERSO';
 }
 
 function progressLookupIdForRow(row: TrankilV2TimelineItemRow): string | null {
@@ -351,6 +364,7 @@ export function TimelineScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
+  const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
@@ -367,11 +381,24 @@ export function TimelineScreen() {
     setDetailOpen(true);
   }, []);
 
-  const openLastIntentionPeek = useCallback(async () => {
-    const last = await getLastTrankilV2IntentionRaw();
-    if (!last) return;
-    const mapped = mapTrankilIntentionToTimelineItemRow(last);
-    setDetailRow(mapped);
+  const openLastIntentionPeek = useCallback(() => {
+    const snap = peekSnapshotRef.current;
+    const categoryId = normalizeCategoryId(snap?.categoryTag);
+    const peekRow = {
+      id: 'peek_pending',
+      type: 'NOTE',
+      category_id: categoryId,
+      display_title: '',
+      title: '',
+      due_date: null,
+      metadata_json: '{}',
+      status: 'TODO',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      is_archived: 0,
+      is_dirty: 0,
+    } as unknown as TrankilV2TimelineItemRow;
+    setDetailRow(peekRow);
     setDetailPosition('peek');
     setDetailOpen(true);
   }, []);
@@ -388,6 +415,31 @@ export function TimelineScreen() {
     setDetailRow(null);
     setDetailPosition('full');
   }, []);
+
+  useEffect(() => {
+    const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
+      peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
+    });
+    const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
+      const intentionId = String((payload as any)?.intentionId ?? '').trim();
+      if (!intentionId) return;
+      void (async () => {
+        const full = await getTrankilV2IntentionById(intentionId);
+        if (!full) return;
+        const mapped = mapTrankilIntentionToTimelineItemRow(full);
+        setDetailRow((prev) => {
+          if (!prev) return prev;
+          if (!detailOpen) return prev;
+          if (detailPosition !== 'peek') return prev;
+          return mapped;
+        });
+      })();
+    });
+    return () => {
+      subSnap.remove();
+      subFirstSave.remove();
+    };
+  }, [detailOpen, detailPosition]);
 
   useFocusEffect(
     useCallback(() => {
