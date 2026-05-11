@@ -20,7 +20,6 @@ import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locatio
 import {
   finalizeOneTapOptimisticDraft,
   preSaveOneTapOptimisticDraft,
-  persistOneTapDraft,
   persistOneTapDraftVentilated,
   replacePendingOneTapDraft,
   type PersistOneTapSuccess,
@@ -614,6 +613,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       bulkProcessingRef.current = true;
       geminiStartedRef.current = true;
       const base = String(params.transcript || '').trim();
+      const trace = String(params.traceId || '').trim();
+      const isMic = Boolean(params.audioUri);
+      if (__DEV__ && VERBOSE_DEBUG && isMic && trace) {
+        console.log(`[SEQUENCER] 🔎 TRACE: ${trace}`);
+      }
       try {
         const chunks = Array.isArray(params.chunks) && params.chunks.length ? params.chunks : splitBulkTranscript(base);
         const uiLocale = params.lang || spectrum.locale || 'fr-FR';
@@ -631,7 +635,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             const now = new Date();
             console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
             console.log(`********* [CHUNK ${i + 1}/${total}] *********`);
-            console.log(`[SEQUENCER] 🚀 Traitement : "${chunk}"`);
+            console.log(`[SEQUENCER] 🚀 Traitement : "${chunk}"${trace ? ` | TRACE: ${trace}` : ''}`);
             const progressLabel = `Création de ${i + 1}/${chunks.length}...`;
             if (!params.silent) {
               setTranscript(progressLabel);
@@ -642,6 +646,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               uiLocale,
               lang: params.lang,
               useStream: false,
+              forceComplete: true,
             });
             if (seq !== geminiSeqRef.current) return;
             const clean = generateSmartTitle(chunk, uiLocale);
@@ -797,74 +802,44 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      void (async () => {
-        const uiLocale = lang || spectrum.locale || 'fr-FR';
-        const seq = (geminiSeqRef.current += 1);
-        setRefining(true);
-        const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
-        const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
-        const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
-        DeviceEventEmitter.emit(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, {
-          categoryTag: skeleton.categoryTag,
-          predictedType: skeleton.predictedType,
-          title: skeleton.title,
-        });
-        try {
-          const res = await refineOneTapWithGeminiCompressed(cleaned, skeleton, {
-            uiLocale,
-            lang,
-            useStream: false,
-            forceComplete: true,
-          });
-          if (seq !== geminiSeqRef.current) return;
-          const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
-          if (seq !== geminiSeqRef.current) return;
-          const intents = readDraftIntents(hydrated).filter(isCompleteIntent);
-          const built =
-            intents.length > 0 ? buildOneTapDraftFromIntent({ baseDraft: hydrated, intent: intents[0] }) ?? hydrated : hydrated;
-          const saved = await persistOneTapDraft({
-            deps,
-            draft: built,
+      const uiLocale = lang || spectrum.locale || 'fr-FR';
+      const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
+      DeviceEventEmitter.emit(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, {
+        categoryTag: skeleton.categoryTag,
+        predictedType: skeleton.predictedType,
+        title: skeleton.title,
+      });
+
+      // ✅ Unification "Micro as Bulk(1)" : un seul chemin (séquenceur bulk + persistance ventilée).
+      void runGeminiBulkSequence({
+        transcript: cleaned,
+        chunks: [cleaned],
+        audioUri,
+        lang: uiLocale,
+        allowAlert: true,
+        traceId: trace,
+        silent: true,
+        onPersisted: (outcomes) => {
+          const firstId =
+            outcomes
+              .map((o) => ('intentionId' in o ? String((o as { intentionId?: unknown }).intentionId ?? '') : ''))
+              .find((x) => x && x.trim().length) ?? '';
+          if (!firstId) return;
+          const anyTitle =
+            outcomes.find((o) => 'title' in o && typeof (o as { title?: unknown }).title === 'string') as
+              | { title?: string }
+              | undefined;
+          DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
+            intentionId: firstId,
+            categoryTag: skeleton.categoryTag,
+            predictedType: skeleton.predictedType,
+            title: String(anyTitle?.title ?? skeleton.title ?? cleaned.slice(0, 200)),
             transcript: cleaned,
-            habitsDefaultTitle,
-            birthdayLabel,
           });
-          if (!saved.ok) throw saved.error;
-          const outcome = saved.outcome as any;
-          const intentionId = String(outcome?.intentionId ?? '').trim();
-          if (intentionId) {
-            DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
-              intentionId,
-              categoryTag: built.categoryTag,
-              predictedType: built.predictedType,
-              title: built.title,
-              transcript: cleaned,
-            });
-          }
-          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          if (isMic) {
-            void consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
-          }
-          setTimeout(() => {
-            void generateSmartTitle(cleaned, uiLocale);
-          }, 0);
-        } catch (e) {
-          const title = cleaned.slice(0, 56) || 'Memo audio';
-          try {
-            if (audioUri) {
-              await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title, lang });
-            } else {
-              await queueOfflineTextCapture({ transcript: cleaned, title, lang });
-            }
-            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-          } catch {}
-          proposeOfflineFallback({ transcript: cleaned, audioUri, error: e, lang });
-        } finally {
-          if (seq === geminiSeqRef.current) setRefining(false);
-        }
-      })();
+        },
+      });
     },
-    [deps, proposeOfflineFallback, spectrum.isProUser, spectrum.locale],
+    [runGeminiBulkSequence, spectrum.locale],
   );
 
   const triggerJalonZoom = useCallback(

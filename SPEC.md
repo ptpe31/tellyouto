@@ -697,15 +697,50 @@ Règles :
 
 ### 2) Unification du cerveau (IntentionContext)
 
-- Modifier `IntentionContext.submitCapturePayload` :
-  - Toute capture unitaire (micro) est routée vers `runGeminiBulkSequence` (même si le transcript ne contient pas `**`).
-  - Mécanique : le micro force un tableau `chunks=[transcript]` pour imposer le chemin “Séquenceur” (CHUNK 1/1), sans heuristique de split.
-  - Le micro devient donc “Bulk(1)” : même sanitizer, mêmes logs `[SEQUENCER]`, mêmes règles de verrouillage/persistance, même ventilation.
-- Désactiver le “stream global” parasite :
-  - Supprimer le `useSpeechRecognitionEvent('result', ...)` et le timer 850ms dans `IntentionContext` (vestige legacy).
-  - Interdiction : aucun déclenchement Gemini pendant la dictée (`oneTap.wire.stream`).
-  - `geminiStartedRef` ne doit être manipulé que par le chemin `submitCapturePayload → runGeminiBulkSequence`.
-  - Le log `[MIC] ⏳ SKIP Gemini (already started)` doit disparaître (plus de compétition de verrous).
+**Contrat absolu : il n’existe plus qu’un seul chemin de traitement/persistance.**  
+`submitCapturePayload` est un wrapper autour du séquenceur `runGeminiBulkSequence` (micro = Bulk de 1).
+
+#### 2.a) Wrapper “Micro = Bulk(1)” (submitCapturePayload)
+
+- Toute capture unitaire (micro **ou** saisie texte) est routée vers `runGeminiBulkSequence`, même si le transcript ne contient pas `**`.
+- Mécanique : forcer `chunks=[cleanedTranscript]` pour imposer le chemin “Séquenceur” (CHUNK 1/1), sans heuristique de split.
+- Paramètres obligatoires à transporter jusqu’au bulk :
+  - `transcript` (string) : texte final “clean” (trim + nettoyage des suffixes UI si nécessaire).
+  - `audioUri` (string|null) : si micro, le chemin du mémo ; sinon `null`.
+  - `lang` (BCP47 optionnel) : langue session STT (si connue).
+  - `traceId` (string optionnel) : identifiant de trace micro (logs).
+- Peek / Validation UI :
+  - `submitCapturePayload` émet `INTENTION_PEEK_SNAPSHOT_EVENT_NAME` **avant** l’appel bulk (snapshot Path A : catégorie/type/titre).
+  - `submitCapturePayload` émet `INTENTION_PEEK_FIRST_SAVE_EVENT_NAME` **après** persistance confirmée, via callback `onPersisted(outcomes)` en remontant un `intentionId` réel.
+
+#### 2.b) Séquenceur unique (runGeminiBulkSequence)
+
+- Le séquenceur reste **séquentiel** : un chunk est traité “Gemini → Douane → DB” jusqu’au succès DB avant de passer au suivant.
+- Persistance : **toute persistance passe par `persistOneTapDraftVentilated`** (ventilation = source de vérité), y compris pour le micro (Bulk(1)).
+- Contrat NOTE_FALLBACK :
+  - En mode Bulk (dont micro-as-bulk), le séquenceur passe `allowNoteFallback: false` et préfère :
+    1) log d’échec chunk,
+    2) puis fallback offline (queue texte/audio) si aucun chunk n’a pu être persisté.
+
+#### 2.c) Offline-first (invariant)
+
+- Si l’app est offline (NetInfo), `submitCapturePayload` ne doit **pas** tenter Gemini :
+  - il enfile immédiatement la capture via `queueOfflineAudioCapture` / `queueOfflineTextCapture`,
+  - insère une NOTE `is_pending_ai=1`,
+  - émet `INTENTIONS_CHANGED_EVENT_NAME`,
+  - puis retourne sans déclencher de traitement cloud.
+
+#### 2.d) Suppression des chemins redondants (simplicité = stabilité)
+
+- Après unification, `IntentionContext` ne doit plus contenir de chemin alternatif qui appelle directement :
+  - `refineOneTapWithGeminiCompressed(...)` (hors séquenceur),
+  - `persistOneTapDraft(...)` (hors `persistOneTapDraftVentilated`).
+
+#### 2.e) “Stream global” parasite (contrat)
+
+- Interdiction : aucun déclenchement Gemini pendant la dictée (`oneTap.wire.stream`).
+- `geminiStartedRef` ne doit être manipulé que par le chemin `submitCapturePayload → runGeminiBulkSequence`.
+- Le log `[MIC] ⏳ SKIP Gemini (already started)` doit disparaître (plus de compétition de verrous).
 
 ### 3) Instrumentation Pass 2 (visibilité)
 
