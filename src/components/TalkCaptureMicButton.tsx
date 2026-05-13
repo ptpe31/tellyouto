@@ -31,6 +31,7 @@ import { Platform as RPlatform } from '../utils/rnPlatform';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { MICRO_CAPTURE_START_EVENT_NAME } from '../constants/intentionEvents';
+import { warmGeminiProxySession } from '../services/geminiSemanticLab';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 
 /**
@@ -242,6 +243,15 @@ export function TalkCaptureMicButton({
       setIsRecording(true);
       setIsPaused(false);
       setPhase('recording');
+      void (async () => {
+        try {
+          const s = await NetInfo.fetch();
+          if (s.isConnected === false) return;
+          await warmGeminiProxySession();
+        } catch {
+          /* warm best-effort */
+        }
+      })();
       if (RPlatform.OS !== 'web') {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }

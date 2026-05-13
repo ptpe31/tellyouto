@@ -1048,34 +1048,13 @@ function shouldForceTripFromTranscript(cleaned: string): boolean {
   );
 }
 
-function buildCompressedGeminiPrompt(transcript: string, seedLine: string): string {
-  const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
-  const lang2 = 'auto';
-  const seed = seedLine;
-  const loc = `DETECTED LANGUAGE DISCIPLINE (ABSOLUTE):
-- Identify the language (EN, FR, ES, IT, etc.).
-- Output strings ONLY in that language.
-- CRITICAL: ZERO TRANSLATION. Keep the user's verbs and nouns. Preserve the user's wording as much as possible.
-- You may fix obvious typos and expand obvious abbreviations, but ONLY in the same detected language.
-- The DISPLAY TITLE CONTRACT applies UNIVERSALLY to all languages.`;
-  const catContract = `CATEGORY CONTRACT (ABSOLUTE):
-- CATEGORY_CODE MUST be exactly one of these uppercase codes:
-  HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
-- Use these codes ONLY. Never translate them. Never invent new categories.
-- If unsure, use PERSO.`;
-  const titleContract = `DISPLAY TITLE CONTRACT (DESTRUCTIVE STRIPPING):
-- CONTENT must be a PURE action title.
-- MANDATORY: Strip ALL time/date markers (tomorrow, tonight, 9h30, monday, ce soir, demain, stasera, mañana, sàbdo, etc.). Time information must go ONLY into DUE_DATE.
-- MANDATORY TRIM: Delete ANY trailing prepositions or articles: "at", "on", "for", "to", "à", "le", "el", "la", "a las", "per", "en", "sta".
-- EXAMPLE: "Cena con mis pades el sàbdo a las 21h" -> "Cena con mis Padres"
-- EXAMPLE: "Lunch with Marc on friday" -> "Lunch with Marc"
-- STEP: Fix obvious typos (pades -> Padres, piza -> Pizza, mdcin -> Médecin).
-- TITLE MUST start with Uppercase.`;
-  const tripContract = `TRIP CONTRACT (ABSOLUTE):
-- Any mention of movement or going somewhere MUST be classified as TRIP.
-- Trigger dictionary: ${[...TRIP_TRIGGER_TERMS_EN, ...TRIP_TRIGGER_TERMS_FR, ...TRIP_TRIGGER_TERMS_EXTRA].join(', ')}.
-- TRIP implies logisticsPotential=true (do not mention the boolean, just pick TRIP).`;
-  const now = new Date();
+function buildPass1TemporalFields(now: Date): {
+  tz: string;
+  fullDateString: string;
+  isoWeekday: number;
+  weekdayEn: string;
+  dueTimeHm: string;
+} {
   const tz =
     (() => {
       try {
@@ -1103,22 +1082,47 @@ function buildCompressedGeminiPrompt(transcript: string, seedLine: string): stri
         return '00:00';
       }
     })();
-  const anchorRule = `UNIVERSAL TEMPORAL ANCHOR (STRICT):
-- Today is: ${weekdayEn}, ${fullDateString} (Local Time: ${tz})
-- Current Human Time: ${weekdayEn} at ${dueTimeHm}
-- RULE: If user mentions "${weekdayEn}" (today) without "next", set DUE_DATE to TODAY (J+0).`;
-  return `${anchorRule}
+  return { tz, fullDateString, isoWeekday, weekdayEn, dueTimeHm };
+}
+
+/**
+ * Instructions système Pass 1 (proxy Firebase / Vertex). Le corps utilisateur doit rester court
+ * ({@link buildOneTapPass1UserContent}) : Reference Time + transcript (+ heuristique locale).
+ */
+export function buildOneTapPass1SystemInstruction(): string {
+  const lang2 = 'auto';
+  const loc = `DETECTED LANGUAGE DISCIPLINE (ABSOLUTE):
+- Identify the language (EN, FR, ES, IT, etc.).
+- Output strings ONLY in that language.
+- CRITICAL: ZERO TRANSLATION. Keep the user's verbs and nouns. Preserve the user's wording as much as possible.
+- You may fix obvious typos and expand obvious abbreviations, but ONLY in the same detected language.
+- The DISPLAY TITLE CONTRACT applies UNIVERSALLY to all languages.`;
+  const catContract = `CATEGORY CONTRACT (ABSOLUTE):
+- CATEGORY_CODE MUST be exactly one of these uppercase codes:
+  HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
+- Use these codes ONLY. Never translate them. Never invent new categories.
+- If unsure, use PERSO.`;
+  const titleContract = `DISPLAY TITLE CONTRACT (DESTRUCTIVE STRIPPING):
+- CONTENT must be a PURE action title.
+- MANDATORY: Strip ALL time/date markers (tomorrow, tonight, 9h30, monday, ce soir, demain, stasera, mañana, sàbdo, etc.). Time information must go ONLY into DUE_DATE.
+- MANDATORY TRIM: Delete ANY trailing prepositions or articles: "at", "on", "for", "to", "à", "le", "el", "la", "a las", "per", "en", "sta".
+- EXAMPLE: "Cena con mis pades el sàbdo a las 21h" -> "Cena con mis Padres"
+- EXAMPLE: "Lunch with Marc on friday" -> "Lunch with Marc"
+- STEP: Fix obvious typos (pades -> Padres, piza -> Pizza, mdcin -> Médecin).
+- TITLE MUST start with Uppercase.`;
+  const tripContract = `TRIP CONTRACT (ABSOLUTE):
+- Any mention of movement or going somewhere MUST be classified as TRIP.
+- Trigger dictionary: ${[...TRIP_TRIGGER_TERMS_EN, ...TRIP_TRIGGER_TERMS_FR, ...TRIP_TRIGGER_TERMS_EXTRA].join(', ')}.
+- TRIP implies logisticsPotential=true (do not mention the boolean, just pick TRIP).`;
+  return `${loc}
 lang=${lang2}
-${loc}
 ${catContract}
 ${titleContract}
 ${tripContract}
-Current Reference Time: [ISO: ${fullDateString} (${tz})]
-Local heuristic (refine or override if wrong):
-${seed}
 
-Dictation:
-"""${safe.replace(/"/g, '\\"')}"""
+UNIVERSAL TEMPORAL ANCHOR (STRICT — apply using Reference Time from the user message):
+- Interpret "today", weekday names, and relative dates using the Reference Time and calendar weekday provided in the user block.
+- If the user mentions the calendar weekday that matches Reference Time's day without "next", set DUE_DATE to TODAY (J+0).
 
 Reply ONLY with Bullet-Pipe lines starting with ">".
 No JSON. No markdown. No explanations.
@@ -1130,7 +1134,7 @@ Constraints:
 - TYPE: TASK, TRIP, LIST, PROJECT, HABIT
 - DECISION RULES:
   - Use HABIT if the user mentions recurrence (every day, weekly, "chaque jour", etc.) or a clear routine.
-  - Use PROJECT for broad objectives that require multiple steps (renovation, organizing a wedding, etc.). PROJECT MUST trigger Pass 2 downstream.
+  - Use PROJECT for broad objectives that require multiple steps (renovation, organizing a wedding, etc.). Pass 2 list/milestone enrichment is user-triggered in the app only (never automatic here).
   - Prefer TRIP when movement/location is mentioned.
 - CONTENT: keep the user's content in lang (do not translate); must follow DISPLAY TITLE CONTRACT above
 - CATEGORY_CODE: one of the 10 codes above (uppercase)
@@ -1144,6 +1148,36 @@ Examples:
 > TASK | <CONTENT> | PERSO | 2026-05-06 09:30
 > HABIT | <CONTENT> | HEALTH | every day at 06:00
 > PROJECT | <CONTENT> | HOME | null`;
+}
+
+/** Corps utilisateur minimal Pass 1 (Reference Time + heuristique locale + dictée). */
+export function buildOneTapPass1UserContent(transcript: string, seedLine: string): string {
+  const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
+  const seed = seedLine;
+  const now = new Date();
+  const { tz, fullDateString, isoWeekday, weekdayEn, dueTimeHm } = buildPass1TemporalFields(now);
+  const anchorRule = `Reference Time (ISO): ${fullDateString}
+Time zone: ${tz}
+Calendar weekday (English, that calendar day): ${weekdayEn}
+Local clock time (24h): ${dueTimeHm}
+ISO weekday index (1=Monday): ${isoWeekday}
+
+UNIVERSAL TEMPORAL ANCHOR (concrete):
+- Today is: ${weekdayEn}, ${fullDateString} (Local Time: ${tz})
+- Current Human Time: ${weekdayEn} at ${dueTimeHm}
+- RULE: If user mentions "${weekdayEn}" (today) without "next", set DUE_DATE to TODAY (J+0).`;
+  return `${anchorRule}
+
+Local heuristic (refine or override if wrong):
+${seed}
+
+Dictation:
+"""${safe.replace(/"/g, '\\"')}"""`;
+}
+
+/** @deprecated Métrique / debug — concatène SI + bloc utilisateur (préférer {@link buildOneTapPass1SystemInstruction} + {@link buildOneTapPass1UserContent} en prod). */
+export function buildCompressedGeminiPrompt(transcript: string, seedLine: string): string {
+  return `${buildOneTapPass1SystemInstruction()}\n\n---USER---\n${buildOneTapPass1UserContent(transcript, seedLine)}`;
 }
 
 /**
@@ -1310,7 +1344,7 @@ export type OneTapRefineOptions = {
 /**
  * **Path B** — affinage **Gemini** sur la base du squelette Path A.
  *
- * 1. Construit `seed` + prompt via {@link buildCompressedGeminiPrompt}.
+ * 1. Construit {@link buildOneTapPass1SystemInstruction} + {@link buildOneTapPass1UserContent} (transcript + seed).
  * 2. Appelle {@link geminiStreamOneTapCompressedLine} ou {@link geminiGenerateOneTapCompressedLine} selon `useStream`.
  * 3. À chaque chunk (stream) ou à la fin (non-stream), parse la ligne avec {@link parsePartialWireLine} /
  *    {@link parseOneTapWireLine} et fusionne avec {@link mergeWireIntoOneTapSkeleton} ; `onPartial` permet de mettre à
@@ -1337,13 +1371,18 @@ export async function refineOneTapWithGeminiCompressed(
   if (VERBOSE_DEBUG) console.log(`[OneTap] 🎤 TRANSCRIPTION: ${JSON.stringify(transcript)}`);
 
   const seed = wireLineFromSkeleton(skeleton);
-  const prompt = buildCompressedGeminiPrompt(transcript, seed);
+  const systemInstruction = buildOneTapPass1SystemInstruction();
+  const userText = buildOneTapPass1UserContent(transcript, seed);
   const useStream = options.useStream !== false;
   const pathBGeminiStart = perfNowMs();
   const lang2 = baseLangFromBcp47(detectLangForOneTapPrompt(transcript, ''));
   if (VERBOSE_DEBUG) {
-    console.log('[GeminiDebug] 🛡️ PROMPT_PARAMS:', { lang2, transcriptHead: transcript.slice(0, 20) });
-    console.log('[GeminiDebug] 📝 FULL_PROMPT_SENT:', prompt);
+    console.log('[GeminiDebug] 🛡️ PROMPT_PARAMS:', {
+      lang2,
+      transcriptHead: transcript.slice(0, 20),
+      systemChars: systemInstruction.length,
+      userChars: userText.length,
+    });
   }
 
   const pathBLog: GeminiPathBLogAnchor = {
@@ -1400,11 +1439,11 @@ export async function refineOneTapWithGeminiCompressed(
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const netStart = perfNowMs();
   if (useStream) {
-    const r = await geminiStreamOneTapCompressedLine(prompt, (acc) => applyBuffer(acc), pathBLog);
+    const r = await geminiStreamOneTapCompressedLine({ systemInstruction, userText }, (acc) => applyBuffer(acc), pathBLog);
     rawModelText = r.raw;
     httpMeta = r.httpMeta;
   } else {
-    const r = await geminiGenerateOneTapCompressedLine(prompt, pathBLog);
+    const r = await geminiGenerateOneTapCompressedLine({ systemInstruction, userText }, pathBLog);
     rawModelText = r.raw;
     httpMeta = r.httpMeta;
     applyBuffer(rawModelText);

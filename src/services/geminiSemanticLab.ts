@@ -316,6 +316,8 @@ async function callGeminiProxyStream(params: {
   request: object;
   operation: string;
   modelOverride?: string;
+  /** Instructions système (proxy Firebase → Vertex) : réduit les tokens « user » et le coût. */
+  systemInstruction?: string;
   onAccumulatedText?: (full: string) => void;
   options?: PostGeminiHttpOptions;
 }): Promise<{ text: string; meta: GeminiHttpSettledMeta }> {
@@ -339,7 +341,11 @@ async function callGeminiProxyStream(params: {
         Accept: 'text/event-stream, application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ modelId, request: params.request }),
+      body: JSON.stringify({
+        modelId,
+        request: params.request,
+        ...(params.systemInstruction ? { systemInstruction: params.systemInstruction } : {}),
+      }),
     });
 
     if ((res.status === 401 || res.status === 403) && !tokenRefreshed) {
@@ -352,7 +358,11 @@ async function callGeminiProxyStream(params: {
           Accept: 'text/event-stream, application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ modelId, request: params.request }),
+        body: JSON.stringify({
+          modelId,
+          request: params.request,
+          ...(params.systemInstruction ? { systemInstruction: params.systemInstruction } : {}),
+        }),
       });
     }
 
@@ -770,32 +780,7 @@ Return exactly this shape (keys in English as shown):
   return { parsed, rawResponseText };
 }
 
-export async function geminiEnrichGenericList(
-  transcript: string,
-  options: { uiLocale: string; mode?: 'LIST' | 'PROJECT' },
-): Promise<
-  | { mode: 'LIST'; parsed: GeminiListInventoryJson; rawResponseText: string }
-  | { mode: 'PROJECT'; parsed: import('./projectMilestonesModel').ProjectMilestonesPayload; rawResponseText: string }
-> {
-  const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
-  const mode = options.mode === 'PROJECT' ? 'PROJECT' : 'LIST';
-  const prompt =
-    mode === 'PROJECT'
-      ? `Tu es un expert en planification de projets. Ton rôle est de décomposer une intention en jalons/étapes clés.
-
-Consignes strictes :
-Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur.
-INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de "demain", pas d’horaires).
-À la place, fournis pour chaque jalon une durée estimée.
-Pour chaque jalon, identifie l'expert métier le plus qualifié (ex: Électricien, Acousticien, Diététicien, Wedding Planner). Si le contexte est général, utilise "Assistant Personnel".
-
-Transcription:
-"""${safe.replace(/"/g, '\\"')}"""
-
-Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
-{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}
-`
-      : `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
+const PASS2_LIST_SYSTEM_INSTRUCTION = `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
 
 Consignes strictes :
 Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur (Français, Anglais, Espagnol, etc.).
@@ -807,17 +792,56 @@ Unités adaptatives : Détecte l'unité la plus pertinente (kg, jours, chapitres
 Scalabilité : scalable=true pour les items dont la quantité dépend de la cible (ex: ingrédients pour X personnes).
 Format : Réponds uniquement par un objet JSON pur suivant le schéma list_scalable_v1. Ne mets aucune explication avant ou après.
 
-Transcription:
-"""${safe.replace(/"/g, '\\"')}"""
-
 Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
 {"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "baseQuantity": number, "unit": string, "scalable": boolean}]}]}
-`;
+
+Le corps utilisateur fournira uniquement Reference Time (ISO) et Transcript (dictée).`;
+
+const PASS2_PROJECT_SYSTEM_INSTRUCTION = `Tu es un expert en planification de projets. Ton rôle est de décomposer une intention en jalons/étapes clés.
+
+Consignes strictes :
+Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur.
+INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de "demain", pas d'horaires).
+À la place, fournis pour chaque jalon une durée estimée.
+Pour chaque jalon, identifie l'expert métier le plus qualifié (ex: Électricien, Acousticien, Diététicien, Wedding Planner). Si le contexte est général, utilise "Assistant Personnel".
+
+Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
+{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}
+
+Le corps utilisateur fournira uniquement Reference Time (ISO) et Transcript (dictée).`;
+
+/** Pré-chauffe auth + TLS + proxy Gemini (léger) dès activation micro — SPEC ARCHITECTURE IA. */
+export async function warmGeminiProxySession(): Promise<void> {
+  const iso = new Date().toISOString();
+  await callGeminiProxyStream({
+    systemInstruction:
+      'You are a warmup handshake. Reply with exactly the two letters OK and a newline, nothing else. No punctuation.',
+    request: {
+      contents: [{ role: 'user', parts: [{ text: `Reference Time: ${iso}\nTranscript: __proxy_warmup__` }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 16 },
+    },
+    operation: 'gemini.proxy_warm',
+  });
+}
+
+export async function geminiEnrichGenericList(
+  transcript: string,
+  options: { uiLocale: string; mode?: 'LIST' | 'PROJECT'; referenceTimeIso?: string },
+): Promise<
+  | { mode: 'LIST'; parsed: GeminiListInventoryJson; rawResponseText: string }
+  | { mode: 'PROJECT'; parsed: import('./projectMilestonesModel').ProjectMilestonesPayload; rawResponseText: string }
+> {
+  const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
+  const mode = options.mode === 'PROJECT' ? 'PROJECT' : 'LIST';
+  const ref = String(options.referenceTimeIso ?? new Date().toISOString());
+  const systemInstruction = mode === 'PROJECT' ? PASS2_PROJECT_SYSTEM_INSTRUCTION : PASS2_LIST_SYSTEM_INSTRUCTION;
+  const userText = `Reference Time: ${ref}\n\nTranscript:\n"""${safe.replace(/"/g, '\\"')}"""`;
 
   const { text } = await callGeminiProxyStream({
+    systemInstruction,
     request: {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.18, maxOutputTokens: 2048 },
+      contents: [{ parts: [{ text: userText }] }],
+      generationConfig: { temperature: 0.12, maxOutputTokens: 1536 },
     },
     operation: 'lab.list_enrich_generic',
   });
@@ -850,15 +874,17 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
 }
 
 export async function geminiGenerateOneTapCompressedLine(
-  prompt: string,
+  args: { systemInstruction: string; userText: string },
   pathBLog?: GeminiPathBLogAnchor,
 ): Promise<{ raw: string; httpMeta: GeminiHttpSettledMeta | undefined }> {
-  const trimmed = String(prompt || '').trim();
-  if (!trimmed) throw new Error('Gemini: prompt vide');
+  const userText = String(args.userText || '').trim();
+  const systemInstruction = String(args.systemInstruction || '').trim();
+  if (!userText) throw new Error('Gemini: userText vide');
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const { text } = await callGeminiProxyStream({
+    systemInstruction: systemInstruction.length > 0 ? systemInstruction : undefined,
     request: {
-      contents: [{ parts: [{ text: trimmed }] }],
+      contents: [{ parts: [{ text: userText }] }],
       generationConfig: { maxOutputTokens: 2048 },
     },
     operation: 'oneTap.wire.nonstream',
@@ -879,16 +905,18 @@ export async function geminiGenerateOneTapCompressedLine(
 }
 
 export async function geminiStreamOneTapCompressedLine(
-  prompt: string,
+  args: { systemInstruction: string; userText: string },
   onAccumulatedText: (full: string) => void,
   pathBLog?: GeminiPathBLogAnchor,
 ): Promise<{ raw: string; httpMeta: GeminiHttpSettledMeta | undefined }> {
-  const trimmed = String(prompt || '').trim();
-  if (!trimmed) throw new Error('Gemini: prompt vide');
+  const userText = String(args.userText || '').trim();
+  const systemInstruction = String(args.systemInstruction || '').trim();
+  if (!userText) throw new Error('Gemini: userText vide');
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const { text } = await callGeminiProxyStream({
+    systemInstruction: systemInstruction.length > 0 ? systemInstruction : undefined,
     request: {
-      contents: [{ parts: [{ text: trimmed }] }],
+      contents: [{ parts: [{ text: userText }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 2048 },
     },
     operation: 'oneTap.wire.stream',

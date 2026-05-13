@@ -27,7 +27,6 @@ import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
 import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
 import { activateSentinelTrip } from './traffic/sentinelActivation';
-import { geminiEnrichGenericList } from './geminiSemanticLab';
 import { buildProjectMilestonesMetadataPatch, ensureProjectMilestoneUids } from './projectMilestonesModel';
 import { NOTE_FALLBACK_LABEL } from './timelineIntentionVisibility';
 import { logCaptureFlow } from '../utils/captureFlowLog';
@@ -812,15 +811,16 @@ export async function persistOneTapDraft(params: {
           categories: [
             {
               name: '—',
-              items: [{ uid: '', name: 'Génération en cours...', qty: 1, unit: 'piece', scalable: false, checked: false }],
+              items: [{ uid: '', name: '—', qty: 1, unit: 'piece', scalable: false, checked: false }],
             },
           ],
         };
         const id = deps.newId();
         const metaBase = JSON.stringify(buildListMetadataPatch(placeholderPayload));
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
-          is_generating: true,
-          list_enrich_status: 'pending',
+          is_generating: false,
+          list_enrich_status: 'idle',
+          list_enrich_error: null,
           ...(params.parentJalonUid ? { zoom_parent_jalon_uid: params.parentJalonUid } : {}),
         });
         const categoryId = normalizeDomainCategoryId(draft.categoryTag);
@@ -839,28 +839,6 @@ export async function persistOneTapDraft(params: {
           complexity_level: 0,
           created_at: Date.now(),
         });
-        void (async () => {
-          try {
-            console.log(`[Pass2] 🚀 START_ENRICHMENT | ID: ${id} | Type: LIST`);
-            const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale, mode: 'LIST' });
-            if (enriched.mode !== 'LIST') throw new Error('LIST_ENRICH_MODE_MISMATCH');
-            const payload = geminiJsonToStoredPayload(enriched.parsed);
-            const nextTitle = mergedTitle || payload.title;
-            await patchMetadata(id, {
-              ...buildListMetadataPatch({ ...payload, title: nextTitle }),
-              is_generating: false,
-              list_enrich_status: 'done',
-              list_enrich_error: null,
-            });
-            console.log(`[Pass2] ✅ SUCCESS_ENRICHMENT | ID: ${id}`);
-          } catch (e) {
-            await patchMetadata(id, {
-              is_generating: false,
-              list_enrich_status: 'error',
-              list_enrich_error: e instanceof Error ? e.message : String(e),
-            });
-          }
-        })();
         if (!deps.spectrum.isProUser) {
           await consumeListFreeSuccessOnce();
         }
@@ -884,13 +862,14 @@ export async function persistOneTapDraft(params: {
         const mergedTitle = title;
         const placeholderPayload = ensureProjectMilestoneUids({
           title: mergedTitle,
-          milestones: [{ uid: '', title: 'Génération en cours...', estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }],
+          milestones: [{ uid: '', title: '—', estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }],
         });
         const id = deps.newId();
         const metaBase = JSON.stringify(buildProjectMilestonesMetadataPatch(placeholderPayload));
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
-          is_generating: true,
-          list_enrich_status: 'pending',
+          is_generating: false,
+          list_enrich_status: 'idle',
+          list_enrich_error: null,
           project: { start_date: null },
           ...(params.parentJalonUid ? { zoom_parent_jalon_uid: params.parentJalonUid } : {}),
         });
@@ -910,28 +889,6 @@ export async function persistOneTapDraft(params: {
           complexity_level: 0,
           created_at: Date.now(),
         });
-        void (async () => {
-          try {
-            console.log(`[Pass2] 🚀 START_ENRICHMENT | ID: ${id} | Type: PROJECT`);
-            const enriched = await geminiEnrichGenericList(raw, { uiLocale: deps.spectrum.locale, mode: 'PROJECT' });
-            if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
-            const payload = enriched.parsed;
-            const nextTitle = mergedTitle || payload.title;
-            await patchMetadata(id, {
-              ...buildProjectMilestonesMetadataPatch({ ...payload, title: nextTitle }),
-              is_generating: false,
-              list_enrich_status: 'done',
-              list_enrich_error: null,
-            });
-            console.log(`[Pass2] ✅ SUCCESS_ENRICHMENT | ID: ${id}`);
-          } catch (e) {
-            await patchMetadata(id, {
-              is_generating: false,
-              list_enrich_status: 'error',
-              list_enrich_error: e instanceof Error ? e.message : String(e),
-            });
-          }
-        })();
         void scheduleOneTapUniversalReminders({
           intentionId: id,
           title: mergedTitle,

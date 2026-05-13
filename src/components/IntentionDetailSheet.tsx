@@ -1179,7 +1179,16 @@ export function IntentionDetailSheet({
           { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
           { silent: true },
         );
-        const enriched = await geminiEnrichGenericList(raw, { uiLocale, mode: 'LIST' });
+        const refIso = new Date().toISOString();
+        const t0 = Date.now();
+        const enriched = await geminiEnrichGenericList(raw, {
+          uiLocale,
+          mode: 'LIST',
+          referenceTimeIso: refIso,
+        });
+        if (__DEV__) {
+          console.log(`[Pass2] ✅ LIST enrich ${Date.now() - t0}ms | intention=${row.id}`);
+        }
         if (enriched.mode !== 'LIST') throw new Error('LIST_ENRICH_MODE_MISMATCH');
         const payload = geminiJsonToStoredPayload(enriched.parsed);
         const nextTitle = validationTitle || payload.title;
@@ -1195,7 +1204,16 @@ export function IntentionDetailSheet({
           { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
           { silent: true },
         );
-        const enriched = await geminiEnrichGenericList(raw, { uiLocale, mode: 'PROJECT' });
+        const refIso = new Date().toISOString();
+        const t0 = Date.now();
+        const enriched = await geminiEnrichGenericList(raw, {
+          uiLocale,
+          mode: 'PROJECT',
+          referenceTimeIso: refIso,
+        });
+        if (__DEV__) {
+          console.log(`[Pass2] ✅ PROJECT enrich ${Date.now() - t0}ms | intention=${row.id}`);
+        }
         if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
         const payload = enriched.parsed;
         const nextTitle = validationTitle || payload.title;

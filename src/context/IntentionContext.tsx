@@ -486,6 +486,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         categoryTag: skeleton.categoryTag,
         predictedType: skeleton.predictedType,
         title: skeleton.title,
+        transcript: cleaned,
       });
       logCaptureFlow(trace || undefined, 'peek_snapshot_emit', {
         categoryTag: skeleton.categoryTag,

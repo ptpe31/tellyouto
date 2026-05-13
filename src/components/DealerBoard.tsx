@@ -39,6 +39,8 @@ type PeekSnapshotPayload = {
   categoryTag?: unknown;
   predictedType?: unknown;
   title?: unknown;
+  /** Dictée brute (Path A) — mot-clé fantôme DealerBoard (regex dernier mot). */
+  transcript?: unknown;
 };
 
 /** Dernier mot = dernière suite de non-blancs en fin de chaîne (titres FR / ponctuation). */
@@ -48,6 +50,13 @@ export function extractLastWordFromTitle(title: string): string {
   const t = title.trim();
   if (!t) return '—';
   return t.match(LAST_WORD_REGEX)?.[1] ?? '—';
+}
+
+/** Dernier mot du transcript brut (Path A) — même regex que le titre pour cohérence visuelle. */
+export function extractLastWordFromTranscript(transcript: string): string {
+  const t = String(transcript || '').trim();
+  if (!t) return '';
+  return t.match(LAST_WORD_REGEX)?.[1] ?? '';
 }
 
 type DealerBoardCard = {
@@ -198,15 +207,19 @@ export function DealerBoard() {
       setSuctionWave(0);
       const categoryTag = String(p?.categoryTag ?? '');
       const predictedType = String(p?.predictedType ?? '');
+      const rawTs = String(p?.transcript ?? '').trim();
+      const kwFromTranscript = extractLastWordFromTranscript(rawTs);
+      const titleStr = String(p?.title ?? '');
+      const lastWordGhost = kwFromTranscript || extractLastWordFromTitle(titleStr);
       setCards([
         {
           id: 'peek-ghost',
           slotKey: 'slot-0',
           intentionId: undefined,
-          title: String(p?.title ?? ''),
+          title: titleStr,
           categoryTag,
           predictedType,
-          lastWord: '',
+          lastWord: lastWordGhost || '—',
           materialized: false,
           validated: false,
           peekSnapshotRise: true,

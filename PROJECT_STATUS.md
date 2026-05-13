@@ -155,9 +155,14 @@ Points notables :
 
 #### Pass 2 (LIST / PROJECT)
 
-SPEC exige un enrichissement Pass 2 pour `LIST`/`PROJECT`.
+SPEC (v34) : **aucun** enrichissement Pass 2 automatique après Pass 1 ; uniquement après **`pass2_unlocked: true`** + action PRO sur le CTA (fiche / capture).
 
-Le repo contient le déclenchement dans `oneTapPersist.ts` (appel `geminiEnrichGenericList(...)`) et la persistance d’état (ex. `metadata_json.is_generating`, `list_enrich_status`, payload `list_scalable_v1` / `project_milestones_v1`).
+État actuel :
+
+- **`oneTapPersist.ts`** : insertion `LIST` / `PROJECT` avec placeholders minimaux (`list_enrich_status: 'idle'`, `is_generating: false`) — **pas** d’appel `geminiEnrichGenericList` dans la Douane.
+- **`IntentionDetailSheet.tsx`** : `onPressPass2` (PRO) lance `geminiEnrichGenericList` après déverrouillage ; payload court (**Reference Time** ISO + **Transcript** uniquement côté corps user) ; règles LIST/PROJECT en **`systemInstruction`** dans [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) ; `maxOutputTokens` Pass 2 abaissé à **1536** ; logs dev durée enrichissement.
+- **Pass 1** : `buildOneTapPass1SystemInstruction` + `buildOneTapPass1UserContent` dans [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) ; proxy reçoit `systemInstruction` + corps user réduit (référence temps + dictée + seed heuristique).
+- **Pré-warming** : [`warmGeminiProxySession`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) appelé depuis [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) après `setIsRecording(true)` si réseau disponible.
 
 #### NOTE_FALLBACK (résilience)
 
@@ -216,7 +221,9 @@ Fichier : `src/services/CaptureProcessingService.ts`
 - `src/services/oneTapUniversalCapture.ts`
   - `splitBulkTranscript(raw)` : split par séparateur `**` (bulk client-side).
   - `inferOneTapSkeletonFromTranscript(...)` : Path A synchrone (squelette local).
-  - `refineOneTapWithGeminiCompressed(...)` : Path B Gemini (prompt → parse → merge).
+  - `refineOneTapWithGeminiCompressed(...)` : Path B Gemini (`systemInstruction` Pass 1 + corps user court via `geminiGenerateOneTapCompressedLine` / stream).
+  - `buildOneTapPass1SystemInstruction()` / `buildOneTapPass1UserContent(...)` : découpage SPEC (SI vs Reference Time + transcript).
+  - `buildCompressedGeminiPrompt(...)` : concaténation SI+user (métriques / debug).
   - `parsePartialWireLine(buffer)` / `mergeWireIntoOneTapSkeleton(...)` : parsing “wire” (héritage + compat).
   - (internes critiques) `parseBulletPipeIntentsFromBuffer`, `parseJsonIntentsFromBuffer`, `mergeIntentArrayIntoOneTapSkeleton`.
 
@@ -305,7 +312,7 @@ SPEC : après dictée, peek relatif au viewport, transition à la persistance Pa
 - **Verrou Pass 2** : `metadata_json.pass2_unlocked` (bool). Tant que `false`/absent → fiche **Zen** (intercalaire, titre, moment, mémo) + CTA i18n par type. **PRO** : clic → `patchMetadata` + fondu vers UI complète (liste, jalons, itinéraire, Mission/Newton TRIP, etc.) ; Path B capture : même pose de `pass2_unlocked` avant enrich LIST/PROJECT.
 - **Gating monétisation Pass 2 (SPEC §6)** — implémenté dans `IntentionDetailSheet` : `useUserSpectrum().spectrum.isProUser`. **FREE** : CTA Pass 2 avec suffixe i18n `pass2LockedSuffix` (🔒) ; clic → **aucune** écriture `pass2_unlocked`, **aucun** enrichissement Gemini ; redirection vers `ProSubscription`. **PRO** : comportement actuel (mutation + animation). Persistance `pass2_unlocked` inchangée côté PRO.
 - Utilitaire : `src/utils/capturePeekLayout.ts`.
-- **DealerBoard — « Matérialisation » (Talk)** : [`DealerBoard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/DealerBoard.tsx) monté uniquement sous `TalkDebugScreen` ; **proxies visuels** (pas d’écriture SQLite — persistance inchangée via `IntentionContext`). **`INTENTION_PEEK_SNAPSHOT`** → une carte fantôme (contour + icône catégorie), montée **~1,2 s** vers le centre. **`INTENTION_PEEK_FIRST_SAVE`** → remplacement / ballet (`LayoutAnimation` + springs Reanimated) selon le nombre d’intentions ; payload **`dealerBulkItems`** construit dans `IntentionContext` sur bulk ventilé ; géométrie 2/3/4 cartes et + dans [`dealerBalletLayout.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/dealerBalletLayout.ts) ; matérialisation (fill bas→haut, mot-clé regex, Ok) via [`DealerMaterializeCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/DealerMaterializeCard.tsx) + [`dealerMaterialTheme.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/dealerMaterialTheme.ts). **`MICRO_CAPTURE_START`** (`intentionEvents.ts`, émis par `TalkCaptureMicButton`) : coupe le timer idle et aspire vers le badge NEW ; haptique à l’impact ; timer idle aspiration **30 s** ; archivage **local** du proxy à l’aspiration.
+- **DealerBoard — « Matérialisation » (Talk)** : [`DealerBoard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/DealerBoard.tsx) monté uniquement sous `TalkDebugScreen` ; **proxies visuels** (pas d’écriture SQLite — persistance inchangée via `IntentionContext`). **`INTENTION_PEEK_SNAPSHOT`** inclut désormais **`transcript`** (emit `IntentionContext`) : mot-clé fantôme = **dernier mot** du transcript brut (regex `(\S+)\s*$`) avec repli sur le titre Path A. **`INTENTION_PEEK_FIRST_SAVE`** → remplacement / ballet (`LayoutAnimation` + springs Reanimated) selon le nombre d’intentions ; payload **`dealerBulkItems`** construit dans `IntentionContext` sur bulk ventilé ; géométrie 2/3/4 cartes et + dans [`dealerBalletLayout.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/dealerBalletLayout.ts) ; cartes **portrait** (~100×140 via `dealerPortraitMetrics`) ; matérialisation via [`DealerMaterializeCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/DealerMaterializeCard.tsx) + [`dealerMaterialTheme.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/dealerMaterialTheme.ts). **`MICRO_CAPTURE_START`** (`intentionEvents.ts`, émis par `TalkCaptureMicButton`) : coupe le timer idle et aspire vers le badge NEW ; haptique à l’impact ; timer idle aspiration **30 s** ; archivage **local** du proxy à l’aspiration.
 
 ### 4.5 Offline-first : traitement ultérieur encore “semi-manuel”
 
@@ -316,13 +323,12 @@ Le contrat “mise en file offline pour traitement ultérieur” est présent, m
 
 Si l’objectif produit est “zéro friction offline”, il manque une stratégie de replay automatique (avec garde-fous).
 
-### 4.6 Instrumentation Pass 2 (logs) — à harmoniser
-
-SPEC demande des logs explicites `[Pass2] START/SUCCESS`.
+### 4.6 Instrumentation Pass 2 (logs)
 
 État actuel :
 
-- Pass 2 semble implémenté dans `oneTapPersist.ts` (enrich LIST/PROJECT) mais l’instrumentation dédiée n’est pas clairement standardisée (à confirmer/ajouter).
+- Enrichissement **uniquement** depuis `IntentionDetailSheet` (flux manuel PRO) ; logs dev `[Pass2] ✅ … enrich …ms` après succès.
+- Plus d’enrichissement silencieux depuis `oneTapPersist` après insert LIST/PROJECT.
 
 ---
 
