@@ -4,7 +4,19 @@ import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-spe
 import { Check, Lock, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Animated, Dimensions, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Animated,
+  DeviceEventEmitter,
+  Dimensions,
+  Easing,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from 'react-native-paper';
 import NetInfo from '@react-native-community/netinfo';
@@ -18,6 +30,7 @@ import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
+import { MICRO_CAPTURE_START_EVENT_NAME } from '../constants/intentionEvents';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 
 /**
@@ -195,6 +208,7 @@ export function TalkCaptureMicButton({
     try {
       const ready = await ensureMicrophoneReady();
       if (!ready) return;
+      DeviceEventEmitter.emit(MICRO_CAPTURE_START_EVENT_NAME);
       onCaptureStart?.();
       intentionFlow?.startCapture();
       if (__DEV__ && VERBOSE_DEBUG) {

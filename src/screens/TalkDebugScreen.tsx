@@ -53,6 +53,7 @@ import {
 import { mapTrankilIntentionToTimelineItemRow, type TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
+import { DealerBoard } from '../components/DealerBoard';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
 import { PassProModal } from '../components/PassProModal';
 import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
@@ -1275,6 +1276,7 @@ export function TalkDebugScreen() {
           </View>
         </View>
       ) : null}
+      <DealerBoard />
     </View>
   );
 }

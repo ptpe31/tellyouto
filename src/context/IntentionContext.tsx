@@ -49,6 +49,47 @@ import { logCaptureFlow } from '../utils/captureFlowLog';
 
 type CapturePayload = { transcript: string; audioUri: string | null; lang?: string; traceId?: string };
 
+/** Données proxy DealerBoard (Talk) : une ligne par intention persistée dans un bulk ventilé. */
+function buildDealerBulkPeekItems(
+  outcomes: PersistOneTapSuccess[],
+  skeleton: { categoryTag?: string; predictedType?: string },
+): Array<{ intentionId: string; title: string; categoryTag: string; predictedType: string }> {
+  const categoryTag = String(skeleton.categoryTag ?? 'OTHER').trim() || 'OTHER';
+  const items: Array<{ intentionId: string; title: string; categoryTag: string; predictedType: string }> = [];
+  for (const o of outcomes) {
+    if (o.kind === 'persisted_temporal') {
+      items.push({
+        intentionId: o.intentionId,
+        title: o.title,
+        categoryTag,
+        predictedType: o.mirrorType === 'HABIT' ? 'HABIT' : 'TASK',
+      });
+    } else if (o.kind === 'simple_note_or_audio' && o.intentionId) {
+      items.push({
+        intentionId: o.intentionId,
+        title: 'Note',
+        categoryTag,
+        predictedType: 'NOTE',
+      });
+    } else if (o.kind === 'list_inventory_persisted') {
+      items.push({
+        intentionId: o.intentionId,
+        title: 'Liste',
+        categoryTag,
+        predictedType: 'LIST',
+      });
+    } else if (o.kind === 'project_persisted') {
+      items.push({
+        intentionId: o.intentionId,
+        title: 'Projet',
+        categoryTag,
+        predictedType: 'PROJECT',
+      });
+    }
+  }
+  return items;
+}
+
 type IntentionContextValue = {
   startCapture: () => void;
   cancelCapture: () => void;
@@ -471,13 +512,15 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             outcomes.find((o) => 'title' in o && typeof (o as { title?: unknown }).title === 'string') as
               | { title?: string }
               | undefined;
-          // Même routage focus côté écrans que pour SNAPSHOT.
+          const dealerBulkItems = buildDealerBulkPeekItems(outcomes, skeleton);
+          // Même routage focus côté écrans que pour SNAPSHOT. `dealerBulkItems` : proxies Talk (DealerBoard) cascade.
           DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
             intentionId: firstId,
             categoryTag: skeleton.categoryTag,
             predictedType: skeleton.predictedType,
             title: String(anyTitle?.title ?? skeleton.title ?? cleaned.slice(0, 200)),
             transcript: cleaned,
+            dealerBulkItems: dealerBulkItems.length > 0 ? dealerBulkItems : undefined,
           });
           logCaptureFlow(trace || undefined, 'peek_first_save_emit', { intentionId: firstId });
         },
