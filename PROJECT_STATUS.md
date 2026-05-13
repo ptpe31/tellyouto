@@ -94,8 +94,8 @@ Repères dans `src/services/*` :
   - collecte un **transcript** (dictée/saisie) et parfois un **audioUri** (mémo).
   - déclenche le flux via `IntentionContext` (quand disponible) ou via `captureStrategies` (modes spécifiques).
 - `IntentionContext.tsx` expose une API interne :
-  - `startCapture()` / `cancelCapture()` : initialise l’état capture (refs, timers, draft).
-  - `submitCapturePayload({ transcript, audioUri, lang })` : **soumission** (post-dictée) pour traitement IA + persistance.
+  - `startCapture()` / `cancelCapture()` : réinitialise les refs capture (sans funnel UI « streaming »).
+  - `submitCapturePayload({ transcript, audioUri, lang, traceId? })` : **soumission** (post-dictée) ; en ligne, `await runGeminiBulkSequence` (Bulk(1) pour le micro).
 
 ### 2.2 Path A : squelette local immédiat (synchrones, sans réseau)
 
@@ -178,7 +178,7 @@ En cas de :
 
 Ce que fait la queue offline :
 
-1. Crée (si besoin) la table `offline_audio_queue` (SQLite) + indexes.
+1. S’appuie sur la table `offline_audio_queue` (SQLite) + indexes déjà créées au bootstrap (`initTrankilV2Schema`).
 2. Copie le fichier audio dans `documentDirectory/offline_queue/<uuid>.m4a` (si audio).
 3. Insère une NOTE dans `intentions` :
    - `metadata_json.source = 'offline_audio_queue'`
@@ -223,9 +223,8 @@ Fichier : `src/services/CaptureProcessingService.ts`
 ### 3.2 Orchestration UI capture
 
 - `src/context/IntentionContext.tsx`
-  - `submitCapturePayload({ transcript, audioUri, lang })` : pipeline micro/texte “unitaire” (NetInfo → Gemini → persist).
-  - `runGeminiBulkSequence(...)` : séquenceur bulk **séquentiel** (chunk 1…N → persistance confirmée → chunk suivant).
-  - `runGeminiStreamRefine(...)` : streaming + pré‑save optimiste + replace/finalize (mode “live”).
+  - `submitCapturePayload({ transcript, audioUri, lang, traceId? })` : pipeline micro/texte “unitaire” (NetInfo → `await runGeminiBulkSequence` ou queue offline).
+  - `runGeminiBulkSequence(...)` : séquenceur bulk **séquentiel** avec **verrou strict** : échec ou exception sur le chunk *i* → `break` (pas de chunk *i+1*).
   - `proposeOfflineFallback(...)` : Alert UI + sauvegarde hors-ligne.
   - `triggerJalonZoom({ projectIntentionId, parentJalonUid })` : “zoom IA” d’un jalon projet (réutilise bulk(1) en mode enfant).
 
@@ -263,49 +262,36 @@ Fichier : `src/services/CaptureProcessingService.ts`
 
 > Ci-dessous : les écarts “actionnables” constatés dans le code /src par rapport aux exigences explicites de SPEC.md.
 
-### 4.1 Unification “Micro as Bulk(1)” (écart majeur)
+### 4.1 Unification “Micro as Bulk(1)” (aligné SPEC)
 
 SPEC (section “Pipeline Unique — Micro as a Bulk(1)”) demande :
 
 - `submitCapturePayload` → route **toute** capture micro vers `runGeminiBulkSequence({ chunks:[transcript] })`
 - afin d’avoir : mêmes logs, mêmes verrous, même ventilation DB (`persistOneTapDraftVentilated`), mêmes règles d’échec chunk.
 
-État après refactoring :
+État actuel :
 
-- `submitCapturePayload(...)` est un **wrapper** autour de `runGeminiBulkSequence(...)` :
-  - micro = `chunks=[transcript]` (Bulk(1))
-  - la persistance se fait **uniquement** via `persistOneTapDraftVentilated(...)`
-  - `traceId` est généré **avant** d’entrer dans le bulk afin de garder des logs cohérents du début à la fin.
-
-Risque :
-
-- divergence de garanties (verrou de persistance, NOTE_FALLBACK, logs, comportement multi‑intents),
-- complexité accrue (2 pipelines à maintenir).
+- `submitCapturePayload(...)` **attend** la fin de `runGeminiBulkSequence(...)` (`await`) : le même séquenceur couvre micro et texte.
+- micro = `chunks=[transcript]` (Bulk(1)) ; persistance **uniquement** via `persistOneTapDraftVentilated(...)`.
+- `traceId` est fixé avant l’appel bulk pour des logs cohérents.
 
 ### 4.2 Nettoyage du “code mort” / complexité streaming multi-intents
 
-SPEC (section “Nettoyage du code mort”) indique que le parsing streaming multi-intentions côté IA ne fait plus partie du contrat.
+SPEC : simplicité = stabilité ; pas de second pipeline « live » dans le contexte capture.
 
 État actuel :
 
-- `oneTapUniversalCapture.ts` garde une surface large : streaming, parsing Bullet‑Pipe multi-lignes, fallback JSON, merge arrays, etc.
-- `IntentionContext` conserve un mode `runGeminiStreamRefine` (pré‑save + replace/finalize), en plus du séquenceur bulk.
+- `oneTapUniversalCapture.ts` conserve une surface `useStream` / parsing multi‑intents pour compatibilité interne ou usages futurs.
+- `IntentionContext` **n’expose plus** `runGeminiStreamRefine` ni validation streaming associée : un seul chemin bulk + persistance ventilée.
 
-Ce n’est pas forcément “buggé”, mais ce n’est pas aligné avec une stratégie “simple = stable”.
+### 4.3 Table `offline_audio_queue` et bootstrap DB
 
-### 4.3 Table `offline_audio_queue` pas intégrée au bootstrap DB (contrat “tout au démarrage”)
-
-SPEC (2.c.2) : “tout schéma nécessaire est créé au démarrage” et inclut explicitement `offline_audio_queue`.
+SPEC (2.c.2) : schéma nécessaire au démarrage, incluant `offline_audio_queue`.
 
 État actuel :
 
-- `offline_audio_queue` est créée **à la demande** via `ensureOfflineAudioQueueTable()` (quand on queue un offline).
-- `initTrankilV2Schema()` (bootstrap principal) ne crée pas cette table.
-
-Risque :
-
-- surprises runtime (table non créée si un autre module s’attend à sa présence),
-- incohérence avec futur snapshot/sync (si on veut embarquer ces tables dans un bootstrap unique).
+- `initTrankilV2Schema()` crée `offline_audio_queue` et ses index au bootstrap.
+- `offlineAudioQueue.ts` n’exécute plus de DDL « à la volée » (`ensureOfflineAudioQueueTable` supprimé).
 
 ### 4.4 Peek 40px → 200px (cinématique SPEC) : partiellement implémenté
 
@@ -349,3 +335,4 @@ SPEC demande des logs explicites `[Pass2] START/SUCCESS`.
 3. `src/services/oneTapPersist.ts` (mapping DB + Pass 2 + NOTE_FALLBACK)
 4. `src/api/trankilV2Db.ts` (schéma, patchMetadata, sérialisation)
 5. `src/services/intention/offlineAudioQueue.ts` (offline queue réelle en SQLite)
+

@@ -697,12 +697,12 @@ Règles :
 
 ### 2) Unification du cerveau (IntentionContext)
 
-**Contrat absolu : il n’existe plus qu’un seul chemin de traitement/persistance.**  
-`submitCapturePayload` est un wrapper autour du séquenceur `runGeminiBulkSequence` (micro = Bulk de 1).
+**Contrat absolu : il n’existe plus qu’un seul chemin de traitement/persistance dans `IntentionContext`.**  
+`submitCapturePayload` est un wrapper **mince** autour du séquenceur `runGeminiBulkSequence` (micro = Bulk de 1) et **doit** `await` la fin du séquenceur avant de retourner (pas de « fire-and-forget »).
 
 #### 2.a) Wrapper “Micro = Bulk(1)” (submitCapturePayload)
 
-- Toute capture unitaire (micro **ou** saisie texte) est routée vers `runGeminiBulkSequence`, même si le transcript ne contient pas `**`.
+- Toute capture unitaire (micro **ou** saisie texte) est routée vers `await runGeminiBulkSequence`, même si le transcript ne contient pas `**`.
 - Mécanique : forcer `chunks=[cleanedTranscript]` pour imposer le chemin “Séquenceur” (CHUNK 1/1), sans heuristique de split.
 - Paramètres obligatoires à transporter jusqu’au bulk :
   - `transcript` (string) : texte final “clean” (trim + nettoyage des suffixes UI si nécessaire).
@@ -715,7 +715,8 @@ Règles :
 
 #### 2.b) Séquenceur unique (runGeminiBulkSequence)
 
-- Le séquenceur reste **séquentiel** : un chunk est traité “Gemini → Douane → DB” jusqu’au succès DB avant de passer au suivant.
+- Le séquenceur reste **séquentiel** : pour chaque chunk, enchaînement « Gemini (non-stream) → `persistOneTapDraftVentilated` → succès DB » avant d’entamer le suivant.
+- **Verrou strict** : si `persistOneTapDraftVentilated` retourne `!ok` ou lève une exception pour le chunk *i*, la boucle s’interrompt (`break`) — **aucun chunk *i+1*** tant que le chunk *i* n’a pas été persisté avec succès.
 - Persistance : **toute persistance passe par `persistOneTapDraftVentilated`** (ventilation = source de vérité), y compris pour le micro (Bulk(1)).
 - Contrat NOTE_FALLBACK :
   - En mode Bulk (dont micro-as-bulk), le séquenceur passe `allowNoteFallback: false` et préfère :
@@ -732,13 +733,15 @@ Règles :
 
 #### 2.d) Suppression des chemins redondants (simplicité = stabilité)
 
-- Après unification, `IntentionContext` ne doit plus contenir de chemin alternatif qui appelle directement :
-  - `refineOneTapWithGeminiCompressed(...)` (hors séquenceur),
+- `IntentionContext` ne doit plus contenir de chemin alternatif qui appelle directement :
+  - `refineOneTapWithGeminiCompressed(...)` **en dehors** du séquenceur bulk (le séquenceur reste le seul orchestrateur Gemini côté contexte),
   - `persistOneTapDraft(...)` (hors `persistOneTapDraftVentilated`).
+- Les helpers « streaming UI » (pré-save optimiste par intention, `confirm` modal, etc.) ne font plus partie du contexte : le bulk ventilé suffit.
 
-#### 2.e) “Stream global” parasite (contrat)
+#### 2.e) Schéma offline + « stream global » parasite (contrat)
 
-- Interdiction : aucun déclenchement Gemini pendant la dictée (`oneTap.wire.stream`).
+- La table `offline_audio_queue` et ses index sont créées au **bootstrap** SQLite (`initTrankilV2Schema`) ; les services de queue ne redéclarent pas le DDL.
+- Interdiction : aucun déclenchement Gemini « parallèle » pendant la dictée en contournant le séquenceur (`oneTap.wire.stream` réservé à des usages internes hors `IntentionContext` si un jour réactivé).
 - `geminiStartedRef` ne doit être manipulé que par le chemin `submitCapturePayload → runGeminiBulkSequence`.
 - Le log `[MIC] ⏳ SKIP Gemini (already started)` doit disparaître (plus de compétition de verrous).
 

@@ -1,3 +1,9 @@
+/**
+ * File offline **SQLite** : copie audio locale, NOTE `is_pending_ai`, lignes `offline_audio_queue`
+ * (schéma créé au bootstrap via `initTrankilV2Schema`), notifications — distincte de la queue AsyncStorage.
+ *
+ * @module offlineAudioQueue
+ */
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { insertTrankilV2Intention, withTrankilV2Database } from '../../api/trankilV2Db';
@@ -34,36 +40,14 @@ function newIntentionId(): string {
   return newUuidV4();
 }
 
-async function ensureOfflineAudioQueueTable(): Promise<void> {
-  await withTrankilV2Database(async (db) => {
-    await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS offline_audio_queue (
-        id TEXT PRIMARY KEY NOT NULL,
-        intention_id TEXT NOT NULL,
-        transcript TEXT NOT NULL,
-        audio_path TEXT NOT NULL,
-        title TEXT NOT NULL,
-        speech_lang TEXT,
-        status TEXT NOT NULL DEFAULT 'pending',
-        is_pending_ai INTEGER NOT NULL DEFAULT 1 CHECK (is_pending_ai IN (0, 1)),
-        created_at INTEGER NOT NULL,
-        notified_at INTEGER,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
-        server_version INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_status
-        ON offline_audio_queue (status, created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_dirty_updated
-        ON offline_audio_queue (is_dirty, updated_at DESC);
-    `);
-  });
-}
-
 async function ensureOfflineQueueDirectory(): Promise<void> {
   await FileSystem.makeDirectoryAsync(OFFLINE_QUEUE_DIR, { intermediates: true });
 }
 
+/**
+ * Met en file une capture avec audio : copie `.m4a` sous
+ * `documentDirectory/offline_queue/`, NOTE + ligne `pending`, prêt pour replay OneTap.
+ */
 export async function queueOfflineAudioCapture(params: {
   transcript: string;
   audioUri: string;
@@ -77,7 +61,6 @@ export async function queueOfflineAudioCapture(params: {
     console.log(`[OFFLINE_QUEUE] 🧩 TRANSCRIPT (${params.transcript.length}c): "${String(params.transcript).slice(0, 160)}"`);
     console.log(`[OFFLINE_QUEUE] 🎧 AUDIO_URI: yes | LANG: ${params.lang || '—'}`);
   }
-  await ensureOfflineAudioQueueTable();
   await ensureOfflineQueueDirectory();
   const queueId = newQueueId();
   const intentionId = newIntentionId();
@@ -108,6 +91,7 @@ export async function queueOfflineAudioCapture(params: {
   return { intentionId, queueId, storedPath: targetPath };
 }
 
+/** Même file que l’audio mais sans copie fichier ; `audio_path` vide en base. */
 export async function queueOfflineTextCapture(params: {
   transcript: string;
   title: string;
@@ -120,7 +104,6 @@ export async function queueOfflineTextCapture(params: {
     console.log(`[OFFLINE_QUEUE] 🧩 TRANSCRIPT (${params.transcript.length}c): "${String(params.transcript).slice(0, 160)}"`);
     console.log(`[OFFLINE_QUEUE] 🎧 AUDIO_URI: no | LANG: ${params.lang || '—'}`);
   }
-  await ensureOfflineAudioQueueTable();
   const queueId = newQueueId();
   const intentionId = newIntentionId();
   const now = Date.now();
@@ -148,8 +131,8 @@ export async function queueOfflineTextCapture(params: {
   return { intentionId, queueId };
 }
 
+/** Dernier élément `status = 'pending'` (le plus récent). */
 export async function getLatestPendingOfflineAudio(): Promise<OfflineQueuedAudioRow | null> {
-  await ensureOfflineAudioQueueTable();
   return withTrankilV2Database(async (db) => {
     const row = await db.getFirstAsync<OfflineQueuedAudioRow>(
       `SELECT * FROM offline_audio_queue WHERE status = 'pending' ORDER BY created_at DESC LIMIT 1`,
@@ -158,8 +141,8 @@ export async function getLatestPendingOfflineAudio(): Promise<OfflineQueuedAudio
   });
 }
 
+/** Lecture directe par id de queue (ex. action notification). */
 export async function getOfflineAudioById(queueId: string): Promise<OfflineQueuedAudioRow | null> {
-  await ensureOfflineAudioQueueTable();
   return withTrankilV2Database(async (db) => {
     const row = await db.getFirstAsync<OfflineQueuedAudioRow>(
       `SELECT * FROM offline_audio_queue WHERE id = ? LIMIT 1`,
@@ -180,8 +163,8 @@ async function deleteQueuedAudioFile(queueId: string): Promise<void> {
   }
 }
 
+/** Après analyse réussie : supprime le fichier audio copié, marque `done`. */
 export async function markOfflineAudioAsDone(queueId: string): Promise<void> {
-  await ensureOfflineAudioQueueTable();
   await deleteQueuedAudioFile(queueId);
   await withTrankilV2Database(async (db) => {
     const now = Date.now();
@@ -192,8 +175,8 @@ export async function markOfflineAudioAsDone(queueId: string): Promise<void> {
   });
 }
 
+/** L’utilisateur garde la note sans relancer l’IA : fichier retiré, statut `kept`. */
 export async function markOfflineAudioAsKept(queueId: string): Promise<void> {
-  await ensureOfflineAudioQueueTable();
   await deleteQueuedAudioFile(queueId);
   await withTrankilV2Database(async (db) => {
     const now = Date.now();
@@ -204,10 +187,13 @@ export async function markOfflineAudioAsKept(queueId: string): Promise<void> {
   });
 }
 
+/**
+ * Notification locale sticky + catégorie (Analyser / Garder audio) si un `pending`
+ * n’a pas encore été notifié.
+ */
 export async function notifyOfflineAudioPendingAnalysis(): Promise<void> {
   const n = getNotifications();
   if (!n) return;
-  await ensureOfflineAudioQueueTable();
   const pending = await getLatestPendingOfflineAudio();
   if (!pending || pending.notified_at) return;
   try {
@@ -246,8 +232,8 @@ export async function notifyOfflineAudioPendingAnalysis(): Promise<void> {
   });
 }
 
+/** Supprime entrées `done`/`kept` anciennes et leurs fichiers audio résiduels. */
 export async function purgeProcessedQueue(): Promise<number> {
-  await ensureOfflineAudioQueueTable();
   const cutoff = Date.now() - PROCESSED_RETENTION_MS;
   return withTrankilV2Database(async (db) => {
     const rows = await db.getAllAsync<{ id: string; audio_path: string | null }>(

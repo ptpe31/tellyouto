@@ -1,9 +1,8 @@
 import * as chrono from 'chrono-node';
 import * as FileSystem from 'expo-file-system/legacy';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, DeviceEventEmitter, Platform } from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import { Alert, DeviceEventEmitter } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import * as Haptics from 'expo-haptics';
 
 import {
   INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
@@ -17,15 +16,9 @@ import {
   type OneTapUniversalResult,
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
-import {
-  finalizeOneTapOptimisticDraft,
-  preSaveOneTapOptimisticDraft,
-  persistOneTapDraftVentilated,
-  replacePendingOneTapDraft,
-  type PersistOneTapSuccess,
-} from '../services/oneTapPersist';
+import { persistOneTapDraftVentilated, type PersistOneTapSuccess } from '../services/oneTapPersist';
 import { showAppToast } from '../services/appToast';
-import { deleteTrankilV2IntentionById, getTrankilV2IntentionById } from '../api/trankilV2Db';
+import { getTrankilV2IntentionById } from '../api/trankilV2Db';
 import {
   getOfflineAudioById,
   getLatestPendingOfflineAudio,
@@ -47,6 +40,11 @@ import { parseProjectMilestonesPayloadFromMetadataJson } from '../services/proje
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
 import { newUuidV4 } from '../utils/uuid';
+
+/**
+ * Orchestration capture OneTap : séquenceur bulk unique (`runGeminiBulkSequence`), file offline SQLite, replay.
+ * SPEC « Micro as Bulk(1) » — voir `PROJECT_STATUS.md` §2 / §3.2 / §4.1.
+ */
 
 type CapturePayload = { transcript: string; audioUri: string | null; lang?: string; traceId?: string };
 
@@ -77,180 +75,6 @@ function previewForLog(value: string, maxLen: number): string {
   const s = String(value || '').replace(/\s+/g, ' ').trim();
   if (s.length <= maxLen) return s;
   return `${s.slice(0, maxLen)}…`;
-}
-
-function readDraftIntents(draft: OneTapUniversalResult): Record<string, unknown>[] {
-  const data = (draft.data ?? {}) as Record<string, unknown>;
-  const raw = (data as { intents?: unknown }).intents;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as Record<string, unknown>[];
-}
-
-function isCompleteIntent(it: Record<string, unknown>): boolean {
-  const type = String(it.type ?? '').trim().toUpperCase();
-  if (!type) return false;
-  if (type === 'LIST') {
-    const items = Array.isArray(it.items) ? it.items : [];
-    return items.length > 0;
-  }
-  if (type === 'TRIP') {
-    const destination = String(it.destination ?? it.content ?? it.title ?? '').trim();
-    return destination.length > 0;
-  }
-  const title = String(it.title ?? it.content ?? '').trim();
-  return title.length > 0;
-}
-
-function cleanTranscriptForPersist(raw: string): string {
-  const s = String(raw || '').trim();
-  if (!s) return '';
-  return s
-    .replace(/\.\.\.\s*Audio en cours de traitement\s*$/i, '')
-    .replace(/⚠️\s*Audio enregistré\s*\(traitement ultérieur\)\s*$/i, '')
-    .trim();
-}
-
-function buildListDraftBlock(params: {
-  title: string;
-  items: { name: string; baseQuantity?: number; unit?: string; scalable?: boolean; includeInSave?: boolean }[];
-  baseCount: number;
-  unitLabel?: string;
-}): Record<string, unknown> {
-  const baseCount = Math.max(1, Math.round(Number(params.baseCount ?? 1)));
-  const unitLabel = String(params.unitLabel ?? 'personne').trim() || 'personne';
-  return {
-    title: params.title,
-    baseCount,
-    unitLabel,
-    categories: [
-      {
-        name: '—',
-        items: params.items.map((it) => ({
-          name: String(it.name ?? '').trim().slice(0, 120),
-          baseQuantity:
-            it.baseQuantity !== undefined && Number.isFinite(Number(it.baseQuantity)) && Number(it.baseQuantity) > 0
-              ? Number(it.baseQuantity)
-              : 1 / baseCount,
-          unit: String(it.unit ?? 'piece').trim() || 'piece',
-          scalable: it.scalable !== false,
-          includeInSave: it.includeInSave !== false,
-        })),
-      },
-    ],
-  };
-}
-
-function buildOneTapDraftFromIntent(params: {
-  baseDraft: OneTapUniversalResult;
-  intent: Record<string, unknown>;
-}): OneTapUniversalResult | null {
-  const { baseDraft, intent } = params;
-  const type = String(intent.type ?? '').trim().toUpperCase();
-  const categoryTag =
-    (typeof intent.category === 'string' ? intent.category.trim().slice(0, 80) : '') || baseDraft.categoryTag;
-  if (type === 'LIST') {
-    const title = String(intent.title ?? '').trim() || baseDraft.title;
-    const itemsRaw = Array.isArray(intent.items) ? intent.items : [];
-    const baseCount = Number(intent.baseCount ?? 1);
-    const unitLabel = typeof intent.unitLabel === 'string' ? intent.unitLabel : undefined;
-    const items = itemsRaw
-      .map((x) => {
-        if (!x) return null;
-        if (typeof x === 'string') return { name: x.trim(), baseQuantity: 1 / Math.max(1, Math.round(baseCount)) };
-        if (typeof x !== 'object' || Array.isArray(x)) return null;
-        const r = x as Record<string, unknown>;
-        const name = String(r.name ?? '').trim();
-        if (!name) return null;
-        const baseQuantity =
-          r.baseQuantity !== undefined
-            ? Number(r.baseQuantity)
-            : r.qty !== undefined
-              ? Number(r.qty) / Math.max(1, Math.round(baseCount))
-              : 1 / Math.max(1, Math.round(baseCount));
-        return {
-          name,
-          baseQuantity: Number.isFinite(baseQuantity) && baseQuantity > 0 ? baseQuantity : 1 / Math.max(1, Math.round(baseCount)),
-          unit: typeof r.unit === 'string' ? r.unit : undefined,
-          scalable: r.scalable !== false,
-          includeInSave: r.includeInSave !== false,
-        };
-      })
-      .filter(Boolean) as { name: string; baseQuantity?: number; unit?: string; scalable?: boolean; includeInSave?: boolean }[];
-    if (!items.length) return null;
-    const listBlock = buildListDraftBlock({ title, items, baseCount, unitLabel });
-    return {
-      ...baseDraft,
-      categoryTag,
-      title: title.trim().slice(0, 200) || baseDraft.title,
-      predictedType: 'LIST',
-      data: { list: listBlock },
-    };
-  }
-  if (type === 'TASK') {
-    const content = String(intent.content ?? '').trim() || baseDraft.title;
-    const notes = typeof intent.notes === 'string' ? intent.notes.trim() : '';
-    const dueIso = typeof intent.due === 'string' ? intent.due.trim() : '';
-    return {
-      ...baseDraft,
-      categoryTag,
-      title: content.slice(0, 200) || baseDraft.title,
-      predictedType: 'TASK',
-      data: {
-        ...(dueIso ? { dueDateTime: dueIso } : {}),
-        ...(notes ? { notes: notes.slice(0, 2000) } : {}),
-      },
-    };
-  }
-  if (type === 'TRIP') {
-    const destination = String(intent.destination ?? intent.content ?? intent.title ?? '').trim() || String((baseDraft.data as Record<string, unknown>)?.destination_name ?? baseDraft.title);
-    if (!destination) return null;
-    const dueIso =
-      typeof intent.arrivalDue === 'string' ? intent.arrivalDue.trim() : typeof intent.due === 'string' ? intent.due.trim() : '';
-    const addr = String((baseDraft.data as Record<string, unknown>)?.location_address ?? '').trim();
-    return {
-      ...baseDraft,
-      categoryTag,
-      title: destination.slice(0, 200) || baseDraft.title,
-      predictedType: 'TRIP',
-      data: {
-        logisticsPotential: true,
-        destination_name: destination.slice(0, 400),
-        ...(dueIso ? { dueDateTime: dueIso } : {}),
-        location_address: addr,
-        location_place_id: (baseDraft.data as Record<string, unknown>).location_place_id ?? null,
-        location_lat: (baseDraft.data as Record<string, unknown>).location_lat ?? null,
-        location_lng: (baseDraft.data as Record<string, unknown>).location_lng ?? null,
-        remind_to_leave: Boolean((baseDraft.data as Record<string, unknown>).remind_to_leave),
-      },
-    };
-  }
-  if (type === 'HABIT') {
-    const content = String(intent.content ?? '').trim() || baseDraft.title;
-    const rec = typeof intent.recurrence === 'string' ? intent.recurrence.trim() : '';
-    const pref = typeof intent.preferredTime === 'string' ? intent.preferredTime.trim() : '';
-    return {
-      ...baseDraft,
-      categoryTag,
-      title: content.slice(0, 200) || baseDraft.title,
-      predictedType: 'HABIT',
-      data: {
-        ...(rec ? { cadenceDescription: rec.slice(0, 500), recurrence: { summary: rec.slice(0, 500) } } : {}),
-        ...(pref ? { preferredTimeHm: pref } : {}),
-      },
-    };
-  }
-  if (type === 'NOTE') {
-    const content = String(intent.content ?? '').trim() || String((baseDraft.data as Record<string, unknown>)?.memo ?? '');
-    if (!content) return null;
-    return {
-      ...baseDraft,
-      categoryTag,
-      title: baseDraft.title,
-      predictedType: 'NOTE',
-      data: { memo: content.slice(0, 4000) },
-    };
-  }
-  return null;
 }
 
 function parseDueDateFromText(text: string, locale: string): string | null {
@@ -306,90 +130,33 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [spectrum.isProUser, spectrum.locale],
   );
 
-  const [visible, setVisible] = useState(false);
-  const [refining, setRefining] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [draft, setDraft] = useState<OneTapUniversalResult>(() =>
-    inferOneTapSkeletonFromTranscript('', { uiLocale: spectrum.locale || 'fr' }),
-  );
-  const [busy, setBusy] = useState(false);
   const userEditedRef = useRef(false);
   const lastCaptureWasMicRef = useRef(false);
   const lastAudioUriRef = useRef<string | null>(null);
   const captureActiveRef = useRef(false);
-  const draftRef = useRef<OneTapUniversalResult>(draft);
-  const transcriptRef = useRef(transcript);
   const geminiSeqRef = useRef(0);
-  const modalOpenTimerRef = useRef<number | null>(null);
   const geminiStartedRef = useRef(false);
-  const firstSavedResolveRef = useRef<(() => void) | null>(null);
-  const firstSavedFiredRef = useRef(false);
-  const intentIdByIndexRef = useRef<Record<string, string>>({});
-  const intentReplaceTimersRef = useRef<Record<string, number>>({});
-  const finalizedIdsRef = useRef<Record<string, true>>({});
   const bulkProcessingRef = useRef(false);
   const bulkProgressIndexRef = useRef(-1);
 
+  /** Réinitialise les refs capture au début d’une dictée / saisie. */
   const startCapture = useCallback(() => {
     userEditedRef.current = false;
     lastCaptureWasMicRef.current = false;
     lastAudioUriRef.current = null;
     captureActiveRef.current = true;
-    if (modalOpenTimerRef.current) {
-      clearTimeout(modalOpenTimerRef.current);
-      modalOpenTimerRef.current = null;
-    }
-    firstSavedFiredRef.current = false;
-    firstSavedResolveRef.current = null;
-    finalizedIdsRef.current = {};
-    for (const k of Object.keys(intentReplaceTimersRef.current)) {
-      clearTimeout(intentReplaceTimersRef.current[k]);
-    }
-    intentReplaceTimersRef.current = {};
-    intentIdByIndexRef.current = {};
-    setTranscript('');
-    setDraft(inferOneTapSkeletonFromTranscript('', { uiLocale: spectrum.locale || 'fr' }));
-    setVisible(false);
-    setRefining(true);
-    setBusy(false);
-  }, [spectrum.locale]);
+  }, []);
 
+  /** Annule la capture en cours (sans persister) et invalide la séquence Gemini en cours. */
   const cancelCapture = useCallback(() => {
     userEditedRef.current = false;
     lastCaptureWasMicRef.current = false;
     lastAudioUriRef.current = null;
     captureActiveRef.current = false;
     geminiSeqRef.current += 1;
-    if (modalOpenTimerRef.current) {
-      clearTimeout(modalOpenTimerRef.current);
-      modalOpenTimerRef.current = null;
-    }
-    firstSavedFiredRef.current = false;
-    firstSavedResolveRef.current = null;
-    finalizedIdsRef.current = {};
-    for (const k of Object.keys(intentReplaceTimersRef.current)) {
-      clearTimeout(intentReplaceTimersRef.current[k]);
-    }
-    intentReplaceTimersRef.current = {};
-    setVisible(false);
-    setRefining(false);
-    setBusy(false);
   }, []);
 
-  const cancelBlueModal = useCallback(async () => {
-    geminiSeqRef.current += 1;
-    const ids = Object.values(intentIdByIndexRef.current).filter(Boolean);
-    intentIdByIndexRef.current = {};
-    if (ids.length) {
-      for (const id of ids) {
-        try {
-          await deleteTrankilV2IntentionById(id);
-        } catch {}
-      }
-    }
-    cancelCapture();
-  }, [cancelCapture]);
-
+  /** Propose l’enqueue offline (`offline_audio_queue`) après échec réseau / IA. */
   const proposeOfflineFallback = useCallback(
     (params: { transcript: string; audioUri: string | null; error: unknown; lang?: string }) => {
       const message = params.error instanceof Error ? params.error.message : String(params.error);
@@ -410,8 +177,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                 } else {
                   await queueOfflineTextCapture({ transcript: params.transcript, title, lang: params.lang });
                 }
-                setRefining(false);
-                setVisible(false);
                 DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
               })();
             },
@@ -422,179 +187,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const runGeminiStreamRefine = useCallback(
-    async (params: {
-      transcript: string;
-      audioUri: string | null;
-      lang?: string;
-      traceId?: string;
-      openOnFirstIntent: boolean;
-      onFirstIntent?: () => void;
-      allowAlert: boolean;
-    }) => {
-      const cleaned = params.transcript.trim();
-      if (!cleaned) return;
-      const isMic = Boolean(params.audioUri);
-      const trace = String(params.traceId || '').trim() || (isMic ? newId() : '');
-      if (__DEV__ && VERBOSE_DEBUG && isMic) {
-        const now = new Date();
-        console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
-        console.log(`********* [MIC STREAM] *********`);
-        console.log(`[MIC] 🧩 TRANSCRIPT (${cleaned.length}c): "${previewForLog(cleaned, 220)}" | TRACE: ${trace}`);
-      }
-      const persistTranscript = cleaned;
-      const uiLocale = params.lang || spectrum.locale || 'fr-FR';
-      const seq = (geminiSeqRef.current += 1);
-      let fired = false;
-      let loggedFirstSave = false;
-      setRefining(true);
-      const hasExisting = readDraftIntents(draftRef.current).length > 0;
-      const skeleton = hasExisting ? draftRef.current : inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
-      if (!hasExisting) setDraft(skeleton);
-      DeviceEventEmitter.emit(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, {
-        categoryTag: skeleton.categoryTag,
-        predictedType: skeleton.predictedType,
-        title: skeleton.title,
-      });
-      try {
-        const res = await refineOneTapWithGeminiCompressed(cleaned, skeleton, {
-          uiLocale,
-          lang: params.lang,
-          useStream: true,
-          forceComplete: true,
-          onPartial: (partial) => {
-            if (seq !== geminiSeqRef.current) return;
-            if (userEditedRef.current) return;
-            setDraft(partial);
-            void (async () => {
-              try {
-                const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
-                const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
-                const intents = readDraftIntents(partial);
-                for (let idx = 0; idx < intents.length; idx++) {
-                  const it = intents[idx];
-                  if (!isCompleteIntent(it)) continue;
-                  const idxKey = String(idx);
-                  const built = buildOneTapDraftFromIntent({ baseDraft: partial, intent: it });
-                  if (!built) continue;
-                  const existingId = intentIdByIndexRef.current[idxKey];
-                  if (!existingId) {
-                    const pre = await preSaveOneTapOptimisticDraft({
-                      deps,
-                      draft: built,
-                      transcript: persistTranscript,
-                      habitsDefaultTitle,
-                      birthdayLabel,
-                    });
-                    if (pre.ok) {
-                      intentIdByIndexRef.current[idxKey] = pre.intentionId;
-                      if (!firstSavedFiredRef.current) {
-                        firstSavedFiredRef.current = true;
-                        firstSavedResolveRef.current?.();
-                        DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
-                          intentionId: pre.intentionId,
-                          categoryTag: built.categoryTag,
-                          predictedType: built.predictedType,
-                          title: built.title,
-                        });
-                      }
-                      if (__DEV__ && VERBOSE_DEBUG && isMic) {
-                        if (!loggedFirstSave) {
-                          loggedFirstSave = true;
-                          console.log(`[MIC] ✅ FIRST SAVE | TRACE: ${trace}`);
-                        }
-                        console.log(`[DATABASE]   ✅ Pre-save (talkndone.db) | ID: ${pre.intentionId} | TYPE: ${built.predictedType}`);
-                      }
-                    if (built.predictedType !== 'LIST') {
-                      finalizedIdsRef.current[pre.intentionId] = true;
-                      await finalizeOneTapOptimisticDraft({
-                        deps,
-                        intentionId: pre.intentionId,
-                        draft: built,
-                        transcript: persistTranscript,
-                        habitsDefaultTitle,
-                        birthdayLabel,
-                      });
-                      if (__DEV__ && VERBOSE_DEBUG && isMic) {
-                        console.log(`[DATABASE]   ✅ Finalize (talkndone.db) | ID: ${pre.intentionId} | TYPE: ${built.predictedType}`);
-                      }
-                    }
-                      if (!fired && params.openOnFirstIntent) {
-                        fired = true;
-                        params.onFirstIntent?.();
-                      }
-                    }
-                    continue;
-                  }
-                if (finalizedIdsRef.current[existingId]) continue;
-                  if (intentReplaceTimersRef.current[existingId]) continue;
-                  intentReplaceTimersRef.current[existingId] = setTimeout(() => {
-                    delete intentReplaceTimersRef.current[existingId];
-                    void replacePendingOneTapDraft({
-                      deps,
-                      intentionId: existingId,
-                      draft: built,
-                      transcript: persistTranscript,
-                      habitsDefaultTitle,
-                      birthdayLabel,
-                    });
-                  }, 120) as unknown as number;
-                }
-              } catch {}
-            })();
-          },
-        });
-        if (seq !== geminiSeqRef.current) return;
-        const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
-        if (seq !== geminiSeqRef.current) return;
-        setDraft(hydrated);
-        void (async () => {
-          try {
-            const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
-            const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
-            const intents = readDraftIntents(hydrated).filter(isCompleteIntent);
-            for (let idx = 0; idx < intents.length; idx++) {
-              const it = intents[idx];
-              const idxKey = String(idx);
-              const intentionId = intentIdByIndexRef.current[idxKey];
-              if (!intentionId) continue;
-              if (finalizedIdsRef.current[intentionId]) continue;
-              const built = buildOneTapDraftFromIntent({ baseDraft: hydrated, intent: it });
-              if (!built) continue;
-              await finalizeOneTapOptimisticDraft({
-                deps,
-                intentionId,
-                draft: built,
-                transcript: persistTranscript,
-                habitsDefaultTitle,
-                birthdayLabel,
-              });
-              finalizedIdsRef.current[intentionId] = true;
-            }
-          } catch {}
-        })();
-      } catch (e) {
-        const title = cleaned.slice(0, 56) || 'Memo audio';
-        try {
-          if (params.audioUri) {
-            await queueOfflineAudioCapture({ transcript: cleaned, audioUri: params.audioUri, title, lang: params.lang });
-          } else {
-            await queueOfflineTextCapture({ transcript: cleaned, title, lang: params.lang });
-          }
-          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-        } catch {}
-        if (params.allowAlert) proposeOfflineFallback({ transcript: cleaned, audioUri: params.audioUri, error: e, lang: params.lang });
-      } finally {
-        if (seq === geminiSeqRef.current) setRefining(false);
-        if (__DEV__ && VERBOSE_DEBUG && isMic) {
-          console.log(`[MIC] ✅ STREAM DONE | TRACE: ${trace}`);
-          console.log('***************************************');
-        }
-      }
-    },
-    [proposeOfflineFallback, spectrum.locale],
-  );
-
+  /**
+   * Traite les chunks séquentiellement (Path A + Gemini non-stream par chunk), persiste via
+   * `persistOneTapDraftVentilated` ; **interruption stricte** (`break`) si un chunk échoue (`!vr.ok`) ou lève
+   * (invariant : pas de chunk N+1 sans succès DB du chunk N). Point d’entrée **Micro as Bulk(1)**.
+   */
   const runGeminiBulkSequence = useCallback(
     async (params: {
       transcript: string;
@@ -622,7 +219,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const chunks = Array.isArray(params.chunks) && params.chunks.length ? params.chunks : splitBulkTranscript(base);
         const uiLocale = params.lang || spectrum.locale || 'fr-FR';
         const seq = (geminiSeqRef.current += 1);
-        setRefining(true);
         let savedAny = false;
         const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
         const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
@@ -638,7 +234,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             console.log(`[SEQUENCER] 🚀 Traitement : "${chunk}"${trace ? ` | TRACE: ${trace}` : ''}`);
             const progressLabel = `Création de ${i + 1}/${chunks.length}...`;
             if (!params.silent) {
-              setTranscript(progressLabel);
               showAppToast(progressLabel, 1200);
             }
             const skeleton = inferOneTapSkeletonFromTranscript(chunk, { uiLocale });
@@ -717,14 +312,16 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               console.log('***************************************');
             } else {
               console.log('[BulkSequence] ❌ CHUNK_FAILED:', { idx: i + 1, total: chunks.length });
+              break;
             }
           } catch (e) {
-            console.log('[BulkSequence] ❌ CHUNK_EXCEPTION:', { idx: i + 1, total: chunks.length });
+            console.log('[BulkSequence] ❌ CHUNK_EXCEPTION:', { idx: i + 1, total: chunks.length, err: e });
+            break;
           } finally {
             bulkProgressIndexRef.current = -1;
           }
         }
-        console.log('********* TOUTES INTENTIONS TRAITÉES *********');
+        console.log('********* SÉQUENCE BULK TERMINÉE (succès partiel ou total) *********');
         if (!savedAny && params.allowAlert) {
           proposeOfflineFallback({
             transcript: base,
@@ -737,8 +334,6 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         if (savedAny && lastCaptureWasMicRef.current) {
           await consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
         }
-        setVisible(false);
-        setRefining(false);
         userEditedRef.current = false;
         lastCaptureWasMicRef.current = false;
         lastAudioUriRef.current = null;
@@ -751,6 +346,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [proposeOfflineFallback, spectrum.isProUser, spectrum.locale],
   );
 
+  /**
+   * Soumission post-dictée : NetInfo → en ligne `runGeminiBulkSequence` avec `chunks` ou transcript ;
+   * hors ligne → queue SQLite. `traceId` propagé pour les logs micro.
+   */
   const submitCapturePayload = useCallback(
     async ({ transcript: rawTranscript, audioUri, lang, traceId }: CapturePayload) => {
       const cleaned = rawTranscript.trim();
@@ -766,14 +365,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         console.log(`[MIC] 🎧 AUDIO_URI: ${audioUri ? 'yes' : 'no'} | LANG: ${lang || '—'}`);
       }
       captureActiveRef.current = false;
-      if (modalOpenTimerRef.current) {
-        clearTimeout(modalOpenTimerRef.current);
-        modalOpenTimerRef.current = null;
-      }
       lastCaptureWasMicRef.current = Boolean(audioUri);
       lastAudioUriRef.current = audioUri;
       userEditedRef.current = false;
-      setVisible(false);
 
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
@@ -810,8 +404,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         title: skeleton.title,
       });
 
-      // ✅ Unification "Micro as Bulk(1)" : un seul chemin (séquenceur bulk + persistance ventilée).
-      void runGeminiBulkSequence({
+      await runGeminiBulkSequence({
         transcript: cleaned,
         chunks: [cleaned],
         audioUri,
@@ -842,6 +435,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [runGeminiBulkSequence, spectrum.locale],
   );
 
+  /** Zoom IA sur un jalon projet : prompt dédié puis `runGeminiBulkSequence` en mode enfant (`parentId` / jalon). */
   const triggerJalonZoom = useCallback(
     async (params: {
       projectIntentionId: string;
@@ -892,93 +486,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [runGeminiBulkSequence, spectrum.locale],
   );
 
-  const confirm = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
-      const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
-      const intents = readDraftIntents(draft).filter(isCompleteIntent);
-      const persistTranscript = cleanTranscriptForPersist(transcript);
-      if (!intents.length) {
-        const title = persistTranscript.slice(0, 56) || 'Memo';
-        const audioUri = lastAudioUriRef.current;
-        if (audioUri) {
-          await queueOfflineAudioCapture({ transcript: persistTranscript, audioUri, title });
-        } else {
-          await queueOfflineTextCapture({ transcript: persistTranscript, title });
-        }
-        setVisible(false);
-        setRefining(false);
-        userEditedRef.current = false;
-        lastCaptureWasMicRef.current = false;
-        lastAudioUriRef.current = null;
-        DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-        if (Platform.OS !== 'web') {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
-        return;
-      }
-
-      const successes: boolean[] = [];
-      for (let i = 0; i < intents.length; i++) {
-        const idxKey = String(readDraftIntents(draft).indexOf(intents[i]));
-        let intentionId = intentIdByIndexRef.current[idxKey];
-        const built = buildOneTapDraftFromIntent({ baseDraft: draft, intent: intents[i] });
-        if (!built) continue;
-        if (!intentionId) {
-          const pre = await preSaveOneTapOptimisticDraft({
-            deps,
-            draft: built,
-            transcript: persistTranscript,
-            habitsDefaultTitle,
-            birthdayLabel,
-          });
-          if (!pre.ok) continue;
-          intentionId = pre.intentionId;
-          intentIdByIndexRef.current[idxKey] = intentionId;
-        }
-        const fin = await finalizeOneTapOptimisticDraft({
-          deps,
-          intentionId,
-          draft: built,
-          transcript: persistTranscript,
-          habitsDefaultTitle,
-          birthdayLabel,
-        });
-        successes.push(fin.ok);
-      }
-      if (!successes.some(Boolean)) {
-        showAppToast(i18n.t('talkDebug.oneTapRefineFailedToast', { defaultValue: 'Sauvegarde impossible.' }), 4200);
-        return;
-      }
-      if (lastCaptureWasMicRef.current) {
-        await consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
-      }
-      setVisible(false);
-      setRefining(false);
-      userEditedRef.current = false;
-      lastCaptureWasMicRef.current = false;
-      lastAudioUriRef.current = null;
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-      if (Platform.OS !== 'web') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    } catch (e) {
-      showAppToast(i18n.t('talkDebug.oneTapRefineFailedToast', { defaultValue: 'Sauvegarde impossible.' }), 4200);
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, deps, draft, transcript]);
-
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
-
-  useEffect(() => {
-    transcriptRef.current = transcript;
-  }, [transcript]);
-
+  /** Marque la queue offline traitée puis rejoue la capture via `submitCapturePayload`. */
   const analyzeLatestOfflineAudio = useCallback(
     async (queueId?: string) => {
       const pending = queueId ? await getOfflineAudioById(queueId) : await getLatestPendingOfflineAudio();

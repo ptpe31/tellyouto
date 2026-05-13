@@ -1,6 +1,13 @@
 import * as SQLite from 'expo-sqlite';
 import { DeviceEventEmitter } from 'react-native';
 
+/**
+ * Repository SQLite Trankil-v2 (`talkndone.db`) : schéma, écritures sérialisées, timeline, quotas, `patchMetadata`.
+ * Voir `PROJECT_STATUS.md` §1.4 / §3.3.
+ *
+ * @module trankilV2Db
+ */
+
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { newUuidV4 } from '../utils/uuid';
@@ -283,6 +290,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
+/** Point d’entrée unique d’init : garantit `initTrankilV2Schema()` une fois par runtime. */
 export async function bootstrapTrankilV2Database(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise;
   bootstrapPromise = (async () => {
@@ -291,6 +299,9 @@ export async function bootstrapTrankilV2Database(): Promise<void> {
   return bootstrapPromise;
 }
 
+/**
+ * Exécute `fn` dans une file **sérialisée** ; si `prepareAsync` rejette, rouvre la base et réessaie une fois.
+ */
 export async function withTrankilV2Database<T>(
   fn: (db: SQLite.SQLiteDatabase) => Promise<T>,
 ): Promise<T> {
@@ -322,7 +333,8 @@ async function syncAfterIntentionWrite(reason: string): Promise<void> {
 }
 
 /**
- * Schéma SQLite de base Trankil-v2.
+ * Crée / migre tables et index Trankil-v2 (PRAGMA foreign_keys, `intentions`, billing, etc.).
+ * Inclut nativement `offline_audio_queue` et ses index (file offline-first ; plus de DDL dupliqué côté services).
  */
 export async function initTrankilV2Schema(): Promise<void> {
   if (schemaReady) return;
@@ -2601,6 +2613,10 @@ function safeParseJsonRecord(input: string | null | undefined): Record<string, u
   return {};
 }
 
+/**
+ * Merge transactionnel de `metadata_json` pour une intention (deep merge), `BEGIN IMMEDIATE`,
+ * puis sync hardware / event `INTENTIONS_CHANGED` sauf `opts.silent`.
+ */
 export async function patchMetadata(
   id: string,
   partialObject: Record<string, unknown>,
