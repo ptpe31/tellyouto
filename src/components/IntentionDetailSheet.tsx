@@ -55,6 +55,8 @@ import {
 } from '../services/projectMilestonesModel';
 import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicRaised } from '../theme/neumorphism';
 import { capturePeekPathAHeightPx } from '../utils/capturePeekLayout';
 
@@ -442,6 +444,8 @@ export function IntentionDetailSheet({
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
+  const { spectrum } = useUserSpectrum();
+  const isProUser = spectrum.isProUser;
   const peekCapturePhase = peekCapturePhaseProp ?? 'idle';
   const rawPeek = Math.round(Number(peekHeightPx));
   const peekHeight =
@@ -580,6 +584,20 @@ export function IntentionDetailSheet({
     if (type === 'TASK') return t('intentionDetail.pass2Task');
     return t('intentionDetail.pass2EnrichDefault');
   }, [row?.category_id, row?.type, t]);
+
+  const pass2MutationButtonLabel = useMemo(
+    () => (isProUser ? pass2CtaLabel : `${pass2CtaLabel} ${t('intentionDetail.pass2LockedSuffix')}`.trim()),
+    [isProUser, pass2CtaLabel, t],
+  );
+
+  const redirectToProSubscription = useCallback(() => {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('Redirect to ProSubscription');
+    }
+    if (rootNavigationRef.isReady()) {
+      rootNavigationRef.navigate('ProSubscription');
+    }
+  }, []);
 
   const clearPeekAutoCloseTimer = useCallback(() => {
     if (peekAutoCloseTimer.current) {
@@ -1113,6 +1131,10 @@ export function IntentionDetailSheet({
 
   const onPressUnlockPass2FromTimeline = useCallback(async () => {
     if (!row || pass2Running || row.id === 'peek_pending') return;
+    if (!isProUser) {
+      redirectToProSubscription();
+      return;
+    }
     setPass2Running(true);
     try {
       await persistPass2Unlocked();
@@ -1127,10 +1149,14 @@ export function IntentionDetailSheet({
     } finally {
       setPass2Running(false);
     }
-  }, [pass2RevealAnim, pass2Running, persistPass2Unlocked, row]);
+  }, [isProUser, pass2RevealAnim, pass2Running, persistPass2Unlocked, redirectToProSubscription, row]);
 
   const onPressPass2 = async () => {
     if (!row || pass2Running) return;
+    if (!isProUser) {
+      redirectToProSubscription();
+      return;
+    }
     setPass2Running(true);
     try {
       if (!pass2UnlockedFromMeta) {
@@ -1749,7 +1775,7 @@ export function IntentionDetailSheet({
                   disabled={pass2Running || !row || row.id === 'peek_pending'}
                   onPress={() => void onPressPass2()}
                 >
-                  {pass2CtaLabel}
+                  {pass2MutationButtonLabel}
                 </Button>
                 <Button mode="outlined" disabled={pass2Running} onPress={onClose}>
                   {t('intentionDetail.finish')}
@@ -1866,7 +1892,7 @@ export function IntentionDetailSheet({
                       disabled={pass2Running}
                       style={styles.footerBtn}
                     >
-                      {pass2CtaLabel}
+                      {pass2MutationButtonLabel}
                     </Button>
                   ) : null}
                   <Button mode="outlined" onPress={onClose} style={styles.footerCloseBtn}>

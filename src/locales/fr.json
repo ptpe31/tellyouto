@@ -114,6 +114,7 @@
     "pass2Task": "🎯 Préciser l'action",
     "pass2EnrichDefault": "✨ Enrichir",
     "pass2Steps": "✨ Générer des étapes",
+    "pass2LockedSuffix": "🔒",
     "noteMemoSection": "Mémo",
     "finish": "Terminer"
   },

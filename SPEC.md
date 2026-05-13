@@ -378,7 +378,7 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 
 ### 5) Verrou sémantique universel (`metadata_json.pass2_unlocked`)
 
-**Contrat** : clé booléenne **`pass2_unlocked`** à la racine de `metadata_json`. Tant qu’elle est **absente ou `false`**, la fiche reste une **« note augmentée »** : aucun bloc Pass 2 complexe n’est affiché, **même si** les données existent déjà (liste, jalons, champs trajet, etc.).
+**Contrat** : clé booléenne **`pass2_unlocked`** à la racine de `metadata_json`. Tant qu’elle est **absente ou `false`**, la fiche reste en mode **« Zen »** (équivalent produit : *note augmentée*) : aucun bloc Pass 2 complexe n’est affiché, **même si** les données existent déjà (liste, jalons, champs trajet, etc.).
 
 **Affichage par défaut (tous types, hors vue validation capture Path B)** :
 - Intercalaire neumorphique (catégorie + pastel).
@@ -386,19 +386,37 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - Moment (jour • heure) lorsque disponible.
 - Mémo / transcript (`memo` ou `content_raw`).
 
-**Consentement explicite** : le bouton principal (libellés i18n `intentionDetail.pass2*`) appelle `patchMetadata` avec `pass2_unlocked: true`, puis la vue détaillée apparaît avec **fondu** (`Animated`, ~320 ms). Si `pass2_unlocked === true`, le bouton disparaît et la vue complète s’affiche directement.
+**Consentement explicite (PRO uniquement — voir §6)** : pour un abonné **PRO**, le bouton principal (libellés i18n `intentionDetail.pass2*`) appelle `patchMetadata` avec `pass2_unlocked: true`, puis la vue détaillée apparaît avec **fondu** (`Animated`, ~320 ms). Si `pass2_unlocked === true`, le bouton disparaît et la vue complète s’affiche directement. **Un utilisateur FREE ne doit jamais** persister `pass2_unlocked: true` ni lancer l’enrichissement Pass 2 (Gemini) via ce flux sans passage à l’offre Pro.
 
-**Libellés dynamiques (i18n, pas de texte en dur)** :
-- `LIST` / catégorie `SHOP` → `pass2List` (ex. « 📝 Générer la liste »).
-- `PROJECT` → `pass2Project` (ex. « ✨ Générer le projet »).
-- `TRIP` / `TRAVEL` → `pass2Trip` (ex. « 📍 Préparer le trajet »).
-- `HABIT` / `HEALTH` → `pass2Habit`.
-- `TASK` → `pass2Task` (ex. « 🎯 Préciser l’action »).
+**Libellés dynamiques (i18n, pas de texte en dur dans les composants)** — intention du libellé « actif » (PRO) :
+- `LIST` / catégorie `SHOP` → *Générer la liste* (`pass2List`).
+- `PROJECT` → *Générer le projet* (`pass2Project`).
+- `TRIP` / `TRAVEL` → *Préparer le trajet* (`pass2Trip`).
+- `HABIT` / `HEALTH` → *Planifier la routine* (`pass2Habit`).
+- `TASK` → *Préciser l’action* (`pass2Task`).
 - Autres → `pass2EnrichDefault` / `pass2Steps` selon produit.
 
-**TRIP — hiérarchie** : le bloc **Mission** (niveau 3), les contrôles itinéraire précis (carte / adresses / transport confort), et **Newton** restent **totalement masqués** tant que `pass2_unlocked` est faux (y compris si `remind_to_leave` ou métadonnées trajet sont déjà présentes). Le passage à la vue riche n’a lieu qu’après action sur « Préparer le trajet » (qui pose `pass2_unlocked: true`).
+**TRIP — hiérarchie** : le bloc **Mission** (niveau 3), les contrôles itinéraire précis (carte / adresses / transport confort), et **Newton** restent **totalement masqués** tant que `pass2_unlocked` est faux (y compris si `remind_to_leave` ou métadonnées trajet sont déjà présentes). Le passage à la vue riche n’a lieu qu’après action **PRO** sur le CTA « Préparer le trajet » (qui pose `pass2_unlocked: true`).
 
-**Cas `peek_pending`** : même squelette « note augmentée » si la sheet est ouverte en plein hors Path B ; le bouton de déverrouillage est masqué (pas d’`id` stable pour persister).
+**Cas `peek_pending`** : même squelette Zen si la sheet est ouverte en plein hors Path B ; le bouton de déverrouillage est masqué (pas d’`id` stable pour persister).
+
+### 6) Gating monétisation Pass 2 (FREE vs PRO)
+
+**Source de vérité** : [`UserSpectrumContext`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/UserSpectrumContext.tsx) via **`useUserSpectrum()`** — booléen effectif **`spectrum.isProUser`**. `spectrum.isProUser === false` ⇒ utilisateur **FREE** ; `true` ⇒ **PRO**.
+
+**Objectif produit** : le FREE **voit l’opportunité** (CTA Pass 2 visible mais **verrouillé**), le PRO **active l’intelligence** (déverrouillage + enrichissement lorsque applicable).
+
+**Comportement du bouton principal Pass 2** (vue Zen / Path B validation — même logique universelle) :
+
+| | **FREE** | **PRO** |
+|---|----------|---------|
+| **Libellé** | Même base i18n qu’en PRO + **indicateur cadenas** (ex. suffixe ` 🔒` ou clé dédiée `intentionDetail.pass2LockedSuffix` / composition en UI) pour matérialiser le verrou. | Libellé i18n seul (sans cadenas). |
+| **Clic** | **Ne pas** appeler `patchMetadata` avec `pass2_unlocked: true`. **Ne pas** lancer `geminiEnrichGenericList` (LIST/PROJECT). Rediriger vers le parcours **souscription Pro** (ex. modal / écran `ProSubscription` déjà prévu dans l’app — équivalent navigation « Recharge / Pro »). En développement, un `console.log` de secours est acceptable tant que la navigation n’est pas câblée. | Exécuter le flux actuel : `pass2_unlocked: true` + fondu vers les blocs complexes + enrichissement LIST/PROJECT si prévu. |
+| **Persistance** | Inchangée côté `pass2_unlocked` (reste absent ou `false`). | `pass2_unlocked` persisté en base pour réouvertures immédiates en vue détaillée. |
+
+**Animation** : après clic **PRO**, conserver une **transition fluide** (fondu / durée cohérente avec l’existant ~300 ms) pour l’apparition des blocs détaillés.
+
+**Intégration** : [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) consomme `useUserSpectrum()` (ex. `const { spectrum } = useUserSpectrum()` puis `spectrum.isProUser`) ; pas de duplication de règles dans `IntentionContext` / `oneTapPersist` sauf si un garde-fou serveur ou quota est ajouté plus tard (hors périmètre UI immédiat).
 
 ---
 
@@ -433,13 +451,14 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 
 ### 3) Footer actions (vue Path B)
 #### Bouton de mutation (Pass 2 — Enrichir)
-- Proéminent, libellés i18n (`intentionDetail.pass2*`) alignés sur la section **Verrou sémantique** (LIST/SHOP, PROJECT, TRIP, HABIT, TASK, défaut).
-- Action :
+- Proéminent, libellés i18n (`intentionDetail.pass2*`) alignés sur la section **Verrou sémantique** ; **gating FREE/PRO** : voir **IntentionDetailSheet §6** (`isProUser` via `useUserSpectrum()`).
+- **PRO** — Action :
   - Pose **`pass2_unlocked: true`** via `patchMetadata` (consentement explicite).
   - Lance le Pass 2 (enrichissement) lorsque applicable (`LIST` / `PROJECT` → Gemini enrich).
   - Déploie la sheet en **plein écran**.
+- **FREE** — Action : pas de mutation `pass2_unlocked`, pas d’enrichissement ; redirection souscription Pro (ou log de secours en dev).
 - Feedback :
-  - Afficher une jauge/loader dans l’intercalaire pendant que le Pass 2 mouline.
+  - Afficher une jauge/loader dans l’intercalaire pendant que le Pass 2 mouline (**PRO** uniquement lorsque l’enrichissement tourne).
 
 #### Bouton secondaire (Terminer)
 - Libellé i18n : “Fermer” / “Terminer” (à préciser en i18n).
@@ -454,7 +473,8 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 - Après dictée : Path A (~30 %) + intercalaire visible.
 - Dès Pass 1 prêt : Path B (~25 %) + titre clean + 2 boutons.
 - « Terminer » ferme sans effet secondaire (la row est déjà en base).
-- « Enrichir » lance Pass 2 + full screen + loader sur l’onglet.
+- **PRO** : « Enrichir » lance Pass 2 + full screen + loader sur l’onglet.
+- **FREE** : le bouton Pass 2 reste **verrouillé** (cadenas) et n’écrit pas `pass2_unlocked` ; le clic mène vers la souscription Pro.
 
 Composants principaux :
 - Capture & parsing : [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)
