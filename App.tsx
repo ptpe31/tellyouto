@@ -9,7 +9,8 @@ import { useTheme } from 'react-native-paper';
 
 import { bootstrapTrankilV2Database, cleanOldArchives } from './src/api';
 import { AvailabilityNudgeModal } from './src/components/AvailabilityNudgeModal';
-import { EveningStarModal } from './src/components/EveningStarModal';
+// TODO: supprimer ce commentaire + réactiver l’import quand la modale « Rituel des étoiles » sera retirée ou réécrite.
+// import { EveningStarModal } from './src/components/EveningStarModal';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { IntentionSyncBootstrap } from './src/components/IntentionSyncBootstrap';
 import { MorningDewModal } from './src/components/MorningDewModal';
@@ -121,7 +122,8 @@ export default function App() {
                               <OfflineFirstPendingBootstrap />
                               <SystemHealthBanner />
                               <MorningDewModal />
-                              <EveningStarModal />
+                              {/* TODO: supprimer ce bloc commenté + réimporter EveningStarModal si la modale « Rituel des étoiles » revient. */}
+                              {/* <EveningStarModal /> */}
                               <AvailabilityNudgeModal />
                               <IntentionProvider>
                                 <AppNavigation />
