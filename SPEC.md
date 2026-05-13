@@ -376,6 +376,30 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - Slot 1 : pastels **bleu / vert / violet** selon `category_id` (pas rose / rouge / orange), relief `neumorphicRaised`, coins supérieurs arrondis.
 - L’ajout d’intercalaires ne casse aucune feature existante (édition, toggles, itinerary, listes, projets, etc.).
 
+### 5) Verrou sémantique universel (`metadata_json.pass2_unlocked`)
+
+**Contrat** : clé booléenne **`pass2_unlocked`** à la racine de `metadata_json`. Tant qu’elle est **absente ou `false`**, la fiche reste une **« note augmentée »** : aucun bloc Pass 2 complexe n’est affiché, **même si** les données existent déjà (liste, jalons, champs trajet, etc.).
+
+**Affichage par défaut (tous types, hors vue validation capture Path B)** :
+- Intercalaire neumorphique (catégorie + pastel).
+- Titre clean (Pass 1).
+- Moment (jour • heure) lorsque disponible.
+- Mémo / transcript (`memo` ou `content_raw`).
+
+**Consentement explicite** : le bouton principal (libellés i18n `intentionDetail.pass2*`) appelle `patchMetadata` avec `pass2_unlocked: true`, puis la vue détaillée apparaît avec **fondu** (`Animated`, ~320 ms). Si `pass2_unlocked === true`, le bouton disparaît et la vue complète s’affiche directement.
+
+**Libellés dynamiques (i18n, pas de texte en dur)** :
+- `LIST` / catégorie `SHOP` → `pass2List` (ex. « 📝 Générer la liste »).
+- `PROJECT` → `pass2Project` (ex. « ✨ Générer le projet »).
+- `TRIP` / `TRAVEL` → `pass2Trip` (ex. « 📍 Préparer le trajet »).
+- `HABIT` / `HEALTH` → `pass2Habit`.
+- `TASK` → `pass2Task` (ex. « 🎯 Préciser l’action »).
+- Autres → `pass2EnrichDefault` / `pass2Steps` selon produit.
+
+**TRIP — hiérarchie** : le bloc **Mission** (niveau 3), les contrôles itinéraire précis (carte / adresses / transport confort), et **Newton** restent **totalement masqués** tant que `pass2_unlocked` est faux (y compris si `remind_to_leave` ou métadonnées trajet sont déjà présentes). Le passage à la vue riche n’a lieu qu’après action sur « Préparer le trajet » (qui pose `pass2_unlocked: true`).
+
+**Cas `peek_pending`** : même squelette « note augmentée » si la sheet est ouverte en plein hors Path B ; le bouton de déverrouillage est masqué (pas d’`id` stable pour persister).
+
 ---
 
 ## Capture Flash — Pass 1 / Pass 2 (Enrichir vs Terminer)
@@ -409,13 +433,10 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 
 ### 3) Footer actions (vue Path B)
 #### Bouton de mutation (Pass 2 — Enrichir)
-- Proéminent, libellé i18n dépendant de la catégorie :
-  - `SHOP` / `LIST` → “📝 Générer la liste”
-  - `TRAVEL` / `TRIP` → “📍 Préparer le trajet”
-  - `HEALTH` / `HABIT` → “🔄 Planifier la routine”
-  - Autre → “✨ Générer des étapes”
+- Proéminent, libellés i18n (`intentionDetail.pass2*`) alignés sur la section **Verrou sémantique** (LIST/SHOP, PROJECT, TRIP, HABIT, TASK, défaut).
 - Action :
-  - Lance le Pass 2 (enrichissement).
+  - Pose **`pass2_unlocked: true`** via `patchMetadata` (consentement explicite).
+  - Lance le Pass 2 (enrichissement) lorsque applicable (`LIST` / `PROJECT` → Gemini enrich).
   - Déploie la sheet en **plein écran**.
 - Feedback :
   - Afficher une jauge/loader dans l’intercalaire pendant que le Pass 2 mouline.

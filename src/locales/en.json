@@ -107,10 +107,14 @@
     "comfortOptimized": "Optimized departure slot",
     "remindToLeave": "Remind me when to leave",
     "surveillanceMissingInfo": "Add a valid destination and a precise arrival time to enable Newton.",
-    "pass2List": "📝 List details",
+    "pass2List": "📝 Generate the list",
+    "pass2Project": "✨ Generate the project",
     "pass2Trip": "📍 Prepare the trip",
     "pass2Habit": "🔄 Plan the routine",
+    "pass2Task": "🎯 Refine the action",
+    "pass2EnrichDefault": "✨ Enrich",
     "pass2Steps": "✨ Generate steps",
+    "noteMemoSection": "Memo",
     "finish": "Finish"
   },
   "talk": {

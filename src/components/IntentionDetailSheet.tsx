@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   ActionSheetIOS,
@@ -298,6 +298,12 @@ function isTripValidated(meta: Record<string, unknown> | null): boolean {
   return Boolean(trip.validatedAtMs);
 }
 
+/** Consentement explicite : afficher les blocs Pass 2 (jalons, liste détaillée, Mission/Newton, etc.). */
+function isPass2UnlockedMeta(meta: Record<string, unknown> | null | undefined): boolean {
+  if (!meta || typeof meta !== 'object') return false;
+  return meta.pass2_unlocked === true;
+}
+
 function buildGoogleMapsDirectionsUrlWithOrigin(params: {
   origin?: string | null;
   destination: string;
@@ -514,6 +520,19 @@ export function IntentionDetailSheet({
   const restoredZoomRef = useRef(false);
 
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
+  const pass2UnlockedFromMeta = useMemo(() => isPass2UnlockedMeta(meta), [meta]);
+  const [pass2UnlockOptimistic, setPass2UnlockOptimistic] = useState(false);
+  useEffect(() => {
+    setPass2UnlockOptimistic(false);
+  }, [row?.id]);
+  useEffect(() => {
+    if (pass2UnlockedFromMeta) setPass2UnlockOptimistic(false);
+  }, [pass2UnlockedFromMeta]);
+  const pass2Unlocked = pass2UnlockedFromMeta || pass2UnlockOptimistic;
+  const pass2RevealAnim = useRef(new Animated.Value(0)).current;
+  useLayoutEffect(() => {
+    pass2RevealAnim.setValue(pass2UnlockedFromMeta ? 1 : 0);
+  }, [row?.id, pass2RevealAnim, pass2UnlockedFromMeta]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
   const isTrip = Boolean(trip);
   const isProject = Boolean(row && row.type === 'PROJECT');
@@ -543,6 +562,8 @@ export function IntentionDetailSheet({
   const showSlot3 = multiIntents.length > 2;
   const isValidationView =
     Boolean(validationMode) && visible && sheetPosition === 'peek' && peekCapturePhase === 'path_b';
+  /** Fiche « note augmentée » tant que `pass2_unlocked` est absent/faux (hors vue validation capture). */
+  const gateLocked = Boolean(visible && row && !pass2Unlocked && !isValidationView);
   const validationTitle = useMemo(() => {
     const a = String(row?.display_title ?? '').trim();
     if (a) return a;
@@ -553,9 +574,11 @@ export function IntentionDetailSheet({
     const type = String(row?.type ?? '').trim().toUpperCase();
     const cat = String(row?.category_id ?? '').trim().toUpperCase();
     if (type === 'LIST' || cat === 'SHOP') return t('intentionDetail.pass2List');
+    if (type === 'PROJECT') return t('intentionDetail.pass2Project');
     if (type === 'TRIP' || cat === 'TRAVEL') return t('intentionDetail.pass2Trip');
     if (type === 'HABIT' || cat === 'HEALTH') return t('intentionDetail.pass2Habit');
-    return t('intentionDetail.pass2Steps');
+    if (type === 'TASK') return t('intentionDetail.pass2Task');
+    return t('intentionDetail.pass2EnrichDefault');
   }, [row?.category_id, row?.type, t]);
 
   const clearPeekAutoCloseTimer = useCallback(() => {
@@ -1080,10 +1103,47 @@ export function IntentionDetailSheet({
     }).start();
   };
 
+  const persistPass2Unlocked = useCallback(async () => {
+    if (!row || row.id === 'peek_pending') return;
+    const root = safeParseJsonObject(row.metadata_json) ?? {};
+    await patchMetadata(row.id, { pass2_unlocked: true });
+    onPatchRow?.(row.id, { metadata_json: JSON.stringify({ ...root, pass2_unlocked: true }) });
+    setPass2UnlockOptimistic(true);
+  }, [onPatchRow, row]);
+
+  const onPressUnlockPass2FromTimeline = useCallback(async () => {
+    if (!row || pass2Running || row.id === 'peek_pending') return;
+    setPass2Running(true);
+    try {
+      await persistPass2Unlocked();
+      pass2RevealAnim.setValue(0);
+      requestAnimationFrame(() => {
+        Animated.timing(pass2RevealAnim, {
+          toValue: 1,
+          duration: 320,
+          useNativeDriver: true,
+        }).start();
+      });
+    } finally {
+      setPass2Running(false);
+    }
+  }, [pass2RevealAnim, pass2Running, persistPass2Unlocked, row]);
+
   const onPressPass2 = async () => {
     if (!row || pass2Running) return;
     setPass2Running(true);
-    openFullSheet();
+    try {
+      if (!pass2UnlockedFromMeta) {
+        await patchMetadata(row.id, { pass2_unlocked: true });
+        const root = safeParseJsonObject(row.metadata_json) ?? {};
+        onPatchRow?.(row.id, { metadata_json: JSON.stringify({ ...root, pass2_unlocked: true }) });
+        setPass2UnlockOptimistic(true);
+      }
+      openFullSheet();
+    } catch {
+      setPass2Running(false);
+      return;
+    }
     try {
       const raw = String(row.content_raw ?? '').trim();
       const uiLocale = i18n.language || 'fr';
@@ -1703,6 +1763,119 @@ export function IntentionDetailSheet({
               keyboardVerticalOffset={24}
               style={styles.kbRoot}
             >
+            {gateLocked ? (
+              <>
+                <View style={styles.fixedBlock}>
+                  <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelIntention')}</Text>
+                  <Text style={[styles.intentionTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+                    {String(row?.display_title ?? '').trim() || t('timeline.untitled')}
+                  </Text>
+                  {!isProject ? (
+                    <>
+                      <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelTiming')}</Text>
+                      {subtitle ? (
+                        <Pressable
+                          onPress={openTemporalPicker}
+                          android_ripple={{ color: 'rgba(15, 23, 42, 0.06)' }}
+                          style={({ pressed }) => [styles.subtitlePress, { opacity: pressed ? 0.88 : 1 }]}
+                        >
+                          <View pointerEvents="none" style={styles.addrIconWrap}>
+                            <IconButton icon="calendar-month-outline" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.addrIcon} />
+                          </View>
+                          <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                            {subtitle}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      {datePickerOpen ? (
+                        <View style={styles.pickerBlock}>
+                          <View style={styles.allDayRow}>
+                            <Text style={[styles.allDayLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.allDay')}</Text>
+                            <Switch
+                              value={isAllDay}
+                              onValueChange={(v) => {
+                                setIsAllDay(v);
+                                if (v) setNewtonEnabled(false);
+                                const now = new Date();
+                                const base = new Date(pickerDraft);
+                                if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
+                                setPickerDraft(base);
+                                void persistDueDateTime(base, { closePicker: false, allDay: v });
+                              }}
+                            />
+                          </View>
+                          {Platform.OS === 'ios' ? (
+                            <DateTimePickerLazy
+                              value={pickerDraft}
+                              mode={isAllDay ? 'date' : 'datetime'}
+                              display={isAllDay ? 'inline' : 'compact'}
+                              onChange={onPickedDateTimeIos}
+                            />
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {isProject && subtitle ? (
+                    <>
+                      <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelTiming')}</Text>
+                      <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
+                        {subtitle}
+                      </Text>
+                    </>
+                  ) : null}
+                  <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                  <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.noteMemoSection')}</Text>
+                  <TextInput
+                    value={sourceDraft}
+                    onFocus={clearPeekAutoCloseTimer}
+                    onChangeText={(text) => {
+                      setSourceDraft(text);
+                      if (!row) return;
+                      if (sourceSaveTimer.current) clearTimeout(sourceSaveTimer.current);
+                      sourceSaveTimer.current = setTimeout(() => {
+                        sourceSaveTimer.current = null;
+                        void (async () => {
+                          await patchMetadata(row.id, { memo: String(text ?? '').trim() }, { silent: true });
+                        })();
+                      }, 250);
+                    }}
+                    placeholder={transcription ? String(transcription) : t('intentionDetail.notePlaceholder')}
+                    placeholderTextColor="rgba(100,116,139,0.72)"
+                    multiline
+                    style={[styles.sourceInput, { color: theme.colors.onSurfaceVariant }]}
+                  />
+                </View>
+                <ScrollView
+                  ref={(r) => {
+                    scrollRef.current = r;
+                  }}
+                  contentContainerStyle={styles.content}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View style={{ height: 12 }} />
+                </ScrollView>
+                <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+                  {row && row.id !== 'peek_pending' ? (
+                    <Button
+                      mode="contained"
+                      onPress={() => void onPressUnlockPass2FromTimeline()}
+                      disabled={pass2Running}
+                      style={styles.footerBtn}
+                    >
+                      {pass2CtaLabel}
+                    </Button>
+                  ) : null}
+                  <Button mode="outlined" onPress={onClose} style={styles.footerCloseBtn}>
+                    {t('intentionDetail.close')}
+                  </Button>
+                </View>
+              </>
+            ) : (
+              <Animated.View style={{ flex: 1, opacity: pass2RevealAnim }}>
             <View style={styles.fixedBlock}>
               <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelIntention')}</Text>
               <View style={styles.intentionRow}>
@@ -2551,7 +2724,7 @@ export function IntentionDetailSheet({
                     disabled={!routeReady}
                     style={styles.footerBtn}
                   >
-                    GO
+                    {t('intentionDetail.launchRoute')}
                   </Button>
                 ) : null}
                 <Button mode="outlined" onPress={onClose} style={[styles.footerCloseBtn, !routeReady ? { flex: 1 } : null]}>
@@ -2559,6 +2732,9 @@ export function IntentionDetailSheet({
                 </Button>
               </View>
             </View>
+
+            </Animated.View>
+            )}
 
             <Modal visible={noteModalOpen} transparent animationType="fade" onRequestClose={() => setNoteModalOpen(false)}>
               <View style={styles.noteModalRoot}>
