@@ -2,8 +2,8 @@ import { Dimensions } from 'react-native';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 
-/** Ratio hauteur viewport Path A (peek immédiat, post-snapshot). Provisoire ~30 % pour lisibilité UX. */
-export const CAPTURE_PEEK_PATH_A_RATIO = 0.3;
+/** Ratio hauteur viewport Path A (peek immédiat, post-snapshot). Bandeau minimal ~5 % (SPEC « index 0 »). */
+export const CAPTURE_PEEK_PATH_A_RATIO = 0.05;
 
 /** Ratio hauteur viewport Path B (vue validation, post–Pass 1). */
 export const CAPTURE_PEEK_PATH_B_RATIO = 0.25;

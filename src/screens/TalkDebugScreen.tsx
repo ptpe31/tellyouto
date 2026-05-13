@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import { Bell, Check, Lock } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -158,6 +158,9 @@ export function TalkDebugScreen() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  const isFocused = useIsFocused();
+  const isFocusedRef = useRef(isFocused);
+  isFocusedRef.current = isFocused;
   const windowH = Dimensions.get('window').height;
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
@@ -539,9 +542,23 @@ export function TalkDebugScreen() {
     setPeekCapturePhase('idle');
   }, []);
 
+  /** Évite une Modal capture résiduelle sur un onglet non focalisé (cf. SPEC routage peek). */
+  useEffect(() => {
+    if (isFocused) return;
+    const inCapturePeekFlow =
+      peekCapturePhase !== 'idle' || detailRow?.id === 'peek_pending';
+    if (!detailOpen || !inCapturePeekFlow) return;
+    logCaptureFlow(undefined, 'ui_peek_capture_dismissed_unfocused_tab', { screen: 'TalkDebug' });
+    closeDetail();
+  }, [closeDetail, detailOpen, detailRow?.id, isFocused, peekCapturePhase]);
+
   /** Écoute `INTENTION_PEEK_*` : ouvre / hydrate la feuille détail (cinématique peek SPEC). */
   useEffect(() => {
     const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
+      if (!isFocusedRef.current) {
+        logCaptureFlow(undefined, 'ui_peek_snapshot_skip_unfocused', { screen: 'TalkDebug' });
+        return;
+      }
       peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
       const peekRow = buildPeekPendingRowFromSnapshot(
         payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown },
@@ -559,6 +576,10 @@ export function TalkDebugScreen() {
       });
     });
     const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
+      if (!isFocusedRef.current) {
+        logCaptureFlow(undefined, 'ui_peek_first_save_skip_unfocused', { screen: 'TalkDebug' });
+        return;
+      }
       const intentionId = String((payload as any)?.intentionId ?? '').trim();
       if (!intentionId) return;
       const title = String((payload as any)?.title ?? '').trim();

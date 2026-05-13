@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo } from 'react';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { CommonActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { CommonActions, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { ClipboardList, Filter } from 'lucide-react-native';
@@ -351,6 +351,9 @@ export function TimelineScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const route = useRoute<RouteProp<AppTabParamList, 'Timeline'>>();
+  const isFocused = useIsFocused();
+  const isFocusedRef = useRef(isFocused);
+  isFocusedRef.current = isFocused;
   const [timeNav, setTimeNav] = useState<TimeNav>('TODAY');
   const [customPickedDate, setCustomPickedDate] = useState<Date | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -408,9 +411,23 @@ export function TimelineScreen() {
     setPeekCapturePhase('idle');
   }, []);
 
+  /** Évite une Modal capture résiduelle sur un onglet non focalisé (cf. SPEC routage peek). */
+  useEffect(() => {
+    if (isFocused) return;
+    const inCapturePeekFlow =
+      peekCapturePhase !== 'idle' || detailRow?.id === 'peek_pending';
+    if (!detailOpen || !inCapturePeekFlow) return;
+    logCaptureFlow(undefined, 'ui_peek_capture_dismissed_unfocused_tab', { screen: 'Timeline' });
+    closeDetail();
+  }, [closeDetail, detailOpen, detailRow?.id, isFocused, peekCapturePhase]);
+
   /** Écoute `INTENTION_PEEK_*` pour ouvrir / hydrater le peek post-capture (aligné SPEC cinématique). */
   useEffect(() => {
     const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
+      if (!isFocusedRef.current) {
+        logCaptureFlow(undefined, 'ui_peek_snapshot_skip_unfocused', { screen: 'Timeline' });
+        return;
+      }
       peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
       const peekRow = buildPeekPendingRowFromSnapshot(
         payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown },
@@ -428,6 +445,10 @@ export function TimelineScreen() {
       });
     });
     const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
+      if (!isFocusedRef.current) {
+        logCaptureFlow(undefined, 'ui_peek_first_save_skip_unfocused', { screen: 'Timeline' });
+        return;
+      }
       const intentionId = String((payload as any)?.intentionId ?? '').trim();
       if (!intentionId) return;
       const title = String((payload as any)?.title ?? '').trim();

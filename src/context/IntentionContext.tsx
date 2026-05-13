@@ -440,6 +440,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
 
       const uiLocale = lang || spectrum.locale || 'fr-FR';
       const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
+      // Broadcast global : seuls les onglets focalisés ouvrent la sheet (TalkDebug / Timeline, `useIsFocused`).
       DeviceEventEmitter.emit(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, {
         categoryTag: skeleton.categoryTag,
         predictedType: skeleton.predictedType,
@@ -470,6 +471,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             outcomes.find((o) => 'title' in o && typeof (o as { title?: unknown }).title === 'string') as
               | { title?: string }
               | undefined;
+          // Même routage focus côté écrans que pour SNAPSHOT.
           DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
             intentionId: firstId,
             categoryTag: skeleton.categoryTag,

@@ -355,7 +355,7 @@ Refonte limitée au **header** de `IntentionDetailSheet` :
 
 Au moment où la dictée est validée (après le « OK vert »), **avant** la persistance Pass 1 :
 
-- **Path A** : dès `INTENTION_PEEK_SNAPSHOT`, la sheet s’ouvre en **peek** à environ **30 %** de la hauteur viewport (ratio provisoire pour lisibilité ; constante `CAPTURE_PEEK_PATH_A_RATIO`), avec une row temporaire `id = 'peek_pending'` (catégorie / type / titre squelette Path A).
+- **Path A** : dès `INTENTION_PEEK_SNAPSHOT`, la sheet s’ouvre en **peek** à environ **5 %** de la hauteur viewport (bandeau minimal « index 0 » ; constante `CAPTURE_PEEK_PATH_A_RATIO`), avec une row temporaire `id = 'peek_pending'` (catégorie / type / titre squelette Path A).
 - Le header sert de poignée : seul l’intercalaire (slot 1) est mis en avant ; animation `spring` (damping / stiffness existants).
 
 Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
@@ -365,14 +365,21 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - Annulation du timer : pan utilisateur, swipe vers le **full** (~**95 %** viewport en mode capture), ou `onFocus` sur un `TextInput` du corps de fiche.
 
 #### Interactions attendues
-- **Transition Path A → Path B** : uniquement un **ressort** sur la position verticale (nouveau ratio peek) ; **pas** de ré-entrée complète (pas d’opacity à 0 ni sheet renvoyée sous l’écran), pour éviter flash / disparition perçue.
+- **Transition Path A → Path B** : uniquement un **ressort** sur la position verticale (nouveau ratio peek) ; **pas** de ré-entrée complète (pas d’opacity à 0 ni sheet renvoyée sous l’écran), pour éviter flash / disparition perçue. La sheet **ne se ferme pas** entre les deux événements sur le même onglet focalisé : `visible` reste vrai, seuls `peekHeightPx`, `peekCapturePhase` et la row passent de `peek_pending` à l’`intentionId` réel.
 - Swipe up depuis le peek : déploie la sheet en **full** (mode capture : hauteur max **95 %** viewport pour l’édition).
 - Swipe down / fermeture : logique inchangée.
 
+#### Routage des événements peek (unicité `IntentionDetailSheet`)
+- `INTENTION_PEEK_SNAPSHOT` et `INTENTION_PEEK_FIRST_SAVE` sont émis globalement (`DeviceEventEmitter`) depuis `submitCapturePayload` (`IntentionContext`).
+- `TalkDebugScreen` et `TimelineScreen` montent chacun une `IntentionDetailSheet` : sans garde-fou, deux feuilles pourraient réagir au même événement.
+- **Règle** : chaque écran ne traite les listeners peek que si **`useIsFocused()`** est vrai au moment de l’événement (lecture via ref à jour, car les handlers sont enregistrés une fois). Sinon : aucun `setState` ; journalisation `logCaptureFlow` avec `ui_peek_snapshot_skip_unfocused` ou `ui_peek_first_save_skip_unfocused` (payload `screen`: `TalkDebug` | `Timeline`).
+- **Fermeture au blur (capture uniquement)** : si l’utilisateur quitte l’onglet pendant un peek capture actif (`peekCapturePhase` ∈ `path_a` | `path_b` ou row `peek_pending`), fermer la sheet sur cet onglet (`ui_peek_capture_dismissed_unfocused_tab`) pour éviter une `Modal` résiduelle au-dessus de l’onglet désormais focalisé (ex. replay offline terminé sur Timeline : seule la Timeline « maître » affiche le peek).
+- Les événements **`ui_peek_snapshot`** / **`ui_peek_first_save`** (déjà en place) ne doivent être émis que par l’écran **focalisé** qui applique réellement l’ouverture ou la transition.
+
 ### 4) Critères d’acceptation
-- Les hauteurs peek / validation / full capture sont pilotées par des **ratios viewport** (Path A ≈ **30 %** provisoire, Path B ≈ **25 %**, full capture ≈ **95 %**), et non par des constantes px imposées côté produit.
-- Après validation dictée : Path A (~30 %) visible et stable avec catégorie pastel ; passage Path B **sans** extinction intermédiaire de la modale.
-- Après Pass 1 : transition vers Path B (~25 %) + titre + actions ; auto-close 4 s si immobile en Path B.
+- Les hauteurs peek / validation / full capture sont pilotées par des **ratios viewport** (Path A ≈ **5 %**, Path B ≈ **25 %**, full capture ≈ **95 %**), et non par des constantes px imposées côté produit.
+- Après validation dictée : Path A (~5 %) visible et stable avec catégorie pastel ; passage Path B **sans** extinction intermédiaire de la modale.
+- Après Pass 1 : transition vers Path B (~25 %) + titre + actions (dont Pass 2) ; auto-close 4 s si immobile en Path B.
 - Slot 1 : pastels **bleu / vert / violet** selon `category_id` (pas rose / rouge / orange), relief `neumorphicRaised`, coins supérieurs arrondis.
 - L’ajout d’intercalaires ne casse aucune feature existante (édition, toggles, itinerary, listes, projets, etc.).
 
@@ -433,12 +440,12 @@ Objectif : après la dictée, offrir 2 choix clairs : **Enrichir** (Pass 2) ou *
 - Audit :
   - L’audit SmartTitle s’exécute **en arrière-plan** et ne doit pas bloquer l’UI.
 
-### 2) UI — Path A (~30 %) puis Path B (~25 %) puis Full (~95 % capture)
+### 2) UI — Path A (~5 %) puis Path B (~25 %) puis Full (~95 % capture)
 
 Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran capture) sont des **pourcentages de la hauteur de fenêtre** ; il n’y a **pas** de hauteur peek ou de « vue validation » codée en px comme exigence produit.
 
 #### Path A (immédiat, `INTENTION_PEEK_SNAPSHOT`)
-- Row `peek_pending`, hauteur de sheet ≈ **30 %** de la hauteur viewport (peek initial lisible ; ajustable via `CAPTURE_PEEK_PATH_A_RATIO`).
+- Row `peek_pending`, hauteur de sheet ≈ **5 %** de la hauteur viewport (bandeau minimal « index 0 » ; ajustable via `CAPTURE_PEEK_PATH_A_RATIO`).
 
 #### Path B (`INTENTION_PEEK_FIRST_SAVE`, Pass 1 prêt)
 - Passage fluide vers ≈ **25 %** de la hauteur viewport.
@@ -470,7 +477,7 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 - Le Pass 2 est optionnel : son annulation/fermeture n’impacte pas la row persistée.
 
 ### 5) Critères d’acceptation
-- Après dictée : Path A (~30 %) + intercalaire visible.
+- Après dictée : Path A (~5 %) + intercalaire visible.
 - Dès Pass 1 prêt : Path B (~25 %) + titre clean + 2 boutons.
 - « Terminer » ferme sans effet secondaire (la row est déjà en base).
 - **PRO** : « Enrichir » lance Pass 2 + full screen + loader sur l’onglet.
@@ -763,7 +770,7 @@ Règles :
   - `audioUri` (string|null) : si micro, le chemin du mémo ; sinon `null`.
   - `lang` (BCP47 optionnel) : langue session STT (si connue).
   - `traceId` (string optionnel) : identifiant de trace micro (logs).
-- Peek / Validation UI (hauteurs **% viewport** — Path A ~**30 %**, Path B ~**25 %**, full capture ~**95 %** ; voir § IntentionDetailSheet / Capture Flash) :
+- Peek / Validation UI (hauteurs **% viewport** — Path A ~**5 %**, Path B ~**25 %**, full capture ~**95 %** ; voir § IntentionDetailSheet / Capture Flash) :
   - `submitCapturePayload` émet `INTENTION_PEEK_SNAPSHOT_EVENT_NAME` **avant** l’appel bulk (snapshot Path A : catégorie/type/titre).
   - `submitCapturePayload` émet `INTENTION_PEEK_FIRST_SAVE_EVENT_NAME` **après** persistance confirmée, via callback `onPersisted(outcomes)` en remontant un `intentionId` réel.
 
