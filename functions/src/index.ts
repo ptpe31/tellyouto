@@ -5,12 +5,16 @@ import { onRequest } from 'firebase-functions/v2/https';
 
 admin.initializeApp();
 
+/** Clé Gemini : Secret Manager uniquement, jamais exposée au client (`secrets` + `.value()` ci-dessous). */
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 
 type GeminiProxyBody = {
   modelId?: string;
+  /** Instructions système (Pass 1 / Pass 2) — même chaîne que côté app ; passées au modèle sans concaténation côté proxy. */
   systemInstruction?: string;
+  /** Corps Gemini tel quel (`contents`, `generationConfig`, etc.) — pas de surcouche texte ajoutée par le proxy. */
   request?: Record<string, unknown>;
+  /** Utilisé uniquement si `request` est absent (fallback legacy `prompt`). */
   generationConfig?: Record<string, unknown>;
   prompt?: string;
 };
@@ -29,8 +33,21 @@ async function verifyFirebaseIdToken(authorization: string | undefined): Promise
   await admin.auth().verifyIdToken(token);
 }
 
+/** Chaîne SI non vide pour `getGenerativeModel` ; sinon `undefined` (évite un bloc système vide). */
+function normalizeSystemInstruction(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const s = raw.trim();
+  return s.length > 0 ? s : undefined;
+}
+
+/**
+ * Reconstruit la requête Gemini : priorité absolue à `body.request` (transmission fidèle, latence minimale).
+ * Aucun texte utilisateur n’est injecté par le proxy lorsque `request` est fourni.
+ */
 function coerceRequest(body: GeminiProxyBody): GenerateContentRequest {
-  if (body.request && typeof body.request === 'object') return body.request as unknown as GenerateContentRequest;
+  if (body.request && typeof body.request === 'object') {
+    return body.request as unknown as GenerateContentRequest;
+  }
   const prompt = String(body.prompt || '');
   return {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -68,6 +85,7 @@ export const geminiProxyStream = onRequest(
     const body = (req.body || {}) as GeminiProxyBody;
     const modelId = String(body.modelId || 'gemini-1.5-flash');
     const request = coerceRequest(body);
+    const systemInstruction = normalizeSystemInstruction(body.systemInstruction);
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -77,7 +95,7 @@ export const geminiProxyStream = onRequest(
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY.value());
     const model = genAI.getGenerativeModel({
       model: modelId,
-      systemInstruction: body.systemInstruction,
+      ...(systemInstruction ? { systemInstruction } : {}),
     });
 
     const startedAt = Date.now();
@@ -115,6 +133,7 @@ export const geminiProxyStream = onRequest(
           : rawUsage && typeof rawUsage.total_token_count === 'number'
             ? rawUsage.total_token_count
             : undefined;
+      /** Toujours renvoyer les compteurs utiles à l’app (persistance coût) — format natif + alias snake_case. */
       const usageMetadata =
         promptTokenCount === undefined && candidatesTokenCount === undefined && totalTokenCount === undefined
           ? undefined
@@ -133,9 +152,9 @@ export const geminiProxyStream = onRequest(
           latencyMs: Date.now() - startedAt,
           modelId,
           usageMetadata,
-          tokens_prompt: promptTokenCount,
-          tokens_completion: candidatesTokenCount,
-          tokens_total: totalTokenCount,
+          tokens_prompt: promptTokenCount ?? null,
+          tokens_completion: candidatesTokenCount ?? null,
+          tokens_total: totalTokenCount ?? null,
         })}\n\n`,
       );
       res.end();
