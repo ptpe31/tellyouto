@@ -349,22 +349,27 @@ Refonte limitée au **header** de `IntentionDetailSheet` :
 - Interdits : Rose, Rouge, Orange.
 - Le texte doit rester lisible (contraste suffisant).
 
-### 3) Cinématique “Peek” (40px)
-Au moment où la dictée est validée (après le “OK vert”) :
+### 3) Cinématique « Peek » (viewport % + phases Path A / Path B)
 
-- Montée fluide : la sheet monte en position **collapsed** à **40px** de hauteur (seul le header/intercalaire visible en bas de l’écran).
-- Le header sert de poignée : c’est la seule zone visible à 40px.
-- Physique : animation `spring` avec damping élevé et stiffness modérée (glissement organique).
-- Auto‑fermeture : si aucune interaction après **4 secondes**, la sheet redescend (retour à hidden).
+Au moment où la dictée est validée (après le « OK vert »), **avant** la persistance Pass 1 :
+
+- **Path A** : dès `INTENTION_PEEK_SNAPSHOT`, la sheet s’ouvre en **peek** à environ **5 %** de la hauteur viewport (plancher pixel pour le header), avec une row temporaire `id = 'peek_pending'` (catégorie / type / titre squelette Path A).
+- Le header sert de poignée : seul l’intercalaire (slot 1) est mis en avant ; animation `spring` (damping / stiffness existants).
+
+Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
+
+- **Path B** : la sheet **anime** vers environ **25 %** du viewport (vue « validation » : intercalaire + titre clean + 2 boutons).
+- **Auto-fermeture** : si la sheet reste en Path B **sans** interaction (pas de pan, pas de focus champ, pas de passage full) pendant **4 s**, elle se ferme.
+- Annulation du timer : pan utilisateur, swipe vers le **full** (~**95 %** viewport en mode capture), ou `onFocus` sur un `TextInput` du corps de fiche.
 
 #### Interactions attendues
-- Swipe up depuis le “peek” : déploie la sheet et affiche le contenu existant.
-- Swipe down / fermeture : conserve la logique actuelle.
+- Swipe up depuis le peek : déploie la sheet en **full** (mode capture : hauteur max **95 %** viewport pour l’édition).
+- Swipe down / fermeture : logique inchangée.
 
 ### 4) Critères d’acceptation
-- Après validation de la dictée, le mode “peek 40px” est visible et stable.
-- À 40px, seul le header (intercalaire) est visible ; aucun contenu de la fiche ne dépasse.
-- Sans interaction utilisateur, la sheet se ferme automatiquement après 4 secondes.
+- Après validation dictée : Path A (~5 %) visible et stable avec catégorie pastel.
+- Après Pass 1 : transition vers Path B (~25 %) + titre + actions ; auto-close 4 s si immobile en Path B.
+- Slot 1 : pastels **bleu / vert / violet** selon `category_id` (pas rose / rouge / orange), relief `neumorphicRaised`, coins supérieurs arrondis.
 - L’ajout d’intercalaires ne casse aucune feature existante (édition, toggles, itinerary, listes, projets, etc.).
 
 ---
@@ -382,19 +387,20 @@ Objectif : après la dictée, offrir 2 choix clairs : **Enrichir** (Pass 2) ou *
 - Audit :
   - L’audit SmartTitle s’exécute **en arrière-plan** et ne doit pas bloquer l’UI.
 
-### 2) UI — Peek 40px puis Vue Validation 200px
-#### Peek 40px (immédiat)
-- Toujours présent dès la fin de la dictée (OK vert).
-- Affiche uniquement l’intercalaire (catégorie + couleur pastel).
+### 2) UI — Path A (~5 %) puis Path B (~25 %) puis Full (~95 % capture)
 
-#### Transition 40px → 200px (quand Pass 1 est prêt)
-- Passage fluide vers une hauteur **200px** dès que le Pass 1 a persisté l’intention.
-- Cette vue “Validation” affiche uniquement :
-  1) **Intercalaire** (header) : onglet arrondi “classeur” avec le nom de la catégorie (`SHOP`, `TRAVEL`, etc.) + couleur pastel.
-  2) **Titre clean** : résultat du Pass 1 (ex: “Gâteau au yaourt”).
-  3) **Footer actions** : 2 boutons.
+#### Path A (immédiat, `INTENTION_PEEK_SNAPSHOT`)
+- Row `peek_pending`, hauteur peek ≈ **5 %** viewport (header / intercalaire seul).
 
-### 3) Footer actions (Vue 200px)
+#### Path B (`INTENTION_PEEK_FIRST_SAVE`, Pass 1 prêt)
+- Passage fluide vers ≈ **25 %** viewport.
+- Vue « Validation » : intercalaire (neumorphique + pastel), **titre clean**, **footer** 2 boutons.
+- Auto-close **4 s** en Path B si aucune interaction ; timer annulé par pan, swipe full, ou focus champ.
+
+#### Full (édition capture)
+- Swipe up ou tap header : sheet **full** ; en flux capture, hauteur max **95 %** viewport.
+
+### 3) Footer actions (vue Path B)
 #### Bouton de mutation (Pass 2 — Enrichir)
 - Proéminent, libellé i18n dépendant de la catégorie :
   - `SHOP` / `LIST` → “📝 Générer la liste”
@@ -417,10 +423,10 @@ Objectif : après la dictée, offrir 2 choix clairs : **Enrichir** (Pass 2) ou *
 - Le Pass 2 est optionnel : son annulation/fermeture n’impacte pas la row persistée.
 
 ### 5) Critères d’acceptation
-- Après dictée : peek 40px immédiat (catégorie visible).
-- Dès que Pass 1 est prêt : transition vers 200px + titre clean + 2 boutons.
-- “Terminer” ferme sans effet secondaire (la row est déjà en base).
-- “Enrichir” lance Pass 2 + full screen + loader sur l’onglet.
+- Après dictée : Path A (~5 %) + intercalaire visible.
+- Dès Pass 1 prêt : Path B (~25 %) + titre clean + 2 boutons.
+- « Terminer » ferme sans effet secondaire (la row est déjà en base).
+- « Enrichir » lance Pass 2 + full screen + loader sur l’onglet.
 
 Composants principaux :
 - Capture & parsing : [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)

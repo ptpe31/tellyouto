@@ -43,6 +43,12 @@ import {
   INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
   INTENTIONS_CHANGED_EVENT_NAME,
 } from '../constants/intentionEvents';
+import {
+  buildPeekPendingRowFromSnapshot,
+  capturePeekPathAHeightPx,
+  capturePeekPathBHeightPx,
+  CAPTURE_SHEET_FULL_MAX_RATIO,
+} from '../utils/capturePeekLayout';
 import { mapTrankilIntentionToTimelineItemRow, type TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { TALK_CAPTURE_DEBUG_EVENT, type TalkCaptureDebugPayload } from '../constants/talkCaptureDebug';
@@ -156,6 +162,7 @@ export function TalkDebugScreen() {
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
   const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(200);
+  const [peekCapturePhase, setPeekCapturePhase] = useState<'idle' | 'path_a' | 'path_b'>('idle');
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
   const [phoenixInput, setPhoenixInput] = useState('');
   const [phoenixSubmitting, setPhoenixSubmitting] = useState(false);
@@ -522,42 +529,28 @@ export function TalkDebugScreen() {
     setTranscriptDraft(payload.transcript);
   }, []);
 
-  /** Ouvre la feuille détail en mode peek (placeholder) quand l’utilisateur valide sans id SQLite encore. */
-  const openPeekAfterOk = useCallback(() => {
-    const snap = peekSnapshotRef.current;
-    const categoryId = normalizeCategoryId(snap?.categoryTag);
-    const peekRow = {
-      id: 'peek_pending',
-      type: 'NOTE',
-      category_id: categoryId,
-      display_title: '',
-      title: '',
-      due_date: null,
-      metadata_json: '{}',
-      status: 'TODO',
-      created_at: Date.now(),
-      updated_at: Date.now(),
-      is_archived: 0,
-      is_dirty: 0,
-    } as unknown as TrankilV2TimelineItemRow;
-    setDetailRow(peekRow);
-    setDetailPosition('peek');
-    setDetailPeekHeightPx(200);
-    setDetailOpen(true);
-  }, []);
-
   /** Ferme la feuille détail (peek ou plein écran). */
   const closeDetail = useCallback(() => {
     setDetailOpen(false);
     setDetailRow(null);
     setDetailPosition('full');
     setDetailPeekHeightPx(200);
+    setPeekCapturePhase('idle');
   }, []);
 
   /** Écoute `INTENTION_PEEK_*` : ouvre / hydrate la feuille détail (cinématique peek SPEC). */
   useEffect(() => {
     const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
       peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
+      const peekRow = buildPeekPendingRowFromSnapshot(
+        payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown },
+        normalizeCategoryId,
+      );
+      setDetailRow(peekRow);
+      setDetailPosition('peek');
+      setDetailPeekHeightPx(capturePeekPathAHeightPx());
+      setPeekCapturePhase('path_a');
+      setDetailOpen(true);
     });
     const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
       const intentionId = String((payload as any)?.intentionId ?? '').trim();
@@ -580,9 +573,10 @@ export function TalkDebugScreen() {
         is_archived: 0,
         is_dirty: 0,
       } as unknown as TrankilV2TimelineItemRow;
+      setPeekCapturePhase('path_b');
+      setDetailPeekHeightPx(capturePeekPathBHeightPx());
       setDetailRow(previewRow);
       setDetailPosition('peek');
-      setDetailPeekHeightPx(200);
       setDetailOpen(true);
       void (async () => {
         const full = await getTrankilV2IntentionById(intentionId);
@@ -998,6 +992,8 @@ export function TalkDebugScreen() {
         initialPosition={detailPosition}
         peekHeightPx={detailPeekHeightPx}
         validationMode
+        peekCapturePhase={peekCapturePhase}
+        captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
       />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>

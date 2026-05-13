@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   ActionSheetIOS,
@@ -55,6 +55,7 @@ import {
 } from '../services/projectMilestonesModel';
 import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
+import { neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
   visible: boolean;
@@ -65,6 +66,10 @@ type Props = {
   initialPosition?: 'peek' | 'full';
   peekHeightPx?: number;
   validationMode?: boolean;
+  /** Flux capture : Path A (snapshot) → Path B (première persistance) ; `idle` hors capture. */
+  peekCapturePhase?: 'idle' | 'path_a' | 'path_b';
+  /** Si défini (ex. 0.95), hauteur max de la sheet en mode « full » (édition capture). */
+  captureSheetMaxHeightRatio?: number;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -148,6 +153,18 @@ function categoryLabelKey(raw: string | null | undefined): string | null {
     return `category.${up}`;
   }
   return null;
+}
+
+/** Pastels autorisés (bleu / vert / violet) — pas de rouge, orange ni rose. */
+function categoryPastelTabBackground(categoryId: string | null | undefined): string {
+  const up = String(categoryId || '').trim().toUpperCase();
+  const blue = new Set(['WORK', 'FINANCE', 'LEARN', 'TRAVEL', 'OTHER']);
+  const green = new Set(['HOME', 'HEALTH', 'SHOP']);
+  const violet = new Set(['PERSO', 'SOCIAL']);
+  if (blue.has(up)) return '#D6E9FF';
+  if (green.has(up)) return '#D7F5E8';
+  if (violet.has(up)) return '#E8DCFF';
+  return '#D6E9FF';
 }
 
 function capitalizeFirst(raw: string): string {
@@ -413,9 +430,12 @@ export function IntentionDetailSheet({
   initialPosition,
   peekHeightPx,
   validationMode,
+  peekCapturePhase: peekCapturePhaseProp,
+  captureSheetMaxHeightRatio,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
+  const peekCapturePhase = peekCapturePhaseProp ?? 'idle';
   const peekHeight = Math.max(40, Math.round(Number(peekHeightPx ?? 40) || 40));
   const translateY = useRef(new Animated.Value(0)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
@@ -427,9 +447,15 @@ export function IntentionDetailSheet({
   const [sourceDraft, setSourceDraft] = useState('');
   const sourceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const windowHeight = useMemo(() => Math.max(1, Dimensions.get('window').height), []);
+  const sheetMaxRatio =
+    captureSheetMaxHeightRatio != null && captureSheetMaxHeightRatio > 0
+      ? captureSheetMaxHeightRatio
+      : sourceExpanded
+        ? 0.92
+        : 0.86;
   const sheetTargetHeight = useMemo(
-    () => Math.max(240, Math.round(windowHeight * (sourceExpanded ? 0.92 : 0.86))),
-    [sourceExpanded, windowHeight],
+    () => Math.max(240, Math.round(windowHeight * sheetMaxRatio)),
+    [sourceExpanded, sheetMaxRatio, windowHeight],
   );
   const peekTranslateY = useMemo(() => Math.max(0, sheetTargetHeight - peekHeight), [peekHeight, sheetTargetHeight]);
   const [sheetPosition, setSheetPosition] = useState<'peek' | 'full'>('full');
@@ -506,7 +532,8 @@ export function IntentionDetailSheet({
   }, [multiIntents]);
   const showSlot2 = multiIntents.length > 1;
   const showSlot3 = multiIntents.length > 2;
-  const isValidationView = Boolean(validationMode) && visible && sheetPosition === 'peek' && peekHeight >= 200;
+  const isValidationView =
+    Boolean(validationMode) && visible && sheetPosition === 'peek' && peekCapturePhase === 'path_b';
   const validationTitle = useMemo(() => {
     const a = String(row?.display_title ?? '').trim();
     if (a) return a;
@@ -521,6 +548,35 @@ export function IntentionDetailSheet({
     if (type === 'HABIT' || cat === 'HEALTH') return t('intentionDetail.pass2Habit');
     return t('intentionDetail.pass2Steps');
   }, [row?.category_id, row?.type, t]);
+
+  const clearPeekAutoCloseTimer = useCallback(() => {
+    if (peekAutoCloseTimer.current) {
+      clearTimeout(peekAutoCloseTimer.current);
+      peekAutoCloseTimer.current = null;
+    }
+  }, []);
+
+  const runDismissSheetSpring = useCallback(() => {
+    setClosing(true);
+    Animated.spring(translateY, {
+      toValue: windowHeight,
+      damping: 30,
+      stiffness: 220,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start(() => {
+      setClosing(false);
+      translateY.setValue(0);
+      onClose();
+    });
+  }, [onClose, translateY, windowHeight]);
+
+  const startPathBPeekAutoCloseTimer = useCallback(() => {
+    clearPeekAutoCloseTimer();
+    peekAutoCloseTimer.current = setTimeout(() => {
+      runDismissSheetSpring();
+    }, 4000);
+  }, [clearPeekAutoCloseTimer, runDismissSheetSpring]);
 
   useEffect(() => {
     if (!visible || !row || !isTrip) return;
@@ -856,10 +912,7 @@ export function IntentionDetailSheet({
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
         onPanResponderMove: (_, g) => {
-          if (peekAutoCloseTimer.current) {
-            clearTimeout(peekAutoCloseTimer.current);
-            peekAutoCloseTimer.current = null;
-          }
+          clearPeekAutoCloseTimer();
           if (sheetPosition === 'full') {
             if (g.dy <= 0) return;
             translateY.setValue(g.dy);
@@ -870,18 +923,7 @@ export function IntentionDetailSheet({
         },
         onPanResponderRelease: (_, g) => {
           const closeWithSpring = () => {
-            setClosing(true);
-            Animated.spring(translateY, {
-              toValue: windowHeight,
-              damping: 30,
-              stiffness: 220,
-              mass: 0.9,
-              useNativeDriver: true,
-            }).start(() => {
-              setClosing(false);
-              translateY.setValue(0);
-              onClose();
-            });
+            runDismissSheetSpring();
           };
           const snapPeek = () => {
             setSheetPosition('peek');
@@ -892,14 +934,14 @@ export function IntentionDetailSheet({
               mass: 0.9,
               useNativeDriver: true,
             }).start();
-            if (peekAutoCloseTimer.current) clearTimeout(peekAutoCloseTimer.current);
-            if (peekHeight === 40) {
-              peekAutoCloseTimer.current = setTimeout(closeWithSpring, 4000);
+            if (peekCapturePhase === 'path_b') {
+              startPathBPeekAutoCloseTimer();
             } else {
-              peekAutoCloseTimer.current = null;
+              clearPeekAutoCloseTimer();
             }
           };
           const openFull = () => {
+            clearPeekAutoCloseTimer();
             setSheetPosition('full');
             Animated.spring(translateY, {
               toValue: 0,
@@ -932,7 +974,7 @@ export function IntentionDetailSheet({
           openFull();
         },
       }),
-    [onClose, peekHeight, peekTranslateY, sheetHeight, sheetPosition, translateY, windowHeight],
+    [clearPeekAutoCloseTimer, onClose, peekCapturePhase, peekHeight, peekTranslateY, runDismissSheetSpring, sheetHeight, sheetPosition, startPathBPeekAutoCloseTimer, translateY, windowHeight],
   );
 
   useEffect(() => {
@@ -941,10 +983,7 @@ export function IntentionDetailSheet({
       sheetOpacity.setValue(0);
       translateY.setValue(0);
       setSheetPosition('full');
-      if (peekAutoCloseTimer.current) {
-        clearTimeout(peekAutoCloseTimer.current);
-        peekAutoCloseTimer.current = null;
-      }
+      clearPeekAutoCloseTimer();
       return;
     }
     setEntered(false);
@@ -964,34 +1003,13 @@ export function IntentionDetailSheet({
       }),
     ]).start(() => {
       setEntered(true);
-      if (startPos === 'peek' && peekHeight === 40) {
-        if (peekAutoCloseTimer.current) clearTimeout(peekAutoCloseTimer.current);
-        peekAutoCloseTimer.current = setTimeout(() => {
-          setClosing(true);
-          Animated.spring(translateY, {
-            toValue: windowHeight,
-            damping: 30,
-            stiffness: 220,
-            mass: 0.9,
-            useNativeDriver: true,
-          }).start(() => {
-            setClosing(false);
-            translateY.setValue(0);
-            onClose();
-          });
-        }, 4000);
-      }
     });
-  }, [initialPosition, onClose, peekHeight, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
+  }, [clearPeekAutoCloseTimer, initialPosition, peekHeight, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
 
   useEffect(() => {
     if (!visible) return;
     if (!entered) return;
     if (sheetPosition !== 'peek') return;
-    if (peekAutoCloseTimer.current && peekHeight !== 40) {
-      clearTimeout(peekAutoCloseTimer.current);
-      peekAutoCloseTimer.current = null;
-    }
     translateY.stopAnimation();
     Animated.spring(translateY, {
       toValue: peekTranslateY,
@@ -1002,6 +1020,25 @@ export function IntentionDetailSheet({
     }).start();
   }, [entered, peekHeight, peekTranslateY, sheetPosition, translateY, visible]);
 
+  useEffect(() => {
+    if (!visible || !entered || sheetPosition !== 'peek' || peekCapturePhase !== 'path_b') {
+      clearPeekAutoCloseTimer();
+      return;
+    }
+    startPathBPeekAutoCloseTimer();
+    return () => {
+      clearPeekAutoCloseTimer();
+    };
+  }, [
+    clearPeekAutoCloseTimer,
+    entered,
+    peekCapturePhase,
+    peekTranslateY,
+    sheetPosition,
+    startPathBPeekAutoCloseTimer,
+    visible,
+  ]);
+
   const touchValidateTrip = async (root: Record<string, unknown>, patchTrip: Record<string, unknown>) => {
     const tMeta = getTripMeta(root);
     if (tMeta && tMeta.validatedAtMs) return patchTrip;
@@ -1009,10 +1046,7 @@ export function IntentionDetailSheet({
   };
 
   const openFullSheet = () => {
-    if (peekAutoCloseTimer.current) {
-      clearTimeout(peekAutoCloseTimer.current);
-      peekAutoCloseTimer.current = null;
-    }
+    clearPeekAutoCloseTimer();
     setSheetPosition('full');
     Animated.spring(translateY, {
       toValue: 0,
@@ -1587,7 +1621,17 @@ export function IntentionDetailSheet({
             ]}
           >
             <View style={styles.tabRow}>
-              <View style={[styles.tabSlot, { backgroundColor: '#D6E9FF' }]}>
+              <View
+                style={[
+                  styles.tabSlot,
+                  neumorphicRaised(theme),
+                  {
+                    backgroundColor: categoryPastelTabBackground(row?.category_id),
+                    borderTopLeftRadius: 14,
+                    borderTopRightRadius: 14,
+                  },
+                ]}
+              >
                 <View style={styles.tabInner}>
                   <Text style={[styles.tabText, { color: theme.colors.onSurface }]} numberOfLines={1}>
                     {categoryTabLabel}
@@ -1647,6 +1691,7 @@ export function IntentionDetailSheet({
                       }}
                       value={titleDraft}
                       onChangeText={setTitleDraft}
+                      onFocus={clearPeekAutoCloseTimer}
                       onBlur={() => void persistTitleIfNeeded()}
                       onSubmitEditing={() => void persistTitleIfNeeded()}
                       placeholder={t('project.title_placeholder')}
@@ -1661,6 +1706,7 @@ export function IntentionDetailSheet({
                   ) : (
                     <Pressable
                       onPress={() => {
+                        clearPeekAutoCloseTimer();
                         setTitleEditing(true);
                         requestAnimationFrame(() => titleInputRef.current?.focus());
                       }}
@@ -1691,6 +1737,7 @@ export function IntentionDetailSheet({
                   <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.source')}</Text>
                   <TextInput
                     value={sourceDraft}
+                    onFocus={clearPeekAutoCloseTimer}
                     onChangeText={(text) => {
                       setSourceDraft(text);
                       if (!row) return;
@@ -2504,6 +2551,7 @@ export function IntentionDetailSheet({
                   </Text>
                   <TextInput
                     value={noteDraft}
+                    onFocus={clearPeekAutoCloseTimer}
                     onChangeText={setNoteDraft}
                     placeholder={t('intentionDetail.notePlaceholder')}
                     placeholderTextColor="rgba(100,116,139,0.72)"

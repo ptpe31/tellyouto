@@ -293,19 +293,16 @@ SPEC (2.c.2) : schéma nécessaire au démarrage, incluant `offline_audio_queue`
 - `initTrankilV2Schema()` crée `offline_audio_queue` et ses index au bootstrap.
 - `offlineAudioQueue.ts` n’exécute plus de DDL « à la volée » (`ensureOfflineAudioQueueTable` supprimé).
 
-### 4.4 Peek 40px → 200px (cinématique SPEC) : partiellement implémenté
+### 4.4 Cinématique peek capture (Path A / Path B / full 95 %)
 
-SPEC demande :
+SPEC : après dictée, peek relatif au viewport, transition à la persistance Pass 1, auto-close contrôlé.
 
-- peek 40px immédiat après dictée,
-- transition 200px une fois Pass 1 persisté.
+État actuel :
 
-État actuel (signaux observés dans /src) :
-
-- événements `INTENTION_PEEK_*` existent et sont écoutés côté écrans,
-- mais la hauteur “peek” vue dans l’état est typiquement `200px` (pas de première phase explicite à 40px dans ce que nous avons inspecté).
-
-À vérifier/aligner : la cinématique et les hauteurs exactes.
+- `TimelineScreen` / `TalkDebugScreen` : sur `INTENTION_PEEK_SNAPSHOT`, row `peek_pending` + ouverture peek **Path A** (`capturePeekPathAHeightPx`, ~5 %).
+- Sur `INTENTION_PEEK_FIRST_SAVE`, hydration + peek **Path B** (`capturePeekPathBHeightPx`, ~25 %).
+- `IntentionDetailSheet` : props `peekCapturePhase`, `captureSheetMaxHeightRatio` (0.95 en flux capture), validation UI liée à **Path B** (plus de seuil fixe 200 px) ; auto-fermeture 4 s en Path B ; timer annulé par pan / full / focus `TextInput` ; slot 1 neumorphique + pastel par `category_id`.
+- Utilitaire : `src/utils/capturePeekLayout.ts`.
 
 ### 4.5 Offline-first : traitement ultérieur encore “semi-manuel”
 

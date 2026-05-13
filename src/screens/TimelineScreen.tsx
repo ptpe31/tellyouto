@@ -47,6 +47,12 @@ import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import { showAppToast } from '../services/appToast';
 import { retryOfflineFirstAiSort, timelineRowEligibleForOfflineAiRetry } from '../services/offlineFirstAiRetry';
 import { filterTimelineVisibleRows } from '../services/timelineIntentionVisibility';
+import {
+  buildPeekPendingRowFromSnapshot,
+  capturePeekPathAHeightPx,
+  capturePeekPathBHeightPx,
+  CAPTURE_SHEET_FULL_MAX_RATIO,
+} from '../utils/capturePeekLayout';
 import { IdeaBankModal } from '../components/IdeaBankModal';
 import { TimelineFilterModal } from '../components/TimelineFilterModal';
 import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
@@ -364,6 +370,7 @@ export function TimelineScreen() {
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
   const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(200);
+  const [peekCapturePhase, setPeekCapturePhase] = useState<'idle' | 'path_a' | 'path_b'>('idle');
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
@@ -377,32 +384,9 @@ export function TimelineScreen() {
 
   /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante. */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
+    setPeekCapturePhase('idle');
     setDetailRow(r);
     setDetailPosition('full');
-    setDetailOpen(true);
-  }, []);
-
-  /** Peek placeholder à partir du dernier snapshot capture (sans id SQLite). */
-  const openLastIntentionPeek = useCallback(() => {
-    const snap = peekSnapshotRef.current;
-    const categoryId = normalizeCategoryId(snap?.categoryTag);
-    const peekRow = {
-      id: 'peek_pending',
-      type: 'NOTE',
-      category_id: categoryId,
-      display_title: '',
-      title: '',
-      due_date: null,
-      metadata_json: '{}',
-      status: 'TODO',
-      created_at: Date.now(),
-      updated_at: Date.now(),
-      is_archived: 0,
-      is_dirty: 0,
-    } as unknown as TrankilV2TimelineItemRow;
-    setDetailRow(peekRow);
-    setDetailPosition('peek');
-    setDetailPeekHeightPx(200);
     setDetailOpen(true);
   }, []);
 
@@ -420,12 +404,22 @@ export function TimelineScreen() {
     setDetailRow(null);
     setDetailPosition('full');
     setDetailPeekHeightPx(200);
+    setPeekCapturePhase('idle');
   }, []);
 
   /** Écoute `INTENTION_PEEK_*` pour ouvrir / hydrater le peek post-capture (aligné SPEC cinématique). */
   useEffect(() => {
     const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
       peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
+      const peekRow = buildPeekPendingRowFromSnapshot(
+        payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown },
+        normalizeCategoryId,
+      );
+      setDetailRow(peekRow);
+      setDetailPosition('peek');
+      setDetailPeekHeightPx(capturePeekPathAHeightPx());
+      setPeekCapturePhase('path_a');
+      setDetailOpen(true);
     });
     const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
       const intentionId = String((payload as any)?.intentionId ?? '').trim();
@@ -448,9 +442,10 @@ export function TimelineScreen() {
         is_archived: 0,
         is_dirty: 0,
       } as unknown as TrankilV2TimelineItemRow;
+      setPeekCapturePhase('path_b');
+      setDetailPeekHeightPx(capturePeekPathBHeightPx());
       setDetailRow(previewRow);
       setDetailPosition('peek');
-      setDetailPeekHeightPx(200);
       setDetailOpen(true);
       void (async () => {
         const full = await getTrankilV2IntentionById(intentionId);
@@ -1207,6 +1202,8 @@ export function TimelineScreen() {
         initialPosition={detailPosition}
         peekHeightPx={detailPeekHeightPx}
         validationMode
+        peekCapturePhase={peekCapturePhase}
+        captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
       />
 
       <TimelineFilterModal
