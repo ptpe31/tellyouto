@@ -484,7 +484,7 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
  * (anniversaire), `C` (récurrence/habitude). Les `|` dans le texte sont neutralisés pour éviter de casser le découpage.
  *
  * @param s — Résultat {@link inferOneTapSkeletonFromTranscript} ou fusion précédente.
- * @returns Ligne compacte passée à {@link buildCompressedGeminiPrompt} comme « seed ».
+ * @returns Ligne compacte passée à {@link buildOneTapPass1UserContent} comme « Local heuristic » (seed Path A).
  */
 function wireLineFromSkeleton(s: OneTapUniversalResult): string {
   const safeTitle = s.title.replace(/\|/g, ' ').trim().slice(0, 90);
@@ -1086,8 +1086,8 @@ function buildPass1TemporalFields(now: Date): {
 }
 
 /**
- * Instructions système Pass 1 (proxy Firebase / Vertex). Le corps utilisateur doit rester court
- * ({@link buildOneTapPass1UserContent}) : Reference Time + transcript (+ heuristique locale).
+ * Instructions système Pass 1 (proxy Firebase / Vertex). Toutes les règles de format / contrats y sont regroupées.
+ * Le corps utilisateur ({@link buildOneTapPass1UserContent}) ne contient que les faits : Reference Time, seed, dictée.
  */
 export function buildOneTapPass1SystemInstruction(): string {
   const lang2 = 'auto';
@@ -1120,9 +1120,10 @@ ${catContract}
 ${titleContract}
 ${tripContract}
 
-UNIVERSAL TEMPORAL ANCHOR (STRICT — apply using Reference Time from the user message):
-- Interpret "today", weekday names, and relative dates using the Reference Time and calendar weekday provided in the user block.
-- If the user mentions the calendar weekday that matches Reference Time's day without "next", set DUE_DATE to TODAY (J+0).
+UNIVERSAL TEMPORAL ANCHOR (STRICT — use only the user block below):
+- The user message contains labeled fields: Reference Time (ISO), Time zone, Calendar weekday, Local clock time, ISO weekday index. Treat them as the authoritative "now" for resolving relative dates.
+- Interpret "today", weekday names, and relative dates using those fields.
+- If the user mentions the calendar weekday that matches that day's weekday label without "next", set DUE_DATE to TODAY (J+0).
 
 Reply ONLY with Bullet-Pipe lines starting with ">".
 No JSON. No markdown. No explanations.
@@ -1150,34 +1151,26 @@ Examples:
 > PROJECT | <CONTENT> | HOME | null`;
 }
 
-/** Corps utilisateur minimal Pass 1 (Reference Time + heuristique locale + dictée). */
+/**
+ * Corps utilisateur Pass 1 : **uniquement** données brutes — aucune règle de format ni contrat (tout est en
+ * {@link buildOneTapPass1SystemInstruction}). Cible ~ quelques centaines de caractères hors dictée très longue.
+ */
 export function buildOneTapPass1UserContent(transcript: string, seedLine: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
   const seed = seedLine;
   const now = new Date();
   const { tz, fullDateString, isoWeekday, weekdayEn, dueTimeHm } = buildPass1TemporalFields(now);
-  const anchorRule = `Reference Time (ISO): ${fullDateString}
+  return `Reference Time (ISO): ${fullDateString}
 Time zone: ${tz}
 Calendar weekday (English, that calendar day): ${weekdayEn}
 Local clock time (24h): ${dueTimeHm}
 ISO weekday index (1=Monday): ${isoWeekday}
-
-UNIVERSAL TEMPORAL ANCHOR (concrete):
-- Today is: ${weekdayEn}, ${fullDateString} (Local Time: ${tz})
-- Current Human Time: ${weekdayEn} at ${dueTimeHm}
-- RULE: If user mentions "${weekdayEn}" (today) without "next", set DUE_DATE to TODAY (J+0).`;
-  return `${anchorRule}
 
 Local heuristic (refine or override if wrong):
 ${seed}
 
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""`;
-}
-
-/** @deprecated Métrique / debug — concatène SI + bloc utilisateur (préférer {@link buildOneTapPass1SystemInstruction} + {@link buildOneTapPass1UserContent} en prod). */
-export function buildCompressedGeminiPrompt(transcript: string, seedLine: string): string {
-  return `${buildOneTapPass1SystemInstruction()}\n\n---USER---\n${buildOneTapPass1UserContent(transcript, seedLine)}`;
 }
 
 /**
@@ -1380,8 +1373,8 @@ export async function refineOneTapWithGeminiCompressed(
     console.log('[GeminiDebug] 🛡️ PROMPT_PARAMS:', {
       lang2,
       transcriptHead: transcript.slice(0, 20),
-      systemChars: systemInstruction.length,
-      userChars: userText.length,
+      systemInstructionChars: systemInstruction.length,
+      userTextChars: userText.length,
     });
   }
 
@@ -1647,11 +1640,14 @@ export async function geminiOneTapUniversalFromTranscript(
   });
   const geminiEndMs = perfNowMs();
   const parseEndMs = perfNowMs();
-  const promptLen = buildCompressedGeminiPrompt(transcript, wireLineFromSkeleton(skeleton)).length;
+  const seedLine = wireLineFromSkeleton(skeleton);
+  const siLen = buildOneTapPass1SystemInstruction().length;
+  const userLen = buildOneTapPass1UserContent(transcript, seedLine).length;
+  const promptChars = siLen + userLen;
   console.log(
-    `[OneTapPerf] prompt.metrics${OT_LOG}promptChars: ${promptLen}${OT_LOG}geminiMs: ${Math.round(geminiEndMs - geminiStartMs)}${OT_LOG}parseMs: ${Math.round(parseEndMs - geminiEndMs)}`,
+    `[OneTapPerf] prompt.metrics${OT_LOG}promptChars: ${promptChars}${OT_LOG}siChars: ${siLen}${OT_LOG}userChars: ${userLen}${OT_LOG}geminiMs: ${Math.round(geminiEndMs - geminiStartMs)}${OT_LOG}parseMs: ${Math.round(parseEndMs - geminiEndMs)}`,
   );
-  return { parsed, rawModelText, timings: { promptChars: promptLen, geminiStartMs, geminiEndMs, parseEndMs } };
+  return { parsed, rawModelText, timings: { promptChars, geminiStartMs, geminiEndMs, parseEndMs } };
 }
 
 /**

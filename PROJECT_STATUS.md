@@ -122,7 +122,7 @@ Fonction clé : `refineOneTapWithGeminiCompressed(transcript, skeleton, options)
 
 Points importants :
 
-- Prompt : construit via `buildCompressedGeminiPrompt()` et le seed `wireLineFromSkeleton(skeleton)`.
+- Prompt : `buildOneTapPass1SystemInstruction()` + `buildOneTapPass1UserContent(transcript, wireLineFromSkeleton(skeleton))` (deux blocs distincts côté proxy, pas de concaténation côté app).
 - Langue : `detectLangForOneTapPrompt()` puis discipline “zéro traduction” (contrat SPEC).
 - Appel Gemini : `geminiSemanticLab` (stream ou non‑stream).
 - Parsing modèle :
@@ -222,8 +222,7 @@ Fichier : `src/services/CaptureProcessingService.ts`
   - `splitBulkTranscript(raw)` : split par séparateur `**` (bulk client-side).
   - `inferOneTapSkeletonFromTranscript(...)` : Path A synchrone (squelette local).
   - `refineOneTapWithGeminiCompressed(...)` : Path B Gemini (`systemInstruction` Pass 1 + corps user court via `geminiGenerateOneTapCompressedLine` / stream).
-  - `buildOneTapPass1SystemInstruction()` / `buildOneTapPass1UserContent(...)` : découpage SPEC (SI vs Reference Time + transcript).
-  - `buildCompressedGeminiPrompt(...)` : concaténation SI+user (métriques / debug).
+  - `buildOneTapPass1SystemInstruction()` / `buildOneTapPass1UserContent(...)` : découpage SPEC (SI vs Reference Time + seed + dictée seulement ; pas de règles dupliquées dans le user).
   - `parsePartialWireLine(buffer)` / `mergeWireIntoOneTapSkeleton(...)` : parsing “wire” (héritage + compat).
   - (internes critiques) `parseBulletPipeIntentsFromBuffer`, `parseJsonIntentsFromBuffer`, `mergeIntentArrayIntoOneTapSkeleton`.
 
