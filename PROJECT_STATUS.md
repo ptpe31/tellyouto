@@ -299,9 +299,9 @@ SPEC : après dictée, peek relatif au viewport, transition à la persistance Pa
 
 État actuel :
 
-- `TimelineScreen` / `TalkDebugScreen` : sur `INTENTION_PEEK_SNAPSHOT`, row `peek_pending` + ouverture peek **Path A** (`capturePeekPathAHeightPx`, ~5 %).
+- `TimelineScreen` / `TalkDebugScreen` : sur `INTENTION_PEEK_SNAPSHOT`, row `peek_pending` + ouverture peek **Path A** (`capturePeekPathAHeightPx`, ratio **~30 %** viewport via `CAPTURE_PEEK_PATH_A_RATIO`, provisoire UX).
 - Sur `INTENTION_PEEK_FIRST_SAVE`, hydration + peek **Path B** (`capturePeekPathBHeightPx`, ~25 %).
-- `IntentionDetailSheet` : props `peekCapturePhase`, `captureSheetMaxHeightRatio` (0.95 en flux capture), validation UI liée à **Path B** (plus de seuil fixe 200 px) ; auto-fermeture 4 s en Path B ; timer annulé par pan / full / focus `TextInput` ; slot 1 neumorphique + pastel par `category_id`.
+- `IntentionDetailSheet` : entrée complète (opacity + translate) **uniquement** à `visible` false→true ; passage Path A→B = **spring** sur `peekTranslateY` sans ré-entrée (évite flash) ; props `peekCapturePhase`, `captureSheetMaxHeightRatio` (0.95 en flux capture), validation UI **Path B** ; hauteurs peek = ratios viewport (`capturePeekPathAHeightPx` / `capturePeekPathBHeightPx`, sans plancher px) ; full sheet = `windowHeight × ratio` (0,86 / 0,92 si source étendue, ou 0,95 capture), sans plancher 240 px ; auto-fermeture 4 s en Path B ; timer annulé par pan / full / focus `TextInput` ; slot 1 neumorphique + pastel par `category_id`.
 - Utilitaire : `src/utils/capturePeekLayout.ts`.
 
 ### 4.5 Offline-first : traitement ultérieur encore “semi-manuel”

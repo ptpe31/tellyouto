@@ -56,6 +56,7 @@ import {
 import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { neumorphicRaised } from '../theme/neumorphism';
+import { capturePeekPathAHeightPx } from '../utils/capturePeekLayout';
 
 type Props = {
   visible: boolean;
@@ -436,7 +437,9 @@ export function IntentionDetailSheet({
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
   const peekCapturePhase = peekCapturePhaseProp ?? 'idle';
-  const peekHeight = Math.max(40, Math.round(Number(peekHeightPx ?? 40) || 40));
+  const rawPeek = Math.round(Number(peekHeightPx));
+  const peekHeight =
+    Number.isFinite(rawPeek) && rawPeek > 0 ? rawPeek : capturePeekPathAHeightPx();
   const translateY = useRef(new Animated.Value(0)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
   const tripControlsOpacity = useRef(new Animated.Value(0)).current;
@@ -454,8 +457,12 @@ export function IntentionDetailSheet({
         ? 0.92
         : 0.86;
   const sheetTargetHeight = useMemo(
-    () => Math.max(240, Math.round(windowHeight * sheetMaxRatio)),
-    [sourceExpanded, sheetMaxRatio, windowHeight],
+    () => Math.max(1, Math.round(windowHeight * sheetMaxRatio)),
+    [sheetMaxRatio, windowHeight],
+  );
+  const enterPlaceholderMinHeight = useMemo(
+    () => Math.max(1, Math.round(windowHeight * sheetMaxRatio * 0.45)),
+    [sheetMaxRatio, windowHeight],
   );
   const peekTranslateY = useMemo(() => Math.max(0, sheetTargetHeight - peekHeight), [peekHeight, sheetTargetHeight]);
   const [sheetPosition, setSheetPosition] = useState<'peek' | 'full'>('full');
@@ -500,6 +507,8 @@ export function IntentionDetailSheet({
   const [zoomExpandedByUid, setZoomExpandedByUid] = useState<Record<string, boolean>>({});
   const [zoomLoadingByUid, setZoomLoadingByUid] = useState<Record<string, boolean>>({});
   const zoomModalUidRef = useRef<string | null>(null);
+  /** Évite de relancer l’animation d’entrée complète quand seul le peek (Path A → B) change. */
+  const sheetVisibleWasOpenRef = useRef(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const milestoneYRef = useRef<Record<string, number>>({});
   const restoredZoomRef = useRef(false);
@@ -977,6 +986,10 @@ export function IntentionDetailSheet({
     [clearPeekAutoCloseTimer, onClose, peekCapturePhase, peekHeight, peekTranslateY, runDismissSheetSpring, sheetHeight, sheetPosition, startPathBPeekAutoCloseTimer, translateY, windowHeight],
   );
 
+  /**
+   * Entrée complète (opacity + translate depuis le bas) : **uniquement** à l’ouverture `visible` false → true.
+   * Les changements de `peekHeight` / `peekTranslateY` (Path A → Path B) sont gérés par l’effet spring suivant.
+   */
   useEffect(() => {
     if (!visible) {
       setEntered(false);
@@ -984,8 +997,17 @@ export function IntentionDetailSheet({
       translateY.setValue(0);
       setSheetPosition('full');
       clearPeekAutoCloseTimer();
+      sheetVisibleWasOpenRef.current = false;
       return;
     }
+
+    const openingNow = !sheetVisibleWasOpenRef.current;
+    sheetVisibleWasOpenRef.current = true;
+
+    if (!openingNow) {
+      return;
+    }
+
     setEntered(false);
     sheetOpacity.setValue(0);
     translateY.setValue(windowHeight);
@@ -1004,8 +1026,9 @@ export function IntentionDetailSheet({
     ]).start(() => {
       setEntered(true);
     });
-  }, [clearPeekAutoCloseTimer, initialPosition, peekHeight, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
+  }, [clearPeekAutoCloseTimer, initialPosition, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
 
+  /** Ajustement peek (ex. Path A → B) sans extinction ni renvoi sous l’écran. */
   useEffect(() => {
     if (!visible) return;
     if (!entered) return;
@@ -1018,7 +1041,7 @@ export function IntentionDetailSheet({
       mass: 0.9,
       useNativeDriver: true,
     }).start();
-  }, [entered, peekHeight, peekTranslateY, sheetPosition, translateY, visible]);
+  }, [entered, peekTranslateY, sheetPosition, translateY, visible]);
 
   useEffect(() => {
     if (!visible || !entered || sheetPosition !== 'peek' || peekCapturePhase !== 'path_b') {
@@ -1962,7 +1985,7 @@ export function IntentionDetailSheet({
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {!entered ? <View style={styles.enterPlaceholder} /> : null}
+              {!entered ? <View style={{ minHeight: enterPlaceholderMinHeight }} /> : null}
               {entered ? (
                 <>
                   {isTrip ? (
@@ -2863,5 +2886,4 @@ const styles = StyleSheet.create({
   footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   footerBtn: { borderRadius: 16, flex: 1 },
   footerCloseBtn: { borderRadius: 16 },
-  enterPlaceholder: { height: 240 },
 });
