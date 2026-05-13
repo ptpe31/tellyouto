@@ -77,7 +77,7 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
     - `TASK` : action simple et unique.
     - `TRIP` : action impliquant un déplacement (logistique).
     - `LIST` : inventaire / liste de courses simple.
-    - `PROJECT` : objectif complexe nécessitant plusieurs étapes (déclenche Pass 2).
+    - `PROJECT` : objectif complexe nécessitant plusieurs étapes (structure **LIST/PROJECT** ; l’**enrichissement Pass 2** n’est **jamais** déclenché automatiquement après Pass 1 — uniquement après **`pass2_unlocked: true`**, voir IntentionDetailSheet).
     - `HABIT` : action récurrente / routine.
   - Règles de décision (côté Gemini) :
     - Utiliser impérativement `HABIT` si l’utilisateur mentionne une récurrence (chaque jour, hebdomadaire, etc.) ou une routine claire.
@@ -102,10 +102,11 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 2) Douane de persistance (côté DB) — [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L893-L1281)
 - Entrée : `draft.data.intents` (si présent) ou les champs “mono‑intention” (`data.list`, signaux temporels, logistique…).
 - Traitement : boucle `intents[]` + mapping type→draft (TASK/TRIP/HABIT/LIST/PROJECT) + persistance SQLite (et dual write) avec logs `[DOUANE]` si `DEBUG_MODE_DOUANE=true` (valeur actuelle : true) : [oneTapPersist.ts:L62-L65](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts#L62-L65) et [oneTapPersist.ts:L908-L1166](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L908-L1166).
-- Enrichissement Pass 2 (LIST / PROJECT) :
-  - Si `TYPE` est `LIST` ou `PROJECT`, lancer systématiquement `geminiEnrichGenericList` (Pass 2) même si aucun item n’est extrait au premier tour.
-  - Pendant l’enrichissement : écrire `metadata_json.is_generating = true` et `metadata_json.list_enrich_status = 'pending'`.
-  - Après succès : écrire `metadata_json.is_generating = false` et `metadata_json.list_enrich_status = 'done'` + payload `list_scalable_v1`.
+- Enrichissement Pass 2 (LIST / PROJECT) — **strictement à la demande** :
+  - **Aucun** lancement **automatique** ni **immédiat** de Pass 2 après Pass 1 (ni dans la Douane de persistance, ni dans le séquenceur bulk, ni au moment de l’insertion SQLite). Le Pass 2 (ex. `geminiEnrichGenericList`) ne s’exécute **que** lorsque l’utilisateur **PRO** a persisté **`metadata_json.pass2_unlocked === true`** puis déclenché l’action métier associée (CTA « Enrichir » / libellés `intentionDetail.pass2*` — voir **Verrou sémantique** / Capture Flash).
+  - **Déclenchement** : uniquement à ce moment-là ; avant toute intention `LIST` / `PROJECT` reste en base avec les seules données Pass 1 (pas de `list_enrich_status = 'pending'` imposé par la capture seule).
+  - Pendant l’appel Pass 2 : écrire `metadata_json.is_generating = true` et `metadata_json.list_enrich_status = 'pending'`.
+  - Après succès : écrire `metadata_json.is_generating = false` et `metadata_json.list_enrich_status = 'done'` + payload `list_scalable_v1` (ou équivalent PROJECT).
   - Après échec : écrire `metadata_json.is_generating = false` et `metadata_json.list_enrich_status = 'error'` (+ `list_enrich_error`).
 - Gestion du vide / malformé (NOTE_FALLBACK) :
   - Si `intents[]` existe mais qu’aucune entité n’a pu être persistée : si `allowNoteFallback !== false`, création d’un draft NOTE avec `memo = transcript` et persistance sous label `NOTE_FALLBACK` : [oneTapPersist.ts:L1167-L1186](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L1167-L1186).
@@ -329,7 +330,7 @@ Objectif : ajouter une armature d’intercalaires (onglets) dans le header de `I
 ### 1) Intégrité du contenu (contrainte absolue)
 - Ne pas modifier le corps de la BottomSheet : tous les contenus existants (Trip, Liste, Projet, Habitude, etc.) restent strictement identiques une fois la sheet déployée.
 - Les intercalaires ne sont qu’un header visuel + poignée de tirage, solidaire du haut de la fiche lors du déploiement.
-- L’IA peut continuer à remplir/enrichir la fiche en arrière-plan pendant que la sheet est en position “peek”.
+- Les **enrichissements Pass 2** (listes détaillées, jalons projet, etc.) **ne** s’exécutent **pas** en arrière-plan pendant le peek : ils sont **réservés** au flux **`pass2_unlocked: true`** + action utilisateur (voir § Verrou sémantique). D’autres mises à jour non‑Pass‑2 (sync, champs déjà prévus hors enrichissement IA) restent hors périmètre de cette interdiction.
 
 ### 2) Structure des intercalaires (armature à 3 slots)
 Refonte limitée au **header** de `IntentionDetailSheet` :
@@ -418,14 +419,14 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 
 **Source de vérité** : [`UserSpectrumContext`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/UserSpectrumContext.tsx) via **`useUserSpectrum()`** — booléen effectif **`spectrum.isProUser`**. `spectrum.isProUser === false` ⇒ utilisateur **FREE** ; `true` ⇒ **PRO**.
 
-**Objectif produit** : le FREE **voit l’opportunité** (CTA Pass 2 visible mais **verrouillé**), le PRO **active l’intelligence** (déverrouillage + enrichissement lorsque applicable).
+**Objectif produit** : le FREE **voit l’opportunité** (CTA Pass 2 visible mais **verrouillé**), le PRO **active l’intelligence** (**déverrouillage** `pass2_unlocked: true`, puis **enrichissement Pass 2 uniquement sur cette action** — jamais enchaîné automatiquement après Pass 1).
 
 **Comportement du bouton principal Pass 2** (vue Zen / Path B validation — même logique universelle) :
 
 | | **FREE** | **PRO** |
 |---|----------|---------|
 | **Libellé** | Même base i18n qu’en PRO + **indicateur cadenas** (ex. suffixe ` 🔒` ou clé dédiée `intentionDetail.pass2LockedSuffix` / composition en UI) pour matérialiser le verrou. | Libellé i18n seul (sans cadenas). |
-| **Clic** | **Ne pas** appeler `patchMetadata` avec `pass2_unlocked: true`. **Ne pas** lancer `geminiEnrichGenericList` (LIST/PROJECT). Rediriger vers le parcours **souscription Pro** (ex. modal / écran `ProSubscription` déjà prévu dans l’app — équivalent navigation « Recharge / Pro »). En développement, un `console.log` de secours est acceptable tant que la navigation n’est pas câblée. | Exécuter le flux actuel : `pass2_unlocked: true` + fondu vers les blocs complexes + enrichissement LIST/PROJECT si prévu. |
+| **Clic** | **Ne pas** appeler `patchMetadata` avec `pass2_unlocked: true`. **Ne pas** lancer `geminiEnrichGenericList` (LIST/PROJECT). Rediriger vers le parcours **souscription Pro** (ex. modal / écran `ProSubscription` déjà prévu dans l’app — équivalent navigation « Recharge / Pro »). En développement, un `console.log` de secours est acceptable tant que la navigation n’est pas câblée. | Exécuter le flux : `pass2_unlocked: true` + fondu vers les blocs complexes ; **puis** lancer l’enrichissement LIST/PROJECT **uniquement** dans ce flux utilisateur (aucun enrichissement auto après Pass 1). |
 | **Persistance** | Inchangée côté `pass2_unlocked` (reste absent ou `false`). | `pass2_unlocked` persisté en base pour réouvertures immédiates en vue détaillée. |
 
 **Animation** : après clic **PRO**, conserver une **transition fluide** (fondu / durée cohérente avec l’existant ~300 ms) pour l’apparition des blocs détaillés.
@@ -468,7 +469,7 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 - Proéminent, libellés i18n (`intentionDetail.pass2*`) alignés sur la section **Verrou sémantique** ; **gating FREE/PRO** : voir **IntentionDetailSheet §6** (`isProUser` via `useUserSpectrum()`).
 - **PRO** — Action :
   - Pose **`pass2_unlocked: true`** via `patchMetadata` (consentement explicite).
-  - Lance le Pass 2 (enrichissement) lorsque applicable (`LIST` / `PROJECT` → Gemini enrich).
+  - **Ensuite uniquement** : lancer le Pass 2 (enrichissement) lorsque applicable (`LIST` / `PROJECT` → `geminiEnrichGenericList` / équivalent) — **pas** d’enrichissement déclenché avant cette action ni en parallèle silencieux au retour Pass 1.
   - Déploie la sheet en **plein écran**.
 - **FREE** — Action : pas de mutation `pass2_unlocked`, pas d’enrichissement ; redirection souscription Pro (ou log de secours en dev).
 - Feedback :
@@ -670,11 +671,14 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Gestion clavier :
   - Utiliser `KeyboardAvoidingView` (ou équivalent) et un footer fixe (bouton itinéraire) pour que les champs Places restent accessibles au‑dessus du clavier.
 
-## OneTap LIST / PROJECT — Pipeline 2-Pass (Classification + Enrichissement)
+## OneTap LIST / PROJECT — Pipeline 2-Pass (Classification + Enrichissement à la demande)
 
 ### Objectif
 
-- Transformer les intentions de type `LIST` et `PROJECT` en structures actionnables via un pipeline en **2 passes** :
+- Transformer les intentions de type `LIST` et `PROJECT` en structures actionnables en **deux temps** :
+  - **Pass 1** (capture) : classification + Bullet‑Pipe + persistance « Zen ».
+  - **Pass 2** : enrichissement **uniquement** après **`pass2_unlocked: true`** et action utilisateur (pas d’enchaînement automatique depuis Pass 1).
+- Résultat attendu après Pass 2 (une fois déclenché) :
   - `LIST` : inventaire scalable (quantités / multiplicateur).
   - `PROJECT` : jalonnement temporel (durées estimées + cascade à partir d’une date de départ).
 
@@ -682,11 +686,13 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 - Format de réponse Gemini : **Bullet‑Pipe** uniquement (lignes `> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE`).
 - Rôle : détecter `TYPE === LIST` et extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT) + catégorie.
+- **Évolution prévue** : déporter les règles métier dans `systemInstruction` et réduire le prompt utilisateur — voir **« ARCHITECTURE IA (Latence) »** (§ Pass 1).
 
 ### Pass 2 — Enrichissement (LIST / PROJECT)
 
-- Déclenchement : si Pass 1 détecte `TYPE === LIST` ou `TYPE === PROJECT`, lancer immédiatement `enrichGenericList(content)` (Gemini Pass 2).
-- UI feedback : l’intention est insérée en base dès Pass 1 avec un état temporaire visible (`metadata_json.is_generating=true`, `list_enrich_status='pending'`) afin que l’utilisateur voie l’item pendant l’enrichissement.
+- **Déclenchement** : **uniquement** après persistance **`metadata_json.pass2_unlocked === true`** (consentement PRO) **et** action utilisateur sur le CTA Pass 2 — **interdit** : lancer `geminiEnrichGenericList` / Pass 2 **immédiatement** ou **automatiquement** après Pass 1, même si `TYPE === LIST` ou `TYPE === PROJECT`.
+- **Architecture cible** : appels Pass 2 **à la demande** via **modèle + `systemInstruction` dédiée** déjà configurés côté **Firebase / proxy** (corps utilisateur minimal : intention / contexte issus de la row, pas les blocs de règles) — objectif **réponse utile en moins de 3 secondes** (à instrumenter : P95 ou médiane selon produit). Voir **« ARCHITECTURE IA (Latence) »** (§ Pass 2).
+- **UI feedback** : après Pass 1, l’intention est visible en base **sans** état d’enrichissement forcé ; **`is_generating` / `list_enrich_status='pending'`** s’appliquent **uniquement** pendant l’appel Pass 2 déclenché par l’utilisateur.
 - Sorties attendues :
   - `LIST` : JSON strict conforme au schéma `list_scalable_v1` (inventaire).
   - `PROJECT` : JSON strict conforme au schéma `project_milestones_v1` (jalons + durées, sans dates).
@@ -699,6 +705,8 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - Stockage : persister `expert_persona` en SQL au niveau jalon (colonne dédiée si disponible, sinon via `metadata_json.project_milestones_v1.milestones[].expert_persona` + patch SQL).
 
 ### Prompt Système Gemini (Pass 2)
+
+> **Déploiement** : le texte ci‑dessous est la **référence fonctionnelle** du contenu à porter en **`systemInstruction`** côté Firebase / proxy pour les appels Pass 2 **à la demande** (pas dans le corps utilisateur répété).
 
 #### Prompt LIST (inventaire scalable)
 
@@ -748,6 +756,67 @@ Règles :
   - `project.start_date` : `YYYY-MM-DD` (nullable) — “top départ” utilisateur.
   - `project_milestones_v1` : payload jalons.
 - Les durées estimées remplacent le mécanisme de quantités (multiplicateur réservé à `LIST`).
+
+## ARCHITECTURE IA (Latence)
+
+Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1), **le coût en tokens** sur le rôle utilisateur, et la taille des payloads réseau, en séparant clairement **ce qui est stable** (règles métier) **de ce qui est dynamique** (temps de référence + transcript).
+
+### Contrat `systemInstruction` (Firebase / proxy) vs client
+
+- **Pass 1 et Pass 2** : l’intégralité des « prompts » métier (segmentation Bullet‑Pipe, contrats TRIP / DISPLAY TITLE, enrichissements LIST / PROJECT, logistique & entités, etc.) doit être **déclarée et versionnée côté serveur** — [`functions/src/index.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts) (proxy Firebase) et/ou couches Vertex associées — sous forme de **`systemInstruction`** (une SI par rôle Pass 1 / Pass 2, ou jeux SI par mode si besoin). **Aucun** de ces blocs ne doit plus être reconstruit ou embarqué dans le binaire comme corps « user » volumineux pour chaque capture.
+- **Application cliente** : pour l’appel d’extraction principal (dictée → modèle), le rôle **utilisateur** ne transporte plus que :
+  - **`Reference Time`** : horodatage ISO de référence (fuseau / « maintenant » capture),
+  - **`Transcript`** : texte final de la dictée (ou équivalent strictement nécessaire à l’instant T).
+- **Pass 2 hors capture automatique** : **aucune** chaîne « Pass 1 terminé → lancer Pass 2 ». Le Pass 2 n’est invoqué **qu’après** **`pass2_unlocked: true`** (et action utilisateur). Côté transport, l’app n’envoie **pas** les blocs de règles Pass 2 : **uniquement** des données minimales (identifiant intention, transcript ou mémo déjà stocké, sortie Pass 1 persistée si nécessaire) ; les **règles** restent en **`systemInstruction`** sur le **proxy Firebase**.
+- **Pass 2 à la demande — SLA latence** : même déclenché **plus tard** (réouverture fiche, longtemps après Pass 1), l’appel doit réutiliser la **même architecture** (modèle + SI dédiée côté Firebase) et viser une **réponse exploitable en moins de 3 secondes** (charge utile courte, pas de re‑injection des prompts longs côté client).
+
+> **État actuel (pont)** : le bloc contractuel Pass 1 est encore assemblé dans [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) (`intentionFlow` côté UI = hook `useOptionalIntentionContext()`, pas un fichier de prompts). La migration consiste à **déplacer** ce contenu vers les SI déployées avec le proxy.
+
+### Protocole de pré‑warming (session Gemini)
+
+- **Déclencheur** : dès que **`isMicActive === true`** (micro prêt à capter — ex. [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) après permissions / entrée en écoute STT), l’app doit **initialiser ou réattacher** une **session vers le proxy / Gemini** (handshake HTTP/TLS, éventuellement première négociation modèle, réutilisation de connexion keep‑alive, ouverture de canal SSE si le protocole le permet).
+- **Contenu** : appel **léger** autorisé (ping, `generateContent` minimal, ou endpoint dédié `warm` / health) **sans** transcript final ni charge utile lourde — uniquement ce qui suffit à établir la session et à charger côté Google les **SI déjà attachées** au modèle ou au cache explicite.
+- **Mesure** : la baisse attendue se lit sur **stop micro → premier byte SSE** (ou TTFB) et sur **stop → première carte peek** ; à instrumenter en prod / debug.
+
+### 1) Pass 1 — Segmentation (classification + Bullet‑Pipe)
+
+- **System instruction (proxy)** : contient toutes les règles aujourd’hui injectées dans le prompt Pass 1 (miroir linguistique, contrats TRIP / titre affichable, mapping catégories, format de sortie strict, exceptions multi‑intentions `**`, etc.).
+- **Corps utilisateur (client)** : uniquement **`Reference Time`** + **`Transcript`** (schéma texte libre ou JSON minimal selon contrat proxy — pas de duplication des règles).
+- **Effets attendus** : moins de tokens « user », charge réseau réduite, TTFB et apparition des cartes **plus rapides**.
+- **`maxOutputTokens` (Pass 1)** : dimensionner pour le **pire cas** dicté (ex. **4 intentions** en sortie Bullet‑Pipe + marge). Les valeurs actuelles dans [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) (souvent `512` sur certains appels « lab ») doivent être **revues** si des troncatures apparaissent sur multi‑intentions ; viser une marge explicite documentée après QA.
+
+### 2) Pass 2 — Logistique, entités et enrichissements (à la demande)
+
+- **Garde produit** : le Pass 2 ne part **jamais** seul après Pass 1 ; il est **strictement conditionné** à **`pass2_unlocked: true`** + action utilisateur (détail dans § OneTap LIST/PROJECT et Douane de persistance).
+- **System instruction dédiée (proxy / Firebase)** : toute la logique d’**extraction / structuration fine** (adresses et lieux, alertes / rappels complexes, notes structurées, champs trajet, règles JSON LIST / PROJECT, etc.) vit dans une **seconde** `systemInstruction` (ou jeux SI par mode `LIST` | `PROJECT` | `TRIP` si nécessaire), **déjà déployée** avec le proxy pour garantir des appels **courts** et une latence cible **en moins de 3 secondes** jusqu’à réponse utile.
+- **Corps utilisateur (client → proxy)** : **pas** de blocs de règles ; uniquement le **minimum** pour contextualiser l’intention à enrichir (ex. id, transcript / mémo, champs Pass 1 déjà persistés).
+#### Parallélisation réservée (`Promise.all`)
+
+- La parallélisation **ne s’applique que** si (a) l’utilisateur dispose d’un bouton **« Enrichir tout »** (futur) qui lance explicitement un lot d’enrichissements Pass 2, **ou** (b) l’utilisateur **déverrouille plusieurs intentions en une seule action simultanée** (même geste / même transaction produit). **Sinon**, le traitement Pass 2 reste **unitaire** : **une** intention déverrouillée → **un** appel enrichissement à la fois (pas de `Promise.all` implicite). Dans tous les cas, cela **ne** remplace **pas** la règle séquentielle **chunk N → DB** du séquenceur de **capture** (dictée multi‑chunks).
+- **Alignement** : les prompts LIST / PROJECT (§ *Prompt Système Gemini (Pass 2)*) sont la **référence** à fusionner dans ces `systemInstruction` côté serveur.
+
+### 3) Firebase, proxy et Context Caching (Vertex)
+
+- **Objectif** : exploiter le **Context Caching** de Vertex AI (contenu système / préambule réutilisable facturé ou servi à coût réduit) lorsque l’API et les SDK utilisés par le projet l’exposent.
+- **Contrainte actuelle** : l’app appelle Gemini **via** le proxy Firebase ([`functions/src/index.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts)) avec `{ modelId, systemInstruction, request }`. Toute stratégie de cache explicite (resource `cachedContent`, TTL, etc.) doit être **implémentée ou relayée** dans ce proxy (ou migrer vers un chemin SDK serveur Vertex/Firebase AI **si** équivalent sécurité + auth). Tant que le proxy ne transmet qu’un corps texte sans cache ID, le bénéfice reste limité au **cache implicite** éventuel côté Google.
+- **Livrable** : documenter dans le dépôt (commentaire proxy ou doc technique) le choix **implicite vs explicite** + métriques (`usageMetadata`, coût) une fois branché.
+
+### 4) Monitoring, debug et verbosité
+
+- **`[GeminiDebug]`** (ex. [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) — log `FULL_PROMPT_SENT`, [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts)) : ne plus journaliser des **milliers de tokens** de consignes désormais portées par `systemInstruction`. Journaliser uniquement :
+  - les **données dynamiques** (référence temps, en-tête de transcript, hash ou longueur, identifiants trace),
+  - les **latences** (TTFB, durée totale, durée persistance DB),
+  - les **compteurs tokens** renvoyés sur l’événement SSE `done` (déjà contractuels côté proxy),
+  - en mode verbeux optionnel : un **extrait court** de la sortie modèle (déjà partiellement pratiqué pour les erreurs Bullet‑Pipe).
+- **Alignement** : rester cohérent avec [`docs/STABILITY_SPEC_ONETAP_GEMINI.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/docs/STABILITY_SPEC_ONETAP_GEMINI.md) (`VERBOSE_DEBUG` hors prod).
+
+### 5) Critères d’acceptation (implémentation future)
+
+- [ ] Pass 1 : corps user = **Reference Time** + **Transcript** ; règles = `systemInstruction` (proxy).
+- [ ] Pass 2 : **aucun** déclenchement auto après Pass 1 ; uniquement si **`pass2_unlocked: true`** ; corps user minimal ; règles = SI dédiée (Firebase) ; latence cible **moins de 3 secondes** ; `Promise.all` **uniquement** si bouton **« Enrichir tout »** (futur) ou déverrouillage **multi‑intentions simultané** explicite — **sinon** enrichissement **séquentiel / unitaire** par intention déverrouillée.
+- [ ] Pré‑warming micro : mesurable en baisse du délai stop → première carte / premier byte SSE (à tracer).
+- [ ] Aucune régression sur troncature : sorties complètes pour dictées **jusqu’à 4 intentions** (ajustement `maxOutputTokens` + tests).
+- [ ] Logs debug sans dump de prompt complet en prod ; latences et tokens toujours visibles pour l’équipe.
 
 ## Pipeline Unique — “Micro as a Bulk(1)”
 
@@ -815,7 +884,7 @@ Règles :
 
 ### 3) Instrumentation Pass 2 (visibilité)
 
-- Ajouter des logs explicites pour confirmer l’enrichissement asynchrone :
+- Ajouter des logs explicites pour confirmer l’enrichissement Pass 2 **à la demande** (après `pass2_unlocked`) :
   - `LOG [Pass2] 🚀 START_ENRICHMENT | ID: {id} | Type: {type}`
   - `LOG [Pass2] ✅ SUCCESS_ENRICHMENT | ID: {id}`
 
@@ -920,8 +989,8 @@ Règles :
 
 ##### 3) Réutilisation de Pass 2 (fractal)
 
-- Même une sous-tâche peut être complexe :
-  - Si l’IA détecte `LIST/PROJECT` dans un child (ou si le normalizer le remappe), l’enrichissement Pass 2 (`list_enrich_generic`) se déclenche de la même manière.
+- Même une sous-tâche peut être de type `LIST` / `PROJECT` :
+  - L’**enrichissement Pass 2** (`list_enrich_generic` ou équivalent) ne s’applique **qu’après** le même **verrou** utilisateur que pour une intention racine : **`pass2_unlocked: true`** sur la fiche concernée + action explicite — **pas** d’enrichissement automatique dès la détection `LIST`/`PROJECT` sur un enfant.
 
 ##### 4) Normalizer & hiérarchie
 
@@ -1444,6 +1513,7 @@ Variables d’environnement principales (Expo public) :
   - Gestion d’erreur : en cas d’échec Gemini, l’événement SSE renvoyé est `{type:'error', error:'gemini_failed'}` (pas d’exception détaillée) : [index.ts:L105-L108](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L105-L108).
 
 ### IA (Gemini, via proxy)
+- **Stratégie long terme** : instructions système + charge utile minimale + pré‑warming + Context Caching Vertex lorsque disponible — voir **« ARCHITECTURE IA (Latence) »** plus haut dans ce document.
 - Modèles : Gemini (flash/pro) routés côté client (fallback) mais appelés uniquement via proxy
 - Client n’embarque pas de clé Gemini : la clé (`GEMINI_API_KEY`) reste côté serveur (Secret Manager)
 - Objectif : extraction structurée low‑latency en streaming (SSE)
