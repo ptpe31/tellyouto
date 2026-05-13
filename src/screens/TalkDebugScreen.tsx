@@ -43,6 +43,7 @@ import {
   INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
   INTENTIONS_CHANGED_EVENT_NAME,
 } from '../constants/intentionEvents';
+import { logCaptureFlow } from '../utils/captureFlowLog';
 import {
   buildPeekPendingRowFromSnapshot,
   capturePeekPathAHeightPx,
@@ -161,7 +162,7 @@ export function TalkDebugScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
-  const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(200);
+  const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(() => capturePeekPathAHeightPx());
   const [peekCapturePhase, setPeekCapturePhase] = useState<'idle' | 'path_a' | 'path_b'>('idle');
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
   const [phoenixInput, setPhoenixInput] = useState('');
@@ -534,7 +535,7 @@ export function TalkDebugScreen() {
     setDetailOpen(false);
     setDetailRow(null);
     setDetailPosition('full');
-    setDetailPeekHeightPx(200);
+    setDetailPeekHeightPx(capturePeekPathAHeightPx());
     setPeekCapturePhase('idle');
   }, []);
 
@@ -551,6 +552,11 @@ export function TalkDebugScreen() {
       setDetailPeekHeightPx(capturePeekPathAHeightPx());
       setPeekCapturePhase('path_a');
       setDetailOpen(true);
+      logCaptureFlow(undefined, 'ui_peek_snapshot', {
+        screen: 'TalkDebug',
+        categoryTag: String((payload as { categoryTag?: unknown }).categoryTag ?? ''),
+        predictedType: String((payload as { predictedType?: unknown }).predictedType ?? ''),
+      });
     });
     const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
       const intentionId = String((payload as any)?.intentionId ?? '').trim();
@@ -578,8 +584,14 @@ export function TalkDebugScreen() {
       setDetailRow(previewRow);
       setDetailPosition('peek');
       setDetailOpen(true);
+      logCaptureFlow(undefined, 'ui_peek_first_save', { screen: 'TalkDebug', intentionId });
       void (async () => {
         const full = await getTrankilV2IntentionById(intentionId);
+        logCaptureFlow(undefined, 'ui_peek_first_save_sql_hydrate', {
+          screen: 'TalkDebug',
+          intentionId,
+          found: Boolean(full),
+        });
         if (!full) return;
         const mapped = mapTrankilIntentionToTimelineItemRow(full);
         setDetailRow((prev) => (prev && prev.id === intentionId ? mapped : prev));
@@ -969,6 +981,7 @@ export function TalkDebugScreen() {
     setPhoenixSubmitting(true);
     try {
       intentionFlow.startCapture();
+      logCaptureFlow(undefined, 'phoenix_submit_invoke', { transcriptLen: transcript.length });
       await intentionFlow.submitCapturePayload({ transcript, audioUri: null, lang: resolveSpeechLangForSession(i18n.language) });
       setPhoenixInput('');
     } catch (e) {

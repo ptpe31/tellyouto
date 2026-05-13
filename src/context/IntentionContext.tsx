@@ -40,6 +40,7 @@ import { parseProjectMilestonesPayloadFromMetadataJson } from '../services/proje
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
 import { newUuidV4 } from '../utils/uuid';
+import { logCaptureFlow } from '../utils/captureFlowLog';
 
 /**
  * Orchestration capture OneTap : séquenceur bulk unique (`runGeminiBulkSequence`), file offline SQLite, replay.
@@ -205,8 +206,15 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       silent?: boolean;
       onPersisted?: (outcomes: PersistOneTapSuccess[]) => void;
     }) => {
-      if (bulkProcessingRef.current) return;
-      if (geminiStartedRef.current) return;
+      const traceEarly = String(params.traceId || '').trim() || undefined;
+      if (bulkProcessingRef.current) {
+        logCaptureFlow(traceEarly, 'bulk_skip', { reason: 'bulk_processing' });
+        return;
+      }
+      if (geminiStartedRef.current) {
+        logCaptureFlow(traceEarly, 'bulk_skip', { reason: 'gemini_started' });
+        return;
+      }
       bulkProcessingRef.current = true;
       geminiStartedRef.current = true;
       const base = String(params.transcript || '').trim();
@@ -217,6 +225,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         const chunks = Array.isArray(params.chunks) && params.chunks.length ? params.chunks : splitBulkTranscript(base);
+        logCaptureFlow(trace || undefined, 'bulk_start', {
+          chunkCount: chunks.length,
+          silent: Boolean(params.silent),
+          isMic,
+        });
         const uiLocale = params.lang || spectrum.locale || 'fr-FR';
         const seq = (geminiSeqRef.current += 1);
         let savedAny = false;
@@ -286,6 +299,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             );
             const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
             if (seq !== geminiSeqRef.current) return;
+            logCaptureFlow(trace || undefined, 'chunk_ventilated_await', { idx: i + 1, total });
             const vr = await persistOneTapDraftVentilated({
               deps,
               draft: hydrated,
@@ -298,6 +312,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             });
             if (vr.ok) {
               savedAny = true;
+              logCaptureFlow(trace || undefined, 'chunk_persist_ok', {
+                idx: i + 1,
+                total,
+                outcomes: vr.outcomes.length,
+              });
               DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
               params.onPersisted?.(vr.outcomes);
               const ids = vr.outcomes
@@ -311,16 +330,19 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               console.log(`[SEQUENCER]  ✅ Succès total pour le chunk ${i + 1}`);
               console.log('***************************************');
             } else {
+              logCaptureFlow(trace || undefined, 'chunk_persist_fail', { idx: i + 1, total });
               console.log('[BulkSequence] ❌ CHUNK_FAILED:', { idx: i + 1, total: chunks.length });
               break;
             }
           } catch (e) {
+            logCaptureFlow(trace || undefined, 'chunk_exception', { idx: i + 1, total, err: String(e) });
             console.log('[BulkSequence] ❌ CHUNK_EXCEPTION:', { idx: i + 1, total: chunks.length, err: e });
             break;
           } finally {
             bulkProgressIndexRef.current = -1;
           }
         }
+        logCaptureFlow(trace || undefined, 'bulk_loop_done', { savedAny, chunkCount: chunks.length });
         console.log('********* SÉQUENCE BULK TERMINÉE (succès partiel ou total) *********');
         if (!savedAny && params.allowAlert) {
           proposeOfflineFallback({
@@ -356,6 +378,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       if (!cleaned) return;
       const isMic = Boolean(audioUri);
       const trace = String(traceId || '').trim() || (isMic ? newId() : '');
+      logCaptureFlow(trace || undefined, 'submit_enter', {
+        isMic,
+        transcriptLen: cleaned.length,
+        hasAudio: Boolean(audioUri),
+      });
       if (__DEV__ && VERBOSE_DEBUG && isMic) {
         const now = new Date();
         console.log(`************************************************************`);
@@ -371,6 +398,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
 
       const net = await NetInfo.fetch();
       const online = net.isConnected === true && net.isInternetReachable === true;
+      logCaptureFlow(trace || undefined, 'submit_netinfo', {
+        online,
+        isConnected: net.isConnected,
+        isInternetReachable: net.isInternetReachable,
+      });
       if (__DEV__ && VERBOSE_DEBUG && isMic) {
         console.log(
           `[MIC] 🛰️ NETINFO: isConnected=${String(net.isConnected)} | isInternetReachable=${String(net.isInternetReachable)} | online=${String(online)}`,
@@ -383,11 +415,21 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         }
         if (audioUri) {
           const queued = await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title, lang });
+          logCaptureFlow(trace || undefined, 'submit_offline_queued', {
+            mode: 'audio',
+            queueId: queued.queueId,
+            intentionId: queued.intentionId,
+          });
           if (__DEV__ && VERBOSE_DEBUG && isMic) {
             console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
           }
         } else {
           const queued = await queueOfflineTextCapture({ transcript: cleaned, title, lang });
+          logCaptureFlow(trace || undefined, 'submit_offline_queued', {
+            mode: 'text',
+            queueId: queued.queueId,
+            intentionId: queued.intentionId,
+          });
           if (__DEV__ && VERBOSE_DEBUG && isMic) {
             console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
           }
@@ -403,7 +445,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         predictedType: skeleton.predictedType,
         title: skeleton.title,
       });
+      logCaptureFlow(trace || undefined, 'peek_snapshot_emit', {
+        categoryTag: skeleton.categoryTag,
+        predictedType: skeleton.predictedType,
+      });
 
+      logCaptureFlow(trace || undefined, 'bulk_sequence_await', {});
       await runGeminiBulkSequence({
         transcript: cleaned,
         chunks: [cleaned],
@@ -417,6 +464,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             outcomes
               .map((o) => ('intentionId' in o ? String((o as { intentionId?: unknown }).intentionId ?? '') : ''))
               .find((x) => x && x.trim().length) ?? '';
+          logCaptureFlow(trace || undefined, 'persist_callback', { outcomes: outcomes.length, firstId: firstId || null });
           if (!firstId) return;
           const anyTitle =
             outcomes.find((o) => 'title' in o && typeof (o as { title?: unknown }).title === 'string') as
@@ -429,8 +477,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             title: String(anyTitle?.title ?? skeleton.title ?? cleaned.slice(0, 200)),
             transcript: cleaned,
           });
+          logCaptureFlow(trace || undefined, 'peek_first_save_emit', { intentionId: firstId });
         },
       });
+      logCaptureFlow(trace || undefined, 'submit_return_after_bulk', {});
     },
     [runGeminiBulkSequence, spectrum.locale],
   );

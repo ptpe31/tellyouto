@@ -30,6 +30,7 @@ import { activateSentinelTrip } from './traffic/sentinelActivation';
 import { geminiEnrichGenericList } from './geminiSemanticLab';
 import { buildProjectMilestonesMetadataPatch, ensureProjectMilestoneUids } from './projectMilestonesModel';
 import { NOTE_FALLBACK_LABEL } from './timelineIntentionVisibility';
+import { logCaptureFlow } from '../utils/captureFlowLog';
 
 
 export type PersistOneTapSuccess =
@@ -1119,6 +1120,14 @@ export async function persistOneTapDraftVentilated(params: {
   let firstCode: 'LIST_QUOTA' | 'LIST_SELECTION' | undefined;
 
   const intentsRaw = (data as { intents?: unknown }).intents;
+  const intentsLen = Array.isArray(intentsRaw) ? intentsRaw.length : 0;
+  logCaptureFlow(undefined, 'ventilated_enter', {
+    predictedType: draft.predictedType,
+    categoryTag: draft.categoryTag,
+    allowNoteFallback,
+    transcriptLen: transcript.length,
+    intentsLen,
+  });
   if (Array.isArray(intentsRaw) && intentsRaw.length > 0) {
     const total = intentsRaw.length;
     for (let i = 0; i < total; i++) {
@@ -1548,6 +1557,7 @@ export async function persistOneTapDraftVentilated(params: {
   }
 
   if (outcomes.length === 0) {
+    logCaptureFlow(undefined, 'ventilated_note_fallback_attempt', { allowNoteFallback });
     const noteDraft: OneTapUniversalResult = {
       ...draft,
       predictedType: 'NOTE',
@@ -1563,10 +1573,18 @@ export async function persistOneTapDraftVentilated(params: {
       parentId: params.parentId,
       parentJalonUid: params.parentJalonUid,
     });
-    if (r.ok) return { ok: true, outcomes: [r.outcome] };
+    if (r.ok) {
+      logCaptureFlow(undefined, 'ventilated_exit', { ok: true, path: 'note_fallback', outcomes: 1 });
+      return { ok: true, outcomes: [r.outcome] };
+    }
+    logCaptureFlow(undefined, 'ventilated_exit', { ok: false, path: 'note_fallback' });
     return { ok: false, error: r.error, code: r.code };
   }
 
-  if (outcomes.length > 0) return { ok: true, outcomes };
+  if (outcomes.length > 0) {
+    logCaptureFlow(undefined, 'ventilated_exit', { ok: true, path: 'intents', outcomes: outcomes.length });
+    return { ok: true, outcomes };
+  }
+  logCaptureFlow(undefined, 'ventilated_exit', { ok: false, path: 'empty', hasFirstError: Boolean(firstError) });
   return { ok: false, error: firstError ?? new Error('persist_failed'), code: firstCode };
 }

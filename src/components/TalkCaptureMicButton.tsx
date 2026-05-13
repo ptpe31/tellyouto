@@ -18,6 +18,7 @@ import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
+import { logCaptureFlow } from '../utils/captureFlowLog';
 
 /**
  * Bouton micro + STT : enregistrement mémo, dictée, validation ; si `IntentionProvider` est monté,
@@ -308,6 +309,10 @@ export function TalkCaptureMicButton({
             }),
       );
       if (intentionFlow) {
+        logCaptureFlow(micTraceIdRef.current?.trim() || undefined, 'mic_submit_invoke', {
+          transcriptLen: cleaned.length,
+          hasAudio: Boolean(uri),
+        });
         void intentionFlow
           .submitCapturePayload({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current, traceId: micTraceIdRef.current })
           .catch((e) => {
