@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import type { TrankilV2TimelineItemRow } from '../api';
 import { generateSmartTitle } from '../services/smartTitle';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
+import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
 import { neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
@@ -219,6 +220,12 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
   const iconColor = pendingLocalDone ? '#065f46' : theme.colors.primary;
 
   const titleOpacity = pendingLocalDone ? 0.5 : 1;
+  const pendingAiLabel =
+    (row.type === 'NOTE' || row.type === 'AUDIO') && row.is_pending_ai === 1 ? t('timeline.aiPendingChip') : null;
+
+  if (isHiddenTechnicalNoteFallbackRow(row)) {
+    return null;
+  }
 
   return (
     <Pressable
@@ -251,11 +258,17 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
               {titleText}
             </Text>
           </View>
-          {subtitle ? (
+          {pendingAiLabel || subtitle ? (
             <View style={styles.subtitleRow}>
-              <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
-                {subtitle}
-              </Text>
+              {pendingAiLabel ? (
+                <Text style={[styles.pendingChip, { color: theme.colors.primary }]} numberOfLines={1}>
+                  {pendingAiLabel}
+                </Text>
+              ) : (
+                <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                  {subtitle}
+                </Text>
+              )}
             </View>
           ) : null}
         </View>
@@ -282,5 +295,6 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
+  pendingChip: { marginTop: 4, fontSize: 12, fontWeight: '800' },
   subtitleRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
 });

@@ -1,3 +1,8 @@
+/**
+ * Types des piles / onglets : racine native, stack principal, tabs Talk·Timeline·Debug.
+ *
+ * @module navigation/types
+ */
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type RootStackParamList = {

@@ -44,6 +44,14 @@ import {
 } from '../services/debugUserTierOverride';
 import { neumorphicRaised } from '../theme/neumorphism';
 
+/**
+ * Onglet **Debug** : reset / vidage SQLite, comptages, steering Gemini (Remote Config, health check, cache),
+ * simulation **Sentinel** traffic, override tier utilisateur, écoute `TALK_CAPTURE_DEBUG_EVENT`.
+ * Voir `PROJECT_STATUS.md` §1.2.
+ *
+ * @module DebugScreen
+ */
+
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -65,11 +73,13 @@ export function DebugScreen() {
   const criticalAlertShownRef = useRef(false);
   const simulatedArrivalAtMsRef = useRef<number>(0);
 
+  /** Met à jour les libellés modèle RC vs override local (`geminiRemoteModelSteering`). */
   const syncModelLabels = useCallback(() => {
     setRcModelDisplay(getLastRemoteConfigResolvedModelId());
     setLocalModelDisplay(getActiveGeminiModelId());
   }, []);
 
+  /** Lit le modèle « validé » persisté AsyncStorage (TTL) pour affichage debug. */
   const refreshValidatedModelDisplay = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem('validated_model_id');
@@ -90,11 +100,13 @@ export function DebugScreen() {
     }
   }, []);
 
+  /** Compte intentions / tâches via `getTrankilV2IntentionTaskCounts`. */
   const refreshDbCounts = useCallback(async () => {
     const counts = await getTrankilV2IntentionTaskCounts();
     setDbCounts(counts);
   }, []);
 
+  /** Au montage : compteurs DB + abonnements `INTENTIONS_CHANGED` et log capture Talk (`TALK_CAPTURE_DEBUG_EVENT`). */
   useEffect(() => {
     void refreshDbCounts();
     const subIntentions = DeviceEventEmitter.addListener(
@@ -134,6 +146,7 @@ export function DebugScreen() {
     };
   }, []);
 
+  /** Rebuild destructif de la table `intentions` (outil dev uniquement). */
   const runFactoryReset = useCallback(async () => {
     setLastError(null);
     setBusy('db');
@@ -151,6 +164,7 @@ export function DebugScreen() {
     }
   }, [refreshDbCounts, t]);
 
+  /** `DELETE FROM intentions` — garde le schéma, vide les lignes. */
   const runClearDatabases = useCallback(async () => {
     setLastError(null);
     setBusy('db');
@@ -169,6 +183,7 @@ export function DebugScreen() {
     }
   }, [refreshDbCounts]);
 
+  /** Double confirmation puis `runFactoryReset`. */
   const onRebuildDb = useCallback(() => {
     Alert.alert(t('debug.factoryResetConfirmTitle'), t('debug.factoryResetConfirmBody'), [
       { text: t('debug.factoryResetCancel'), style: 'cancel' },
@@ -191,6 +206,7 @@ export function DebugScreen() {
     ]);
   }, [runFactoryReset, t]);
 
+  /** Confirmation puis vidage des intentions. */
   const onClearDb = useCallback(() => {
     Alert.alert(t('debug.clearDbConfirmTitle'), t('debug.clearDbConfirmBody'), [
       { text: t('debug.clearDbCancel'), style: 'cancel' },
@@ -198,6 +214,7 @@ export function DebugScreen() {
     ]);
   }, [runClearDatabases, t]);
 
+  /** Force un refresh Remote Config / shortlist modèles Gemini. */
   const onRefreshRemoteGeminiModel = useCallback(async () => {
     setLastError(null);
     setBusy('remoteModel');
@@ -211,6 +228,7 @@ export function DebugScreen() {
     }
   }, [syncModelLabels]);
 
+  /** Lance `runGeminiModelHealthCheck`, applique le gagnant en override local. */
   const onIaHealthCheck = useCallback(async () => {
     setLastError(null);
     setBusy('iaHealth');
@@ -237,6 +255,7 @@ export function DebugScreen() {
     }
   }, [refreshValidatedModelDisplay, syncModelLabels, t]);
 
+  /** Supprime le cache « validated model » + réinit steering. */
   const onResetIaCache = useCallback(async () => {
     setIaCacheBusy(true);
     try {
@@ -250,6 +269,7 @@ export function DebugScreen() {
     }
   }, [refreshValidatedModelDisplay, syncModelLabels]);
 
+  /** Force un modèle invalide pour tester self-healing / fallback steering. */
   const onForce404Test = useCallback(async () => {
     setIaCacheBusy(true);
     try {
@@ -267,6 +287,7 @@ export function DebugScreen() {
     }
   }, [refreshValidatedModelDisplay, syncModelLabels, t]);
 
+  /** Démarre `TrafficSimulator` + `TrafficScheduler` en mode simulation (debug Sentinel). */
   const onLaunchElasticSimulation = useCallback(async () => {
     setLastError(null);
     setBusy('simElastic');
@@ -334,6 +355,7 @@ export function DebugScreen() {
     }
   }, [t]);
 
+  /** Simule Free / Pro côté client (`debugUserTierOverride` + `UserSpectrum`). */
   const onApplyTierOverride = useCallback(
     async (next: DebugUserTierOverride) => {
       await setDebugUserTierOverride(next);

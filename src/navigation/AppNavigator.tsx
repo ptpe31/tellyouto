@@ -1,3 +1,9 @@
+/**
+ * Onglets principaux : **TalkDebug** (capture / one-tap), **Timeline** (SQLite), **Debug** (outils).
+ * `initialRouteName` Talk — voir `PROJECT_STATUS.md` §1.2.
+ *
+ * @module navigation/AppNavigator
+ */
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Bug, CalendarDays, MessageCircle } from 'lucide-react-native';
 import React from 'react';
@@ -14,6 +20,7 @@ import type { AppTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 
+/** Bottom tabs : Talk (capture), Timeline, Debug. */
 export function AppNavigator() {
   const { t } = useTranslation();
   const theme = useTheme();

@@ -81,6 +81,10 @@ export function logOneTapCaptureCycleStartBanner(): void {
 }
 import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
 
+/**
+ * Découpe un transcript « bulk » côté client sur le séparateur `**` (sinon un seul chunk).
+ * Utilisé par le séquenceur bulk (`IntentionContext` / SPEC Micro as Bulk(1)).
+ */
 export function splitBulkTranscript(raw: string): string[] {
   const text = String(raw || '');
   const chunks = text.includes('**') ? text.split('**').map((s) => s.trim()).filter(Boolean) : [text.trim()].filter(Boolean);
@@ -340,6 +344,10 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
   });
 }
 
+/**
+ * Parse la sortie modèle **Bullet-Pipe** (`> TYPE | …`) en intentions structurées.
+ * Prioritaire sur le JSON dans Path B ; `partial` adapte la dernière ligne en streaming.
+ */
 function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
   const s = String(buffer || '');
   const parts = s.split('\n');
@@ -406,6 +414,10 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
   return intents;
 }
 
+/**
+ * Fallback JSON best-effort : objet `{ intents: [...] }`. En mode `partial`, ne retourne rien tant que le buffer
+ * ne se termine pas par `}` (JSON complet).
+ */
 function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
   const base = String(buffer || '').trim();
   if (!base) return [];
@@ -519,6 +531,7 @@ function wireLineFromSkeleton(s: OneTapUniversalResult): string {
   return parts.join('|');
 }
 
+/** Parse une ligne wire complète en dictionnaire `KEY → valeur`. */
 export function parseOneTapWireLine(line: string): OneTapWireFields {
   const s = String(line || '')
     .trim()
@@ -535,6 +548,7 @@ export function parseOneTapWireLine(line: string): OneTapWireFields {
   return out;
 }
 
+/** Plusieurs blocs wire concaténés : un nouveau bloc commence quand une clé `P:` réapparaît. */
 export function parseOneTapWireLineBlocks(line: string): OneTapWireFields[] {
   const s = String(line || '')
     .trim()
@@ -574,6 +588,7 @@ export function parsePartialWireLine(buffer: string): OneTapWireFields {
   return out;
 }
 
+/** Variante streaming de {@link parseOneTapWireLineBlocks} : ignore le segment final incomplet. */
 export function parsePartialWireLineBlocks(buffer: string): OneTapWireFields[] {
   const segments = String(buffer || '').split('|');
   const out: OneTapWireFields[] = [];
@@ -771,6 +786,10 @@ function coerceListItems(
   return out;
 }
 
+/**
+ * Fusionne un tableau d’intentions parsées (Bullet-Pipe / JSON) dans le squelette OneTap :
+ * type/titre/catégorie, `dueDateTime`, listes, TRIP, etc. puis normalisation temporelle.
+ */
 function mergeIntentArrayIntoOneTapSkeleton(
   skeleton: OneTapUniversalResult,
   intents: OneTapIntentJson[],
@@ -934,6 +953,10 @@ export function logOneTapLogisticsRecognized(place: string, source: 'IA' | 'Mém
   console.log(`[OneTapLogistics] 📍 Lieu reconnu: '${safe}' | Source: ${source}`);
 }
 
+/**
+ * Applique une ligne « wire » `KEY:value|…` (Path B ou legacy) au squelette :
+ * patch données + logistique + normalisation temporelle / catégorie.
+ */
 export function mergeWireIntoOneTapSkeleton(
   skeleton: OneTapUniversalResult,
   wire: OneTapWireFields,

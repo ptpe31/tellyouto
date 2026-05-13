@@ -1,3 +1,7 @@
+/**
+ * Point d’entrée Expo : charge i18n (`src/locales/i18n`) puis enregistre `App`.
+ * Voir `PROJECT_STATUS.md` §1.1.
+ */
 import { registerRootComponent } from 'expo';
 
 import 'react-native-gesture-handler';

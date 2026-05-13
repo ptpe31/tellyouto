@@ -1,3 +1,9 @@
+/**
+ * Navigateur racine **Native Stack** : `App` (tabs) + `ProjectList` + modal `ProSubscription`.
+ * Masque le splash une fois prêt (`PROJECT_STATUS.md` §1.2).
+ *
+ * @module navigation/RootNavigator
+ */
 import {
   createNativeStackNavigator,
 } from '@react-navigation/native-stack';
@@ -13,6 +19,7 @@ import { useSaturation } from '../context/SaturationContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+/** Prépare l’UI (loader) puis monte la pile : tabs, liste projets, abonnement Pro. */
 function RootNavigatorInner() {
   const theme = useTheme();
   const { animationMultiplier } = useSaturation();
@@ -72,6 +79,7 @@ function RootNavigatorInner() {
   );
 }
 
+/** Export stable : enveloppe `RootNavigatorInner` (splash + stack racine). */
 export function RootNavigator() {
   return <RootNavigatorInner />;
 }

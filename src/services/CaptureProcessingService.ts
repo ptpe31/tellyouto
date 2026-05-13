@@ -1,3 +1,9 @@
+/**
+ * BackgroundFetch + queue AsyncStorage pour un traitement local léger (`analyzeLocally`),
+ * **sans** lien avec `offline_audio_queue` (SQLite). Voir `PROJECT_STATUS.md` §2.6.
+ *
+ * @module CaptureProcessingService
+ */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
@@ -53,6 +59,7 @@ async function writeQueue(queue: PendingCaptureJob[]): Promise<void> {
   await AsyncStorage.setItem(CAPTURE_QUEUE_KEY, JSON.stringify(queue));
 }
 
+/** Ajoute un job à `talkndone.capture.processing.queue` (traitement ultérieur par la tâche BackgroundFetch). */
 export async function enqueueCaptureProcessingJob(
   transcript: string,
   locale: string,
@@ -69,6 +76,7 @@ export async function enqueueCaptureProcessingJob(
   await writeQueue(queue);
 }
 
+/** Enregistre la tâche `TALKNDONE_CAPTURE_PROCESSING_TASK` si BackgroundFetch est autorisé. */
 export async function configureCaptureBackgroundTask(): Promise<void> {
   if (Platform.OS === 'web') return;
   const status = await BackgroundFetch.getStatusAsync();
@@ -103,6 +111,9 @@ async function ensureCaptureChannel(): Promise<void> {
   });
 }
 
+/**
+ * Android : notification persistante pour inciter à laisser l’app active pendant analyse locale / vocal.
+ */
 export async function startCaptureProcessingForeground(
   context: 'quick' | 'deep' = 'quick',
 ): Promise<void> {
@@ -130,6 +141,7 @@ export async function startCaptureProcessingForeground(
   }
 }
 
+/** Retire la notification sticky de traitement capture (id connu ou recherche par `data.kind`). */
 export async function stopCaptureProcessingForeground(): Promise<void> {
   const notifications = getNotifications();
   if (!notifications) return;

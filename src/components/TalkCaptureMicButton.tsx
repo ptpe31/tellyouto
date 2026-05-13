@@ -19,6 +19,13 @@ import { Platform as RPlatform } from '../utils/rnPlatform';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 
+/**
+ * Bouton micro + STT : enregistrement mémo, dictée, validation ; si `IntentionProvider` est monté,
+ * déclenche `startCapture` + `submitCapturePayload` (spec **Micro as Bulk(1)**). Utilisé par Talk et Timeline.
+ *
+ * @module TalkCaptureMicButton
+ */
+
 function newMicTraceId(): string {
   const rnd = Math.random().toString(16).slice(2, 8);
   return `mic_${Date.now()}_${rnd}`;
@@ -55,6 +62,7 @@ export type TalkCaptureMicButtonProps = {
   onLockedPress?: () => void;
 };
 
+/** Barre de capture vocale (variante Talk compacte ou Timeline). */
 export function TalkCaptureMicButton({
   beforeStart,
   onCaptureStart,

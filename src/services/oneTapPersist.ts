@@ -1,5 +1,7 @@
 /**
  * Persistance des intentions issues du flux **one-tap** (JSON unifié déjà interprété).
+ * Douane DB : mapping `OneTapUniversalResult` → `TrankilV2IntentionInsert`, Pass 2 LIST/PROJECT,
+ * NOTE_FALLBACK — voir `PROJECT_STATUS.md` §2.4 / §3.3.
  *
  * @module oneTapPersist
  */
@@ -27,6 +29,7 @@ import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
 import { activateSentinelTrip } from './traffic/sentinelActivation';
 import { geminiEnrichGenericList } from './geminiSemanticLab';
 import { buildProjectMilestonesMetadataPatch, ensureProjectMilestoneUids } from './projectMilestonesModel';
+import { NOTE_FALLBACK_LABEL } from './timelineIntentionVisibility';
 
 
 export type PersistOneTapSuccess =
@@ -148,6 +151,10 @@ function buildMetadataJsonForInsert(baseJson: string | null | undefined, draft: 
   });
 }
 
+/**
+ * Mappe un brouillon OneTap vers une ligne `intentions` Trankil-v2 : type, métadonnées,
+ * coût/tokens IA (`cost`, `tokens_*`), `category_id` normalisé (`normalizeDomainCategoryId`).
+ */
 async function materializeOneTapIntentionRow(params: {
   deps: CaptureStrategyDeps;
   draft: OneTapUniversalResult;
@@ -636,6 +643,7 @@ export async function persistOneTapDraft(params: {
   birthdayLabel: string;
   parentId?: string | null;
   parentJalonUid?: string | null;
+  persistenceLabel?: string;
 }): Promise<PersistOneTapResult> {
   const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
   const title = draft.title.trim() || transcript.trim().slice(0, 200);
@@ -657,7 +665,16 @@ export async function persistOneTapDraft(params: {
           parentId: params.parentId,
           parentJalonUid: params.parentJalonUid,
         });
-        await insertTrankilV2Intention({ ...row, metadata_json: buildMetadataJsonForInsert(row.metadata_json, draft) });
+        let metadataJson = buildMetadataJsonForInsert(row.metadata_json, draft);
+        let suggestedTags = row.suggested_tags;
+        if (params.persistenceLabel === NOTE_FALLBACK_LABEL) {
+          metadataJson = mergeIntentionMetadataJson(metadataJson, {
+            persistence_label: NOTE_FALLBACK_LABEL,
+            hidden_from_timeline: true,
+          });
+          suggestedTags = JSON.stringify([NOTE_FALLBACK_LABEL]);
+        }
+        await insertTrankilV2Intention({ ...row, metadata_json: metadataJson, suggested_tags: suggestedTags });
         void scheduleOneTapUniversalReminders({
           intentionId: noteIntentionId,
           title,
@@ -1067,7 +1084,10 @@ async function persistAndDualWrite(params: {
 }): Promise<PersistOneTapResult> {
   const { entityLabel, ...persistParams } = params;
   const persistStart = Date.now();
-  const res = await persistOneTapDraft(persistParams);
+  const res = await persistOneTapDraft({
+    ...persistParams,
+    persistenceLabel: entityLabel === NOTE_FALLBACK_LABEL ? NOTE_FALLBACK_LABEL : undefined,
+  });
   if (res.ok) {
     const id = 'intentionId' in res.outcome ? String((res.outcome as { intentionId?: unknown }).intentionId ?? '') : '';
     if (id) console.log(`[DATABASE] ✅ Persistance confirmée pour ${id}`);
@@ -1077,6 +1097,10 @@ async function persistAndDualWrite(params: {
   return res;
 }
 
+/**
+ * Persistance **multi-intentions** : ventile `draft.data.intents[]` en plusieurs écritures,
+ * option NOTE_FALLBACK si rien n’a été persisté et `allowNoteFallback` est vrai.
+ */
 export async function persistOneTapDraftVentilated(params: {
   deps: CaptureStrategyDeps;
   draft: OneTapUniversalResult;

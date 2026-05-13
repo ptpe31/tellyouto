@@ -1,10 +1,13 @@
+/**
+ * Deep linking : préfixes Expo + schème `APP_SCHEME`, mapping vers les tabs.
+ * Chemins utiles : `…/home` → TalkDebug, `…/timeline` → Timeline, `…/debug` → Debug (`PROJECT_STATUS.md` §1.2).
+ *
+ * @module navigation/linking
+ */
 import * as Linking from 'expo-linking';
 
 import { APP_SCHEME } from '../services/connectorLinks';
 
-/**
- * Préfixes + mapping pour `tellyouto://radar` → onglet Radar, etc.
- */
 export const appLinking = {
   prefixes: [
     Linking.createURL('/'),

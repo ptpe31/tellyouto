@@ -38,6 +38,7 @@ import { navigationThemeFromPaper } from './src/theme/paperTheme';
 
 LogBox.ignoreLogs(['Method readAsStringAsync imported from "expo-file-system" is deprecated']);
 
+/** `NavigationContainer` + deep linking + `RootNavigator` (hors providers). */
 function AppNavigation() {
   const theme = useTheme();
   return (
@@ -51,6 +52,11 @@ function AppNavigation() {
   );
 }
 
+/**
+ * Racine React : bootstrap Gemini, BackgroundFetch capture, permissions, SQLite (avec fallback 1,2s),
+ * empilement des providers puis `IntentionProvider` → navigation.
+ * Voir `PROJECT_STATUS.md` §1.1.
+ */
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
   useEffect(() => {
@@ -139,6 +145,7 @@ export default function App() {
   );
 }
 
+/** Overlay plein écran quand le mode saturation (multiplier) est actif. */
 function SaturationOverlay() {
   const { isSaturated } = useSaturation();
   if (!isSaturated) return null;
@@ -165,6 +172,7 @@ function SaturationOverlay() {
   );
 }
 
+/** Style barre de statut aligné sur le thème Paper clair/sombre. */
 function StatusBarRoot() {
   const theme = useTheme();
   return <StatusBar style={theme.dark ? 'light' : 'dark'} />;

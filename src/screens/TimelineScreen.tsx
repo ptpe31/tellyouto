@@ -46,6 +46,7 @@ import type { AppTabParamList } from '../navigation/types';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import { showAppToast } from '../services/appToast';
 import { retryOfflineFirstAiSort, timelineRowEligibleForOfflineAiRetry } from '../services/offlineFirstAiRetry';
+import { filterTimelineVisibleRows } from '../services/timelineIntentionVisibility';
 import { IdeaBankModal } from '../components/IdeaBankModal';
 import { TimelineFilterModal } from '../components/TimelineFilterModal';
 import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
@@ -61,10 +62,19 @@ import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicRaised } from '../theme/neumorphism';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 
+/**
+ * Onglet **Timeline** : lecture paginée SQLite (`listTrankilV2*`), filtres contexte / statut, cartes intention,
+ * feuille détail, micro compact (`TalkCaptureMicButton`), retry offline-first IA, événements peek.
+ * Voir `PROJECT_STATUS.md` §1.2.
+ *
+ * @module TimelineScreen
+ */
+
 if (RPlatform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+/** Haptique succès (no-op sur web). */
 async function safeSuccessHaptic(): Promise<void> {
   try {
     if (RPlatform.OS === 'web') return;
@@ -74,6 +84,7 @@ async function safeSuccessHaptic(): Promise<void> {
   }
 }
 
+/** Haptique medium (annulation orb « done » en attente). */
 async function safeMediumHaptic(): Promise<void> {
   try {
     if (RPlatform.OS === 'web') return;
@@ -83,6 +94,7 @@ async function safeMediumHaptic(): Promise<void> {
   }
 }
 
+/** Normalise un tag catégorie vers les codes domaine SQLite (fallback `PERSO`). */
 function normalizeCategoryId(raw: unknown): string {
   const up = String(raw ?? '').trim().toUpperCase();
   if (!up) return 'PERSO';
@@ -324,6 +336,7 @@ type IdeaBankEntry = {
 
 type ListEntry = RowSection | IdeaBankEntry;
 
+/** Écran onglet Timeline : projection des intentions et interactions (done différé, détail, filtres). */
 export function TimelineScreen() {
   const { t } = useTranslation();
   const { spectrum } = useUserSpectrum();
@@ -362,12 +375,14 @@ export function TimelineScreen() {
     [timeNav, customPickedDate],
   );
 
+  /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante. */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
     setDetailRow(r);
     setDetailPosition('full');
     setDetailOpen(true);
   }, []);
 
+  /** Peek placeholder à partir du dernier snapshot capture (sans id SQLite). */
   const openLastIntentionPeek = useCallback(() => {
     const snap = peekSnapshotRef.current;
     const categoryId = normalizeCategoryId(snap?.categoryTag);
@@ -391,6 +406,7 @@ export function TimelineScreen() {
     setDetailOpen(true);
   }, []);
 
+  /** Met à jour une ligne dans les listes locales + détail si ouvert. */
   const patchRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
     setPrimaryRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
     setArchivedRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -398,6 +414,7 @@ export function TimelineScreen() {
     setDetailRow((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
   }, []);
 
+  /** Ferme la feuille détail. */
   const closeDetail = useCallback(() => {
     setDetailOpen(false);
     setDetailRow(null);
@@ -405,6 +422,7 @@ export function TimelineScreen() {
     setDetailPeekHeightPx(200);
   }, []);
 
+  /** Écoute `INTENTION_PEEK_*` pour ouvrir / hydrater le peek post-capture (aligné SPEC cinématique). */
   useEffect(() => {
     const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
       peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
@@ -513,11 +531,13 @@ export function TimelineScreen() {
     });
   }, [navigation, theme]);
 
+  /** Met à jour ref + state React pour l’ensemble des ids « done » en attente (avant `toggleIntentionDone`). */
   const syncPendingSet = useCallback((next: Set<string>) => {
     pendingLocalDoneRef.current = next;
     setPendingLocalDone(next);
   }, []);
 
+  /** Applique immédiatement tous les `toggleIntentionDone` en file (ex. avant reload). */
   const flushPendingCommits = useCallback(async () => {
     const ids = [...pendingLocalDoneRef.current];
     if (ids.length === 0) return;
@@ -533,6 +553,9 @@ export function TimelineScreen() {
     }
   }, [syncPendingSet]);
 
+  /**
+   * Charge une page timeline : tirelire (`PIGGY`), archives, ou jour fusionné / date SQL selon `TimeNav` et le filtre contexte.
+   */
   const fetchTimelineSlice = useCallback(
     async (
       nav: TimeNav,
@@ -565,8 +588,8 @@ export function TimelineScreen() {
         });
         const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
         return {
-          unorganizedTodo: unorganizedRaw,
-          primary: slice,
+          unorganizedTodo: filterTimelineVisibleRows(unorganizedRaw),
+          primary: filterTimelineVisibleRows(slice),
           primaryHasMore: hasMore,
           archived: [],
           archivedHasMore: false,
@@ -581,10 +604,10 @@ export function TimelineScreen() {
         const mapped = raw.map(mapTrankilIntentionToTimelineItemRow);
         const { slice, hasMore } = takePage(mapped, TIMELINE_PAGE_SIZE);
         return {
-          unorganizedTodo: unorganizedRaw,
+          unorganizedTodo: filterTimelineVisibleRows(unorganizedRaw),
           primary: [],
           primaryHasMore: false,
-          archived: slice,
+          archived: filterTimelineVisibleRows(slice),
           archivedHasMore: hasMore,
         };
       }
@@ -604,8 +627,8 @@ export function TimelineScreen() {
       }
       const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
       return {
-        unorganizedTodo: unorganizedRaw,
-        primary: slice,
+        unorganizedTodo: filterTimelineVisibleRows(unorganizedRaw),
+        primary: filterTimelineVisibleRows(slice),
         primaryHasMore: hasMore,
         archived: [],
         archivedHasMore: false,
@@ -614,6 +637,7 @@ export function TimelineScreen() {
     [],
   );
 
+  /** Recharge le « pack » courant (flush pending + `fetchTimelineSlice` offset 0). */
   const loadPack = useCallback(async () => {
     await flushPendingCommits();
     setLoading(true);
@@ -629,10 +653,12 @@ export function TimelineScreen() {
     }
   }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, statusFilter, timeNav]);
 
+  /** Raccourci vers `loadPack` (après retry offline, événements globaux, etc.). */
   const reload = useCallback(() => {
     void loadPack();
   }, [loadPack]);
 
+  /** Borne les appels async (retry offline-first IA). */
   const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
     const timeout = new Promise<null>((resolve) => {
       setTimeout(() => resolve(null), ms);
@@ -643,6 +669,7 @@ export function TimelineScreen() {
   const [retryAiBusyId, setRetryAiBusyId] = useState<string | null>(null);
   const retryAiLockRef = useRef(false);
 
+  /** Relance le tri / enrichissement IA pour une NOTE shell offline-first (`offlineFirstAiRetry`). */
   const handleRetryOfflineAi = useCallback(
     async (intentionId: string) => {
       if (retryAiLockRef.current) return;
@@ -671,6 +698,7 @@ export function TimelineScreen() {
     [reload, spectrum.locale, t, withTimeout],
   );
 
+  /** Pagination : append archives ou liste principale / tirelire selon le contexte. */
   const loadMoreRows = useCallback(async () => {
     if (loading || loadingMore) return;
     const pageLimit = TIMELINE_PAGE_SIZE + 1;
@@ -689,7 +717,7 @@ export function TimelineScreen() {
         });
         const mapped = raw.map(mapTrankilIntentionToTimelineItemRow);
         const { slice, hasMore } = takePage(mapped, TIMELINE_PAGE_SIZE);
-        setArchivedRows((prev) => [...prev, ...slice]);
+        setArchivedRows((prev) => [...prev, ...filterTimelineVisibleRows(slice)]);
         setArchivedHasMore(hasMore);
       } finally {
         setLoadingMore(false);
@@ -721,7 +749,7 @@ export function TimelineScreen() {
         }
       }
       const { slice, hasMore } = takePage(raw, TIMELINE_PAGE_SIZE);
-      setPrimaryRows((prev) => [...prev, ...slice]);
+      setPrimaryRows((prev) => [...prev, ...filterTimelineVisibleRows(slice)]);
       setPrimaryHasMore(hasMore);
     } finally {
       setLoadingMore(false);
@@ -739,6 +767,7 @@ export function TimelineScreen() {
     timeNav,
   ]);
 
+  /** Retire une ligne des listes locales après DONE définitif. */
   const removeRowFromPack = useCallback((rowId: string) => {
     setPrimaryRows((prev) => prev.filter((r) => r.id !== rowId));
     setArchivedRows((prev) => prev.filter((r) => r.id !== rowId));
@@ -748,6 +777,7 @@ export function TimelineScreen() {
     });
   }, []);
 
+  /** Exécute `toggleIntentionDone` pour un id qui était en attente (fin du délai 3s). */
   const finalizeSingleDone = useCallback(
     async (rowId: string) => {
       if (!pendingLocalDoneRef.current.has(rowId)) return;
@@ -765,6 +795,7 @@ export function TimelineScreen() {
     [removeRowFromPack, syncPendingSet],
   );
 
+  /** Annule le timer « done » différé pour une carte. */
   const cancelPendingCommit = useCallback(
     (rowId: string) => {
       const tm = pendingTimersRef.current.get(rowId);
@@ -778,6 +809,7 @@ export function TimelineScreen() {
     [syncPendingSet],
   );
 
+  /** Programme le passage à DONE après 3s (UX undo implicite si re-tap). */
   const schedulePendingCommit = useCallback(
     (rowId: string) => {
       const n = new Set(pendingLocalDoneRef.current);
@@ -792,6 +824,7 @@ export function TimelineScreen() {
     [finalizeSingleDone, syncPendingSet],
   );
 
+  /** Orb complété : toggle entre « en attente » et annulation, avec haptique. */
   const handleToggleRowComplete = useCallback(
     async (row: TrankilV2TimelineItemRow) => {
       if (pendingLocalDoneRef.current.has(row.id)) {
@@ -805,16 +838,18 @@ export function TimelineScreen() {
     [cancelPendingCommit, schedulePendingCommit],
   );
 
+  /** Navigation impérative vers l’onglet capture Talk (`TalkDebug` dans `AppNavigator`). */
   const navigateToAddTask = useCallback(() => {
     if (!rootNavigationRef.isReady()) return;
     rootNavigationRef.dispatch(
       CommonActions.navigate({
         name: 'App',
-        params: { screen: 'Tabs', params: { screen: 'TalkHome' } },
+        params: { screen: 'Tabs', params: { screen: 'TalkDebug' } },
       } as never),
     );
   }, []);
 
+  /** Sélection date mode `CUSTOM` (picker natif Android/iOS). */
   const onDatePicked = useCallback(
     (_event: { type?: string }, selected?: Date) => {
       if (RPlatform.OS === 'android') {
@@ -835,13 +870,15 @@ export function TimelineScreen() {
   );
 
   const filteredPool = useMemo((): TrankilV2TimelineItemRow[] => {
+    let rows: TrankilV2TimelineItemRow[];
     if (contextBubble === 'PIGGY') {
-      return filterRowsByContext(primaryRows, contextBubble);
+      rows = filterRowsByContext(primaryRows, contextBubble);
+    } else if (contextBubble === 'ARCHIVES') {
+      rows = filterRowsByContext(archivedRows, 'ALL');
+    } else {
+      rows = filterRowsByContext(primaryRows, contextBubble);
     }
-    if (contextBubble === 'ARCHIVES') {
-      return filterRowsByContext(archivedRows, 'ALL');
-    }
-    return filterRowsByContext(primaryRows, contextBubble);
+    return filterTimelineVisibleRows(rows);
   }, [archivedRows, contextBubble, primaryRows]);
 
   const hiddenUnorganizedForIdeaBank = useMemo(() => {

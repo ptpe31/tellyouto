@@ -1,3 +1,9 @@
+/**
+ * Titres et nettoyage de transcript pour Path A (OneTap) : préparation avant
+ * `inferOneTapSkeletonFromTranscript` (Path A) et affichage.
+ *
+ * @module smartTitle
+ */
 const LEADING_FILLERS = [
   /^[\s,.:;!?-]*(?:e+u+h+|alors)\b[\s,.:;!?-]*/i,
   /^[\s,.:;!?-]*(?:je\s+voudrais\s+me\s+souvenir\s+que|penser\s+a|il\s+faut\s+que)\b[\s,.:;!?-]*/i,
@@ -98,17 +104,23 @@ function expandAbbreviations(input: string, locale?: string): string {
   return normalizeInput(out);
 }
 
+/** Retire fillers en tête et segments faibles pour stabiliser classification / titre. */
 export function cleanTranscriptText(rawTranscript: string): string {
   const cleaned = stripWeakLeadingSegment(stripLeadingFillers(rawTranscript));
   return normalizeInput(cleaned);
 }
 
+/** Heuristique : transcript long ou avec ponctuation forte → ne pas réécraser le titre automatiquement. */
 export function shouldLockSmartTitle(transcript: string): boolean {
   const text = String(transcript || '').trim();
   if (!text) return false;
   return /[\n.!?]/.test(text) || text.length >= 50;
 }
 
+/**
+ * Titre court dérivé du transcript : nettoyage, suppression des marqueurs temporels,
+ * abréviations selon la locale, capitalisation.
+ */
 export function generateSmartTitle(rawTranscript: string, locale?: string): string {
   const cleaned = cleanTranscriptText(rawTranscript);
   if (!cleaned) return '';
@@ -130,6 +142,7 @@ export function generateSmartTitle(rawTranscript: string, locale?: string): stri
   return `${head}${base.slice(1)}`;
 }
 
+/** Assainit un titre déjà connu (affichage) : temps retiré, abréviations, trim. */
 export function sanitizeDisplayTitle(input: string, locale?: string): string {
   const cleaned = normalizeInput(input);
   if (!cleaned) return '';

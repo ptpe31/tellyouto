@@ -98,6 +98,15 @@ import { activateSentinelTrip } from '../services/traffic/sentinelActivation';
 import { consumeSentinelQuotaOnTripValidation } from '../services/QuotaManager';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 
+/**
+ * Écran **Talk / Debug** : point d’entrée UI capture (dictée, mémo audio, stratégies « classiques »),
+ * fan d’actions post-dictée, Phoenix texte → `IntentionContext.submitCapturePayload`, événements peek (`INTENTION_PEEK_*`).
+ * Le micro **OneTap** complet vit surtout dans `TalkCaptureMicButton` (même flux que la spec Bulk(1)).
+ *
+ * @module TalkDebugScreen
+ */
+
+/** Identifiant UUID pour insertions locales (fallback si `randomUUID` indispo). */
 function newId(): string {
   try {
     return randomUUID();
@@ -112,12 +121,14 @@ type WritableDeviceCalendar = {
   color: string;
 };
 
+/** Horodatage perf cohérent avec les logs `[OneTapPerf]` (T0, etc.). */
 function perfNowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
 }
 
+/** Normalise un tag catégorie UI vers les codes domaine SQLite (fallback `PERSO`). */
 function normalizeCategoryId(raw: unknown): string {
   const up = String(raw ?? '').trim().toUpperCase();
   if (!up) return 'PERSO';
@@ -131,6 +142,7 @@ const LAST_CALENDAR_STORAGE_KEY = '@tellyouto/talk_debug_last_calendar_id';
 const CALENDAR_SYNC_PREFS_KEY = '@tellyouto/talk_debug_calendar_sync_prefs';
 const ALARM_SYNC_PREFS_KEY = '@tellyouto/talk_debug_alarm_sync_prefs';
 
+/** Écran principal onglet Talk : capture, quotas, calendrier, suggestions, feuille détail peek/full. */
 export function TalkDebugScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
@@ -188,6 +200,7 @@ export function TalkDebugScreen() {
   const [todayTodoCount, setTodayTodoCount] = useState(0);
   const [headerUnorganizedCount, setHeaderUnorganizedCount] = useState(0);
 
+  /** Rafraîchit compteurs en-tête (tâches du jour, piggy, quota free capture). */
   const refreshPilotHeader = useCallback(async () => {
     const ymd = formatYmdLocal(new Date());
     const [unorg, todayN, snap] = await Promise.all([
@@ -217,10 +230,12 @@ export function TalkDebugScreen() {
     return () => subs.forEach((s) => s.remove());
   }, [refreshPilotHeader]);
 
+  /** Émet un payload debug pour outils / timeline de perf capture. */
   const emitTalkDebug = useCallback((payload: TalkCaptureDebugPayload) => {
     DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, payload);
   }, []);
 
+  /** Après une capture « classique » réussie : décrément quota free si applicable. */
   const maybeConsumeFreeCaptureSuccess = useCallback(async () => {
     if (spectrum.isProUser) return;
     await consumeFreeCaptureSuccessOnce();
@@ -228,6 +243,7 @@ export function TalkDebugScreen() {
     setFreeQuotaSnapshot({ remaining: snap.remaining, max: snap.max });
   }, [spectrum.isProUser]);
 
+  /** Utilisé par les stratégies capture pour borner les appels async (deps `withTimeout`). */
   const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
     const timeout = new Promise<null>((resolve) => {
       setTimeout(() => resolve(null), ms);
@@ -235,6 +251,7 @@ export function TalkDebugScreen() {
     return (await Promise.race([promise, timeout])) as T | null;
   }, []);
 
+  /** Parse une date libre (chrono) → `YYYY-MM-DD` local pour les stratégies tâche/habitude. */
   const parseDueDateFromText = useCallback(
     (text: string): string | null => {
       const raw = String(text || '').trim();
@@ -264,6 +281,7 @@ export function TalkDebugScreen() {
     [spectrum.locale],
   );
 
+  /** Remet l’UI capture + modales projet à l’état initial. */
   const hardResetToIdle = useCallback(() => {
     setCaptureStep('idle');
     setRawTranscript('');
@@ -280,6 +298,7 @@ export function TalkDebugScreen() {
     setProjectPlanPreview(null);
   }, []);
 
+  /** Toast / message court après succès d’une stratégie capture. */
   const pushSuccessFeedback = useCallback((message: string) => {
     setSuccessMessage(message);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -454,6 +473,7 @@ export function TalkDebugScreen() {
 
   const micLocked = !spectrum.isProUser && (freeQuotaSnapshot?.remaining ?? 1) <= 0;
 
+  /** Gate micro : busy ou quota free épuisé → false (modal Pro si verrou). */
   const beforeStartCapture = useCallback(async (): Promise<boolean> => {
     if (busy) return false;
     if (micLocked) {
@@ -463,6 +483,7 @@ export function TalkDebugScreen() {
     return true;
   }, [busy, micLocked]);
 
+  /** STT live : met à jour le brut et peut verrouiller le smart title (transcript long). */
   const onMicTranscript = useCallback(
     (text: string) => {
       setRawTranscript(text);
@@ -478,6 +499,7 @@ export function TalkDebugScreen() {
     [hasManualTitleEdit, isTitleLocked, spectrum.locale],
   );
 
+  /** Début d’enregistrement : reset transcript / titre / mémo audio. */
   const onMicStart = useCallback(() => {
     setCaptureStep('recording');
     setRawTranscript('');
@@ -488,6 +510,10 @@ export function TalkDebugScreen() {
     setAudioUri(null);
   }, []);
 
+  /**
+   * Fin dictée côté parent : T0 perf + bannière cycle, enregistre `audioUri` et transcript pour le fan d’actions
+   * ou les exports. Le pipeline Gemini + `submitCapturePayload` est enchaîné dans `TalkCaptureMicButton` à la validation.
+   */
   const onMicEnd = useCallback((payload: { transcript: string; audioUri: string | null }) => {
     const t0 = perfNowMs();
     logOneTapCaptureCycleStartBanner();
@@ -496,6 +522,7 @@ export function TalkDebugScreen() {
     setTranscriptDraft(payload.transcript);
   }, []);
 
+  /** Ouvre la feuille détail en mode peek (placeholder) quand l’utilisateur valide sans id SQLite encore. */
   const openPeekAfterOk = useCallback(() => {
     const snap = peekSnapshotRef.current;
     const categoryId = normalizeCategoryId(snap?.categoryTag);
@@ -519,6 +546,7 @@ export function TalkDebugScreen() {
     setDetailOpen(true);
   }, []);
 
+  /** Ferme la feuille détail (peek ou plein écran). */
   const closeDetail = useCallback(() => {
     setDetailOpen(false);
     setDetailRow(null);
@@ -526,6 +554,7 @@ export function TalkDebugScreen() {
     setDetailPeekHeightPx(200);
   }, []);
 
+  /** Écoute `INTENTION_PEEK_*` : ouvre / hydrate la feuille détail (cinématique peek SPEC). */
   useEffect(() => {
     const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
       peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
@@ -568,14 +597,20 @@ export function TalkDebugScreen() {
     };
   }, [t]);
 
+  /** Après validation UI côté `TalkCaptureMicButton` : repasse l’étape capture à idle. */
   const onMicValidated = useCallback(() => {
     setCaptureStep('idle');
   }, []);
 
+  /** Annulation micro : reset complet sans persister. */
   const onMicCancel = useCallback(async () => {
     hardResetToIdle();
   }, [hardResetToIdle]);
 
+  /**
+   * Fan d’actions post-dictée : routes `captureStrategies` (note, tâche, habitude, liste, mémo audio, projet offline-first).
+   * Distinct du pipeline unifié `submitCapturePayload` (Phoenix / micro via `TalkCaptureMicButton`).
+   */
   const onChooseAction = useCallback(
     async (action: 'note' | 'task' | 'habit' | 'project' | 'audio' | 'list' | 'cancel') => {
       if (action === 'cancel') {
@@ -755,6 +790,7 @@ export function TalkDebugScreen() {
     void ensureWritableCalendars();
   }, [ensureWritableCalendars, projectPlanPreview]);
 
+  /** Crée une NOTE shell offline-first + génère le plan projet (Gemini) à partir de la deadline saisie. */
   const submitProjectGenerationWithDeadline = useCallback(async () => {
     const finalTranscript = transcriptDraft.trim() || rawTranscript.trim();
     const cleanedDeadline = deadlineText.trim();
@@ -844,6 +880,7 @@ export function TalkDebugScreen() {
     });
   }, []);
 
+  /** Export ICS du plan projet prévisualisé. */
   const onExportProjectPlanIcs = useCallback(async () => {
     if (!projectPlanPreview) return;
     try {
@@ -854,6 +891,7 @@ export function TalkDebugScreen() {
     }
   }, [projectPlanPreview]);
 
+  /** Persiste les tâches sélectionnées du plan, options calendrier / archivage Pro. */
   const onValidateProjectPlan = useCallback(async (options?: { forceCalendarId?: string; skipPicker?: boolean }) => {
     if (!projectPlanPreview) return;
     setBusy(true);
@@ -926,6 +964,7 @@ export function TalkDebugScreen() {
     t,
   ]);
 
+  /** Saisie texte « Phoenix » : même pipeline OneTap que le micro (`submitCapturePayload`, Bulk(1)). */
   const onSubmitPhoenix = useCallback(async () => {
     const transcript = phoenixInput.trim();
     if (!transcript) return;
