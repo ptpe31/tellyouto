@@ -4,7 +4,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CommonActions, useFocusEffect, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { ClipboardList, Filter } from 'lucide-react-native';
+import { ClipboardList, Filter, Printer } from 'lucide-react-native';
 import {
   ActivityIndicator,
   DeviceEventEmitter,
@@ -21,7 +21,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   bulkTrankilV2TaskChildStatsByParentIds,
+  getLatestDailySummaryForDate,
   getTrankilV2IntentionById,
+  insertDailySummary,
+  listIntentionsForPass3Cleanup,
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2TimelineItemsByDate,
@@ -35,6 +38,7 @@ import {
   type TimelineSqlContext,
   type TrankilV2ChildTaskStats,
   type TrankilV2TimelineDateMode,
+  type TrankilV2IntentionRow,
   type TrankilV2TimelineItemRow,
 } from '../api';
 import {
@@ -55,6 +59,8 @@ import {
   CAPTURE_SHEET_FULL_MAX_RATIO,
 } from '../utils/capturePeekLayout';
 import { IdeaBankModal } from '../components/IdeaBankModal';
+import { DailyRoadmapReportModal } from '../components/dailyRoadmap/DailyRoadmapReportModal';
+import { Pass3CleanupSasOverlay, type Pass3CleanupRow } from '../components/dailyRoadmap/Pass3CleanupSasOverlay';
 import { TimelineFilterModal } from '../components/TimelineFilterModal';
 import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
@@ -65,6 +71,10 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { formatYmdLocal } from '../services/TimeSorter';
+import { buildDailyRoadmapPayload, runDailyRoadmapGeminiHtml } from '../services/dailyRoadmapPass3';
+import { ensureGeminiRemoteModelInitialized } from '../services/geminiRemoteModelSteering';
+import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOverlay';
+import { useAIProgressInertia } from '../hooks/useAIProgressInertia';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicRaised } from '../theme/neumorphism';
 import { Platform as RPlatform } from '../utils/rnPlatform';
@@ -265,6 +275,7 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 }
 
 const SECTION_HEADER_H = 36;
+const ROADMAP_LINK_H = 40;
 const IDEA_BANK_H = 58;
 const CARD_ROW_H = 120;
 
@@ -283,6 +294,7 @@ function takePage<T>(rows: T[], pageSize: number): { slice: T[]; hasMore: boolea
 
 type TimelineFlatItem =
   | { kind: 'section'; id: string; titleText: string }
+  | { kind: 'roadmapLink'; id: string }
   | { kind: 'ideaBankRow'; id: string; count: number }
   | {
       kind: 'card';
@@ -317,7 +329,9 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
     const len =
       it.kind === 'section'
         ? SECTION_HEADER_H
-        : it.kind === 'ideaBankRow'
+        : it.kind === 'roadmapLink'
+          ? ROADMAP_LINK_H
+          : it.kind === 'ideaBankRow'
           ? IDEA_BANK_H
           : CARD_ROW_H;
     const cur = { length: len, offset: off };
@@ -345,7 +359,7 @@ type ListEntry = RowSection | IdeaBankEntry;
 
 /** Écran onglet Timeline : projection des intentions et interactions (done différé, détail, filtres). */
 export function TimelineScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -370,6 +384,16 @@ export function TimelineScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [dailyRoadmapSummary, setDailyRoadmapSummary] = useState<{
+    id: string;
+    content_html: string;
+  } | null>(null);
+  const [pass3SasOpen, setPass3SasOpen] = useState(false);
+  const [pass3CleanupRows, setPass3CleanupRows] = useState<Pass3CleanupRow[]>([]);
+  const [pass3SynthOpen, setPass3SynthOpen] = useState(false);
+  const [pass3ReportOpen, setPass3ReportOpen] = useState(false);
+  const [pass3ReportHtml, setPass3ReportHtml] = useState('');
+  const pass3AfterSprintRef = useRef<(() => void) | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
@@ -385,6 +409,27 @@ export function TimelineScreen() {
     () => resolveAnchor(timeNav, customPickedDate).anchor,
     [timeNav, customPickedDate],
   );
+
+  const {
+    progress: pass3Progress,
+    reset: pass3Reset,
+    beginInertia: pass3Begin,
+    bumpTarget: pass3Bump,
+    startFinalSprintTo100: pass3Sprint,
+  } = useAIProgressInertia({
+    active: pass3SynthOpen,
+    onLinearSprintComplete: () => {
+      const fn = pass3AfterSprintRef.current;
+      pass3AfterSprintRef.current = null;
+      fn?.();
+    },
+  });
+
+  const pass3OverlayLabel = useMemo(() => {
+    if (pass3Progress < 30) return t('timeline.roadmap.progressCollect');
+    if (pass3Progress < 60) return t('timeline.roadmap.progressSynth');
+    return t('timeline.roadmap.progressWrite');
+  }, [pass3Progress, t]);
 
   /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante. */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
@@ -506,59 +551,6 @@ export function TimelineScreen() {
     }, [navigation, route.params]),
   );
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerTitle: () => (
-        <View
-          style={[
-            neumorphicRaised(theme),
-            styles.navHeaderPill,
-            { borderWidth: 1, borderColor: theme.colors.outlineVariant },
-          ]}
-        >
-          <Text style={[styles.navHeaderTitle, { color: theme.colors.onBackground }]}>Ma Timeline</Text>
-        </View>
-      ),
-      headerTitleAlign: 'left',
-      headerRight: () => (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginRight: 12 }}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
-            }}
-            style={({ pressed }) => [
-              neumorphicRaised(theme),
-              styles.navHeaderFilterBtn,
-              {
-                borderWidth: 1,
-                borderColor: theme.colors.outlineVariant,
-                opacity: pressed ? 0.88 : 1,
-              },
-            ]}
-          >
-            <ClipboardList size={20} color={theme.colors.onBackground} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setFilterModalOpen(true)}
-            style={({ pressed }) => [
-              neumorphicRaised(theme),
-              styles.navHeaderFilterBtn,
-              {
-                borderWidth: 1,
-                borderColor: theme.colors.outlineVariant,
-                opacity: pressed ? 0.88 : 1,
-              },
-            ]}
-          >
-            <Filter size={20} color={theme.colors.onBackground} />
-          </Pressable>
-        </View>
-      ),
-    });
-  }, [navigation, theme]);
-
   /** Met à jour ref + state React pour l’ensemble des ids « done » en attente (avant `toggleIntentionDone`). */
   const syncPendingSet = useCallback((next: Set<string>) => {
     pendingLocalDoneRef.current = next;
@@ -665,6 +657,16 @@ export function TimelineScreen() {
     [],
   );
 
+  const refreshDailyRoadmapSummary = useCallback(async () => {
+    try {
+      const ymd = formatYmdLocal(new Date());
+      const row = await getLatestDailySummaryForDate(ymd);
+      setDailyRoadmapSummary(row);
+    } catch {
+      setDailyRoadmapSummary(null);
+    }
+  }, []);
+
   /** Recharge le « pack » courant (flush pending + `fetchTimelineSlice` offset 0). */
   const loadPack = useCallback(async () => {
     await flushPendingCommits();
@@ -678,13 +680,146 @@ export function TimelineScreen() {
       setArchivedHasMore(b.archivedHasMore);
     } finally {
       setLoading(false);
+      void refreshDailyRoadmapSummary();
     }
-  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, statusFilter, timeNav]);
+  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, refreshDailyRoadmapSummary, statusFilter, timeNav]);
 
   /** Raccourci vers `loadPack` (après retry offline, événements globaux, etc.). */
   const reload = useCallback(() => {
     void loadPack();
   }, [loadPack]);
+
+  const openDailyRoadmapPrinter = useCallback(async () => {
+    try {
+      const rows = await listIntentionsForPass3Cleanup();
+      setPass3CleanupRows(rows);
+      setPass3SasOpen(true);
+    } catch {
+      showAppToast(t('timeline.roadmap.synthError'));
+    }
+  }, [t]);
+
+  const openSavedDailyRoadmap = useCallback(() => {
+    const html = dailyRoadmapSummary?.content_html?.trim();
+    if (!html) {
+      void openDailyRoadmapPrinter();
+      return;
+    }
+    setPass3ReportHtml(html);
+    setPass3ReportOpen(true);
+  }, [dailyRoadmapSummary, openDailyRoadmapPrinter]);
+
+  const handlePass3LaunchSynthesis = useCallback(
+    async (overdueRows: TrankilV2IntentionRow[], orphanRows: TrankilV2IntentionRow[]) => {
+      setPass3SasOpen(false);
+      setPass3SynthOpen(true);
+      pass3Reset();
+      pass3Begin();
+      const ymd = formatYmdLocal(new Date());
+      let html = '';
+      try {
+        await ensureGeminiRemoteModelInitialized();
+        const payload = buildDailyRoadmapPayload(overdueRows, orphanRows, ymd, i18n.language);
+        html = await runDailyRoadmapGeminiHtml({
+          payload,
+          onPromptReady: () => pass3Bump(26),
+          onAccumulatedText: (full) => {
+            pass3Bump(40 + Math.min(48, Math.floor(full.length / 60)));
+          },
+        });
+      } catch {
+        setPass3SynthOpen(false);
+        pass3Reset();
+        showAppToast(t('timeline.roadmap.synthError'));
+        return;
+      }
+      try {
+        await insertDailySummary({ summaryDateYmd: ymd, contentHtml: html });
+        const row = await getLatestDailySummaryForDate(ymd);
+        if (row) setDailyRoadmapSummary(row);
+      } catch {
+        /* ignore */
+      }
+      pass3Bump(94);
+      pass3AfterSprintRef.current = () => {
+        setPass3SynthOpen(false);
+        pass3Reset();
+        setPass3ReportHtml(html);
+        setPass3ReportOpen(true);
+      };
+      pass3Sprint();
+    },
+    [i18n.language, pass3Begin, pass3Bump, pass3Reset, pass3Sprint, t],
+  );
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <View
+          style={[
+            neumorphicRaised(theme),
+            styles.navHeaderPill,
+            { borderWidth: 1, borderColor: theme.colors.outlineVariant },
+          ]}
+        >
+          <Text style={[styles.navHeaderTitle, { color: theme.colors.onBackground }]}>Ma Timeline</Text>
+        </View>
+      ),
+      headerTitleAlign: 'left',
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginRight: 12 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('timeline.roadmap.printerA11y')}
+            onPress={() => void openDailyRoadmapPrinter()}
+            style={({ pressed }) => [
+              neumorphicRaised(theme),
+              styles.navHeaderFilterBtn,
+              {
+                borderWidth: 1,
+                borderColor: theme.colors.outlineVariant,
+                opacity: pressed ? 0.88 : 1,
+              },
+            ]}
+          >
+            <Printer size={20} color={theme.colors.onBackground} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
+            }}
+            style={({ pressed }) => [
+              neumorphicRaised(theme),
+              styles.navHeaderFilterBtn,
+              {
+                borderWidth: 1,
+                borderColor: theme.colors.outlineVariant,
+                opacity: pressed ? 0.88 : 1,
+              },
+            ]}
+          >
+            <ClipboardList size={20} color={theme.colors.onBackground} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setFilterModalOpen(true)}
+            style={({ pressed }) => [
+              neumorphicRaised(theme),
+              styles.navHeaderFilterBtn,
+              {
+                borderWidth: 1,
+                borderColor: theme.colors.outlineVariant,
+                opacity: pressed ? 0.88 : 1,
+              },
+            ]}
+          >
+            <Filter size={20} color={theme.colors.onBackground} />
+          </Pressable>
+        </View>
+      ),
+    });
+  }, [navigation, openDailyRoadmapPrinter, t, theme]);
 
   /** Borne les appels async (retry offline-first IA). */
   const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
@@ -1012,7 +1147,27 @@ export function TimelineScreen() {
     return [...ids];
   }, [listEntries]);
 
-  const flatListItems = useMemo(() => flattenForVirtualList(listEntries), [listEntries]);
+  const flatListItems = useMemo(() => {
+    const base = flattenForVirtualList(listEntries);
+    const todayLabel = t('horizons.today');
+    const out: TimelineFlatItem[] = [];
+    let inserted = false;
+    for (const it of base) {
+      out.push(it);
+      if (
+        !inserted &&
+        timeNav === 'TODAY' &&
+        contextBubble !== 'PIGGY' &&
+        contextBubble !== 'ARCHIVES' &&
+        it.kind === 'section' &&
+        it.titleText === todayLabel
+      ) {
+        out.push({ kind: 'roadmapLink', id: 'daily-roadmap-under-today' });
+        inserted = true;
+      }
+    }
+    return out;
+  }, [contextBubble, listEntries, t, timeNav]);
 
   const flatListLayouts = useMemo(() => buildFlatListLayouts(flatListItems), [flatListItems]);
 
@@ -1089,6 +1244,18 @@ export function TimelineScreen() {
           </View>
         );
       }
+      if (item.kind === 'roadmapLink') {
+        const hasSaved = Boolean(dailyRoadmapSummary?.content_html?.trim());
+        return (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+            <Pressable onPress={openSavedDailyRoadmap} hitSlop={8}>
+              <Text style={{ color: theme.colors.primary, fontWeight: '800', fontSize: 14 }}>
+                {hasSaved ? t('timeline.roadmap.linkOpenSaved') : t('timeline.roadmap.linkGenerate')}
+              </Text>
+            </Pressable>
+          </View>
+        );
+      }
       if (item.kind === 'ideaBankRow') {
         return (
           <View style={[styles.section, { paddingHorizontal: 16 }]}>
@@ -1145,7 +1312,9 @@ export function TimelineScreen() {
     },
     [
       anchorDate,
+      dailyRoadmapSummary,
       handleToggleRowComplete,
+      openSavedDailyRoadmap,
       pendingLocalDone,
       reload,
       openDetail,
@@ -1158,6 +1327,28 @@ export function TimelineScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
+      <Pass3CleanupSasOverlay
+        visible={pass3SasOpen}
+        theme={theme}
+        todayYmd={formatYmdLocal(new Date())}
+        initialRows={pass3CleanupRows}
+        translate={t}
+        onClose={() => setPass3SasOpen(false)}
+        onLaunchSynthesis={handlePass3LaunchSynthesis}
+      />
+      <AIUniversalProgressOverlay
+        isVisible={pass3SynthOpen}
+        progress={pass3Progress}
+        label={pass3OverlayLabel}
+      />
+      <DailyRoadmapReportModal
+        visible={pass3ReportOpen}
+        theme={theme}
+        title={t('timeline.roadmap.linkOpenSaved')}
+        htmlBody={pass3ReportHtml}
+        translate={t}
+        onClose={() => setPass3ReportOpen(false)}
+      />
       <FlatList
         style={styles.listFlex}
         data={flatListItems}
@@ -1169,6 +1360,7 @@ export function TimelineScreen() {
           customPickedDate,
           childStats,
           pendingLocalDone,
+          dailyRoadmapSummary,
         }}
         getItemLayout={getItemLayout}
         removeClippedSubviews={RPlatform.OS === 'android'}

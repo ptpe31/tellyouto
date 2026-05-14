@@ -936,3 +936,34 @@ export async function geminiStreamOneTapCompressedLine(
   if (!raw) throw new Error('Gemini: réponse filaire vide');
   return { raw, httpMeta };
 }
+
+function stripHtmlCodeFence(raw: string): string {
+  let s = String(raw || '').trim();
+  const m = s.match(/```(?:html)?\s*([\s\S]*?)```/i);
+  if (m?.[1]) s = m[1].trim();
+  return s;
+}
+
+/** Pass 3 — Feuille de route quotidienne : HTML inline (pas de document complet). */
+export async function geminiPass3DailyRoadmapHtml(args: {
+  systemInstruction: string;
+  userJson: string;
+  onAccumulatedText?: (full: string) => void;
+}): Promise<string> {
+  const userText = String(args.userJson || '').trim();
+  const systemInstruction = String(args.systemInstruction || '').trim();
+  if (!userText) throw new Error('Gemini: Pass3 userJson vide');
+  const { text } = await callGeminiProxyStream({
+    systemInstruction: systemInstruction.length > 0 ? systemInstruction : undefined,
+    request: {
+      contents: [{ parts: [{ text: userText }] }],
+      generationConfig: { temperature: 0.35, maxOutputTokens: 8192 },
+    },
+    operation: 'pass3.daily_roadmap_html',
+    onAccumulatedText: args.onAccumulatedText,
+  });
+  const rawText = extractTextFromGenerateResponse(text);
+  const out = stripHtmlCodeFence(rawText);
+  if (!out) throw new Error('Gemini: Pass3 HTML vide');
+  return out;
+}

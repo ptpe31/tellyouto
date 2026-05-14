@@ -689,6 +689,18 @@ export async function initTrankilV2Schema(): Promise<void> {
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_status ON offline_audio_queue (status, created_at DESC);`);
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_offline_audio_queue_dirty_updated ON offline_audio_queue (is_dirty, updated_at DESC);`);
 
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS daily_summaries (
+        id TEXT PRIMARY KEY NOT NULL,
+        summary_date TEXT NOT NULL,
+        content_html TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `);
+    await db.execAsync(
+      `CREATE INDEX IF NOT EXISTS idx_daily_summaries_summary_date ON daily_summaries (summary_date DESC, created_at DESC);`,
+    );
+
     for (const category of DEFAULT_HORIZON_CATEGORIES) {
       await db.runAsync(`INSERT OR IGNORE INTO categories (id, label, sort_order, updated_at, is_dirty, server_version) VALUES (?, ?, ?, ?, 0, 0)`, [
         category.id,
@@ -2440,6 +2452,83 @@ export async function getLocalEcoScore(): Promise<number> {
     `SELECT COUNT(*) AS total FROM intentions WHERE is_local_processed = 1`,
   );
   return Number(row?.total ?? 0);
+}
+
+export type Pass3CleanupBucket = 'overdue' | 'orphan';
+
+/**
+ * Intentions « sas » Pass 3 / Feuille de route : échéances passées non terminées + racines sans date.
+ * Racines uniquement (`parent_id` vide), hors archivé, statut TODO.
+ */
+export async function listIntentionsForPass3Cleanup(): Promise<Array<{ row: TrankilV2IntentionRow; bucket: Pass3CleanupBucket }>> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const overdue = await db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT i.*
+     FROM intentions i
+     WHERE COALESCE(i.is_archived, 0) = 0
+       AND i.status = 'TODO'
+       AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+       AND trim(i.title) != 'System Ready'
+       AND i.due_date IS NOT NULL
+       AND trim(i.due_date) != ''
+       AND date(
+         CASE
+           WHEN length(replace(trim(i.due_date), '-', '')) = 8 AND instr(trim(i.due_date), '-') = 0 THEN
+             printf('%s-%s-%s', substr(trim(i.due_date), 1, 4), substr(trim(i.due_date), 5, 2), substr(trim(i.due_date), 7, 2))
+           WHEN length(trim(i.due_date)) >= 10 THEN substr(trim(i.due_date), 1, 10)
+           ELSE '9999-12-31'
+         END
+       ) < date('now', 'localtime')
+     ORDER BY i.due_date ASC, i.created_at ASC`,
+  );
+  const orphans = await db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT i.*
+     FROM intentions i
+     WHERE COALESCE(i.is_archived, 0) = 0
+       AND i.status = 'TODO'
+       AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+       AND trim(i.title) != 'System Ready'
+       AND (i.due_date IS NULL OR trim(i.due_date) = '')
+     ORDER BY i.created_at ASC`,
+  );
+  const out: Array<{ row: TrankilV2IntentionRow; bucket: Pass3CleanupBucket }> = [];
+  for (const row of overdue) out.push({ row, bucket: 'overdue' });
+  for (const row of orphans) out.push({ row, bucket: 'orphan' });
+  return out;
+}
+
+export async function insertDailySummary(params: {
+  summaryDateYmd: string;
+  contentHtml: string;
+}): Promise<string> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const id = newUuidV4();
+  const now = Date.now();
+  const d = String(params.summaryDateYmd || '').trim();
+  await db.runAsync(`INSERT INTO daily_summaries (id, summary_date, content_html, created_at) VALUES (?, ?, ?, ?)`, [
+    id,
+    d,
+    String(params.contentHtml ?? ''),
+    now,
+  ]);
+  return id;
+}
+
+export async function getLatestDailySummaryForDate(
+  summaryDateYmd: string,
+): Promise<{ id: string; summary_date: string; content_html: string; created_at: number } | null> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const d = String(summaryDateYmd || '').trim();
+  if (!d) return null;
+  return (
+    (await db.getFirstAsync<{ id: string; summary_date: string; content_html: string; created_at: number }>(
+      `SELECT id, summary_date, content_html, created_at FROM daily_summaries WHERE summary_date = ? ORDER BY created_at DESC LIMIT 1`,
+      [d],
+    )) ?? null
+  );
 }
 
 export async function deleteTrankilV2IntentionById(id: string): Promise<void> {

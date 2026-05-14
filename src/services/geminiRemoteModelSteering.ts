@@ -267,3 +267,44 @@ export async function clearGeminiValidatedModelCache(): Promise<void> {
   cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
   lastRemoteConfigResolvedModelId = cachedActiveGeminiModelId;
 }
+
+const PASS3_PROMPT_RC_KEY = 'prompt_pass3_synth_v1';
+
+/** Secours local si Remote Config indisponible ou clé vide. */
+export const PASS3_PROMPT_FALLBACK_TEMPLATE = `Tu es l'architecte de synthèse d'une application mobile de planning. Transforme ce JSON d'intentions en une feuille de route HTML épurée.
+
+Focus du jour (phrase courte).
+
+Itinéraire Newton (TRIPs groupés).
+
+Coup de Boost (orphelines les plus anciennes via age_days).
+
+Groupements thématiques (ADMIN, MAISON, SHOPPING ou autre).
+Réponds strictement dans la langue des intentions. HTML inline uniquement.`;
+
+/**
+ * Prompt système Pass 3 (Feuille de route) — **Remote Config** `prompt_pass3_synth_v1`, même chaîne que les autres
+ * paramètres RC (fetch + `getValue`), avec repli {@link PASS3_PROMPT_FALLBACK_TEMPLATE}.
+ */
+export async function fetchPass3DailyRoadmapPromptTemplate(): Promise<string> {
+  const { getFirebaseApp } = await import('../api/firebase');
+  const app = getFirebaseApp();
+  if (!app) return PASS3_PROMPT_FALLBACK_TEMPLATE;
+  try {
+    const { getRemoteConfig, getValue, fetchAndActivate } = await import('firebase/remote-config');
+    const rc = getRemoteConfig(app);
+    rc.settings.minimumFetchIntervalMillis = __DEV__ ? 0 : 6 * 60 * 60 * 1000;
+    rc.defaultConfig = {
+      [PASS3_PROMPT_RC_KEY]: PASS3_PROMPT_FALLBACK_TEMPLATE,
+    };
+    try {
+      await fetchAndActivate(rc);
+    } catch {
+      /* ignore */
+    }
+    const raw = getValue(rc, PASS3_PROMPT_RC_KEY).asString().trim();
+    return raw.length > 0 ? raw : PASS3_PROMPT_FALLBACK_TEMPLATE;
+  } catch {
+    return PASS3_PROMPT_FALLBACK_TEMPLATE;
+  }
+}

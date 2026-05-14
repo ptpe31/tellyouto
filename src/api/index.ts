@@ -54,6 +54,9 @@ export {
   markTrankilV2IntentionDone,
   toggleIntentionDone,
   archiveIntention,
+  listIntentionsForPass3Cleanup,
+  insertDailySummary,
+  getLatestDailySummaryForDate,
   pickAvailabilityTask,
   setMorningFocusSelection,
   setAdState,
@@ -86,6 +89,7 @@ export type {
   TrankilV2TimelineDateMode,
   TrankilV2TimelineItemRow,
   TrankilV2UserStatsRow,
+  Pass3CleanupBucket,
   FreeCaptureQuotaSnapshot,
   ListFreeQuotaSnapshot,
 } from './trankilV2Db';

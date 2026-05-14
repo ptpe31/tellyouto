@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Animated,
   DeviceEventEmitter,
   StyleSheet,
   Text,
@@ -39,8 +38,8 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { DealerBoard } from '../components/DealerBoard';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
 import { PassProModal } from '../components/PassProModal';
+import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOverlay';
 import { TalkCaptureMicButton, type TalkCaptureEndPayload, type TalkCaptureMicButtonHandle } from '../components/TalkCaptureMicButton';
-import { TalkPipelineProgressDashboard } from '../components/TalkPipelineProgressDashboard';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import { formatYmdLocal } from '../services/TimeSorter';
@@ -48,6 +47,12 @@ import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import type { AppTabParamList } from '../navigation/types';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
+import {
+  AI_PROGRESS_FINAL_SPRINT_MS,
+  AI_PROGRESS_INERTIA_TOTAL_MS,
+  AI_PROGRESS_REVEAL_HOLD_MS,
+  useAIProgressInertia,
+} from '../hooks/useAIProgressInertia';
 
 /**
  * Écran **Talk / Debug** : Phoenix texte + micro → `IntentionContext.submitCapturePayload` (Bulk(1)),
@@ -61,37 +66,6 @@ function perfNowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
-}
-
-const PIPELINE_INERTIA_P1_MS = 1200;
-const PIPELINE_INERTIA_P2_MS = 1200;
-const PIPELINE_INERTIA_TOTAL_MS = PIPELINE_INERTIA_P1_MS + PIPELINE_INERTIA_P2_MS;
-const PIPELINE_TICK_MS = 16;
-/** Phase 3 : approche asymptotique vers 95 % en attendant l’IA (ms, exp). */
-const PIPELINE_PHASE3_ASYMPTOTE_MS = 5200;
-const PIPELINE_FINAL_SPRINT_MS = 200;
-const PIPELINE_REVEAL_HOLD_MS = 150;
-
-/** Sprint final vers 100 % (linéaire sur `durationMs`). */
-type FinalSprintTo100 = { startMs: number; fromPct: number; durationMs: number };
-
-/** Ease-in-out sur [0,1] (type smoothstep, mouvement fluide). */
-function easeInOutSmooth(t: number): number {
-  const x = Math.max(0, Math.min(1, t));
-  return x * x * (3 - 2 * x);
-}
-
-/** Pourcentage imposé par l’inertie 0→30 (P1) puis 30→60 (P2) sur `PIPELINE_INERTIA_TOTAL_MS`. */
-function inertiaFloorPct(elapsedMs: number): number {
-  if (elapsedMs <= 0) return 0;
-  if (elapsedMs < PIPELINE_INERTIA_P1_MS) {
-    return 30 * easeInOutSmooth(elapsedMs / PIPELINE_INERTIA_P1_MS);
-  }
-  if (elapsedMs < PIPELINE_INERTIA_TOTAL_MS) {
-    const u = (elapsedMs - PIPELINE_INERTIA_P1_MS) / PIPELINE_INERTIA_P2_MS;
-    return 30 + 30 * easeInOutSmooth(u);
-  }
-  return 60;
 }
 
 /** Normalise un tag catégorie UI vers les codes domaine SQLite (fallback `PERSO`). */
@@ -199,7 +173,6 @@ export function TalkDebugScreen() {
 
   const micRef = useRef<TalkCaptureMicButtonHandle | null>(null);
   const [pipelineModalVisible, setPipelineModalVisible] = useState(false);
-  const [pipelineDisplayedPct, setPipelineDisplayedPct] = useState(0);
   /** Titre « Terminé » pendant le sprint final vers 100 %. */
   const [pipelineDashTitleComplete, setPipelineDashTitleComplete] = useState(false);
   const [pipelineResilienceOrange, setPipelineResilienceOrange] = useState(false);
@@ -207,17 +180,12 @@ export function TalkDebugScreen() {
   const pipelineModalVisibleRef = useRef(false);
   const pendingPeekFirstSavePayloadRef = useRef<unknown>(null);
   const applyPeekFirstSavePayloadRef = useRef<(payload: unknown) => void>(() => {});
-  const pipelineTargetRef = useRef(0);
   const pipelineActiveTraceRef = useRef<string | null>(null);
   const pipelineOrangeNavScheduledRef = useRef(false);
-  const pipelineContentOpacity = useRef(new Animated.Value(1)).current;
-  /** `performance.now()` au premier frame du ballet (inertie 0–60 %). */
-  const pipelineInertiaStartRef = useRef(0);
-  const finalSprintTo100Ref = useRef<FinalSprintTo100 | null>(null);
   const pendingRevealAfter100TimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const beginDashboardHideRef = useRef<(detail: string) => void>(() => {});
   const closePipelineOverlayCoreRef = useRef<() => void>(() => {});
-  const displayedPctLiveRef = useRef(0);
+  const resetAiProgressRef = useRef<() => void>(() => {});
   /** Instant `performance.now()` à l’appel `stopRecording` (sonde [BALLET-PROFILER]). */
   const captureEndRef = useRef(0);
   const balletProfilerGatesRef = useRef({
@@ -248,27 +216,58 @@ export function TalkDebugScreen() {
     [logBalletProfilerDelta],
   );
 
+  const onAiFinalSprintHit100 = useCallback(() => {
+    if (!balletProfilerGatesRef.current.t5100Reached) {
+      balletProfilerGatesRef.current.t5100Reached = true;
+      logBalletProfilerDelta('T5_100_REACHED', 'progress bar at 100% (200ms linear sprint complete)');
+    }
+  }, [logBalletProfilerDelta]);
+
+  const onAiSprintCompleteAt100 = useCallback(() => {
+    if (pendingRevealAfter100TimeoutRef.current) {
+      clearTimeout(pendingRevealAfter100TimeoutRef.current);
+    }
+    pendingRevealAfter100TimeoutRef.current = setTimeout(() => {
+      pendingRevealAfter100TimeoutRef.current = null;
+      setSelectedIntentionIndexRef.current(0);
+      beginDashboardHideRef.current(`reveal hold ${AI_PROGRESS_REVEAL_HOLD_MS}ms after 100%`);
+      closePipelineOverlayCoreRef.current();
+      queueMicrotask(() => micRef.current?.exitPipelineWaitToIdle());
+    }, AI_PROGRESS_REVEAL_HOLD_MS);
+  }, []);
+
+  const {
+    progress: pipelineDisplayedPct,
+    reset: resetAiProgress,
+    beginInertia: beginAiProgressInertia,
+    bumpTarget: bumpAiProgressTarget,
+    startFinalSprintTo100: startAiFinalSprint,
+    finalSprintActiveRef,
+    inertiaEpochRef,
+  } = useAIProgressInertia({
+    active: pipelineModalVisible,
+    onFinalSprintHit100: onAiFinalSprintHit100,
+    onLinearSprintComplete: onAiSprintCompleteAt100,
+  });
+
+  resetAiProgressRef.current = resetAiProgress;
+
   const closePipelineOverlayCore = useCallback(() => {
     pipelineModalVisibleRef.current = false;
-    finalSprintTo100Ref.current = null;
     if (pendingRevealAfter100TimeoutRef.current) {
       clearTimeout(pendingRevealAfter100TimeoutRef.current);
       pendingRevealAfter100TimeoutRef.current = null;
     }
-    pipelineInertiaStartRef.current = 0;
-    pipelineTargetRef.current = 0;
     pipelineActiveTraceRef.current = null;
     setPipelineDashTitleComplete(false);
-    setPipelineDisplayedPct(0);
-    displayedPctLiveRef.current = 0;
-    pipelineContentOpacity.setValue(1);
+    resetAiProgressRef.current();
     setPipelineModalVisible(false);
     const pending = pendingPeekFirstSavePayloadRef.current;
     pendingPeekFirstSavePayloadRef.current = null;
     if (pending) {
       queueMicrotask(() => applyPeekFirstSavePayloadRef.current(pending));
     }
-  }, [pipelineContentOpacity]);
+  }, []);
 
   const onProfilerStopRecordingT0 = useCallback(() => {
     captureEndRef.current = perfNowMs();
@@ -361,16 +360,12 @@ export function TalkDebugScreen() {
     captureEndRef.current = 0;
     balletProfilerGatesRef.current = { t1: false, t2: false, t3: false, t4: false, t5BoostStart: false, t5100Reached: false, t6HideStart: false };
     pendingPeekFirstSavePayloadRef.current = null;
-    finalSprintTo100Ref.current = null;
     if (pendingRevealAfter100TimeoutRef.current) {
       clearTimeout(pendingRevealAfter100TimeoutRef.current);
       pendingRevealAfter100TimeoutRef.current = null;
     }
-    pipelineInertiaStartRef.current = 0;
-    pipelineTargetRef.current = 0;
     pipelineActiveTraceRef.current = null;
-    displayedPctLiveRef.current = 0;
-    setPipelineDisplayedPct(0);
+    resetAiProgressRef.current();
     setPipelineDashTitleComplete(false);
     setSelectedIntentionIndex(0);
   }, []);
@@ -379,7 +374,6 @@ export function TalkDebugScreen() {
   const onPipelineDashboardOpenImmediate = useCallback(
     ({ traceId }: { traceId: string }) => {
       pendingPeekFirstSavePayloadRef.current = null;
-      finalSprintTo100Ref.current = null;
       if (pendingRevealAfter100TimeoutRef.current) {
         clearTimeout(pendingRevealAfter100TimeoutRef.current);
         pendingRevealAfter100TimeoutRef.current = null;
@@ -387,35 +381,28 @@ export function TalkDebugScreen() {
       setPipelineDashTitleComplete(false);
       pipelineModalVisibleRef.current = true;
       pipelineActiveTraceRef.current = String(traceId || '').trim() || null;
-      pipelineTargetRef.current = 0;
-      pipelineInertiaStartRef.current = perfNowMs();
       pipelineOrangeNavScheduledRef.current = false;
-      pipelineContentOpacity.setValue(1);
-      setPipelineDisplayedPct(0);
-      displayedPctLiveRef.current = 0;
+      resetAiProgress();
+      beginAiProgressInertia();
       setPipelineResilienceOrange(false);
       pipelineResilienceOrangeRef.current = false;
       setPipelineModalVisible(true);
     },
-    [pipelineContentOpacity],
+    [beginAiProgressInertia, resetAiProgress],
   );
 
   const onPipelineDashboardCancelImmediate = useCallback(() => {
     pendingPeekFirstSavePayloadRef.current = null;
-    finalSprintTo100Ref.current = null;
     if (pendingRevealAfter100TimeoutRef.current) {
       clearTimeout(pendingRevealAfter100TimeoutRef.current);
       pendingRevealAfter100TimeoutRef.current = null;
     }
     setPipelineDashTitleComplete(false);
     pipelineModalVisibleRef.current = false;
-    pipelineInertiaStartRef.current = 0;
-    pipelineTargetRef.current = 0;
     pipelineActiveTraceRef.current = null;
     setPipelineModalVisible(false);
-    setPipelineDisplayedPct(0);
-    displayedPctLiveRef.current = 0;
-  }, []);
+    resetAiProgress();
+  }, [resetAiProgress]);
 
   /** Micro « échap » : ferme l’overlay sans annuler `submitCapturePayload`. */
   const onPipelineWaitMicPress = useCallback(() => {
@@ -446,15 +433,15 @@ export function TalkDebugScreen() {
   useEffect(() => {
     if (!pipelineModalVisible || captureEndRef.current <= 0) return;
     if (balletProfilerGatesRef.current.t4) return;
-    const inertiaStart = pipelineInertiaStartRef.current;
+    const inertiaStart = inertiaEpochRef.current;
     if (inertiaStart <= 0) return;
     const elapsedBallet = perfNowMs() - inertiaStart;
-    if (elapsedBallet < PIPELINE_INERTIA_TOTAL_MS) return;
+    if (elapsedBallet < AI_PROGRESS_INERTIA_TOTAL_MS) return;
     if (pipelineDisplayedPct < 60) return;
     balletProfilerGatesRef.current.t4 = true;
     logBalletProfilerDelta(
       'T4',
-      `phase 3 stepAnalysis (inertia_elapsed_ms>=${PIPELINE_INERTIA_TOTAL_MS}, actual=${Math.round(elapsedBallet)}; displayedPct>=60)`,
+      `phase 3 stepAnalysis (inertia_elapsed_ms>=${AI_PROGRESS_INERTIA_TOTAL_MS}, actual=${Math.round(elapsedBallet)}; displayedPct>=60)`,
     );
   }, [logBalletProfilerDelta, pipelineDisplayedPct, pipelineModalVisible]);
 
@@ -471,78 +458,6 @@ export function TalkDebugScreen() {
   }, []);
 
   useEffect(() => {
-    if (!pipelineModalVisible) return;
-    const id = setInterval(() => {
-      setPipelineDisplayedPct((d) => {
-        const now = perfNowMs();
-
-        const fs = finalSprintTo100Ref.current;
-        if (fs) {
-          const u = Math.min(1, (now - fs.startMs) / fs.durationMs);
-          const next = fs.fromPct + (100 - fs.fromPct) * u;
-          if (u >= 1) {
-            finalSprintTo100Ref.current = null;
-            displayedPctLiveRef.current = 100;
-            if (!balletProfilerGatesRef.current.t5100Reached) {
-              balletProfilerGatesRef.current.t5100Reached = true;
-              logBalletProfilerDelta('T5_100_REACHED', 'progress bar at 100% (200ms linear sprint complete)');
-            }
-            if (pendingRevealAfter100TimeoutRef.current) {
-              clearTimeout(pendingRevealAfter100TimeoutRef.current);
-            }
-            pendingRevealAfter100TimeoutRef.current = setTimeout(() => {
-              pendingRevealAfter100TimeoutRef.current = null;
-              setSelectedIntentionIndexRef.current(0);
-              beginDashboardHideRef.current(`reveal hold ${PIPELINE_REVEAL_HOLD_MS}ms after 100%`);
-              closePipelineOverlayCoreRef.current();
-              queueMicrotask(() => micRef.current?.exitPipelineWaitToIdle());
-            }, PIPELINE_REVEAL_HOLD_MS);
-            return 100;
-          }
-          displayedPctLiveRef.current = next;
-          return next;
-        }
-
-        const inertiaStart = pipelineInertiaStartRef.current;
-        if (inertiaStart <= 0) {
-          const tOnly = pipelineTargetRef.current;
-          const n = d + (tOnly - d) * 0.12;
-          const next = Math.abs(tOnly - n) < 0.45 ? tOnly : n;
-          displayedPctLiveRef.current = next;
-          return Math.min(100, next);
-        }
-
-        const elapsed = now - inertiaStart;
-
-        if (elapsed < PIPELINE_INERTIA_TOTAL_MS) {
-          const next = inertiaFloorPct(elapsed);
-          displayedPctLiveRef.current = next;
-          return Math.min(100, next);
-        }
-
-        const phase3Elapsed = elapsed - PIPELINE_INERTIA_TOTAL_MS;
-        const creepTarget = 60 + 35 * (1 - Math.exp(-phase3Elapsed / PIPELINE_PHASE3_ASYMPTOTE_MS));
-        const bumpTarget = pipelineTargetRef.current;
-        const target = Math.max(bumpTarget, creepTarget);
-        let next = d + (target - d) * 0.1;
-        if (bumpTarget < 100 && next > 94.75) {
-          next = Math.min(next, 94.85);
-        }
-        if (Math.abs(target - next) < 0.4) next = target;
-        displayedPctLiveRef.current = next;
-        return Math.min(100, next);
-      });
-    }, PIPELINE_TICK_MS);
-    return () => {
-      clearInterval(id);
-      if (pendingRevealAfter100TimeoutRef.current) {
-        clearTimeout(pendingRevealAfter100TimeoutRef.current);
-        pendingRevealAfter100TimeoutRef.current = null;
-      }
-    };
-  }, [pipelineModalVisible]);
-
-  useEffect(() => {
     const sub = DeviceEventEmitter.addListener(CAPTURE_PIPELINE_PROGRESS_EVENT, (raw: CapturePipelineProgressPayload) => {
       const trace = String(raw.trace || '').trim();
       const active = String(pipelineActiveTraceRef.current || '').trim();
@@ -554,7 +469,7 @@ export function TalkDebugScreen() {
       const d = raw.detail;
       let setOrange = false;
       const bump = (v: number) => {
-        pipelineTargetRef.current = Math.max(pipelineTargetRef.current, v);
+        bumpAiProgressTarget(v);
       };
       switch (raw.phase) {
         case 'mic_stop_audio_done':
@@ -587,22 +502,16 @@ export function TalkDebugScreen() {
           const gTot = Number(d?.total ?? 1);
           bump(100);
           if (gIdx === gTot && !pipelineResilienceOrangeRef.current) {
-            if (finalSprintTo100Ref.current) break;
+            if (finalSprintActiveRef.current) break;
             if (!balletProfilerGatesRef.current.t5BoostStart) {
               balletProfilerGatesRef.current.t5BoostStart = true;
               logBalletProfilerDelta(
                 'T5_BOOST_START',
-                `gemini_one_tap_call_success → linear sprint to 100% (${PIPELINE_FINAL_SPRINT_MS}ms)`,
+                `gemini_one_tap_call_success → linear sprint to 100% (${AI_PROGRESS_FINAL_SPRINT_MS}ms)`,
               );
             }
             setPipelineDashTitleComplete(true);
-            pipelineInertiaStartRef.current = 0;
-            finalSprintTo100Ref.current = {
-              startMs: perfNowMs(),
-              fromPct: Math.min(99, Math.max(0, displayedPctLiveRef.current)),
-              durationMs: PIPELINE_FINAL_SPRINT_MS,
-            };
-            pipelineTargetRef.current = 100;
+            startAiFinalSprint();
           }
           break;
         }
@@ -620,23 +529,17 @@ export function TalkDebugScreen() {
             cIdx === cTot &&
             !pipelineResilienceOrangeRef.current &&
             pipelineModalVisibleRef.current &&
-            !finalSprintTo100Ref.current
+            !finalSprintActiveRef.current
           ) {
             if (!balletProfilerGatesRef.current.t5BoostStart) {
               balletProfilerGatesRef.current.t5BoostStart = true;
               logBalletProfilerDelta(
                 'T5_BOOST_START',
-                `persist_callback fallback → linear sprint to 100% (${PIPELINE_FINAL_SPRINT_MS}ms)`,
+                `persist_callback fallback → linear sprint to 100% (${AI_PROGRESS_FINAL_SPRINT_MS}ms)`,
               );
             }
             setPipelineDashTitleComplete(true);
-            pipelineInertiaStartRef.current = 0;
-            finalSprintTo100Ref.current = {
-              startMs: perfNowMs(),
-              fromPct: Math.min(99, Math.max(0, displayedPctLiveRef.current)),
-              durationMs: PIPELINE_FINAL_SPRINT_MS,
-            };
-            pipelineTargetRef.current = 100;
+            startAiFinalSprint();
           }
           break;
         }
@@ -664,7 +567,7 @@ export function TalkDebugScreen() {
       if (setOrange) setPipelineResilienceOrange(true);
     });
     return () => sub.remove();
-  }, [logBalletProfilerDelta]);
+  }, [bumpAiProgressTarget, logBalletProfilerDelta, startAiFinalSprint]);
 
   useEffect(() => {
     if (pipelineModalVisible) return;
@@ -844,12 +747,11 @@ export function TalkDebugScreen() {
         intentionMixAccentColor={intentionMixAccentColor}
         morphSheetContentOnIntentionChange={peekDetailRows.length > 1}
       />
-      <TalkPipelineProgressDashboard
-        visible={pipelineModalVisible}
-        title={pipelineTitleText}
-        displayedPct={pipelineDisplayedPct}
+      <AIUniversalProgressOverlay
+        isVisible={pipelineModalVisible}
+        progress={pipelineDisplayedPct}
+        label={pipelineTitleText}
         barColor={pipelineBarColor}
-        contentOpacity={pipelineContentOpacity}
       />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>
