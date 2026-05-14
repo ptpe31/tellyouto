@@ -1329,6 +1329,11 @@
     "stepTransport": "Enregistrement de l'audio…",
     "stepTranscription": "Transcription de l'audio…",
     "stepAnalysis": "Génération du contenu…",
+    "stepComplete": "Terminé !",
+    "actionSetupTrip": "Configurer le trajet",
+    "actionGeneratePlan": "Générer le plan",
+    "actionGenerateList": "Générer la liste",
+    "actionAddNote": "Ajouter une note",
     "errorNetwork": "Réseau instable. Sauvegarde locale effectuée.",
     "oneTapType": {
       "TASK": "Tâche",

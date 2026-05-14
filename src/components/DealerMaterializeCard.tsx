@@ -14,7 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useTheme } from 'react-native-paper';
 
-import { dealerCategoryColor, dealerCategoryIcon } from './dealerMaterialTheme';
+import { dealerCategoryIcon } from './dealerMaterialTheme';
 
 export type DealerMaterializeCardProps = {
   cardId: string;
@@ -27,6 +27,10 @@ export type DealerMaterializeCardProps = {
   fromEnterY: number;
   categoryTag: string;
   predictedType: string;
+  /** Pastel stable par intention (titre) — mixeur Talk. */
+  titleAccentColor: string;
+  /** Carte active : glow + léger relief. */
+  selected?: boolean;
   lastWord: string;
   materialized: boolean;
   validated: boolean;
@@ -63,6 +67,8 @@ export function DealerMaterializeCard({
   fromEnterY,
   categoryTag,
   predictedType,
+  titleAccentColor,
+  selected,
   lastWord,
   materialized,
   validated,
@@ -84,7 +90,7 @@ export function DealerMaterializeCard({
   const appliedSuctionRef = useRef(0);
   const positionInitRef = useRef(false);
 
-  const accent = dealerCategoryColor(categoryTag, predictedType);
+  const accent = titleAccentColor;
   const Icon = dealerCategoryIcon(categoryTag, predictedType);
   const iconSize = Math.max(22, Math.round(Math.min(cw, ch) * 0.22));
 
@@ -157,13 +163,17 @@ export function DealerMaterializeCard({
     translateY,
   ]);
 
-  const rootStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { rotate: '0deg' },
-    ],
-  }));
+  const rootStyle = useAnimatedStyle(() => {
+    const scale = selected ? 1.04 : 1;
+    return {
+      transform: [
+        { translateX: translateX.value },
+        { translateY: translateY.value },
+        { rotate: '0deg' },
+        { scale },
+      ],
+    };
+  }, [selected]);
 
   const fillStyle = useAnimatedStyle(() => ({
     height: ch * fillProgress.value,
@@ -181,11 +191,28 @@ export function DealerMaterializeCard({
   const r = Math.max(10, Math.round(Math.min(cw, ch) * 0.08));
   const fsWord = Math.max(14, Math.round(cw * 0.19));
 
+  const shadowSelected = selected
+    ? Platform.select({
+        ios: {
+          shadowColor: accent,
+          shadowOpacity: 0.48,
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: 5 },
+        },
+        android: { elevation: 14 },
+        default: {},
+      })
+    : null;
+
   return (
-    <Animated.View pointerEvents="none" style={[styles.shadowWrap, rootStyle, { width: cw, height: ch }]}>
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.shadowWrap, shadowSelected, rootStyle, { width: cw, height: ch }]}
+    >
       <View
         style={[
           styles.cardShell,
+          selected ? styles.cardShellSelected : null,
           {
             width: cw,
             height: ch,
@@ -256,6 +283,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  /** Léger relief type neumorphique quand la carte est sélectionnée (Talk). */
+  cardShellSelected: Platform.select({
+    ios: {
+      borderWidth: 2.5,
+      shadowColor: 'rgba(255,255,255,0.45)',
+      shadowOffset: { width: -2, height: -2 },
+      shadowOpacity: 0.5,
+      shadowRadius: 3,
+    },
+    android: { borderWidth: 2.5, elevation: 4 },
+    default: { borderWidth: 2.5 },
+  }),
   fillRise: {
     position: 'absolute',
     bottom: 0,

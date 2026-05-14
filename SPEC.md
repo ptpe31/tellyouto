@@ -308,8 +308,10 @@ Conditions minimales “surveillable” :
   - et `meta.is_all_day` == false (donc pas “All Day”)
 
 Règle UI :
-- Si non surveillable : Newton est caché (pas disabled).
+- Si non surveillable : Newton est **caché** par défaut (pas seulement *disabled*).
 - Si surveillable : Newton devient visible (et activable).
+
+**Implémentation v34 (Talk — sheet full après capture)** : le contrôle Newton peut être rendu **visible mais désactivé** tant que le trajet n’est pas surveillable, pour éviter une disparition ambiguë lors de l’édition immédiate ; harmoniser avec la règle « invisible » sur les autres surfaces si le produit le demande.
 
 #### Aide visuelle (surveillabilité)
 Afficher un indicateur visuel (ex: triangle jaune) dans le bloc “Mission” si des informations manquent pour rendre le trajet surveillable par Newton.
@@ -387,7 +389,7 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - **Déclenchement** : après validation dictée (**stop** micro), [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) en variante `talkDebug` avec **`dashboardPipelineHost`** passe en phase **`pipeline_wait`** et [`TalkDebugScreen`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) affiche [`TalkPipelineProgressDashboard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkPipelineProgressDashboard.tsx) (`Modal` centré : titre d’étape, **barre 0–100 %** bleue signature, pourcentage lissé).
 - **Progression** : cibles monotones dérivées des phases **`CAPTURE_PIPELINE_PROGRESS`** (même source que `logCaptureFlow` / `notifyCapturePipelineProgress`) ; bandes produit grossières : **0–10 %** enregistrement audio (`mic_stop_audio_done`), **10–30 %** transport (`mic_submit_invoke`, `submit_enter`, `submit_netinfo`), **30–60 %** transcription / Path A (`peek_snapshot_emit`), **60–100 %** analyse Pass 1 / persistance (`bulk_start`, `chunk_*`, `persist_callback`, `peek_first_save_emit`, fin `submit_return_after_bulk` ou file).
 - **Micro « échap »** : le bouton micro reste visible (sans suggestions d’intention pendant l’overlay) ; un appui en **`pipeline_wait`** ferme seulement le dashboard (**pas** d’annulation de `submitCapturePayload` / Gemini — traitement silencieux en arrière-plan).
-- **Révélation DealerBoard** : à **100 %** succès hors mode résilience, fondu du dashboard puis les proxies [`DealerBoard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/DealerBoard.tsx) restent visibles sous le modal (événements peek déjà émis pendant le pipeline).
+- **Révélation DealerBoard** : à **100 %** succès hors mode résilience, sprint final barre (**200 ms**), **hold 150 ms**, libellé d’étape i18n **`talkDebug.stepComplete`**, puis fondu du dashboard ; les proxies [`DealerBoard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/DealerBoard.tsx) restent visibles (événements peek déjà émis pendant le pipeline). Logs dev **`[BALLET-PROFILER]`** (`T5_BOOST_START`, `T5_100_REACHED`, `T6_HIDE_START`).
 - **Résilience orange** : si file offline NetInfo (`peek_snapshot_offline_queue`), enqueue auto réseau (`bulk_network_resilience_enqueue`) ou `submit_offline_queued` avec **`reason: netinfo_offline`**, barre **orange**, titre i18n **`talkDebug.errorNetwork`** ; après atteinte ~100 %, **fermeture auto à 2 s** + navigation **Timeline** (traitement différé inchangé). i18n associées : `talkDebug.stepTransport`, `stepTranscription`, `stepAnalysis`.
 
 #### DealerBoard — identité visuelle « Matérialisation » (Talk uniquement)
@@ -396,6 +398,7 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - **`INTENTION_PEEK_SNAPSHOT`** : une carte « **fantôme** » (fond transparent, bordure seule, **icône** dérivée de `categoryTag` / `predictedType`) monte lentement (**~1,2 s**, easing sortant) depuis le bas vers le **centre** de l’écran.
 - **`INTENTION_PEEK_FIRST_SAVE`** : le bus porte toujours `intentionId` (premier Pass 1) pour la sheet ; en **bulk ventilé**, le payload inclut en plus **`dealerBulkItems`** : une entrée par intention persistée (`intentionId`, `title`, `categoryTag`, `predictedType` dérivés des `PersistOneTapSuccess`). **Ballet géométrique** des contours : 2 cartes = ligne 1 gauche / droite ; 3 = ligne 1 G/D + ligne 2 une carte centrée ; 4 = grille 2×2 ; au-delà = grille centrée (`dealerBalletLayout`). **Matérialisation** après court délai de stabilisation : remplissage bas → haut (couleur catégorie), **mot-clé** (dernier mot du titre via regex), pastille **Ok** discrète. **Portrait** : cible visuelle ~100×140 px mise à l’échelle selon la largeur d’écran.
 - **`MICRO_CAPTURE_START`** (`talkndone/micro_capture_start`, émis par [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) au début d’une capture micro réussie) : annule le timer d’**aspiration** vers le repère NEW (haut droite) et déclenche l’aspiration immédiate des cartes matérialisées ; **haptique** légère à l’arrivée sur le badge. Timer d’aspiration **idle** par défaut **30 s** après la dernière salve peek (tick post–`INTENTION_PEEK_FIRST_SAVE`). Archivage local des proxies à l’aspiration (**sans** mutation intention en base).
+- **Mixeur multi-intentions** : `peekDetailRows` / `dealerBulkItems` synchronisés ; sélection d’index (`selectedIntentionIndex`) avec surbrillance carte ; accent stable par titre via `getIntentionColor` ([`intentionColorHash.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/intentionColorHash.ts)) propagé à [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) (`intentionMixAccentColor`) ; morph du contenu de fiche lors d’un changement d’intention sélectionnée.
 
 ### 4) Critères d’acceptation
 - Les hauteurs peek / validation / full capture sont pilotées par des **ratios viewport** (Path A ≈ **5 %**, Path B ≈ **25 %**, full capture ≈ **95 %**), et non par des constantes px imposées côté produit.
@@ -424,7 +427,9 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - `TASK` → *Préciser l’action* (`pass2Task`).
 - Autres → `pass2EnrichDefault` / `pass2Steps` selon produit.
 
-**TRIP — hiérarchie** : le bloc **Mission** (niveau 3), les contrôles itinéraire précis (carte / adresses / transport confort), et **Newton** restent **totalement masqués** tant que `pass2_unlocked` est faux (y compris si `remind_to_leave` ou métadonnées trajet sont déjà présentes). Le passage à la vue riche n’a lieu qu’après action **PRO** sur le CTA « Préparer le trajet » (qui pose `pass2_unlocked: true`).
+**TRIP — hiérarchie** : en vue **Zen** standard, le bloc **Mission** (niveau 3), les contrôles itinéraire précis (carte / adresses / transport confort), et **Newton** restent **masqués** tant que `pass2_unlocked` est faux (y compris si `remind_to_leave` ou métadonnées trajet sont déjà présentes). Le passage à la vue riche s’effectue après action **PRO** sur le CTA « Préparer le trajet » (qui pose `pass2_unlocked: true`).
+
+**Exception — capture Talk (Path B, sheet full)** : lorsque la sheet est en mode **validation** (`validationMode`), phase peek **`path_b`**, intention **trajet**, et position **full**, un bypass produit **`gateFullTripBypass`** permet d’afficher le corps détaillé (itinéraire, transport, Newton selon surveillabilité) **sans** attendre `pass2_unlocked`, tout en conservant le CTA Pass 2 / enrichissement pour le consentement **PRO** explicite. L’opacité du corps détaillé est pilotée par `pass2RevealAnim` (forcée à **1** lorsque `pass2_unlocked` **ou** `gateFullTripBypass`).
 
 **Cas `peek_pending`** : même squelette Zen si la sheet est ouverte en plein hors Path B ; le bouton de déverrouillage est masqué (pas d’`id` stable pour persister).
 
@@ -492,6 +497,11 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 - Libellé i18n : “Fermer” / “Terminer” (à préciser en i18n).
 - Action : ferme la sheet.
 - Important : l’intention étant déjà persistée au Pass 1, aucune action supplémentaire n’est requise.
+
+#### Bouton principal contextuel (Talk — Path B uniquement)
+- Le **premier** bouton du footer peut être **remplacé** par une action métier immédiate selon le type d’intention (ex. ouvrir la configuration trajet, lancer la génération liste/projet, ajouter une note) avec libellés i18n sous espace `talkDebug.action*` (`actionSetupTrip`, `actionGeneratePlan`, `actionGenerateList`, `actionAddNote`, …).
+- Le flux **Pass 2** (mutation `pass2_unlocked` + enrichissement) reste disponible via le **second** bouton ou l’action secondaire dédiée selon l’implémentation.
+- Observabilité : log dev **`[ACTION-ADVISOR]`** lors du choix du libellé / de la route d’action (audit produit).
 
 ### 4) Stabilité technique (contrats)
 - Fermer la sheet (bouton ou swipe down) ne doit **jamais** annuler l’enregistrement du Pass 1.

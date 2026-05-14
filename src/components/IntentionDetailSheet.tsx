@@ -73,6 +73,10 @@ type Props = {
   peekCapturePhase?: 'idle' | 'path_a' | 'path_b';
   /** Si défini (ex. 0.95), hauteur max de la sheet en mode « full » (édition capture). */
   captureSheetMaxHeightRatio?: number;
+  /** Accent visuel (couleur carte active / mixeur Talk). */
+  intentionMixAccentColor?: string | null;
+  /** Fondu du corps de feuille lors du changement d’intention (N cartes). */
+  morphSheetContentOnIntentionChange?: boolean;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -168,6 +172,21 @@ function categoryPastelTabBackground(categoryId: string | null | undefined): str
   if (green.has(up)) return '#D7F5E8';
   if (violet.has(up)) return '#E8DCFF';
   return '#D6E9FF';
+}
+
+/** Pastille catégorie : teinte dérivée d’une couleur d’accent (mixeur Talk). */
+function mixAccentToPeekTabBackground(accentHex: string): string {
+  const raw = String(accentHex || '').replace('#', '').trim();
+  if (raw.length !== 6 || !/^[0-9a-fA-F]+$/u.test(raw)) return '#D6E9FF';
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  if (![r, g, b].every((n) => Number.isFinite(n))) return '#D6E9FF';
+  const t = 0.26;
+  const R = Math.round(248 - (248 - r) * (1 - t));
+  const G = Math.round(248 - (248 - g) * (1 - t));
+  const B = Math.round(252 - (252 - b) * (1 - t));
+  return `rgb(${R},${G},${B})`;
 }
 
 function capitalizeFirst(raw: string): string {
@@ -441,6 +460,8 @@ export function IntentionDetailSheet({
   validationMode,
   peekCapturePhase: peekCapturePhaseProp,
   captureSheetMaxHeightRatio,
+  intentionMixAccentColor,
+  morphSheetContentOnIntentionChange,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
@@ -523,6 +544,35 @@ export function IntentionDetailSheet({
   const milestoneYRef = useRef<Record<string, number>>({});
   const restoredZoomRef = useRef(false);
 
+  const morphContentOpacity = useRef(new Animated.Value(1)).current;
+  const morphPrimedRef = useRef(false);
+
+  useEffect(() => {
+    if (!visible) morphPrimedRef.current = false;
+  }, [visible]);
+
+  useEffect(() => {
+    if (!morphSheetContentOnIntentionChange) {
+      morphContentOpacity.setValue(1);
+    }
+  }, [morphSheetContentOnIntentionChange, morphContentOpacity]);
+
+  useEffect(() => {
+    if (!morphSheetContentOnIntentionChange || !row?.id) return;
+    if (!morphPrimedRef.current) {
+      morphPrimedRef.current = true;
+      morphContentOpacity.setValue(1);
+      return;
+    }
+    morphContentOpacity.setValue(0);
+    Animated.timing(morphContentOpacity, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [row?.id, morphSheetContentOnIntentionChange, morphContentOpacity]);
+
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
   const pass2UnlockedFromMeta = useMemo(() => isPass2UnlockedMeta(meta), [meta]);
   const [pass2UnlockOptimistic, setPass2UnlockOptimistic] = useState(false);
@@ -534,9 +584,6 @@ export function IntentionDetailSheet({
   }, [pass2UnlockedFromMeta]);
   const pass2Unlocked = pass2UnlockedFromMeta || pass2UnlockOptimistic;
   const pass2RevealAnim = useRef(new Animated.Value(0)).current;
-  useLayoutEffect(() => {
-    pass2RevealAnim.setValue(pass2UnlockedFromMeta ? 1 : 0);
-  }, [row?.id, pass2RevealAnim, pass2UnlockedFromMeta]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
   const isTrip = Boolean(trip);
   const isProject = Boolean(row && row.type === 'PROJECT');
@@ -548,6 +595,11 @@ export function IntentionDetailSheet({
     const raw = String(row?.category_id ?? '').trim();
     return raw ? raw : t('category.OTHER');
   }, [row?.category_id, t]);
+  const categoryTabBackground = useMemo(() => {
+    const hex = String(intentionMixAccentColor ?? '').trim();
+    if (hex.length > 0) return mixAccentToPeekTabBackground(hex);
+    return categoryPastelTabBackground(row?.category_id);
+  }, [intentionMixAccentColor, row?.category_id]);
   const multiIntents = useMemo(() => {
     const raw = (meta as any)?.intents;
     return Array.isArray(raw) ? raw : [];
@@ -566,8 +618,21 @@ export function IntentionDetailSheet({
   const showSlot3 = multiIntents.length > 2;
   const isValidationView =
     Boolean(validationMode) && visible && sheetPosition === 'peek' && peekCapturePhase === 'path_b';
+  /** Talk Path B + trajet + feuille pleine : afficher l’édition logistique sans exiger `pass2_unlocked`. */
+  const gateFullTripBypass = useMemo(
+    () => Boolean(validationMode && peekCapturePhase === 'path_b' && isTrip && sheetPosition === 'full'),
+    [isTrip, peekCapturePhase, sheetPosition, validationMode],
+  );
   /** Fiche « note augmentée » tant que `pass2_unlocked` est absent/faux (hors vue validation capture). */
-  const gateLocked = Boolean(visible && row && !pass2Unlocked && !isValidationView);
+  const gateLocked = Boolean(visible && row && !pass2Unlocked && !isValidationView && !gateFullTripBypass);
+  useLayoutEffect(() => {
+    if (pass2Unlocked || gateFullTripBypass) {
+      pass2RevealAnim.setValue(1);
+    } else {
+      pass2RevealAnim.setValue(0);
+    }
+  }, [gateFullTripBypass, pass2RevealAnim, pass2Unlocked, row?.id]);
+
   const validationTitle = useMemo(() => {
     const a = String(row?.display_title ?? '').trim();
     if (a) return a;
@@ -589,6 +654,28 @@ export function IntentionDetailSheet({
     () => (isProUser ? pass2CtaLabel : `${pass2CtaLabel} ${t('intentionDetail.pass2LockedSuffix')}`.trim()),
     [isProUser, pass2CtaLabel, t],
   );
+
+  /** Bouton principal (feuille capture réduite Path B / TalkDebug) : hiérarchie TRIP → PROJECT → LIST → défaut. */
+  const peekValidationActionKind = useMemo((): 'trip' | 'project' | 'list' | 'note' => {
+    if (isTrip) return 'trip';
+    const typ = String(row?.type ?? '').trim().toUpperCase();
+    if (typ === 'PROJECT') return 'project';
+    if (typ === 'LIST') return 'list';
+    return 'note';
+  }, [isTrip, row?.type]);
+
+  const peekValidationPrimaryLabel = useMemo(() => {
+    if (peekValidationActionKind === 'trip') return t('talkDebug.actionSetupTrip');
+    if (peekValidationActionKind === 'project') {
+      return isProUser ? t('talkDebug.actionGeneratePlan') : `${t('talkDebug.actionGeneratePlan')} ${t('intentionDetail.pass2LockedSuffix')}`.trim();
+    }
+    if (peekValidationActionKind === 'list') {
+      return isProUser ? t('talkDebug.actionGenerateList') : `${t('talkDebug.actionGenerateList')} ${t('intentionDetail.pass2LockedSuffix')}`.trim();
+    }
+    return t('talkDebug.actionAddNote');
+  }, [isProUser, peekValidationActionKind, t]);
+
+  const actionAdvisorRevealKeyRef = useRef('');
 
   const redirectToProSubscription = useCallback(() => {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
@@ -823,7 +910,8 @@ export function IntentionDetailSheet({
     return Number.isFinite(Number(arrivalLat)) && Number.isFinite(Number(arrivalLng));
   }, [arrivalLat, arrivalLng, isTrip]);
 
-  const showMission = isTrip && showTripControls;
+  /** Mission / Newton : visible en feuille pleine même sans « rappel au départ », pour revoir la logique masquage. */
+  const showMission = isTrip && (showTripControls || sheetPosition === 'full');
   const isNewtonSurveillable = useMemo(() => {
     if (!showMission) return false;
     if (isAllDay) return false;
@@ -1236,6 +1324,66 @@ export function IntentionDetailSheet({
       setPass2Running(false);
     }
   };
+
+  const onPressPeekValidationPrimary = useCallback(async () => {
+    if (!row || pass2Running || row.id === 'peek_pending') return;
+    if (peekValidationActionKind === 'note') {
+      openFullSheet();
+      return;
+    }
+    if (peekValidationActionKind === 'trip') {
+      clearPeekAutoCloseTimer();
+      try {
+        await updateTrankilV2IntentionRemindToLeave(row.id, true);
+      } catch {
+        // ignore
+      }
+      setRemindToLeaveEnabled(true);
+      setShowTripControls(true);
+      tripControlsOpacity.setValue(1);
+      void reconcileSentinelForIntentionId(row.id);
+      openFullSheet();
+      return;
+    }
+    if (peekValidationActionKind === 'project' || peekValidationActionKind === 'list') {
+      if (!isProUser) {
+        redirectToProSubscription();
+        return;
+      }
+      await onPressPass2();
+    }
+  }, [
+    clearPeekAutoCloseTimer,
+    isProUser,
+    openFullSheet,
+    pass2Running,
+    peekValidationActionKind,
+    redirectToProSubscription,
+    row,
+    tripControlsOpacity,
+    onPressPass2,
+  ]);
+
+  useEffect(() => {
+    if (!isValidationView) {
+      actionAdvisorRevealKeyRef.current = '';
+      return;
+    }
+    if (!row || row.id === 'peek_pending') return;
+    const sig = `${row.id}:${peekValidationActionKind}`;
+    if (actionAdvisorRevealKeyRef.current === sig) return;
+    actionAdvisorRevealKeyRef.current = sig;
+    console.log(
+      `[ACTION-ADVISOR] Label: ${peekValidationPrimaryLabel} | Type: ${String(row.type)} | HasTrip: ${isTrip ? 'Yes' : 'No'}`,
+    );
+  }, [
+    isTrip,
+    isValidationView,
+    peekValidationActionKind,
+    peekValidationPrimaryLabel,
+    row?.id,
+    row?.type,
+  ]);
 
   const onToggleRemindToLeave = async () => {
     if (!row) return;
@@ -1753,7 +1901,7 @@ export function IntentionDetailSheet({
                   styles.tabSlot,
                   neumorphicRaised(theme),
                   {
-                    backgroundColor: categoryPastelTabBackground(row?.category_id),
+                    backgroundColor: categoryTabBackground,
                     borderTopLeftRadius: 14,
                     borderTopRightRadius: 14,
                   },
@@ -1782,6 +1930,10 @@ export function IntentionDetailSheet({
               ) : null}
             </View>
           </Pressable>
+          <Animated.View
+            style={{ flex: 1, minHeight: 0, opacity: morphContentOpacity }}
+            pointerEvents="box-none"
+          >
           {isValidationView ? (
             <View style={styles.validationWrap}>
               <Text style={[styles.validationTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
@@ -1791,9 +1943,9 @@ export function IntentionDetailSheet({
                 <Button
                   mode="contained"
                   disabled={pass2Running || !row || row.id === 'peek_pending'}
-                  onPress={() => void onPressPass2()}
+                  onPress={() => void onPressPeekValidationPrimary()}
                 >
-                  {pass2MutationButtonLabel}
+                  {peekValidationPrimaryLabel}
                 </Button>
                 <Button mode="outlined" disabled={pass2Running} onPress={onClose}>
                   {t('intentionDetail.finish')}
@@ -2047,7 +2199,7 @@ export function IntentionDetailSheet({
                 </>
               ) : null}
 
-              {isTrip && showTripControls ? (
+              {isTrip ? (
                 <>
                   <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
                   <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.labelItinerary')}</Text>
@@ -2219,8 +2371,12 @@ export function IntentionDetailSheet({
                         </View>
                       </View>
 
-                      {showTripControls ? (
-                        <Animated.View style={[styles.section, { opacity: tripControlsOpacity }]}>
+                      <Animated.View
+                        style={[
+                          styles.section,
+                          { opacity: sheetPosition === 'full' ? 1 : tripControlsOpacity },
+                        ]}
+                      >
                           <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
                             {t('intentionDetail.labelTransport')}
                           </Text>
@@ -2272,14 +2428,16 @@ export function IntentionDetailSheet({
                             </Text>
                           ) : null}
 
-                          {isNewtonSurveillable ? (
-                            <View style={styles.newtonRow}>
-                              <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>
-                                {t('intentionDetail.newton')}
-                              </Text>
-                              <Switch value={newtonEnabled} onValueChange={() => void onToggleNewton()} />
-                            </View>
-                          ) : null}
+                          <View style={styles.newtonRow}>
+                            <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>
+                              {t('intentionDetail.newton')}
+                            </Text>
+                            <Switch
+                              value={newtonEnabled}
+                              onValueChange={() => void onToggleNewton()}
+                              disabled={!isNewtonSurveillable}
+                            />
+                          </View>
 
                           <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
                             {t('intentionDetail.comfortFixed', { time: `${pad2(pickerDraft.getHours())}:${pad2(pickerDraft.getMinutes())}` })}
@@ -2302,7 +2460,6 @@ export function IntentionDetailSheet({
                             )}
                           </View>
                         </Animated.View>
-                      ) : null}
                     </>
                   ) : null}
 
@@ -2913,6 +3070,7 @@ export function IntentionDetailSheet({
             </Modal>
           </KeyboardAvoidingView>
           )}
+          </Animated.View>
         </Animated.View>
       </View>
     </Modal>

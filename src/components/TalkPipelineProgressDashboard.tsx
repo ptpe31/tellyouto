@@ -35,7 +35,7 @@ export function TalkPipelineProgressDashboard({ visible, title, displayedPct, ba
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.58)',
+    backgroundColor: '#111827',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
@@ -46,7 +46,7 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
     paddingHorizontal: 22,
     borderRadius: 20,
-    backgroundColor: 'rgba(17,24,39,0.94)',
+    backgroundColor: '#1e293b',
     borderWidth: 1,
     borderColor: 'rgba(148,163,184,0.35)',
   },

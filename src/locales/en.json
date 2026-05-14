@@ -1329,6 +1329,11 @@
     "stepTransport": "Recording audio…",
     "stepTranscription": "Transcribing audio…",
     "stepAnalysis": "Generating content…",
+    "stepComplete": "Done!",
+    "actionSetupTrip": "Set up trip",
+    "actionGeneratePlan": "Generate plan",
+    "actionGenerateList": "Generate list",
+    "actionAddNote": "Add a note",
     "errorNetwork": "Unstable network. Saved locally.",
     "oneTapType": {
       "TASK": "Task",

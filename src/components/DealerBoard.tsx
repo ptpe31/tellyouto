@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Pressable,
   DeviceEventEmitter,
   LayoutAnimation,
   Platform,
@@ -18,6 +19,7 @@ import {
 
 import { computeDealerBalletSlots, dealerPortraitMetrics } from './dealerBalletLayout';
 import { DealerMaterializeCard } from './DealerMaterializeCard';
+import { getIntentionColor } from '../utils/intentionColorHash';
 
 type DealerBulkPeekItem = {
   intentionId: string;
@@ -124,7 +126,16 @@ function normalizeDealerRows(p: PeekFirstSavePayload): DealerBulkPeekItem[] {
  * Calque Talk — identité **Matérialisation** : fantôme sur `INTENTION_PEEK_SNAPSHOT`, ballet + remplissage sur
  * `INTENTION_PEEK_FIRST_SAVE`, aspiration NEW. Proxies uniquement (pas de SQLite).
  */
-export function DealerBoard() {
+export type DealerBoardProps = {
+  /** Index de l’intention active (mixeur Talk ↔ feuille). */
+  selectedIntentionIndex?: number;
+  onSelectIntentionIndex?: (index: number) => void;
+};
+
+export function DealerBoard({
+  selectedIntentionIndex = 0,
+  onSelectIntentionIndex,
+}: DealerBoardProps = {}) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [cards, setCards] = useState<DealerBoardCard[]>([]);
@@ -306,32 +317,46 @@ export function DealerBoard() {
       <View pointerEvents="none" style={styles.deckSlot}>
         {activeCards.map((c, index) => {
           const slot = balletSlots[index] ?? { dx: 0, dy: 0 };
+          const titleAccent = getIntentionColor(c.title);
+          const selected = index === selectedIntentionIndex;
+          const canPress = typeof onSelectIntentionIndex === 'function';
           return (
             <View key={c.slotKey} style={[styles.cardAnchor, { zIndex: index + 1 }]}>
-              <DealerMaterializeCard
-                cardId={c.id}
-                slotKey={c.slotKey}
-                slotDx={slot.dx}
-                slotDy={slot.dy}
-                cw={cw}
-                ch={ch}
-                peekSnapshotRise={c.peekSnapshotRise}
-                fromEnterY={fromEnterY}
-                categoryTag={c.categoryTag}
-                predictedType={c.predictedType}
-                lastWord={c.lastWord}
-                materialized={c.materialized}
-                validated={c.validated}
-                materializeWave={materializeWave}
-                onMaterialized={onMaterialized}
-                onValidated={onValidated}
-                suctionWave={suctionWave}
-                suctionMode={suctionMode}
-                badgeTargetDx={resolvedTarget.dx}
-                badgeTargetDy={resolvedTarget.dy}
-                staggerIndex={index}
-                onSuctionArrived={markDealerProxyArchivedLocally}
-              />
+              <Pressable
+                disabled={!canPress}
+                onPress={() => onSelectIntentionIndex?.(index)}
+                style={[styles.cardHit, { width: cw, height: ch }]}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                hitSlop={8}
+              >
+                <DealerMaterializeCard
+                  cardId={c.id}
+                  slotKey={c.slotKey}
+                  slotDx={slot.dx}
+                  slotDy={slot.dy}
+                  cw={cw}
+                  ch={ch}
+                  peekSnapshotRise={c.peekSnapshotRise}
+                  fromEnterY={fromEnterY}
+                  categoryTag={c.categoryTag}
+                  predictedType={c.predictedType}
+                  titleAccentColor={titleAccent}
+                  selected={selected}
+                  lastWord={c.lastWord}
+                  materialized={c.materialized}
+                  validated={c.validated}
+                  materializeWave={materializeWave}
+                  onMaterialized={onMaterialized}
+                  onValidated={onValidated}
+                  suctionWave={suctionWave}
+                  suctionMode={suctionMode}
+                  badgeTargetDx={resolvedTarget.dx}
+                  badgeTargetDy={resolvedTarget.dy}
+                  staggerIndex={index}
+                  onSuctionArrived={markDealerProxyArchivedLocally}
+                />
+              </Pressable>
             </View>
           );
         })}
@@ -356,6 +381,10 @@ const styles = StyleSheet.create({
   },
   cardAnchor: {
     ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardHit: {
     justifyContent: 'center',
     alignItems: 'center',
   },

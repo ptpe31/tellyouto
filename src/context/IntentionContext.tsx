@@ -253,7 +253,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       silent?: boolean;
       /** Si `false`, pas d’enqueue auto réseau (ex. prompt interne zoom jalon). Défaut : comportement actif. */
       allowAutoOfflineQueue?: boolean;
-      onPersisted?: (outcomes: PersistOneTapSuccess[]) => void;
+      onPersisted?: (outcomes: PersistOneTapSuccess[], meta: { chunkIndex: number; chunkTotal: number }) => void;
     }): Promise<{ safeToDrainOfflineReplaySource: boolean }> => {
       const traceEarly = String(params.traceId || '').trim() || undefined;
       if (bulkProcessingRef.current) {
@@ -374,6 +374,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             if (seq !== geminiSeqRef.current) {
               return { safeToDrainOfflineReplaySource: false };
             }
+            logCaptureFlow(trace || undefined, 'gemini_one_tap_call_success', {
+              idx: i + 1,
+              total,
+            });
             const clean = generateSmartTitle(chunk, uiLocale);
             const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
             const dueIso = typeof d.dueDateTime === 'string' ? d.dueDateTime.trim() : '';
@@ -437,7 +441,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                 outcomes: vr.outcomes.length,
               });
               DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-              params.onPersisted?.(vr.outcomes);
+              params.onPersisted?.(vr.outcomes, { chunkIndex: i + 1, chunkTotal: total });
               const ids = vr.outcomes
                 .map((o) => {
                   if (o && typeof (o as { intentionId?: unknown }).intentionId === 'string') return (o as { intentionId: string }).intentionId;
@@ -603,12 +607,19 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         allowAlert: true,
         traceId: trace,
         silent: true,
-        onPersisted: (outcomes) => {
+        onPersisted: (outcomes, meta) => {
+          const chunkIndex = meta.chunkIndex;
+          const chunkTotal = meta.chunkTotal;
           const firstId =
             outcomes
               .map((o) => ('intentionId' in o ? String((o as { intentionId?: unknown }).intentionId ?? '') : ''))
               .find((x) => x && x.trim().length) ?? '';
-          logCaptureFlow(trace || undefined, 'persist_callback', { outcomes: outcomes.length, firstId: firstId || null });
+          logCaptureFlow(trace || undefined, 'persist_callback', {
+            outcomes: outcomes.length,
+            firstId: firstId || null,
+            chunkIndex,
+            chunkTotal,
+          });
           if (!firstId) return;
           const anyTitle =
             outcomes.find((o) => 'title' in o && typeof (o as { title?: unknown }).title === 'string') as
@@ -624,7 +635,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             transcript: cleaned,
             dealerBulkItems: dealerBulkItems.length > 0 ? dealerBulkItems : undefined,
           });
-          logCaptureFlow(trace || undefined, 'peek_first_save_emit', { intentionId: firstId });
+          logCaptureFlow(trace || undefined, 'peek_first_save_emit', {
+            intentionId: firstId,
+            chunkIndex,
+            chunkTotal,
+          });
         },
       });
       logCaptureFlow(trace || undefined, 'submit_return_after_bulk', {});
@@ -668,7 +683,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           parentId: projectId,
           parentJalonUid: parentUid,
           silent: true,
-          onPersisted: (outcomes) => {
+          onPersisted: (outcomes, _meta) => {
             for (const o of outcomes) {
               if (o.kind === 'persisted_temporal' && o.mirrorType === 'TASK') {
                 children.push({ id: o.intentionId, title: o.title });

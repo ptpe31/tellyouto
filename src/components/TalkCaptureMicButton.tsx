@@ -74,10 +74,14 @@ export type TalkCaptureMicButtonProps = {
   onValidated?: () => void;
   /** TalkDebug + `dashboardPipelineHost` : tap micro en `pipeline_wait` (masquer overlay sans annuler Gemini). */
   onPipelineWaitMicPress?: () => void;
-  /** TalkDebug : ouvre le dashboard central dès la fin dictée (avant submit). */
+  /** TalkDebug : héberge le dashboard pipeline (overlay + barre, ouverture reflex côté écran). */
   dashboardPipelineHost?: boolean;
-  /** TalkDebug : ouverture synchrone du dashboard (trace + NetInfo au moment du stop). */
-  onDashboardPipelineOpened?: (ctx: { traceId: string; onlineAtMicStop: boolean }) => void;
+  /** TalkDebug : ouvre overlay + barre phase 0 dès `stopRecording` (avant audio / NetInfo). */
+  onPipelineDashboardOpenImmediate?: (ctx: { traceId: string }) => void;
+  /** TalkDebug : ferme l’overlay si le transcript nettoyé est vide (après traitement audio). */
+  onPipelineDashboardCancelImmediate?: () => void;
+  /** Sonde perf : premier instant de `stopRecording` (TalkDebug, [BALLET-PROFILER] T0). */
+  onProfilerStopRecordingT0?: () => void;
   onTranscriptChange?: (text: string) => void;
   disabled?: boolean;
   /** Variante compacte pour barre basse (Timeline). */
@@ -100,7 +104,9 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     onValidated,
     onPipelineWaitMicPress,
     dashboardPipelineHost,
-    onDashboardPipelineOpened,
+    onPipelineDashboardOpenImmediate,
+    onPipelineDashboardCancelImmediate,
+    onProfilerStopRecordingT0,
     onTranscriptChange,
     disabled,
     compact,
@@ -313,6 +319,12 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
 
   const stopRecording = useCallback(async () => {
     if (!isRecording) return;
+    onProfilerStopRecordingT0?.();
+    const dashboardEarly =
+      variant === 'talkDebug' && dashboardPipelineHost && Boolean(intentionFlow);
+    if (dashboardEarly) {
+      onPipelineDashboardOpenImmediate?.({ traceId: micTraceIdRef.current?.trim() || '' });
+    }
     let uri: string | null = null;
     let transcript = '';
     try {
@@ -343,6 +355,9 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
         console.log(`[MIC] 🎧 AUDIO_URI: ${uri ? 'yes' : 'no'} | INTENTION_CTX: ${intentionFlow ? 'yes' : 'no'}`);
       }
       if (!cleaned) {
+        if (dashboardEarly) {
+          onPipelineDashboardCancelImmediate?.();
+        }
         resetInternal();
         Alert.alert(
           t('talkDebug.captureTitle', { defaultValue: 'Capture' }),
@@ -358,10 +373,8 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
         );
       }
       const traceTrim = micTraceIdRef.current?.trim() || '';
-      const usePipelineDashboard = variant === 'talkDebug' && dashboardPipelineHost && Boolean(intentionFlow);
 
-      if (usePipelineDashboard) {
-        onDashboardPipelineOpened?.({ traceId: traceTrim, onlineAtMicStop: online });
+      if (dashboardEarly) {
         notifyCapturePipelineProgress(traceTrim || undefined, 'mic_stop_audio_done', {
           transcriptLen: cleaned.length,
           hasAudio: Boolean(uri),
@@ -423,7 +436,9 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     intentionFlow,
     isRecording,
     onCaptureEnd,
-    onDashboardPipelineOpened,
+    onPipelineDashboardCancelImmediate,
+    onPipelineDashboardOpenImmediate,
+    onProfilerStopRecordingT0,
     onPipelineWaitMicPress,
     rawTranscript,
     resetInternal,
