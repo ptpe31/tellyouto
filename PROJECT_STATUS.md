@@ -6,7 +6,7 @@
 
 - Stack : **Expo / React Native**, React Navigation, React Context, **SQLite (expo-sqlite)** comme source de vérité locale (`talkndone.db`).
 - Cœur produit : pipeline **OneTap Dual‑Path** (Path A heuristiques locales → Path B Gemini via proxy) puis **Douane** (parsing/normalisation) et **persistance**.
-- Offline-first : en cas d’échec réseau/IA, la capture (texte/audio) est **mise en file** via `offline_audio_queue` + insertion d’une NOTE `is_pending_ai=1`, puis rejouée ultérieurement.
+- Offline-first (**urbanisation SPEC v34 : 100 % terminée**) : en cas d’échec réseau/IA, la capture (texte/audio) est **mise en file** via `offline_audio_queue` + insertion d’une NOTE `is_pending_ai=1` (métadonnées `persistence_label` / `tag` = `NOTE_FALLBACK` + `source: offline_audio_queue`), puis rejouée ultérieurement. **NetInfo** : « en ligne » si `isConnected === true` **et** `isInternetReachable !== false` (`isNetInfoConsideredOnline`) ; log `[OFFLINE-STABILITY] netinfo_online_null_reachable` si tentative en ligne avec reachability `null`. **En ligne**, une coupure **pendant** Path B / persistance d’un chunk peut déclencher un **enqueue auto** (heuristique réseau/serveur, logs `[OFFLINE-STABILITY]`) sans Alert obligatoire. **Parité peek** : `INTENTION_PEEK_SNAPSHOT` (Path A) est émis **avant** `NetInfo` et la file, pour le même feedback visuel hors ligne qu’en ligne.
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents.
 
 ---
@@ -61,7 +61,7 @@ Repères dans `src/services/*` :
 
 - `oneTapUniversalCapture.ts` : Path A (heuristique) + Path B (Gemini) + parsing & fusion (douane “avant DB”).
 - `oneTapPersist.ts` : Douane “DB” (mapping type → schéma Trankil‑v2) + Pass 2 LIST/PROJECT + NOTE_FALLBACK.
-- `services/captureStrategies/*` : stratégies “classiques” (task/habit/note/list/project) côté TalkDebug.
+- `services/captureStrategies/*` : stratégies “classiques” (task/habit/note/list/project) — utilisées ailleurs (ex. Timeline) ; **TalkDebug** ne déclenche plus le flux projet offline-first / deadline (`generateProjectPlanFromDeadline`) supprimé de l’écran au profit du pipeline OneTap unifié.
 - `CaptureProcessingService.ts` : BackgroundFetch/TaskManager + queue AsyncStorage (jobs “analyse locale”).
 - `services/intention/offlineAudioQueue.ts` : file offline texte/audio **en SQLite**, notifications, purge.
 - `WhisperAdapter.ts` : transcription locale “best effort” via `whisper.rn` (si module dispo).
@@ -91,11 +91,11 @@ Repères dans `src/services/*` :
 ### 2.1 Entrée (UI) : texte et/ou audio
 
 - `TalkDebugScreen.tsx` : écran principal de capture (debug-friendly) :
-  - collecte un **transcript** (dictée/saisie) et parfois un **audioUri** (mémo).
-  - déclenche le flux via `IntentionContext` (quand disponible) ou via `captureStrategies` (modes spécifiques).
+  - **Phoenix** (champ texte) et **micro** (`TalkCaptureMicButton`) passent par `IntentionContext.submitCapturePayload` (Bulk(1) / OneTap).
+  - Ancien CTA « projet structuré (échéance) », modale deadline, prévisualisation plan Gemini et persistance `PROJECT_ATOMIZE` **retirés** de cet écran (Pass 2 projet à la demande vit dans `oneTapPersist` / contexte).
 - `IntentionContext.tsx` expose une API interne :
   - `startCapture()` / `cancelCapture()` : réinitialise les refs capture (sans funnel UI « streaming »).
-  - `submitCapturePayload({ transcript, audioUri, lang, traceId? })` : **soumission** (post-dictée) ; en ligne, `await runGeminiBulkSequence` (Bulk(1) pour le micro).
+  - `submitCapturePayload({ transcript, audioUri, lang, traceId? }) → Promise<boolean>` : **soumission** (post-dictée) ; peek Path A **avant** NetInfo ; hors ligne → file SQLite ; en ligne → `await runGeminiBulkSequence` (Bulk(1)). Le booléen indique si la donnée est sûre (persistée ou file offline, y compris auto-queue réseau).
 
 ### 2.2 Path A : squelette local immédiat (synchrones, sans réseau)
 
@@ -168,13 +168,18 @@ SPEC (v34) : **aucun** enrichissement Pass 2 automatique après Pass 1 ; uniquem
 
 Si aucune intention persistable n’est extraite/persistée, `oneTapPersist.ts` peut créer une NOTE de fallback (label `NOTE_FALLBACK`) pour ne pas “perdre” la capture.
 
-### 2.5 Offline-first : file locale + rejouage
+### 2.5 Offline-first : file locale + rejouage (**SPEC v34 — terminé**)
+
+**Parité peek** : `submitCapturePayload` émet **`INTENTION_PEEK_SNAPSHOT`** (Path A) **avant** `NetInfo` et avant toute mise en file, pour que l’utilisateur voie le même bandeau que en ligne.
+
+**NetInfo** : `isNetInfoConsideredOnline` dans `src/utils/offlineStability.ts` — en ligne si `isConnected === true` **et** `isInternetReachable !== false` (seul `false` bloque explicitement le chemin Gemini ; `null` évite les faux négatifs). Aligné sur `TalkCaptureMicButton` (ton succès online/offline).
 
 Fichier : `src/services/intention/offlineAudioQueue.ts`
 
 En cas de :
-- offline (`NetInfo`), ou
-- échec Gemini / parsing / persistance,
+- offline (`!isNetInfoConsideredOnline(net)`), ou
+- échec Gemini / parsing / persistance **avec** erreur classée réseau/serveur pendant le bulk en ligne (`isLikelyNetworkOrServerError` dans `offlineStability.ts` → enqueue auto),
+- échec sans classification réseau : Alert `proposeOfflineFallback` si aucune persistance ni enqueue auto,
 
 `IntentionContext` appelle :
 
@@ -186,14 +191,16 @@ Ce que fait la queue offline :
 1. S’appuie sur la table `offline_audio_queue` (SQLite) + indexes déjà créées au bootstrap (`initTrankilV2Schema`).
 2. Copie le fichier audio dans `documentDirectory/offline_queue/<uuid>.m4a` (si audio).
 3. Insère une NOTE dans `intentions` :
-   - `metadata_json.source = 'offline_audio_queue'`
+   - `metadata_json` : `source: 'offline_audio_queue'`, **`persistence_label` / `tag` : `NOTE_FALLBACK`** (identification retry / Timeline ; les lignes `source=offline_audio_queue` ne sont **pas** masquées par `isHiddenTechnicalNoteFallbackRow`),
    - `is_pending_ai = 1`
 4. Ajoute une ligne de queue `offline_audio_queue(status='pending')`.
 5. Notification : `notifyOfflineAudioPendingAnalysis()` (actions “Analyser / Garder audio”).
 
+**Observabilité** : logs console **`[OFFLINE-STABILITY]`** via `src/utils/offlineStability.ts` (`logOfflineStability`, `isLikelyNetworkOrServerError`, `isNetInfoConsideredOnline`, phase **`netinfo_online_null_reachable`**) ; logs dev **`[CAPTURE_FLOW]`** via `src/utils/captureFlowLog.ts` (`__DEV__`), incluant `peek_snapshot_emit`, **`peek_snapshot_offline_queue`**, `submit_netinfo`, `submit_offline_queued`, etc.
+
 Rejouage :
 
-- `IntentionContext.analyzeLatestOfflineAudio()` récupère un élément pending, le marque done, puis rappelle `submitCapturePayload(...)`.
+- `IntentionContext.analyzeLatestOfflineAudio()` rejoue un élément `pending` via `submitCapturePayload` ; **`markOfflineAudioAsDone` n’est appelé qu’après** un retour **`true`** de `submitCapturePayload` (succès bulk, bulk complet sans break, ou enqueue offline direct / auto), sinon l’entrée reste `pending`.
 
 ### 2.6 Background processing (TaskManager)
 
@@ -229,9 +236,9 @@ Fichier : `src/services/CaptureProcessingService.ts`
 ### 3.2 Orchestration UI capture
 
 - `src/context/IntentionContext.tsx`
-  - `submitCapturePayload({ transcript, audioUri, lang, traceId? })` : pipeline micro/texte “unitaire” (NetInfo → `await runGeminiBulkSequence` ou queue offline).
-  - `runGeminiBulkSequence(...)` : séquenceur bulk **séquentiel** avec **verrou strict** : échec ou exception sur le chunk *i* → `break` (pas de chunk *i+1*).
-  - `proposeOfflineFallback(...)` : Alert UI + sauvegarde hors-ligne.
+  - `submitCapturePayload(...) → Promise<boolean>` : Path A peek (`INTENTION_PEEK_SNAPSHOT`) **avant** NetInfo ; hors ligne → file SQLite ; en ligne → `await runGeminiBulkSequence`. `true` = donnée persistée en ligne **ou** placée en file offline (directe ou auto-queue réseau) ; sert au drain sûr du rejouage.
+  - `runGeminiBulkSequence(...)` : séquenceur bulk **séquentiel** ; échec chunk → `break` ; erreur réseau/serveur → **enqueue auto** `queueOffline*` (reste des chunks ou transcript+audio si rien n’a été persisté) ; `allowAutoOfflineQueue: false` pour `triggerJalonZoom`.
+  - `proposeOfflineFallback(...)` : Alert UI + sauvegarde hors-ligne (repli si erreur non réseau / pas d’enqueue auto).
   - `triggerJalonZoom({ projectIntentionId, parentJalonUid })` : “zoom IA” d’un jalon projet (réutilise bulk(1) en mode enfant).
 
 ### 3.3 Persistance / Douane DB
@@ -273,11 +280,11 @@ Fichier : `src/services/CaptureProcessingService.ts`
 SPEC (section “Pipeline Unique — Micro as a Bulk(1)”) demande :
 
 - `submitCapturePayload` → route **toute** capture micro vers `runGeminiBulkSequence({ chunks:[transcript] })`
-- afin d’avoir : mêmes logs, mêmes verrous, même ventilation DB (`persistOneTapDraftVentilated`), mêmes règles d’échec chunk.
+- afin d’avoir : mêmes logs, mêmes verrous, même ventilation DB (`persistOneTapDraftVentilated`), mêmes règles d’échec chunk, **plus** file offline automatique sur erreurs réseau/serveur pendant le bulk.
 
 État actuel :
 
-- `submitCapturePayload(...)` **attend** la fin de `runGeminiBulkSequence(...)` (`await`) : le même séquenceur couvre micro et texte.
+- `submitCapturePayload(...)` **attend** la fin de `runGeminiBulkSequence(...)` (`await`) et propage un **booléen** de « sûreté » (drain replay / confirmation file).
 - micro = `chunks=[transcript]` (Bulk(1)) ; persistance **uniquement** via `persistOneTapDraftVentilated(...)`.
 - `traceId` est fixé avant l’appel bulk pour des logs cohérents.
 
@@ -305,7 +312,7 @@ SPEC : après dictée, peek relatif au viewport, transition à la persistance Pa
 
 État actuel :
 
-- `TimelineScreen` / `TalkDebugScreen` : sur `INTENTION_PEEK_SNAPSHOT`, row `peek_pending` + ouverture peek **Path A** (`capturePeekPathAHeightPx`, ratio **~5 %** viewport via `CAPTURE_PEEK_PATH_A_RATIO`). **Gating focus** : `useIsFocused()` — si l’onglet n’a pas le focus, l’événement est ignoré (`logCaptureFlow` : `ui_peek_snapshot_skip_unfocused` / `ui_peek_first_save_skip_unfocused`) ; seul l’écran focalisé émet `ui_peek_snapshot` / `ui_peek_first_save`. Au blur d’un onglet qui portait encore un peek capture actif (`path_a` | `path_b` | `peek_pending`), fermeture locale (`ui_peek_capture_dismissed_unfocused_tab`) pour éviter une `Modal` résiduelle.
+- `TimelineScreen` / `TalkDebugScreen` : sur `INTENTION_PEEK_SNAPSHOT`, row `peek_pending` + ouverture peek **Path A** (`capturePeekPathAHeightPx`, ratio **~5 %** viewport via `CAPTURE_PEEK_PATH_A_RATIO`) — **y compris** quand la suite du pipeline est la **file offline** (pas de `INTENTION_PEEK_FIRST_SAVE` dans ce cycle jusqu’au rejeu en ligne). **Gating focus** : `useIsFocused()` — si l’onglet n’a pas le focus, l’événement est ignoré (`logCaptureFlow` : `ui_peek_snapshot_skip_unfocused` / `ui_peek_first_save_skip_unfocused`) ; seul l’écran focalisé émet `ui_peek_snapshot` / `ui_peek_first_save`. Au blur d’un onglet qui portait encore un peek capture actif (`path_a` | `path_b` | `peek_pending`), fermeture locale (`ui_peek_capture_dismissed_unfocused_tab`) pour éviter une `Modal` résiduelle.
 - Sur `INTENTION_PEEK_FIRST_SAVE`, hydration + peek **Path B** (`capturePeekPathBHeightPx`, ~25 %) **sans** fermer/réouvrir la sheet sur le même onglet (spring `peekTranslateY` uniquement).
 - `IntentionDetailSheet` : entrée complète (opacity + translate) **uniquement** à `visible` false→true ; passage Path A→B = **spring** sur `peekTranslateY` sans ré-entrée (évite flash) ; props `peekCapturePhase`, `captureSheetMaxHeightRatio` (0.95 en flux capture), validation UI **Path B** ; hauteurs peek = ratios viewport (`capturePeekPathAHeightPx` / `capturePeekPathBHeightPx`, sans plancher px) ; full sheet = `windowHeight × ratio` (0,86 / 0,92 si source étendue, ou 0,95 capture), sans plancher 240 px ; auto-fermeture 4 s en Path B ; timer annulé par pan / full / focus `TextInput` ; slot 1 neumorphique + pastel par `category_id`.
 - **Verrou Pass 2** : `metadata_json.pass2_unlocked` (bool). Tant que `false`/absent → fiche **Zen** (intercalaire, titre, moment, mémo) + CTA i18n par type. **PRO** : clic → `patchMetadata` + fondu vers UI complète (liste, jalons, itinéraire, Mission/Newton TRIP, etc.) ; Path B capture : même pose de `pass2_unlocked` avant enrich LIST/PROJECT.
@@ -315,12 +322,14 @@ SPEC : après dictée, peek relatif au viewport, transition à la persistance Pa
 
 ### 4.5 Offline-first : traitement ultérieur encore “semi-manuel”
 
-Le contrat “mise en file offline pour traitement ultérieur” est présent, mais :
+Le contrat “mise en file offline pour traitement ultérieur” est présent, avec **consolidation récente** :
 
-- le rejouage de `offline_audio_queue` est déclenché par interaction/notification (`analyzeLatestOfflineAudio()`), pas par un moteur automatique robuste (scheduler/worker).
+- **Drain replay** : `markOfflineAudioAsDone` n’est plus appelé avant un `submitCapturePayload` réussi (`Promise<boolean>`), ce qui évite de supprimer l’audio de file si le rejeu échoue.
+- **Auto-queue réseau** : erreurs réseau/serveur pendant le bulk en ligne enfilent le contenu sans imposer une Alert (logs `[OFFLINE-STABILITY]`).
+- Le rejouage reste surtout déclenché par **NetInfo** / notification / action utilisateur (`analyzeLatestOfflineAudio()`), pas par un scheduler/worker dédié.
 - `CaptureProcessingService` (BackgroundFetch) traite une autre queue (AsyncStorage) et appelle seulement `analyzeLocally` (pas de ré-injection systématique OneTap/Gemini + persistance).
 
-Si l’objectif produit est “zéro friction offline”, il manque une stratégie de replay automatique (avec garde-fous).
+Si l’objectif produit est “zéro friction offline”, il peut encore manquer un **replay automatique** plus agressif (avec garde-fous anti-doublon et backoff).
 
 ### 4.6 Instrumentation Pass 2 (logs)
 
@@ -335,9 +344,10 @@ Si l’objectif produit est “zéro friction offline”, il manque une stratég
 
 ### Fichiers à relire en priorité quand tu reprends le dev
 
-1. `src/context/IntentionContext.tsx` (orchestration + verrous + offline)
+1. `src/context/IntentionContext.tsx` (orchestration + verrous + offline + booléen drain)
 2. `src/services/oneTapUniversalCapture.ts` (contrats prompt/parsing)
 3. `src/services/oneTapPersist.ts` (mapping DB + Pass 2 + NOTE_FALLBACK)
 4. `src/api/trankilV2Db.ts` (schéma, patchMetadata, sérialisation)
 5. `src/services/intention/offlineAudioQueue.ts` (offline queue réelle en SQLite)
+6. `src/utils/offlineStability.ts` (heuristique réseau/serveur + logs `[OFFLINE-STABILITY]`)
 

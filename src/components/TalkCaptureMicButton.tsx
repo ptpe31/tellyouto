@@ -33,6 +33,7 @@ import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { MICRO_CAPTURE_START_EVENT_NAME } from '../constants/intentionEvents';
 import { warmGeminiProxySession } from '../services/geminiSemanticLab';
 import { logCaptureFlow } from '../utils/captureFlowLog';
+import { isNetInfoConsideredOnline } from '../utils/offlineStability';
 
 /**
  * Bouton micro + STT : enregistrement mémo, dictée, validation ; si `IntentionProvider` est monté,
@@ -317,7 +318,7 @@ export function TalkCaptureMicButton({
         return;
       }
       const net = await NetInfo.fetch();
-      const online = net.isConnected === true && net.isInternetReachable === true;
+      const online = isNetInfoConsideredOnline(net);
       if (__DEV__ && VERBOSE_DEBUG) {
         console.log(
           `[MIC] 🛰️ NETINFO: isConnected=${String(net.isConnected)} | isInternetReachable=${String(net.isInternetReachable)} | online=${String(online)}`,

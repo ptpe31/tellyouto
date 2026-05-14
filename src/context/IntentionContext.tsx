@@ -41,6 +41,11 @@ import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
 import { newUuidV4 } from '../utils/uuid';
 import { logCaptureFlow } from '../utils/captureFlowLog';
+import {
+  isLikelyNetworkOrServerError,
+  isNetInfoConsideredOnline,
+  logOfflineStability,
+} from '../utils/offlineStability';
 
 /**
  * Orchestration capture OneTap : séquenceur bulk unique (`runGeminiBulkSequence`), file offline SQLite, replay.
@@ -93,7 +98,7 @@ function buildDealerBulkPeekItems(
 type IntentionContextValue = {
   startCapture: () => void;
   cancelCapture: () => void;
-  submitCapturePayload: (payload: CapturePayload) => Promise<void>;
+  submitCapturePayload: (payload: CapturePayload) => Promise<boolean>;
   triggerJalonZoom: (params: {
     projectIntentionId: string;
     parentJalonUid: string;
@@ -233,6 +238,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
    * Traite les chunks séquentiellement (Path A + Gemini non-stream par chunk), persiste via
    * `persistOneTapDraftVentilated` ; **interruption stricte** (`break`) si un chunk échoue (`!vr.ok`) ou lève
    * (invariant : pas de chunk N+1 sans succès DB du chunk N). Point d’entrée **Micro as Bulk(1)**.
+   * En erreur réseau / serveur : enqueue auto vers la file SQLite (pas d’Alert obligatoire).
    */
   const runGeminiBulkSequence = useCallback(
     async (params: {
@@ -245,16 +251,18 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       parentId?: string | null;
       parentJalonUid?: string | null;
       silent?: boolean;
+      /** Si `false`, pas d’enqueue auto réseau (ex. prompt interne zoom jalon). Défaut : comportement actif. */
+      allowAutoOfflineQueue?: boolean;
       onPersisted?: (outcomes: PersistOneTapSuccess[]) => void;
-    }) => {
+    }): Promise<{ safeToDrainOfflineReplaySource: boolean }> => {
       const traceEarly = String(params.traceId || '').trim() || undefined;
       if (bulkProcessingRef.current) {
         logCaptureFlow(traceEarly, 'bulk_skip', { reason: 'bulk_processing' });
-        return;
+        return { safeToDrainOfflineReplaySource: false };
       }
       if (geminiStartedRef.current) {
         logCaptureFlow(traceEarly, 'bulk_skip', { reason: 'gemini_started' });
-        return;
+        return { safeToDrainOfflineReplaySource: false };
       }
       bulkProcessingRef.current = true;
       geminiStartedRef.current = true;
@@ -264,6 +272,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       if (__DEV__ && VERBOSE_DEBUG && isMic && trace) {
         console.log(`[SEQUENCER] 🔎 TRACE: ${trace}`);
       }
+      let safeToDrainOfflineReplaySource = false;
       try {
         const chunks = Array.isArray(params.chunks) && params.chunks.length ? params.chunks : splitBulkTranscript(base);
         logCaptureFlow(trace || undefined, 'bulk_start', {
@@ -274,13 +283,74 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const uiLocale = params.lang || spectrum.locale || 'fr-FR';
         const seq = (geminiSeqRef.current += 1);
         let savedAny = false;
+        let autoQueuedThisRun = false;
+        let bulkStoppedEarly = false;
         const habitsDefaultTitle = i18n.t('timeline.habit', { defaultValue: 'Habitude' });
         const birthdayLabel = i18n.t('timeline.birthday', { defaultValue: 'Anniversaire' });
         const total = chunks.length;
+
+        const tryAutoQueueNetworkFailure = async (opts: {
+          chunkIndex: number;
+          error: unknown;
+          reason: 'chunk_exception' | 'chunk_persist_fail';
+        }): Promise<boolean> => {
+          if (params.allowAutoOfflineQueue === false) {
+            logOfflineStability('auto_queue_skipped_by_flag', { trace: trace || null, reason: opts.reason });
+            return false;
+          }
+          if (!isLikelyNetworkOrServerError(opts.error)) {
+            logOfflineStability('auto_queue_skipped_not_network', {
+              trace: trace || null,
+              reason: opts.reason,
+              chunkIdx: opts.chunkIndex,
+            });
+            return false;
+          }
+          if (seq !== geminiSeqRef.current) return false;
+          const remainder = chunks.slice(opts.chunkIndex).join('\n\n').trim();
+          const textToQueue = (remainder.length ? remainder : base).trim() || base.trim();
+          if (!textToQueue.trim()) return false;
+          const title = textToQueue.slice(0, 56) || 'Memo';
+          try {
+            const useAudio = Boolean(params.audioUri) && !savedAny;
+            if (useAudio && params.audioUri) {
+              logOfflineStability('auto_queue_audio', {
+                trace: trace || null,
+                reason: opts.reason,
+                chunkIdx: opts.chunkIndex,
+                transcriptLen: textToQueue.length,
+              });
+              await queueOfflineAudioCapture({
+                transcript: textToQueue,
+                audioUri: params.audioUri,
+                title,
+                lang: params.lang,
+              });
+            } else {
+              logOfflineStability('auto_queue_text', {
+                trace: trace || null,
+                reason: opts.reason,
+                chunkIdx: opts.chunkIndex,
+                partialAfterPriorChunks: savedAny,
+                transcriptLen: textToQueue.length,
+              });
+              await queueOfflineTextCapture({ transcript: textToQueue, title, lang: params.lang });
+            }
+            DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+            logOfflineStability('auto_queue_done', { trace: trace || null, mode: useAudio ? 'audio' : 'text' });
+            return true;
+          } catch (qe) {
+            logOfflineStability('auto_queue_failed', { trace: trace || null, err: String(qe) });
+            return false;
+          }
+        };
+
         for (let i = 0; i < chunks.length; i++) {
           bulkProgressIndexRef.current = i;
           try {
-            if (seq !== geminiSeqRef.current) return;
+            if (seq !== geminiSeqRef.current) {
+              return { safeToDrainOfflineReplaySource: false };
+            }
             const chunk = chunks[i];
             const now = new Date();
             console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
@@ -297,7 +367,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               useStream: false,
               forceComplete: true,
             });
-            if (seq !== geminiSeqRef.current) return;
+            if (seq !== geminiSeqRef.current) {
+              return { safeToDrainOfflineReplaySource: false };
+            }
             const clean = generateSmartTitle(chunk, uiLocale);
             const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
             const dueIso = typeof d.dueDateTime === 'string' ? d.dueDateTime.trim() : '';
@@ -339,7 +411,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               `[IA-USAGE]   ⏱️ LATENCY : ${geminiMsLabel}ms | 🪙 TOKENS : ${tokensTotalLabel} | 💰 COST : ${costLabel}`,
             );
             const hydrated = await hydrateOneTapDraftWithFavoriteAlias(res.parsed);
-            if (seq !== geminiSeqRef.current) return;
+            if (seq !== geminiSeqRef.current) {
+              return { safeToDrainOfflineReplaySource: false };
+            }
             logCaptureFlow(trace || undefined, 'chunk_ventilated_await', { idx: i + 1, total });
             const vr = await persistOneTapDraftVentilated({
               deps,
@@ -373,11 +447,19 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             } else {
               logCaptureFlow(trace || undefined, 'chunk_persist_fail', { idx: i + 1, total });
               console.log('[BulkSequence] ❌ CHUNK_FAILED:', { idx: i + 1, total: chunks.length });
+              bulkStoppedEarly = true;
+              if (await tryAutoQueueNetworkFailure({ chunkIndex: i, error: vr.error, reason: 'chunk_persist_fail' })) {
+                autoQueuedThisRun = true;
+              }
               break;
             }
           } catch (e) {
             logCaptureFlow(trace || undefined, 'chunk_exception', { idx: i + 1, total, err: String(e) });
             console.log('[BulkSequence] ❌ CHUNK_EXCEPTION:', { idx: i + 1, total: chunks.length, err: e });
+            bulkStoppedEarly = true;
+            if (await tryAutoQueueNetworkFailure({ chunkIndex: i, error: e, reason: 'chunk_exception' })) {
+              autoQueuedThisRun = true;
+            }
             break;
           } finally {
             bulkProgressIndexRef.current = -1;
@@ -385,14 +467,16 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         }
         logCaptureFlow(trace || undefined, 'bulk_loop_done', { savedAny, chunkCount: chunks.length });
         console.log('********* SÉQUENCE BULK TERMINÉE (succès partiel ou total) *********');
-        if (!savedAny && params.allowAlert) {
+        const allChunksDone = !bulkStoppedEarly;
+        safeToDrainOfflineReplaySource = autoQueuedThisRun || allChunksDone;
+        if (!savedAny && !autoQueuedThisRun && params.allowAlert) {
           proposeOfflineFallback({
             transcript: base,
             audioUri: params.audioUri,
             error: new Error('Bulk: aucune intention persistée'),
             lang: params.lang,
           });
-          return;
+          safeToDrainOfflineReplaySource = false;
         }
         if (savedAny && lastCaptureWasMicRef.current) {
           await consumeMicroIfNeeded({ isProUser: spectrum.isProUser });
@@ -405,18 +489,19 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         bulkProcessingRef.current = false;
         geminiStartedRef.current = false;
       }
+      return { safeToDrainOfflineReplaySource };
     },
     [proposeOfflineFallback, spectrum.isProUser, spectrum.locale],
   );
 
   /**
-   * Soumission post-dictée : NetInfo → en ligne `runGeminiBulkSequence` avec `chunks` ou transcript ;
-   * hors ligne → queue SQLite. `traceId` propagé pour les logs micro.
+   * Soumission post-dictée : Path A (peek) **toujours** en premier, puis NetInfo → file offline ou bulk Gemini.
+   * `traceId` propagé pour les logs micro.
    */
   const submitCapturePayload = useCallback(
-    async ({ transcript: rawTranscript, audioUri, lang, traceId }: CapturePayload) => {
+    async ({ transcript: rawTranscript, audioUri, lang, traceId }: CapturePayload): Promise<boolean> => {
       const cleaned = rawTranscript.trim();
-      if (!cleaned) return;
+      if (!cleaned) return false;
       const isMic = Boolean(audioUri);
       const trace = String(traceId || '').trim() || (isMic ? newId() : '');
       logCaptureFlow(trace || undefined, 'submit_enter', {
@@ -437,8 +522,27 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       lastAudioUriRef.current = audioUri;
       userEditedRef.current = false;
 
+      const uiLocale = lang || spectrum.locale || 'fr-FR';
+      const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
+      DeviceEventEmitter.emit(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, {
+        categoryTag: skeleton.categoryTag,
+        predictedType: skeleton.predictedType,
+        title: skeleton.title,
+        transcript: cleaned,
+      });
+      logCaptureFlow(trace || undefined, 'peek_snapshot_emit', {
+        categoryTag: skeleton.categoryTag,
+        predictedType: skeleton.predictedType,
+      });
+
       const net = await NetInfo.fetch();
-      const online = net.isConnected === true && net.isInternetReachable === true;
+      const online = isNetInfoConsideredOnline(net);
+      if (online && net.isInternetReachable == null) {
+        logOfflineStability('netinfo_online_null_reachable', {
+          trace: trace || null,
+          context: 'submit_capture_payload',
+        });
+      }
       logCaptureFlow(trace || undefined, 'submit_netinfo', {
         online,
         isConnected: net.isConnected,
@@ -450,6 +554,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         );
       }
       if (!online) {
+        logCaptureFlow(trace || undefined, 'peek_snapshot_offline_queue', {
+          categoryTag: skeleton.categoryTag,
+          predictedType: skeleton.predictedType,
+        });
         const title = cleaned.slice(0, 56) || 'Memo audio';
         if (__DEV__ && VERBOSE_DEBUG && isMic) {
           console.log(`[MIC] 📦 OFFLINE BRANCH → queue (title="${previewForLog(title, 80)}")`);
@@ -476,25 +584,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           }
         }
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
-        return;
+        logOfflineStability('submit_branch_offline_queued', { trace: trace || null, hasAudio: Boolean(audioUri) });
+        return true;
       }
 
-      const uiLocale = lang || spectrum.locale || 'fr-FR';
-      const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });
-      // Broadcast global : seuls les onglets focalisés ouvrent la sheet (TalkDebug / Timeline, `useIsFocused`).
-      DeviceEventEmitter.emit(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, {
-        categoryTag: skeleton.categoryTag,
-        predictedType: skeleton.predictedType,
-        title: skeleton.title,
-        transcript: cleaned,
-      });
-      logCaptureFlow(trace || undefined, 'peek_snapshot_emit', {
-        categoryTag: skeleton.categoryTag,
-        predictedType: skeleton.predictedType,
-      });
-
       logCaptureFlow(trace || undefined, 'bulk_sequence_await', {});
-      await runGeminiBulkSequence({
+      const bulkOutcome = await runGeminiBulkSequence({
         transcript: cleaned,
         chunks: [cleaned],
         audioUri,
@@ -527,6 +622,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         },
       });
       logCaptureFlow(trace || undefined, 'submit_return_after_bulk', {});
+      return bulkOutcome.safeToDrainOfflineReplaySource;
     },
     [runGeminiBulkSequence, spectrum.locale],
   );
@@ -561,6 +657,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           audioUri: null,
           lang: uiLocale,
           allowAlert: true,
+          allowAutoOfflineQueue: false,
           traceId: `zoom_${Date.now().toString(16)}`,
           parentId: projectId,
           parentJalonUid: parentUid,
@@ -582,22 +679,38 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
     [runGeminiBulkSequence, spectrum.locale],
   );
 
-  /** Marque la queue offline traitée puis rejoue la capture via `submitCapturePayload`. */
+  /** Rejoue une capture `pending` via `submitCapturePayload` ; ne marque la queue `done` qu’après succès confirmé. */
   const analyzeLatestOfflineAudio = useCallback(
     async (queueId?: string) => {
       const pending = queueId ? await getOfflineAudioById(queueId) : await getLatestPendingOfflineAudio();
       if (!pending) return;
       const t0 = String(pending.transcript || '').trim();
       if (!t0) return;
-      await markOfflineAudioAsDone(pending.id);
-      await submitCapturePayload({ transcript: t0, audioUri: pending.audio_path || null, lang: pending.speech_lang });
+      try {
+        const safeToDrain = await submitCapturePayload({
+          transcript: t0,
+          audioUri: pending.audio_path || null,
+          lang: pending.speech_lang,
+        });
+        if (safeToDrain) {
+          await markOfflineAudioAsDone(pending.id);
+          logOfflineStability('replay_queue_marked_done', { queueId: pending.id });
+        } else {
+          logOfflineStability('replay_left_pending', { queueId: pending.id });
+        }
+      } catch (e) {
+        logOfflineStability('replay_submit_threw', { queueId: pending.id, err: String(e) });
+      }
     },
     [submitCapturePayload],
   );
 
   useEffect(() => {
     const unsub = NetInfo.addEventListener((s) => {
-      if (s.isConnected === true && s.isInternetReachable === true) {
+      if (isNetInfoConsideredOnline(s)) {
+        if (s.isInternetReachable == null) {
+          logOfflineStability('netinfo_online_null_reachable', { context: 'netinfo_listener_replay' });
+        }
         void (async () => {
           await notifyOfflineAudioPendingAnalysis();
           await analyzeLatestOfflineAudio();

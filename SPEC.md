@@ -8,7 +8,7 @@ Le flux OneTap vise :
 - une capture très rapide (UI réactive en streaming),
 - une extraction structurée déterministe (contrats de format),
 - un fonctionnement multilingue (détection de langue + i18n),
-- une continuité offline‑first (fallback quand le réseau/IA est indisponible).
+- une continuité offline‑first (fallback quand le réseau/IA est indisponible) ; **urbanisation offline-first SPEC v34 : 100 % terminée** (file SQLite, peek-first, auto-queue réseau, harmonisation `NOTE_FALLBACK` métadonnées file, NetInfo « null reachable », logs `[OFFLINE-STABILITY]`).
 
 Documents de référence :
 - Démarrage & variables d’environnement : [README.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/README.md)
@@ -39,7 +39,12 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 
 - Path A (heuristique locale) : extraction immédiate (signaux/regex + chrono-node) du type d’intention et de dates relatives simples afin de produire un placeholder UI (brouillon exploitable) sans réseau.
 - Path B (Gemini unitaire) : envoi d’un chunk unique au proxy Gemini. Path B enrichit/rectifie les champs issus de Path A, sans casser les identifiants de suivi (l’ID d’intention généré côté app et les repères de progression restent stables).
-- Autonomie réelle en cas de panne réseau/proxy : l’UI pose d’abord le squelette (Path A), puis tente Path B dans un `try/catch`. Si l’appel Gemini échoue, la capture est mise en file offline (texte ou audio) pour traitement ultérieur. Voir [IntentionContext.tsx:L420-L552](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/IntentionContext.tsx#L420-L552).
+- Autonomie réelle en cas de panne réseau/proxy :
+  - **Avant** `NetInfo.fetch()` et tout appel Gemini, `submitCapturePayload` calcule le squelette Path A (`inferOneTapSkeletonFromTranscript`) et émet **`INTENTION_PEEK_SNAPSHOT`** : le peek s’affiche **aussi** en branche file offline (parité UX, feedback quasi immédiat). Ensuite seulement : si **`!isNetInfoConsideredOnline(net)`** (voir §2.c : `isConnected === true` **et** `isInternetReachable !== false` ; un `null` sur reachability **n’impose pas** la file tant que la connexion est déclarée), la capture est enfilée via `queueOfflineAudioCapture` / `queueOfflineTextCapture` (NOTE `is_pending_ai=1` + ligne `offline_audio_queue`), sans Path B.
+  - **En ligne**, si Path B ou la persistance d’un chunk échoue avec une erreur **réseau ou serveur** (heuristique `isLikelyNetworkOrServerError` dans `offlineStability.ts`), le séquenceur **`runGeminiBulkSequence`** enfile **automatiquement** le transcript restant (ou le transcript complet + copie audio si aucun chunk n’a encore été persisté) dans la même file offline — l’utilisateur n’a pas à valider une Alert pour « sauver sa pensée » dans ce cas.
+  - Les erreurs métier / validation (hors heuristique réseau) peuvent encore ouvrir **`proposeOfflineFallback`** (Alert optionnelle) lorsqu’aucune persistance ni enqueue auto n’a eu lieu.
+  - **Rejouage** : `analyzeLatestOfflineAudio` n’appelle `markOfflineAudioAsDone` qu’**après** un `submitCapturePayload` ayant retourné `true` (donnée traitée ou re-file de façon sûre) ; sinon l’entrée `pending` est conservée.
+  - **Observabilité** : logs console **`[OFFLINE-STABILITY]`** (`logOfflineStability`) pour enqueue auto, replay, branche offline directe et **`netinfo_online_null_reachable`** ; logs dev **`[CAPTURE_FLOW]`** (`captureFlowLog.ts`, `__DEV__`) pour la corrélation `traceId`, incluant `peek_snapshot_emit`, **`peek_snapshot_offline_queue`** (confirmation peek puis file hors ligne), `submit_netinfo`, `submit_offline_queued`, etc.
 - Cycle de vie du titre (critique) :
   - Path A (heuristique locale) : génère un titre “bruit” (brut ou via heuristiques simples) uniquement pour l’affichage immédiat.
   - Path B (Gemini) : fournit le Smart Title définitif via son champ `CONTENT`.
@@ -138,7 +143,7 @@ Mode de traitement : boucle asynchrone séquentielle, une intention à la fois.
 - Règle d’or : l’appel N+1 vers Gemini ne démarre qu’après confirmation de succès DB (SUCCESS_DB) de l’appel N.
 - Isolation : chaque chunk est envoyé à Gemini comme une requête atomique (Path B standard). Objectif : fiabilité maximale du format JSON/structuré et réduction du risque de sorties trop longues, tronquées ou ambiguës.
 - Mécanisme de survie : un échec sur un chunk est logué et ne bloque pas le traitement des chunks restants.
-- Fallback NOTE automatique (selon `allowNoteFallback`) : si Gemini ne parvient pas à produire d’intentions persistables, `persistOneTapDraftVentilated` peut créer une intention `NOTE_FALLBACK`. Ce fallback est activé par défaut, mais le séquenceur bulk le désactive explicitement (`allowNoteFallback: false`) et préfère alors un échec de chunk + mécanisme offline au niveau séquenceur. Voir [oneTapPersist.ts:L1167-L1186](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts#L1167-L1186) et [IntentionContext.tsx:L600-L607](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/IntentionContext.tsx#L600-L607).
+- Fallback NOTE automatique (selon `allowNoteFallback`) : si Gemini ne parvient pas à produire d’intentions persistables, `persistOneTapDraftVentilated` peut créer une intention `NOTE_FALLBACK`. Ce fallback est activé par défaut, mais le séquenceur bulk le désactive explicitement (`allowNoteFallback: false`) et préfère alors un échec de chunk + mécanisme offline (auto-queue réseau ou Alert / file) au niveau séquenceur. Voir [oneTapPersist.ts:L1167-L1186](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts#L1167-L1186) et `runGeminiBulkSequence` dans [IntentionContext.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/IntentionContext.tsx).
 - Verrouillage de progression : en mode bulk, l’index de progression (ex. 2/5) est mis à jour immédiatement après le succès DB afin de refléter l’état réel de la persistance (et non l’état de l’appel réseau).
 
 #### Verrou de persistance (Persistence Lock)
@@ -371,7 +376,7 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - Swipe down / fermeture : logique inchangée.
 
 #### Routage des événements peek (unicité `IntentionDetailSheet`)
-- `INTENTION_PEEK_SNAPSHOT` et `INTENTION_PEEK_FIRST_SAVE` sont émis globalement (`DeviceEventEmitter`) depuis `submitCapturePayload` (`IntentionContext`).
+- `INTENTION_PEEK_SNAPSHOT` est émis **au tout début** de `submitCapturePayload` (Path A : squelette local), **avant** `NetInfo.fetch()` et **avant** toute file offline ou bulk : même cinématique Path A **en ligne et hors ligne** (parité UX). `INTENTION_PEEK_FIRST_SAVE` n’est émis **qu’après** persistance réussie en ligne (callback `onPersisted`) ; en branche **file offline NetInfo**, il n’y a pas de Path B immédiat — pas d’émission `FIRST_SAVE` dans ce cycle (rejeu ultérieur possible). Les deux événements passent par le bus global (`DeviceEventEmitter`, `IntentionContext`).
 - `TalkDebugScreen` et `TimelineScreen` montent chacun une `IntentionDetailSheet` : sans garde-fou, deux feuilles pourraient réagir au même événement.
 - **Règle** : chaque écran ne traite les listeners peek que si **`useIsFocused()`** est vrai au moment de l’événement (lecture via ref à jour, car les handlers sont enregistrés une fois). Sinon : aucun `setState` ; journalisation `logCaptureFlow` avec `ui_peek_snapshot_skip_unfocused` ou `ui_peek_first_save_skip_unfocused` (payload `screen`: `TalkDebug` | `Timeline`).
 - **Fermeture au blur (capture uniquement)** : si l’utilisateur quitte l’onglet pendant un peek capture actif (`peekCapturePhase` ∈ `path_a` | `path_b` ou row `peek_pending`), fermer la sheet sur cet onglet (`ui_peek_capture_dismissed_unfocused_tab`) pour éviter une `Modal` résiduelle au-dessus de l’onglet désormais focalisé (ex. replay offline terminé sur Timeline : seule la Timeline « maître » affiche le peek).
@@ -835,7 +840,7 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 ### 2) Unification du cerveau (IntentionContext)
 
 **Contrat absolu : il n’existe plus qu’un seul chemin de traitement/persistance dans `IntentionContext`.**  
-`submitCapturePayload` est un wrapper **mince** autour du séquenceur `runGeminiBulkSequence` (micro = Bulk de 1) et **doit** `await` la fin du séquenceur avant de retourner (pas de « fire-and-forget »).
+`submitCapturePayload` est un wrapper **mince** autour du séquenceur `runGeminiBulkSequence` (micro = Bulk de 1) et **doit** `await` la fin du séquenceur avant de retourner (pas de « fire-and-forget »). Il retourne **`Promise<boolean>`** : `true` lorsque la capture est considérée comme **sûrement persistée ou file offline** (y compris enqueue NetInfo « offline » ou enqueue auto réseau après échec chunk) ; `false` si l’utilisateur peut encore perdre la donnée (ex. Alert `proposeOfflineFallback` sans action, annulation de séquence `seq`).
 
 #### 2.a) Wrapper “Micro = Bulk(1)” (submitCapturePayload)
 
@@ -847,26 +852,34 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
   - `lang` (BCP47 optionnel) : langue session STT (si connue).
   - `traceId` (string optionnel) : identifiant de trace micro (logs).
 - Peek / Validation UI (hauteurs **% viewport** — Path A ~**5 %**, Path B ~**25 %**, full capture ~**95 %** ; voir § IntentionDetailSheet / Capture Flash) :
-  - `submitCapturePayload` émet `INTENTION_PEEK_SNAPSHOT_EVENT_NAME` **avant** l’appel bulk (snapshot Path A : catégorie/type/titre).
-  - `submitCapturePayload` émet `INTENTION_PEEK_FIRST_SAVE_EVENT_NAME` **après** persistance confirmée, via callback `onPersisted(outcomes)` en remontant un `intentionId` réel.
+  - `submitCapturePayload` émet `INTENTION_PEEK_SNAPSHOT_EVENT_NAME` **avant** `NetInfo.fetch()` et **avant** l’appel bulk (snapshot Path A : catégorie/type/titre) — y compris lorsque la suite ira en file offline.
+  - `submitCapturePayload` émet `INTENTION_PEEK_FIRST_SAVE_EVENT_NAME` **après** persistance confirmée (branche en ligne uniquement), via callback `onPersisted(outcomes)` en remontant un `intentionId` réel.
+- Valeur de retour : le booléen sert notamment au **rejouage** `analyzeLatestOfflineAudio` : ne pas appeler `markOfflineAudioAsDone` sur la ligne `offline_audio_queue` tant que `submitCapturePayload` n’a pas retourné `true`.
 
 #### 2.b) Séquenceur unique (runGeminiBulkSequence)
 
 - Le séquenceur reste **séquentiel** : pour chaque chunk, enchaînement « Gemini (non-stream) → `persistOneTapDraftVentilated` → succès DB » avant d’entamer le suivant.
-- **Verrou strict** : si `persistOneTapDraftVentilated` retourne `!ok` ou lève une exception pour le chunk *i*, la boucle s’interrompt (`break`) — **aucun chunk *i+1*** tant que le chunk *i* n’a pas été persisté avec succès.
+- **Verrou strict** : si `persistOneTapDraftVentilated` retourne `!ok` ou lève une exception pour le chunk *i*, la boucle s’interrompt (`break`) — **aucun chunk *i+1*** tant que le chunk *i* n’a pas été persisté avec succès — **sauf** si un enqueue offline auto (réseau/serveur) a pris le relais pour le reste du contenu (voir §2.c).
 - Persistance : **toute persistance passe par `persistOneTapDraftVentilated`** (ventilation = source de vérité), y compris pour le micro (Bulk(1)).
+- **Zoom jalon projet** : `triggerJalonZoom` réutilise le bulk avec **`allowAutoOfflineQueue: false`** pour éviter d’enfiler le prompt interne de décomposition dans la file utilisateur en cas d’erreur réseau.
 - Contrat NOTE_FALLBACK :
   - En mode Bulk (dont micro-as-bulk), le séquenceur passe `allowNoteFallback: false` et préfère :
     1) log d’échec chunk,
-    2) puis fallback offline (queue texte/audio) si aucun chunk n’a pu être persisté.
+    2) **enqueue auto** vers `offline_audio_queue` si l’erreur est classée réseau/serveur (voir §2.c),
+    3) sinon Alert `proposeOfflineFallback` si aucun chunk n’a pu être persisté **et** aucun enqueue auto n’a réussi.
 
 #### 2.c) Offline-first (invariant)
 
+- **Ordre** : Path A + `INTENTION_PEEK_SNAPSHOT` → `NetInfo.fetch()` → branche offline **ou** `runGeminiBulkSequence` (jamais d’inversion peek / réseau).
+- **NetInfo « en ligne » (SPEC v34)** : `online = isConnected === true && isInternetReachable !== false` (`isNetInfoConsideredOnline` dans [offlineStability.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/offlineStability.ts)) : `isInternetReachable === null` **autorise** le chemin Gemini (évite faux négatifs plateforme) ; seul **`false`** force la file offline. Un log **`[OFFLINE-STABILITY] phase=netinfo_online_null_reachable`** est émis lorsque ce chemin « en ligne » est pris avec `isInternetReachable == null` (`submitCapturePayload` et listener NetInfo de rejouage).
+- **Métadonnées NOTE file** : toute intention créée par `queueOfflineAudioCapture` / `queueOfflineTextCapture` porte dans `metadata_json` au minimum `source: 'offline_audio_queue'`, **`persistence_label`: `'NOTE_FALLBACK'`**, **`tag`: `'NOTE_FALLBACK'`** (harmonisation sémantique avec le vocabulaire retry / Timeline). Le filtre « NOTE technique masquée » (`isHiddenTechnicalNoteFallbackRow`) **n’applique pas** ce masque lorsque `metadata_json.source === 'offline_audio_queue'` : la note reste **visible** sur la Timeline.
 - Si l’app est offline (NetInfo), `submitCapturePayload` ne doit **pas** tenter Gemini :
   - il enfile immédiatement la capture via `queueOfflineAudioCapture` / `queueOfflineTextCapture`,
   - insère une NOTE `is_pending_ai=1`,
   - émet `INTENTIONS_CHANGED_EVENT_NAME`,
-  - puis retourne sans déclencher de traitement cloud.
+  - retourne **`true`** (donnée file côté SQLite).
+- **En ligne**, échec réseau/serveur **pendant** un chunk : `runGeminiBulkSequence` enfile automatiquement le **reste** des chunks (texte) ou le **transcript complet + audio** si aucun chunk n’avait encore été persisté (`queueOfflineTextCapture` / `queueOfflineAudioCapture`), puis retourne un indicateur **`safeToDrainOfflineReplaySource`** consommé par `submitCapturePayload` pour le booléen global.
+- **Rejouage file** : `analyzeLatestOfflineAudio` appelle `submitCapturePayload` **sans** marquer la ligne `done` avant succès ; `markOfflineAudioAsDone` n’est invoqué que si le booléen retourné est `true`.
 
 #### 2.d) Suppression des chemins redondants (simplicité = stabilité)
 
@@ -878,6 +891,7 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 #### 2.e) Schéma offline + « stream global » parasite (contrat)
 
 - La table `offline_audio_queue` et ses index sont créées au **bootstrap** SQLite (`initTrankilV2Schema`) ; les services de queue ne redéclarent pas le DDL.
+- Heuristique **réseau / serveur** (enqueue auto, logs `[OFFLINE-STABILITY]`) et **gating NetInfo** (`isNetInfoConsideredOnline`) : [offlineStability.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/offlineStability.ts).
 - Interdiction : aucun déclenchement Gemini « parallèle » pendant la dictée en contournant le séquenceur (`oneTap.wire.stream` réservé à des usages internes hors `IntentionContext` si un jour réactivé).
 - `geminiStartedRef` ne doit être manipulé que par le chemin `submitCapturePayload → runGeminiBulkSequence`.
 - Le log `[MIC] ⏳ SKIP Gemini (already started)` doit disparaître (plus de compétition de verrous).

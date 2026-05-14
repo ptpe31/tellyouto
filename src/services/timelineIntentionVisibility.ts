@@ -21,9 +21,11 @@ function parseJsonObject(raw: string | null | undefined): Record<string, unknown
 }
 
 export function isHiddenTechnicalNoteFallbackRow(row: TrankilV2TimelineItemRow): boolean {
+  const meta = parseJsonObject(row.metadata_json);
+  /** Notes file `offline_audio_queue` : même label sémantique, mais visibles Timeline (pas le masque « technique » OneTap). */
+  if (String(meta.source || '').trim() === 'offline_audio_queue') return false;
   const tags = parseJsonArray(row.suggested_tags);
   if (tags.includes(NOTE_FALLBACK_LABEL)) return true;
-  const meta = parseJsonObject(row.metadata_json);
   if (String(meta.persistence_label || '').trim() === NOTE_FALLBACK_LABEL) return true;
   return false;
 }

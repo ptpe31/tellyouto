@@ -9,8 +9,18 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { insertTrankilV2Intention, withTrankilV2Database } from '../../api/trankilV2Db';
 import i18n from '../../locales/i18n';
 import { getNotifications } from '../notifications';
+import { NOTE_FALLBACK_LABEL } from '../timelineIntentionVisibility';
 import { VERBOSE_DEBUG } from '../../config/verboseDebug';
 import { newUuidV4 } from '../../utils/uuid';
+
+function metadataJsonForOfflineQueuedNote(extra: Record<string, unknown>): string {
+  return JSON.stringify({
+    source: 'offline_audio_queue',
+    persistence_label: NOTE_FALLBACK_LABEL,
+    tag: NOTE_FALLBACK_LABEL,
+    ...extra,
+  });
+}
 
 export const OFFLINE_AUDIO_CATEGORY_ID = 'offline_audio_queue_actions';
 export const OFFLINE_AUDIO_ACTION_ANALYZE = 'offline_audio_analyze';
@@ -73,7 +83,10 @@ export async function queueOfflineAudioCapture(params: {
     title: params.title,
     content_raw: params.transcript,
     created_at: now,
-    metadata_json: JSON.stringify({ source: 'offline_audio_queue', audio_path: targetPath, speech_lang: params.lang || null }),
+    metadata_json: metadataJsonForOfflineQueuedNote({
+      audio_path: targetPath,
+      speech_lang: params.lang || null,
+    }),
     category_id: 'PERSO',
     is_pending_ai: 1,
   });
@@ -113,7 +126,9 @@ export async function queueOfflineTextCapture(params: {
     title: params.title,
     content_raw: params.transcript,
     created_at: now,
-    metadata_json: JSON.stringify({ source: 'offline_audio_queue', speech_lang: params.lang || null }),
+    metadata_json: metadataJsonForOfflineQueuedNote({
+      speech_lang: params.lang || null,
+    }),
     category_id: 'PERSO',
     is_pending_ai: 1,
   });
