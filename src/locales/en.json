@@ -1326,7 +1326,6 @@
     "oneTapPrintNeedsNativeBuild": "The print module isn’t in this app binary. Use a development build (e.g. npx expo run:android) after adding expo-print, or rebuild the app. Expo Go may not include newly added native modules.",
     "oneTapCategoryTag": "Tag",
     "oneTapTranscriptLabel": "Transcript",
-    "oneTapOpenProjectPlan": "Structured project (deadline)",
     "oneTapType": {
       "TASK": "Task",
       "RECURRING_TASK": "Recurring task",

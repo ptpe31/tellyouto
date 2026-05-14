@@ -7,7 +7,7 @@
 
 /**
  * @param trace Identifiant de corrélation (ex. `mic_*` depuis le micro) ; `undefined` hors micro.
- * @param phase Nom machine lisible (ex. `submit_enter`, `peek_snapshot_emitted`).
+ * @param phase Nom machine lisible (ex. `submit_enter`, `peek_snapshot_emit`, `peek_snapshot_offline_queue`).
  * @param detail Métadonnées sérialisées en JSON (taille limitée côté appelant).
  */
 export function logCaptureFlow(trace: string | undefined, phase: string, detail?: Record<string, unknown>): void {

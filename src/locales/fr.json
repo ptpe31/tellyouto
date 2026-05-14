@@ -1326,7 +1326,6 @@
     "oneTapPrintNeedsNativeBuild": "Le module d’impression n’est pas inclus dans cette build. Installe un development build (ex. npx expo run:android) après ajout d’expo-print, ou rebuild l’app. Expo Go ne charge pas toujours les modules natifs ajoutés au projet.",
     "oneTapCategoryTag": "Étiquette",
     "oneTapTranscriptLabel": "Transcription",
-    "oneTapOpenProjectPlan": "Projet structuré (échéance)",
     "oneTapType": {
       "TASK": "Tâche",
       "RECURRING_TASK": "Tâche récurrente",
