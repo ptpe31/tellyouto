@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   DeviceEventEmitter,
   StyleSheet,
   Text,
@@ -25,7 +26,7 @@ import {
   INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
   INTENTIONS_CHANGED_EVENT_NAME,
 } from '../constants/intentionEvents';
-import { logCaptureFlow } from '../utils/captureFlowLog';
+import { logCaptureFlow, CAPTURE_PIPELINE_PROGRESS_EVENT, type CapturePipelineProgressPayload } from '../utils/captureFlowLog';
 import {
   buildPeekPendingRowFromSnapshot,
   capturePeekPathAHeightPx,
@@ -37,7 +38,8 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { DealerBoard } from '../components/DealerBoard';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
 import { PassProModal } from '../components/PassProModal';
-import { TalkCaptureMicButton, type TalkCaptureEndPayload } from '../components/TalkCaptureMicButton';
+import { TalkCaptureMicButton, type TalkCaptureEndPayload, type TalkCaptureMicButtonHandle } from '../components/TalkCaptureMicButton';
+import { TalkPipelineProgressDashboard } from '../components/TalkPipelineProgressDashboard';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import { formatYmdLocal } from '../services/TimeSorter';
@@ -96,6 +98,16 @@ export function TalkDebugScreen() {
   const [todayTodoCount, setTodayTodoCount] = useState(0);
   const [headerUnorganizedCount, setHeaderUnorganizedCount] = useState(0);
 
+  const micRef = useRef<TalkCaptureMicButtonHandle | null>(null);
+  const [pipelineModalVisible, setPipelineModalVisible] = useState(false);
+  const [pipelineDisplayedPct, setPipelineDisplayedPct] = useState(0);
+  const [pipelineResilienceOrange, setPipelineResilienceOrange] = useState(false);
+  const pipelineTargetRef = useRef(0);
+  const pipelineActiveTraceRef = useRef<string | null>(null);
+  const pipelineNormalFinishRef = useRef(false);
+  const pipelineOrangeNavScheduledRef = useRef(false);
+  const pipelineContentOpacity = useRef(new Animated.Value(1)).current;
+
   /** Rafraîchit compteurs en-tête (tâches du jour, piggy, quota free capture). */
   const refreshPilotHeader = useCallback(async () => {
     const ymd = formatYmdLocal(new Date());
@@ -142,10 +154,161 @@ export function TalkDebugScreen() {
     return true;
   }, [micLocked]);
 
-  /** Début d’enregistrement micro. */
+  /** Début d’enregistrement micro : ferme le dashboard résiduel (nouvelle capture). */
   const onMicStart = useCallback(() => {
     setCaptureStep('recording');
+    setPipelineModalVisible(false);
+    setPipelineResilienceOrange(false);
+    pipelineOrangeNavScheduledRef.current = false;
   }, []);
+
+  /** Ouvre le dashboard pipeline (trace alignée sur les événements `CAPTURE_PIPELINE_PROGRESS`). */
+  const onDashboardPipelineOpened = useCallback((ctx: { traceId: string; onlineAtMicStop: boolean }) => {
+    void ctx.onlineAtMicStop;
+    pipelineActiveTraceRef.current = String(ctx.traceId || '').trim() || null;
+    pipelineTargetRef.current = 4;
+    pipelineNormalFinishRef.current = false;
+    pipelineOrangeNavScheduledRef.current = false;
+    pipelineContentOpacity.setValue(1);
+    setPipelineDisplayedPct(0);
+    setPipelineResilienceOrange(false);
+    setPipelineModalVisible(true);
+  }, [pipelineContentOpacity]);
+
+  /** Micro « échap » : ferme l’overlay sans annuler `submitCapturePayload`. */
+  const onPipelineWaitMicPress = useCallback(() => {
+    setPipelineModalVisible(false);
+    queueMicrotask(() => micRef.current?.exitPipelineWaitToIdle());
+  }, []);
+
+  useEffect(() => {
+    if (!pipelineModalVisible) return;
+    const id = setInterval(() => {
+      setPipelineDisplayedPct((d) => {
+        const t = pipelineTargetRef.current;
+        const n = d + (t - d) * 0.12;
+        return Math.abs(t - n) < 0.45 ? t : n;
+      });
+    }, 40);
+    return () => clearInterval(id);
+  }, [pipelineModalVisible]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(CAPTURE_PIPELINE_PROGRESS_EVENT, (raw: CapturePipelineProgressPayload) => {
+      const trace = String(raw.trace || '').trim();
+      const active = String(pipelineActiveTraceRef.current || '').trim();
+      if (!trace || !active || trace !== active) return;
+      const d = raw.detail;
+      let setOrange = false;
+      const bump = (v: number) => {
+        pipelineTargetRef.current = Math.max(pipelineTargetRef.current, v);
+      };
+      switch (raw.phase) {
+        case 'mic_stop_audio_done':
+          bump(9);
+          break;
+        case 'mic_submit_invoke':
+          bump(16);
+          break;
+        case 'submit_enter':
+          bump(19);
+          break;
+        case 'submit_netinfo':
+          bump(26);
+          break;
+        case 'netinfo_online_null_reachable':
+          bump(29);
+          break;
+        case 'peek_snapshot_emit':
+          bump(50);
+          break;
+        case 'peek_snapshot_offline_queue':
+          setOrange = true;
+          bump(100);
+          break;
+        case 'bulk_start':
+          bump(68);
+          break;
+        case 'chunk_ventilated_await':
+          bump(73);
+          break;
+        case 'chunk_persist_ok':
+          bump(82);
+          break;
+        case 'persist_callback':
+          bump(87);
+          break;
+        case 'peek_first_save_emit':
+          bump(93);
+          break;
+        case 'submit_return_after_bulk':
+          bump(100);
+          break;
+        case 'bulk_network_resilience_enqueue':
+          setOrange = true;
+          bump(100);
+          break;
+        case 'submit_offline_queued':
+          if (d?.reason === 'netinfo_offline') setOrange = true;
+          bump(100);
+          break;
+        default:
+          break;
+      }
+      if (setOrange) setPipelineResilienceOrange(true);
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!pipelineModalVisible || pipelineResilienceOrange) return;
+    if (pipelineDisplayedPct < 99.2) return;
+    if (pipelineNormalFinishRef.current) return;
+    pipelineNormalFinishRef.current = true;
+    const anim = Animated.timing(pipelineContentOpacity, {
+      toValue: 0,
+      duration: 420,
+      useNativeDriver: true,
+    });
+    anim.start(({ finished }) => {
+      if (!finished) return;
+      setPipelineModalVisible(false);
+      pipelineNormalFinishRef.current = false;
+      pipelineContentOpacity.setValue(1);
+      micRef.current?.exitPipelineWaitToIdle();
+    });
+    return () => {
+      anim.stop();
+      pipelineNormalFinishRef.current = false;
+    };
+  }, [pipelineContentOpacity, pipelineDisplayedPct, pipelineModalVisible, pipelineResilienceOrange]);
+
+  useEffect(() => {
+    if (!pipelineModalVisible || !pipelineResilienceOrange) return;
+    if (pipelineDisplayedPct < 98.5) return;
+    if (pipelineOrangeNavScheduledRef.current) return;
+    pipelineOrangeNavScheduledRef.current = true;
+    const t = setTimeout(() => {
+      pipelineOrangeNavScheduledRef.current = false;
+      navigation.navigate('Timeline', { initialTimeNav: 'TODAY', initialContext: 'ALL' });
+      setPipelineModalVisible(false);
+      pipelineContentOpacity.setValue(1);
+      micRef.current?.exitPipelineWaitToIdle();
+    }, 2000);
+    return () => {
+      clearTimeout(t);
+      pipelineOrangeNavScheduledRef.current = false;
+    };
+  }, [navigation, pipelineContentOpacity, pipelineDisplayedPct, pipelineModalVisible, pipelineResilienceOrange]);
+
+  const pipelineTitleText = useMemo(() => {
+    if (pipelineResilienceOrange) return t('talkDebug.errorNetwork');
+    if (pipelineDisplayedPct < 30) return t('talkDebug.stepTransport');
+    if (pipelineDisplayedPct < 60) return t('talkDebug.stepTranscription');
+    return t('talkDebug.stepAnalysis');
+  }, [pipelineDisplayedPct, pipelineResilienceOrange, t]);
+
+  const pipelineBarColor = pipelineResilienceOrange ? '#fb923c' : '#38bdf8';
 
   /**
    * Fin dictée côté parent : T0 perf + bannière cycle. Le pipeline Gemini + `submitCapturePayload`
@@ -296,6 +459,13 @@ export function TalkDebugScreen() {
         peekCapturePhase={peekCapturePhase}
         captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
       />
+      <TalkPipelineProgressDashboard
+        visible={pipelineModalVisible}
+        title={pipelineTitleText}
+        displayedPct={pipelineDisplayedPct}
+        barColor={pipelineBarColor}
+        contentOpacity={pipelineContentOpacity}
+      />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>
           <TextInput
@@ -348,7 +518,7 @@ export function TalkDebugScreen() {
 
       <View style={styles.middleSpacer} />
 
-      <IntentionSuggestionsBanner visible={captureStep === 'idle'} bottomOffset={112} />
+      <IntentionSuggestionsBanner visible={captureStep === 'idle' && !pipelineModalVisible} bottomOffset={112} />
 
       <View
         style={[
@@ -360,6 +530,7 @@ export function TalkDebugScreen() {
         ]}
       >
         <TalkCaptureMicButton
+          ref={micRef}
           variant="talkDebug"
           disabled={phoenixSubmitting}
           locked={micLocked}
@@ -371,6 +542,9 @@ export function TalkDebugScreen() {
           onCaptureEnd={onMicEnd}
           onCaptureCancel={onMicCancel}
           onValidated={onMicValidated}
+          dashboardPipelineHost
+          onDashboardPipelineOpened={onDashboardPipelineOpened}
+          onPipelineWaitMicPress={onPipelineWaitMicPress}
         />
       </View>
 

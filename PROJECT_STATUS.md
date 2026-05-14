@@ -7,7 +7,7 @@
 - Stack : **Expo / React Native**, React Navigation, React Context, **SQLite (expo-sqlite)** comme source de vérité locale (`talkndone.db`).
 - Cœur produit : pipeline **OneTap Dual‑Path** (Path A heuristiques locales → Path B Gemini via proxy) puis **Douane** (parsing/normalisation) et **persistance**.
 - Offline-first (**urbanisation SPEC v34 : 100 % terminée**) : en cas d’échec réseau/IA, la capture (texte/audio) est **mise en file** via `offline_audio_queue` + insertion d’une NOTE `is_pending_ai=1` (métadonnées `persistence_label` / `tag` = `NOTE_FALLBACK` + `source: offline_audio_queue`), puis rejouée ultérieurement. **NetInfo** : « en ligne » si `isConnected === true` **et** `isInternetReachable !== false` (`isNetInfoConsideredOnline`) ; log `[OFFLINE-STABILITY] netinfo_online_null_reachable` si tentative en ligne avec reachability `null`. **En ligne**, une coupure **pendant** Path B / persistance d’un chunk peut déclencher un **enqueue auto** (heuristique réseau/serveur, logs `[OFFLINE-STABILITY]`) sans Alert obligatoire. **Parité peek** : `INTENTION_PEEK_SNAPSHOT` (Path A) est émis **avant** `NetInfo` et la file, pour le même feedback visuel hors ligne qu’en ligne.
-- Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents.
+- Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents ; sur **TalkDebug**, un **dashboard de progression** (`TalkPipelineProgressDashboard` + événements `CAPTURE_PIPELINE_PROGRESS`) couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline).
 
 ---
 
@@ -92,6 +92,7 @@ Repères dans `src/services/*` :
 
 - `TalkDebugScreen.tsx` : écran principal de capture (debug-friendly) :
   - **Phoenix** (champ texte) et **micro** (`TalkCaptureMicButton`) passent par `IntentionContext.submitCapturePayload` (Bulk(1) / OneTap).
+  - **Dashboard progression** (`TalkPipelineProgressDashboard`) : après stop dictée, `Modal` central (titre i18n `talkDebug.stepTransport` / `stepTranscription` / `stepAnalysis`, barre 0–100 % lissée, mode **orange** + `talkDebug.errorNetwork` si file NetInfo, auto-queue réseau `bulk_network_resilience_enqueue`, ou `submit_offline_queued` `reason: netinfo_offline` ; succès → fondu puis reveal **DealerBoard** ; résilience → **2 s** puis navigation **Timeline**). Le micro reste visible : tap en **`pipeline_wait`** ferme l’overlay via `exitPipelineWaitToIdle` **sans** annuler `submitCapturePayload`. `IntentionSuggestionsBanner` masqué pendant l’overlay.
   - Ancien CTA « projet structuré (échéance) », modale deadline, prévisualisation plan Gemini et persistance `PROJECT_ATOMIZE` **retirés** de cet écran (Pass 2 projet à la demande vit dans `oneTapPersist` / contexte).
 - `IntentionContext.tsx` expose une API interne :
   - `startCapture()` / `cancelCapture()` : réinitialise les refs capture (sans funnel UI « streaming »).
@@ -196,7 +197,7 @@ Ce que fait la queue offline :
 4. Ajoute une ligne de queue `offline_audio_queue(status='pending')`.
 5. Notification : `notifyOfflineAudioPendingAnalysis()` (actions “Analyser / Garder audio”).
 
-**Observabilité** : logs console **`[OFFLINE-STABILITY]`** via `src/utils/offlineStability.ts` (`logOfflineStability`, `isLikelyNetworkOrServerError`, `isNetInfoConsideredOnline`, phase **`netinfo_online_null_reachable`**) ; logs dev **`[CAPTURE_FLOW]`** via `src/utils/captureFlowLog.ts` (`__DEV__`), incluant `peek_snapshot_emit`, **`peek_snapshot_offline_queue`**, `submit_netinfo`, `submit_offline_queued`, etc.
+**Observabilité** : logs console **`[OFFLINE-STABILITY]`** via `src/utils/offlineStability.ts` (`logOfflineStability`, `isLikelyNetworkOrServerError`, `isNetInfoConsideredOnline`, phase **`netinfo_online_null_reachable`**) ; **`[CAPTURE_FLOW]`** via `src/utils/captureFlowLog.ts` : logs console **`__DEV__`** **et** bus global **`notifyCapturePipelineProgress`** (`CAPTURE_PIPELINE_PROGRESS_EVENT`) pour le dashboard Talk + corrélation `traceId` ; phases incluant `peek_snapshot_emit`, **`peek_snapshot_offline_queue`**, **`bulk_network_resilience_enqueue`**, `submit_netinfo`, `submit_offline_queued`, etc.
 
 Rejouage :
 
@@ -318,6 +319,7 @@ SPEC : après dictée, peek relatif au viewport, transition à la persistance Pa
 - **Verrou Pass 2** : `metadata_json.pass2_unlocked` (bool). Tant que `false`/absent → fiche **Zen** (intercalaire, titre, moment, mémo) + CTA i18n par type. **PRO** : clic → `patchMetadata` + fondu vers UI complète (liste, jalons, itinéraire, Mission/Newton TRIP, etc.) ; Path B capture : même pose de `pass2_unlocked` avant enrich LIST/PROJECT.
 - **Gating monétisation Pass 2 (SPEC §6)** — implémenté dans `IntentionDetailSheet` : `useUserSpectrum().spectrum.isProUser`. **FREE** : CTA Pass 2 avec suffixe i18n `pass2LockedSuffix` (🔒) ; clic → **aucune** écriture `pass2_unlocked`, **aucun** enrichissement Gemini ; redirection vers `ProSubscription`. **PRO** : comportement actuel (mutation + animation). Persistance `pass2_unlocked` inchangée côté PRO.
 - Utilitaire : `src/utils/capturePeekLayout.ts`.
+- **Dashboard progression Talk** : [`TalkPipelineProgressDashboard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkPipelineProgressDashboard.tsx) + logique d’écoute dans [`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) ; phase micro **`pipeline_wait`** + ref **`exitPipelineWaitToIdle`** dans [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx).
 - **DealerBoard — « Matérialisation » (Talk)** : [`DealerBoard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/DealerBoard.tsx) monté uniquement sous `TalkDebugScreen` ; **proxies visuels** (pas d’écriture SQLite — persistance inchangée via `IntentionContext`). **`INTENTION_PEEK_SNAPSHOT`** inclut désormais **`transcript`** (emit `IntentionContext`) : mot-clé fantôme = **dernier mot** du transcript brut (regex `(\S+)\s*$`) avec repli sur le titre Path A. **`INTENTION_PEEK_FIRST_SAVE`** → remplacement / ballet (`LayoutAnimation` + springs Reanimated) selon le nombre d’intentions ; payload **`dealerBulkItems`** construit dans `IntentionContext` sur bulk ventilé ; géométrie 2/3/4 cartes et + dans [`dealerBalletLayout.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/dealerBalletLayout.ts) ; cartes **portrait** (~100×140 via `dealerPortraitMetrics`) ; matérialisation via [`DealerMaterializeCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/DealerMaterializeCard.tsx) + [`dealerMaterialTheme.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/dealerMaterialTheme.ts). **`MICRO_CAPTURE_START`** (`intentionEvents.ts`, émis par `TalkCaptureMicButton`) : coupe le timer idle et aspire vers le badge NEW ; haptique à l’impact ; timer idle aspiration **30 s** ; archivage **local** du proxy à l’aspiration.
 
 ### 4.5 Offline-first : traitement ultérieur encore “semi-manuel”
@@ -350,4 +352,6 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 4. `src/api/trankilV2Db.ts` (schéma, patchMetadata, sérialisation)
 5. `src/services/intention/offlineAudioQueue.ts` (offline queue réelle en SQLite)
 6. `src/utils/offlineStability.ts` (heuristique réseau/serveur + logs `[OFFLINE-STABILITY]`)
+7. `src/utils/captureFlowLog.ts` (`logCaptureFlow` / `notifyCapturePipelineProgress`, dashboard Talk)
+8. `src/components/TalkPipelineProgressDashboard.tsx` (overlay progression Pass 1, Talk uniquement)
 

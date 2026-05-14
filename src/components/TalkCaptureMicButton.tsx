@@ -2,7 +2,7 @@ import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { Check, Lock, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
@@ -32,7 +32,7 @@ import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { MICRO_CAPTURE_START_EVENT_NAME } from '../constants/intentionEvents';
 import { warmGeminiProxySession } from '../services/geminiSemanticLab';
-import { logCaptureFlow } from '../utils/captureFlowLog';
+import { logCaptureFlow, notifyCapturePipelineProgress } from '../utils/captureFlowLog';
 import { isNetInfoConsideredOnline } from '../utils/offlineStability';
 
 /**
@@ -59,6 +59,11 @@ export type TalkCaptureEndPayload = {
   lang: string;
 };
 
+export type TalkCaptureMicButtonHandle = {
+  /** Ferme l’attente dashboard (Talk) : idle micro + `onValidated` ; **ne** stoppe pas `submitCapturePayload`. */
+  exitPipelineWaitToIdle: () => void;
+};
+
 export type TalkCaptureMicButtonProps = {
   /** Exécuté juste avant de lancer micro + STT ; retour `false` annule le démarrage. */
   beforeStart?: () => Promise<boolean>;
@@ -67,6 +72,12 @@ export type TalkCaptureMicButtonProps = {
   onCaptureCancel?: () => void | Promise<void>;
   onPeekStart?: () => void;
   onValidated?: () => void;
+  /** TalkDebug + `dashboardPipelineHost` : tap micro en `pipeline_wait` (masquer overlay sans annuler Gemini). */
+  onPipelineWaitMicPress?: () => void;
+  /** TalkDebug : ouvre le dashboard central dès la fin dictée (avant submit). */
+  dashboardPipelineHost?: boolean;
+  /** TalkDebug : ouverture synchrone du dashboard (trace + NetInfo au moment du stop). */
+  onDashboardPipelineOpened?: (ctx: { traceId: string; onlineAtMicStop: boolean }) => void;
   onTranscriptChange?: (text: string) => void;
   disabled?: boolean;
   /** Variante compacte pour barre basse (Timeline). */
@@ -79,26 +90,32 @@ export type TalkCaptureMicButtonProps = {
 };
 
 /** Barre de capture vocale (variante Talk compacte ou Timeline). */
-export function TalkCaptureMicButton({
-  beforeStart,
-  onCaptureStart,
-  onCaptureEnd,
-  onCaptureCancel,
-  onPeekStart,
-  onValidated,
-  onTranscriptChange,
-  disabled,
-  compact,
-  variant = 'timeline',
-  locked,
-  lockedHintText,
-  waveformA11yLabel,
-  onLockedPress,
-}: TalkCaptureMicButtonProps) {
+export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null, TalkCaptureMicButtonProps>(function TalkCaptureMicButton(
+  {
+    beforeStart,
+    onCaptureStart,
+    onCaptureEnd,
+    onCaptureCancel,
+    onPeekStart,
+    onValidated,
+    onPipelineWaitMicPress,
+    dashboardPipelineHost,
+    onDashboardPipelineOpened,
+    onTranscriptChange,
+    disabled,
+    compact,
+    variant = 'timeline',
+    locked,
+    lockedHintText,
+    waveformA11yLabel,
+    onLockedPress,
+  },
+  ref,
+) {
   const intentionFlow = useOptionalIntentionContext();
   const { t, i18n } = useTranslation();
   const theme = useTheme();
-  const [phase, setPhase] = useState<'idle' | 'recording' | 'success'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'recording' | 'success' | 'pipeline_wait'>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
@@ -112,6 +129,22 @@ export function TalkCaptureMicButton({
   const sttLogGateRef = useRef<{ lastLen: number; firedStart: boolean }>({ lastLen: 0, firedStart: false });
   const successScale = useRef(new Animated.Value(0.8)).current;
   const successOpacity = useRef(new Animated.Value(1)).current;
+  const onValidatedRef = useRef(onValidated);
+  onValidatedRef.current = onValidated;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      exitPipelineWaitToIdle: () => {
+        setPhase((p) => {
+          if (p !== 'pipeline_wait') return p;
+          queueMicrotask(() => onValidatedRef.current?.());
+          return 'idle';
+        });
+      },
+    }),
+    [],
+  );
 
   useSpeechRecognitionEvent('result', (event) => {
     const text = event.results?.[0]?.transcript ?? '';
@@ -324,6 +357,37 @@ export function TalkCaptureMicButton({
           `[MIC] 🛰️ NETINFO: isConnected=${String(net.isConnected)} | isInternetReachable=${String(net.isInternetReachable)} | online=${String(online)}`,
         );
       }
+      const traceTrim = micTraceIdRef.current?.trim() || '';
+      const usePipelineDashboard = variant === 'talkDebug' && dashboardPipelineHost && Boolean(intentionFlow);
+
+      if (usePipelineDashboard) {
+        onDashboardPipelineOpened?.({ traceId: traceTrim, onlineAtMicStop: online });
+        notifyCapturePipelineProgress(traceTrim || undefined, 'mic_stop_audio_done', {
+          transcriptLen: cleaned.length,
+          hasAudio: Boolean(uri),
+          onlineAtMicStop: online,
+        });
+        setPhase('pipeline_wait');
+        if (intentionFlow) {
+          logCaptureFlow(traceTrim || undefined, 'mic_submit_invoke', {
+            transcriptLen: cleaned.length,
+            hasAudio: Boolean(uri),
+          });
+          void intentionFlow
+            .submitCapturePayload({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current, traceId: micTraceIdRef.current })
+            .catch((e) => {
+              if (__DEV__ && VERBOSE_DEBUG) {
+                console.log(`[MIC] ❌ submitCapturePayload failed | TRACE: ${micTraceIdRef.current} | ${e instanceof Error ? e.message : String(e)}`);
+              }
+            });
+        }
+        await onCaptureEnd?.({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current });
+        if (RPlatform.OS !== 'web') {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+        return;
+      }
+
       setPhase('success');
       setSuccessTone(online ? 'online' : 'offline');
       setSuccessLabel(
@@ -334,7 +398,7 @@ export function TalkCaptureMicButton({
             }),
       );
       if (intentionFlow) {
-        logCaptureFlow(micTraceIdRef.current?.trim() || undefined, 'mic_submit_invoke', {
+        logCaptureFlow(traceTrim || undefined, 'mic_submit_invoke', {
           transcriptLen: cleaned.length,
           hasAudio: Boolean(uri),
         });
@@ -354,7 +418,18 @@ export function TalkCaptureMicButton({
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     }
-  }, [intentionFlow, isRecording, onCaptureEnd, rawTranscript, resetInternal, t]);
+  }, [
+    dashboardPipelineHost,
+    intentionFlow,
+    isRecording,
+    onCaptureEnd,
+    onDashboardPipelineOpened,
+    onPipelineWaitMicPress,
+    rawTranscript,
+    resetInternal,
+    t,
+    variant,
+  ]);
 
   useEffect(() => {
     if (phase !== 'success') return;
@@ -450,7 +525,7 @@ export function TalkCaptureMicButton({
   if (isTalkDebug) {
     const canvasH = Math.round(Dimensions.get('window').height * 0.4);
     const accent = successTone === 'offline' ? '#FFB300' : '#4CAF50';
-    if (phase === 'idle') {
+    if (phase === 'idle' || phase === 'pipeline_wait') {
       return (
         <View style={tdStyles.micShell}>
           {locked && lockedHintText ? (
@@ -459,7 +534,13 @@ export function TalkCaptureMicButton({
             </Pressable>
           ) : null}
           <Pressable
-            onPress={() => void startRecording()}
+            onPress={() => {
+              if (phase === 'pipeline_wait') {
+                onPipelineWaitMicPress?.();
+                return;
+              }
+              void startRecording();
+            }}
             disabled={disabled && !locked}
             style={[tdStyles.micBtn, locked ? tdStyles.micBtnLocked : null, disabled && !locked ? tdStyles.disabled : null]}
           >
@@ -633,7 +714,9 @@ export function TalkCaptureMicButton({
       </View>
     </View>
   );
-}
+});
+
+TalkCaptureMicButton.displayName = 'TalkCaptureMicButton';
 
 const styles = StyleSheet.create({
   idleWrap: { alignItems: 'center', justifyContent: 'center', gap: 8 },

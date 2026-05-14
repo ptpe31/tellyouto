@@ -338,6 +338,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             }
             DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
             logOfflineStability('auto_queue_done', { trace: trace || null, mode: useAudio ? 'audio' : 'text' });
+            logCaptureFlow(trace || undefined, 'bulk_network_resilience_enqueue', {
+              mode: useAudio ? 'audio' : 'text',
+              chunkIdx: opts.chunkIndex,
+            });
             return true;
           } catch (qe) {
             logOfflineStability('auto_queue_failed', { trace: trace || null, err: String(qe) });
@@ -568,6 +572,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             mode: 'audio',
             queueId: queued.queueId,
             intentionId: queued.intentionId,
+            reason: 'netinfo_offline',
           });
           if (__DEV__ && VERBOSE_DEBUG && isMic) {
             console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
@@ -578,6 +583,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             mode: 'text',
             queueId: queued.queueId,
             intentionId: queued.intentionId,
+            reason: 'netinfo_offline',
           });
           if (__DEV__ && VERBOSE_DEBUG && isMic) {
             console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
