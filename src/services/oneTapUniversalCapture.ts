@@ -1254,10 +1254,26 @@ Output format (one line per intent):
 
 Constraints:
 - TYPE: TASK, TRIP, LIST, PROJECT, HABIT
-- DECISION RULES:
-  - Use HABIT if the user mentions recurrence (every day, weekly, "chaque jour", etc.) or a clear routine.
-  - Use PROJECT for broad objectives that require multiple steps (renovation, organizing a wedding, etc.). Pass 2 list/milestone enrichment is user-triggered in the app only (never automatic here).
-  - Prefer TRIP when movement/location is mentioned.
+- DECISION RULES (Action-Oriented & User-Centric):
+  To best assist the user, select the TYPE based on the most helpful next action in the app. Use this hierarchy:
+
+  1. PROJECT: Select this if the next helpful step is "Générer le plan" (or "Generate plan").
+     Trigger: Use for any objective requiring steps, learning, organizing, or preparation.
+     Examples: "Plan de répétition", "Organiser un voyage", "Préparer le projet X", "Apprendre les maths".
+
+  2. LIST: Select this if the next helpful step is "Créer la liste" (or "Create list").
+     Trigger: Use for inventories, shopping items, or collections of things.
+     Examples: "Liste de courses", "Acheter des fournitures", "Prendre les affaires pour le sport".
+
+  3. HABIT: Select this if the next helpful step is "Configurer l'habitude" (or "Setup habit").
+     Trigger: Use for recurring actions, routines, or mentions of frequency.
+     Examples: "Chaque jour", "Tous les matins", "Weekly".
+
+  4. TRIP: Select this if the next helpful step is "Préparer le trajet" (or "Prepare trip").
+     Trigger: Follow the TRIP CONTRACT (movement/location mentioned).
+
+  5. TASK: Fallback if the next helpful step is simply "Ajouter une note" (or "Add note").
+     Use for atomic, one-off actions with no obvious sub-steps.
 - CONTENT: keep the user's content in lang (do not translate); must follow DISPLAY TITLE CONTRACT above
 - CATEGORY_CODE: one of the 10 codes above (uppercase)
 - SLOT_4 meaning depends on TYPE:

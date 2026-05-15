@@ -91,9 +91,12 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
     - `LIST` : inventaire / liste de courses simple.
     - `PROJECT` : objectif complexe nécessitant plusieurs étapes (structure **LIST/PROJECT** ; l’**enrichissement Pass 2** n’est **jamais** déclenché automatiquement après Pass 1 — uniquement après **`pass2_unlocked: true`**, voir IntentionDetailSheet).
     - `HABIT` : action récurrente / routine.
-  - Règles de décision (côté Gemini) :
-    - Utiliser impérativement `HABIT` si l’utilisateur mentionne une récurrence (chaque jour, hebdomadaire, etc.) ou une routine claire.
-    - Utiliser `PROJECT` pour les objectifs larges nécessitant plusieurs étapes.
+  - Règles de décision (côté Gemini — **action orientée**, alignées sur la prochaine action utile dans l’app) — hiérarchie dans `buildOneTapPass1SystemInstruction` :
+    1. **`PROJECT`** — prochaine étape produit équivalente à *Générer le plan* : objectifs avec étapes, apprentissage, organisation, préparation (ex. plan de répétition, organiser un voyage au sens « projet », préparer un projet, apprendre X).
+    2. **`LIST`** — prochaine étape *Créer / générer la liste* : inventaires, courses, collections de choses concrètes.
+    3. **`HABIT`** — prochaine étape *Configurer l’habitude* : récurrence, routine, fréquence (chaque jour, matins, weekly, etc.).
+    4. **`TRIP`** — prochaine étape *Préparer le trajet* : **TRIP CONTRACT** (mouvement / lieu).
+    5. **`TASK`** — repli *Ajouter une note* : action atomique ponctuelle sans sous-étapes évidentes.
 
 #### 3) Traitement de sortie (Douane & normalisation)
 
@@ -430,10 +433,10 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 
 **Libellés dynamiques (i18n, pas de texte en dur dans les composants)** — intention du libellé « actif » (PRO) :
 - `LIST` / catégorie `SHOP` → *Générer la liste* (`pass2List`).
-- `PROJECT` → *Générer le projet* (`pass2Project`).
+- `PROJECT` → *Générer le plan* (`pass2Project`).
 - `TRIP` / `TRAVEL` → *Préparer le trajet* (`pass2Trip`).
 - `HABIT` / `HEALTH` → *Planifier la routine* (`pass2Habit`).
-- `TASK` → *Préciser l’action* (`pass2Task`).
+- `TASK` → *Ajouter une note* (`pass2Task`).
 - Autres → `pass2EnrichDefault` / `pass2Steps` selon produit.
 
 **TRIP — hiérarchie** : en vue **Zen** standard, le bloc **Mission** (niveau 3), les contrôles itinéraire précis (carte / adresses / transport confort), et **Newton** restent **masqués** tant que `pass2_unlocked` est faux (y compris si `remind_to_leave` ou métadonnées trajet sont déjà présentes). Le passage à la vue riche s’effectue après action **PRO** sur le CTA « Préparer le trajet » (qui pose `pass2_unlocked: true`).
@@ -743,6 +746,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 - Format de réponse Gemini : **Bullet‑Pipe** uniquement (lignes `> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT`).
 - Rôle : détecter le `TYPE`, extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT), la **catégorie** (`CATEGORY_CODE`) et le **contexte d’exécution** (`CONTEXT`).
+- **Aiguillage** : le choix de `TYPE` suit la hiérarchie **action / centrée utilisateur** décrite plus haut (§ contrat Pass 1 / types sémantiques).
 - **Évolution prévue** : déporter les règles métier dans `systemInstruction` et réduire le prompt utilisateur — voir **« ARCHITECTURE IA (Latence) »** (§ Pass 1).
 
 ### Pass 2 — Enrichissement (LIST / PROJECT)
