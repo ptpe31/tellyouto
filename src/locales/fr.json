@@ -521,6 +521,8 @@
     "ideaBank": {
       "title": "La Tirelire à idées",
       "button": "tâches dans la tirelire",
+      "clusterNudge": "On le fait avancer ?",
+      "clusterSubtitle": "{{count}} · {{category}}",
       "done": "Fait",
       "schedule": "Planifier",
       "remove": "Retirer",

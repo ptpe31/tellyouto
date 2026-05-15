@@ -68,6 +68,7 @@ import { IntentionCard } from '../components/IntentionCard';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { getBestOrphanCluster } from '../services/clusterEngine';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { formatYmdLocal } from '../services/TimeSorter';
@@ -276,7 +277,7 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 
 const SECTION_HEADER_H = 36;
 const ROADMAP_LINK_H = 40;
-const IDEA_BANK_H = 58;
+const IDEA_BANK_H = 76;
 const CARD_ROW_H = 120;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
@@ -296,6 +297,7 @@ type TimelineFlatItem =
   | { kind: 'section'; id: string; titleText: string }
   | { kind: 'roadmapLink'; id: string }
   | { kind: 'ideaBankRow'; id: string; count: number }
+  | { kind: 'ideaBankClusterRow'; id: string; categoryId: string; count: number }
   | {
       kind: 'card';
       id: string;
@@ -308,6 +310,10 @@ function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
   for (const e of entries) {
     if (e.kind === 'ideaBank') {
       out.push({ kind: 'ideaBankRow', id: 'ideaBank', count: e.count });
+      continue;
+    }
+    if (e.kind === 'ideaBankCluster') {
+      out.push({ kind: 'ideaBankClusterRow', id: 'ideaBankCluster', categoryId: e.categoryId, count: e.count });
       continue;
     }
     out.push({ kind: 'section', id: `sec-${e.id}`, titleText: e.titleText });
@@ -331,7 +337,7 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
         ? SECTION_HEADER_H
         : it.kind === 'roadmapLink'
           ? ROADMAP_LINK_H
-          : it.kind === 'ideaBankRow'
+        : it.kind === 'ideaBankRow' || it.kind === 'ideaBankClusterRow'
           ? IDEA_BANK_H
           : CARD_ROW_H;
     const cur = { length: len, offset: off };
@@ -355,7 +361,13 @@ type IdeaBankEntry = {
   count: number;
 };
 
-type ListEntry = RowSection | IdeaBankEntry;
+type IdeaBankClusterEntry = {
+  kind: 'ideaBankCluster';
+  categoryId: string;
+  count: number;
+};
+
+type ListEntry = RowSection | IdeaBankEntry | IdeaBankClusterEntry;
 
 /** Écran onglet Timeline : projection des intentions et interactions (done différé, détail, filtres). */
 export function TimelineScreen() {
@@ -383,6 +395,7 @@ export function TimelineScreen() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
+  const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [dailyRoadmapSummary, setDailyRoadmapSummary] = useState<{
     id: string;
@@ -1049,6 +1062,25 @@ export function TimelineScreen() {
     return unorganizedTodo.filter((r) => !visible.has(r.id));
   }, [filteredPool, unorganizedTodo]);
 
+  const undatedTodoInPool = useMemo(
+    () => filteredPool.filter((r) => r.status === 'TODO' && !normalizeDueDateLocal(r.due_date)),
+    [filteredPool],
+  );
+
+  const orphanClusterPool = useMemo(() => {
+    const m = new Map<string, TrankilV2TimelineItemRow>();
+    for (const r of hiddenUnorganizedForIdeaBank) m.set(r.id, r);
+    for (const r of undatedTodoInPool) m.set(r.id, r);
+    return [...m.values()];
+  }, [hiddenUnorganizedForIdeaBank, undatedTodoInPool]);
+
+  const activeCluster = useMemo(() => getBestOrphanCluster(orphanClusterPool), [orphanClusterPool]);
+
+  const ideaBankModalItems = useMemo(() => {
+    if (!ideaBankCategoryFilter) return hiddenUnorganizedForIdeaBank;
+    return orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) === ideaBankCategoryFilter);
+  }, [hiddenUnorganizedForIdeaBank, ideaBankCategoryFilter, orphanClusterPool]);
+
   const dayTitle = useCallback(
     (ymd: string): string => {
       const today = toYmd(anchorDate);
@@ -1108,7 +1140,18 @@ export function TimelineScreen() {
     }
 
     const out: ListEntry[] = [];
-    if (contextBubble === 'ALL' && statusFilter === 'TODO' && hiddenUnorganizedForIdeaBank.length > 0) {
+    if (
+      contextBubble === 'ALL' &&
+      statusFilter === 'TODO' &&
+      activeCluster &&
+      activeCluster.count >= 2
+    ) {
+      out.push({
+        kind: 'ideaBankCluster',
+        categoryId: activeCluster.categoryId,
+        count: activeCluster.count,
+      });
+    } else if (contextBubble === 'ALL' && statusFilter === 'TODO' && hiddenUnorganizedForIdeaBank.length > 0) {
       out.push({ kind: 'ideaBank', listKey: 'ideaBank', count: hiddenUnorganizedForIdeaBank.length });
     }
     for (const [ymd, rows] of [...groups.entries()]) {
@@ -1121,6 +1164,7 @@ export function TimelineScreen() {
     }
     return out;
   }, [
+    activeCluster,
     anchorDate,
     contextBubble,
     dayTitle,
@@ -1260,8 +1304,11 @@ export function TimelineScreen() {
         return (
           <View style={[styles.section, { paddingHorizontal: 16 }]}>
             <Pressable
-              onPress={() => setIdeaBankOpen(true)}
-            style={[
+              onPress={() => {
+                setIdeaBankCategoryFilter(null);
+                setIdeaBankOpen(true);
+              }}
+              style={[
                 neumorphicRaised(theme),
                 styles.ideaBankPressable,
                 { borderWidth: 1, borderColor: theme.colors.outlineVariant },
@@ -1269,7 +1316,34 @@ export function TimelineScreen() {
             >
               <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
                 {item.count} {t('timeline.ideaBank.button')}
-            </Text>
+              </Text>
+            </Pressable>
+          </View>
+        );
+      }
+      if (item.kind === 'ideaBankClusterRow') {
+        const catKey = `category.${item.categoryId}`;
+        const catLabel = i18n.exists(catKey) ? t(catKey) : item.categoryId;
+        return (
+          <View style={[styles.section, { paddingHorizontal: 16 }]}>
+            <Pressable
+              onPress={() => {
+                setIdeaBankCategoryFilter(item.categoryId);
+                setIdeaBankOpen(true);
+              }}
+              style={[
+                neumorphicRaised(theme),
+                styles.ideaBankPressable,
+                styles.ideaBankPressableColumn,
+                { borderWidth: 1, borderColor: theme.colors.outlineVariant },
+              ]}
+            >
+              <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
+                {t('timeline.ideaBank.clusterNudge')}
+              </Text>
+              <Text style={[styles.ideaBankClusterSubtitle, { color: theme.colors.onSurfaceVariant }]}>
+                {t('timeline.ideaBank.clusterSubtitle', { count: item.count, category: catLabel })}
+              </Text>
             </Pressable>
           </View>
         );
@@ -1314,10 +1388,13 @@ export function TimelineScreen() {
       anchorDate,
       dailyRoadmapSummary,
       handleToggleRowComplete,
+      i18n,
       openSavedDailyRoadmap,
+      openDetail,
       pendingLocalDone,
       reload,
-      openDetail,
+      setIdeaBankCategoryFilter,
+      setIdeaBankOpen,
       spectrum.isProUser,
       statusFilter,
       t,
@@ -1472,8 +1549,11 @@ export function TimelineScreen() {
 
       <IdeaBankModal
         visible={ideaBankOpen}
-        onClose={() => setIdeaBankOpen(false)}
-        items={hiddenUnorganizedForIdeaBank}
+        onClose={() => {
+          setIdeaBankCategoryFilter(null);
+          setIdeaBankOpen(false);
+        }}
+        items={ideaBankModalItems}
         status={statusFilter}
         anchorDate={anchorDate}
         onChanged={reload}
@@ -1577,7 +1657,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 18,
   },
+  ideaBankPressableColumn: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 0,
+  },
   ideaBankLabel: { fontSize: 16, fontWeight: '700' },
+  ideaBankClusterSubtitle: { fontSize: 13, fontWeight: '600', marginTop: 4, opacity: 0.92 },
   micDock: {
     position: 'absolute',
     left: 0,

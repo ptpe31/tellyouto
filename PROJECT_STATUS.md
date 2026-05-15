@@ -8,6 +8,7 @@
 - Cœur produit : pipeline **OneTap Dual‑Path** (Path A heuristiques locales → Path B Gemini via proxy) puis **Douane** (parsing/normalisation) et **persistance**.
 - Offline-first (**urbanisation SPEC v34 : 100 % terminée**) : en cas d’échec réseau/IA, la capture (texte/audio) est **mise en file** via `offline_audio_queue` + insertion d’une NOTE `is_pending_ai=1` (métadonnées `persistence_label` / `tag` = `NOTE_FALLBACK` + `source: offline_audio_queue`), puis rejouée ultérieurement. **NetInfo** : « en ligne » si `isConnected === true` **et** `isInternetReachable !== false` (`isNetInfoConsideredOnline`) ; log `[OFFLINE-STABILITY] netinfo_online_null_reachable` si tentative en ligne avec reachability `null`. **En ligne**, une coupure **pendant** Path B / persistance d’un chunk peut déclencher un **enqueue auto** (heuristique réseau/serveur, logs `[OFFLINE-STABILITY]`) sans Alert obligatoire. **Parité peek** : `INTENTION_PEEK_SNAPSHOT` (Path A) est émis **avant** `NetInfo` et la file, pour le même feedback visuel hors ligne qu’en ligne.
 - **Feuille de Route (Pass 3)** : depuis la Timeline, icône imprimante → sas SQL (retards + orphelines) → synthèse Gemini HTML (RC `prompt_pass3_synth_v1`) → `daily_summaries` + WebView / PDF ; overlay progression réutilise `useAIProgressInertia` + `AIUniversalProgressOverlay` ; lien sous le groupe « Aujourd’hui ».
+- **Cluster tactique (Tirelire)** : [`getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) sur `TimelineScreen` (seuil d’affichage `count >= 2`, contexte ALL + TODO) ; carte neumorphique + ouverture [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtrée par `category_id` ; log `[CLUSTER-ENGINE]`.
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents ; sur **TalkDebug**, l’**overlay de progression** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) + événements `CAPTURE_PIPELINE_PROGRESS`) couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline).
 
 ---
@@ -243,6 +244,12 @@ Fichier : `src/services/CaptureProcessingService.ts`
   - `buildOneTapPass1SystemInstruction()` / `buildOneTapPass1UserContent(...)` : découpage SPEC (SI vs Reference Time + seed + dictée seulement ; pas de règles dupliquées dans le user).
   - `parsePartialWireLine(buffer)` / `mergeWireIntoOneTapSkeleton(...)` : parsing “wire” (héritage + compat).
   - (internes critiques) `parseBulletPipeIntentsFromBuffer`, `parseJsonIntentsFromBuffer`, `mergeIntentArrayIntoOneTapSkeleton`.
+
+### 3.1b Timeline — cluster tactique (Tirelire)
+
+- [`clusterEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) : **`getBestOrphanCluster(rows)`** — filtre TODO sans `due_date`, groupe par `category_id` (normalisation alignée domaine), choix du plus grand groupe puis départage par **`created_at`** le plus ancien ; log **`[CLUSTER-ENGINE] 🎯 …`**
+- [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) : agrège **`orphanClusterPool`** (tirelire cachée + TODO sans date dans `filteredPool`) ; si `count >= 2` et filtres ALL/TODO, entrée liste **`ideaBankCluster`** (carte unique) ; sinon comportement **`ideaBank`** inchangé ; état **`ideaBankCategoryFilter`** pour passer à **`IdeaBankModal`** uniquement les lignes du cluster.
+- i18n : `timeline.ideaBank.clusterNudge`, `timeline.ideaBank.clusterSubtitle`.
 
 ### 3.2 Orchestration UI capture
 

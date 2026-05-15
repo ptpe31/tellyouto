@@ -582,6 +582,17 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - **Stockage** : `INSERT` dans `daily_summaries` ; ouverture du rapport en WebView ; **Partager / Imprimer** : PDF via `expo-print` puis partage natif `expo-sharing` (hors web).
 - **Accès secondaire** : sous le sticky header **Aujourd’hui**, lien dédié (`roadmapLink`) pour ouvrir le dernier rapport du jour ou inviter à générer via l’imprimante.
 
+#### 2.b) Sélecteur de cluster tactique (Tirelire / orphelines)
+
+- **Objectif** : mettre en avant **un** groupe d’intentions **sans échéance** (`due_date` vide / null), statut **TODO**, regroupées par **`category_id`** normalisé (codes domaine v34), pour inciter à les traiter via la Tirelire sans lister toutes les orphelines en tête de liste.
+- **Service** : [`clusterEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) — [`getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) :
+  - **Priorité 1** : plus grand nombre d’items dans un même `category_id`.
+  - **Priorité 2** : en cas d’égalité, groupe contenant l’intention la plus ancienne (`created_at` minimal).
+  - Retour : `{ categoryId, count, representativeItems, items }` ; log **`[CLUSTER-ENGINE] 🎯 Cluster sélectionné : …`**
+- **Pool Timeline** : [TimelineScreen.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) fusionne la **tirelire cachée** (`hiddenUnorganizedForIdeaBank`) et les TODO **sans date** déjà visibles dans le fil courant (`filteredPool`) pour alimenter le moteur (cohérence avec les `category_id` renseignés par Pass 1).
+- **Affichage** : vue **Aujourd’hui**, contexte **ALL**, **TODO** — si le cluster gagnant a **`count >= 2`**, une **seule** carte neumorphique remplace la ligne « N tâches dans la tirelire » ; texte i18n **`timeline.ideaBank.clusterNudge`** (ex. « On le fait avancer ? ») + sous-titre **`timeline.ideaBank.clusterSubtitle`** (`{{count}} · {{category}}` avec libellé `category.*`).
+- **Action** : tap sur la carte ouvre [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) avec **filtrage** sur le `categoryId` du cluster ; la ligne tirelire **classique** subsiste si le cluster n’atteint pas le seuil ou si les conditions de filtre ne s’appliquent pas.
+
 ### 3) Séquençage du Flux (Grouping Logic)
 
 - Sticky Headers : la liste est organisée par groupes temporels (Today, Tomorrow, Week) et expose des séparateurs visuels persistants (sticky headers).

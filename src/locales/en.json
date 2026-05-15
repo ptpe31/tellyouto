@@ -521,6 +521,8 @@
     "ideaBank": {
       "title": "The Idea Bank",
       "button": "tasks in the jar",
+      "clusterNudge": "Shall we move these forward?",
+      "clusterSubtitle": "{{count}} · {{category}}",
       "done": "Done",
       "schedule": "Schedule",
       "remove": "Remove",
