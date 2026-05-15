@@ -69,6 +69,10 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
 - CATEGORY CONTRACT (ABSOLUTE) :
   - catégories autorisées exactement : `HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER`
   - interdiction de traduire/inventer ; fallback `PERSO` si doute.
+- CONTEXT CONTRACT (ABSOLUTE) :
+  - le 5ᵉ segment **CONTEXT** identifie le lieu ou l’état d’exécution (token unique en majuscules).
+  - shortlist prioritaire : `BUREAU`, `EXTERIEUR`, `CANAPE`, `MAISON`
+  - sinon : un mot unique en majuscules (ex. `VOITURE`, `SALLE_DE_SPORT`) ; jamais de phrase ni de traduction.
 - TRIP CONTRACT (ABSOLUTE) :
   - “Any mention of movement ... MUST be classified as TRIP”
   - dictionnaire de déclencheurs (FR/EN/extra) injecté tel quel.
@@ -77,7 +81,10 @@ Instructions système critiques (texte exact, condensé) incluses dans le prompt
 - Format de sortie :
   - “Reply ONLY with Bullet-Pipe lines starting with ">".”
   - “No JSON. No markdown. No explanations.”
-  - forme : `> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE`.
+  - forme : `> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT`
+    - `SLOT_4` : `DUE_DATE` (TASK/TRIP), `RECURRENCE_TEXT` (HABIT), `BASE_COUNT` (LIST/PROJECT), ou `null`
+    - `CONTEXT` : token CONTEXT CONTRACT (ou `null` si vraiment inconnu)
+  - rétrocompatibilité parsing : lignes à 4 segments (sans CONTEXT) restent acceptées.
   - Types sémantiques autorisés (vision 2026) :
     - `TASK` : action simple et unique.
     - `TRIP` : action impliquant un déplacement (logistique).
@@ -96,7 +103,8 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 - Parse de la sortie modèle :
   - Bullet‑Pipe : [parseBulletPipeIntentsFromBuffer](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L319-L380)
   - JSON fallback (si le modèle renvoie un objet) : [parseJsonIntentsFromBuffer](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L382-L439) avec parse best‑effort (`tryParseJsonObjectBestEffort` padding de `}`) : [oneTapUniversalCapture.ts:L572-L592](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L572-L592).
-- Normalisation de catégorie : unknown → `PERSO` via [normalizeOneTapCategoryCode](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L120-L127).
+- Normalisation de catégorie : unknown → `PERSO` via [normalizeOneTapCategoryCode](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts).
+- Normalisation de contexte : `normalizeOneTapContextTag` ; **ExtractionResult** ; brouillon `categoryTag` + `contextTag` ; `[DOUANE]` / `[CAPTURE_FLOW] pass1_bullet_pipe_resolved`.
 - Fusion réelle Path B → Path A :
   - fusion d’une liste d’intents dans le squelette : [mergeIntentArrayIntoOneTapSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L747-L850)
   - titre affichable (strict) : le titre final est `CONTENT` (nettoyé par l’IA via prompt) et ne subit pas de post-processing lexical/regex côté client (seulement trim/majuscule).
@@ -106,7 +114,7 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 
 2) Douane de persistance (côté DB) — [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L893-L1281)
 - Entrée : `draft.data.intents` (si présent) ou les champs “mono‑intention” (`data.list`, signaux temporels, logistique…).
-- Traitement : boucle `intents[]` + mapping type→draft (TASK/TRIP/HABIT/LIST/PROJECT) + persistance SQLite (et dual write) avec logs `[DOUANE]` si `DEBUG_MODE_DOUANE=true` (valeur actuelle : true) : [oneTapPersist.ts:L62-L65](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts#L62-L65) et [oneTapPersist.ts:L908-L1166](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L908-L1166).
+- Traitement : boucle `intents[]` → drafts avec `categoryTag` / `contextTag` → SQLite `category_id` (non-null) + `context_tag` ([materializeOneTapIntentionRow](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts), [insertTrankilV2Intention](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts)) ; migration `ALTER TABLE intentions ADD COLUMN context_tag` ; log `[DATABASE] ✅ Intention sauvée avec succès | Category: … | Context: …`.
 - Enrichissement Pass 2 (LIST / PROJECT) — **strictement à la demande** :
   - **Aucun** lancement **automatique** ni **immédiat** de Pass 2 après Pass 1 (ni dans la Douane de persistance, ni dans le séquenceur bulk, ni au moment de l’insertion SQLite). Le Pass 2 (ex. `geminiEnrichGenericList`) ne s’exécute **que** lorsque l’utilisateur **PRO** a persisté **`metadata_json.pass2_unlocked === true`** puis déclenché l’action métier associée (CTA « Enrichir » / libellés `intentionDetail.pass2*` — voir **Verrou sémantique** / Capture Flash).
   - **Déclenchement** : uniquement à ce moment-là ; avant toute intention `LIST` / `PROJECT` reste en base avec les seules données Pass 1 (pas de `list_enrich_status = 'pending'` imposé par la capture seule).
@@ -720,10 +728,10 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - `LIST` : inventaire scalable (quantités / multiplicateur).
   - `PROJECT` : jalonnement temporel (durées estimées + cascade à partir d’une date de départ).
 
-### Pass 1 — Classification (inchangé)
+### Pass 1 — Classification
 
-- Format de réponse Gemini : **Bullet‑Pipe** uniquement (lignes `> TYPE | CONTENT | CATEGORY_CODE | DUE_DATE`).
-- Rôle : détecter `TYPE === LIST` et extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT) + catégorie.
+- Format de réponse Gemini : **Bullet‑Pipe** uniquement (lignes `> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT`).
+- Rôle : détecter le `TYPE`, extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT), la **catégorie** (`CATEGORY_CODE`) et le **contexte d’exécution** (`CONTEXT`).
 - **Évolution prévue** : déporter les règles métier dans `systemInstruction` et réduire le prompt utilisateur — voir **« ARCHITECTURE IA (Latence) »** (§ Pass 1).
 
 ### Pass 2 — Enrichissement (LIST / PROJECT)
@@ -935,10 +943,12 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
   - `LOG [Pass2] 🚀 START_ENRICHMENT | ID: {id} | Type: {type}`
   - `LOG [Pass2] ✅ SUCCESS_ENRICHMENT | ID: {id}`
 
-### 4) Sécurité catégorie (category_id non nul)
+### 4) Sécurité catégorie & contexte (SQLite)
 
-- Contrat : toute persistance doit passer par `normalizeDomainCategoryId(...)` pour produire un `category_id` non-null.
+- Contrat : toute persistance doit passer par `normalizeDomainCategoryId(...)` (oneTapPersist) et `normalizeIntentionCategoryId(...)` (repository) pour produire un `category_id` non-null.
 - En cas de code inconnu : fallback explicite `PERSO`.
+- `context_tag` : alimenté depuis `draft.contextTag` (Pass 1) ; normalisé via `normalizeOneTapContextTag` ; nullable en base si l’IA n’a rien fourni.
+- Log post-insert : `[DATABASE] ✅ Intention sauvée avec succès | Category: … | Context: …`.
 
 ## Bottom Sheet PROJECT — “Temporalitas” (V3 — Flat / Drive)
 
@@ -1209,8 +1219,9 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 
 ### Correction de visibilité (critique)
 
-- Lors de l’insertion d’une intention `LIST`, `category_id` ne doit **jamais** être `NULL`.
-- Règle : `category_id = normalizeDomainCategoryId(draft.categoryTag)` (ex. `SHOP` doit tomber dans le contexte Maison si c’est la convention de mapping) pour éviter que l’item soit masqué par les filtres de contexte de la Timeline.
+- Lors de l’insertion d’une intention (tout type), `category_id` ne doit **jamais** être `NULL`.
+- Règle : `category_id = normalizeDomainCategoryId(draft.categoryTag)` pour éviter que l’item soit masqué par les filtres de contexte de la Timeline.
+- `context_tag` : persisté depuis Pass 1 (`draft.contextTag` / intent `context`) pour filtrage ou affichage futur (lieu d’exécution : `BUREAU`, `VOITURE`, etc.).
 
 ### Refresh
 

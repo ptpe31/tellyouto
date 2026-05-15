@@ -131,14 +131,18 @@ Points importants :
 - Langue : `detectLangForOneTapPrompt()` puis discipline “zéro traduction” (contrat SPEC).
 - Appel Gemini : `geminiSemanticLab` (stream ou non‑stream).
 - Parsing modèle :
-  - priorité au format **Bullet‑Pipe** (`parseBulletPipeIntentsFromBuffer`)
+  - priorité au format **Bullet‑Pipe** 5 segments : `> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT` (`parseBulletPipeIntentsFromBuffer` ; rétrocompat 4 segments)
   - fallback JSON “best-effort” (`parseJsonIntentsFromBuffer`)
+  - type intermédiaire **ExtractionResult** ; intents portent `category` + `context`
 - Fusion : `mergeIntentArrayIntoOneTapSkeleton(...)` puis normalisation
-  - normalisation des catégories inconnues → `PERSO`
+  - `categoryTag` + **`contextTag`** sur le brouillon fusionné
+  - normalisation des catégories inconnues → `PERSO` (`normalizeOneTapCategoryCode`)
+  - normalisation contexte → token uppercase (`normalizeOneTapContextTag`)
   - normalisation temporelle (`normalizeUniversalTemporalInData`)
   - **Top-Down Sync** : recalcul `dueDateYmd/dueTimeHm` depuis `dueDateTime` via `syncYmdHmFromDueDateTime` (alignement SPEC)
+- Observabilité : `[DOUANE]` (parsing), `[CAPTURE_FLOW] pass1_bullet_pipe_resolved`, `[OneTap] 📍 CONTEXT_TAG`, `[GeminiAPI] Context:`
 
-Sortie : un `OneTapUniversalResult` enrichi + métadonnées HTTP (tokens, latence, coût).
+Sortie : un `OneTapUniversalResult` enrichi (`categoryTag`, `contextTag`) + métadonnées HTTP (tokens, latence, coût).
 
 ### 2.4 Persistance (SQLite Trankil‑v2) : Douane “DB”
 
@@ -155,7 +159,9 @@ Points notables :
   - mapping `draft.data.ai_cost_usd` → colonne SQLite `intentions.cost` (SPEC)
   - mapping tokens → `tokens_prompt/completion/total`
   - `category_id` : normalisé via `normalizeDomainCategoryId()` (fallback PERSO, éviter NULL)
-- insertion : `insertTrankilV2Intention(...)` (repository)
+  - **`context_tag`** : depuis `draft.contextTag` (`normalizeOneTapContextTag`)
+- ventilation multi-intentions : `resolveVentilatedIntentTags` propage `category` + `context` par intent avant `persistAndDualWrite`
+- insertion : `insertTrankilV2Intention(...)` — écrit `category_id` + `context_tag` ; log `[DATABASE] ✅ Intention sauvée avec succès | Category: … | Context: …`
 - mutations `metadata_json` : via `patchMetadata(...)` (merge sécurisé, attendu par SPEC)
 
 #### Pass 2 (LIST / PROJECT)
@@ -256,7 +262,8 @@ Fichier : `src/services/CaptureProcessingService.ts`
 
 - `src/api/trankilV2Db.ts`
   - `bootstrapTrankilV2Database()` : init unique.
-  - `initTrankilV2Schema()` : création tables + indexes + backfills.
+  - `initTrankilV2Schema()` : création tables + indexes + backfills ; migration **`context_tag`** via `ALTER TABLE` (données existantes conservées).
+  - `insertTrankilV2Intention` : `category_id` forcé non-null (`normalizeIntentionCategoryId`) ; colonne **`context_tag`**.
   - `withTrankilV2Database(fn)` : exécuteur sérialisé + auto-reopen si `NativeDatabase.prepareAsync` rejette.
   - `patchMetadata(id, partial, opts?)` : merge transactionnel `metadata_json` (contrat SPEC).
 

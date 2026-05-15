@@ -25,6 +25,7 @@ export type TrankilV2IntentionRow = {
   suggested_tags: string;
   category_id: string | null;
   category?: string | null;
+  context_tag?: string | null;
   parent_id: string | null;
   zoom_parent_jalon_uid?: string | null;
   status: TrankilIntentStatus;
@@ -387,6 +388,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         suggested_tags TEXT NOT NULL DEFAULT '[]',
         category_id TEXT,
         category TEXT,
+        context_tag TEXT,
         parent_id TEXT,
         zoom_parent_jalon_uid TEXT,
         status TEXT NOT NULL DEFAULT 'TODO' CHECK (status IN ('TODO', 'DONE', 'ARCHIVED')),
@@ -437,6 +439,10 @@ export async function initTrankilV2Schema(): Promise<void> {
     const hasZoomUid = columns.some((c) => c.name === 'zoom_parent_jalon_uid');
     if (!hasZoomUid) {
       await db.execAsync(`ALTER TABLE intentions ADD COLUMN zoom_parent_jalon_uid TEXT;`);
+    }
+    const hasContextTag = columns.some((c) => c.name === 'context_tag');
+    if (!hasContextTag) {
+      await db.execAsync(`ALTER TABLE intentions ADD COLUMN context_tag TEXT;`);
     }
     await db.execAsync(
       `CREATE INDEX IF NOT EXISTS idx_intentions_parent_zoom_uid_created_at ON intentions (parent_id, zoom_parent_jalon_uid, created_at);`,
@@ -1249,6 +1255,7 @@ export async function rebuildTrankilV2IntentionsTableForDebug(): Promise<void> {
       suggested_tags TEXT NOT NULL DEFAULT '[]',
       category_id TEXT,
       category TEXT,
+      context_tag TEXT,
       parent_id TEXT,
       zoom_parent_jalon_uid TEXT,
       status TEXT NOT NULL DEFAULT 'TODO',
@@ -1926,6 +1933,7 @@ export type TrankilV2IntentionInsert = {
   metadata_json?: string;
   suggested_tags?: string;
   category_id?: string | null;
+  context_tag?: string | null;
   parent_id?: string | null;
   zoom_parent_jalon_uid?: string | null;
   status?: TrankilIntentStatus;
@@ -1957,6 +1965,26 @@ export type TrankilV2IntentionInsert = {
   location_id?: string | null;
   transport_mode?: string | null;
 };
+
+/** Spec v34 : `category_id` jamais vide en insertion (fallback PERSO). */
+function normalizeIntentionCategoryId(raw: string | null | undefined): string {
+  const up = String(raw || '').trim().toUpperCase();
+  if (!up) return 'PERSO';
+  if (up === 'FAMILLE') return 'HOME';
+  if (up === 'PRO') return 'WORK';
+  if (['HOME', 'WORK', 'PERSO', 'HEALTH', 'FINANCE', 'TRAVEL', 'SOCIAL', 'SHOP', 'LEARN', 'OTHER'].includes(up)) return up;
+  return 'PERSO';
+}
+
+function normalizeIntentionContextTag(raw: string | null | undefined): string | null {
+  const s = String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Z0-9_]/g, '')
+    .slice(0, 48);
+  return s || null;
+}
 
 function normalizeTitleForLogisticsMatch(title: string): string {
   /** Aligné sur le `WHERE` SQL : trim + lower + tab/sauts → espace (sans fusion des espaces multiples). */
@@ -2019,14 +2047,16 @@ export async function insertTrankilV2Intention(
       if (next) zoomUid = next;
     }
   }
+  const categoryId = normalizeIntentionCategoryId(row.category_id);
+  const contextTag = normalizeIntentionContextTag(row.context_tag);
   const sql =
     `INSERT INTO intentions (
-      id, type, title, due_date, content_raw, suggested_tags, category_id, category, parent_id, zoom_parent_jalon_uid, status, is_organized, is_local_processed, complexity_level, created_at, updated_at, is_dirty, server_version, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+      id, type, title, due_date, content_raw, suggested_tags, category_id, category, context_tag, parent_id, zoom_parent_jalon_uid, status, is_organized, is_local_processed, complexity_level, created_at, updated_at, is_dirty, server_version, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
       is_pending_ai,
       remind_to_leave, location_address,
       ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, debug_tokens, debug_latency_ms, location_id,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
   const args = [
     row.id,
     row.type,
@@ -2034,8 +2064,9 @@ export async function insertTrankilV2Intention(
     normalizeDueDate(row.due_date),
     row.content_raw,
     row.suggested_tags ?? '[]',
-    row.category_id ?? null,
-    row.category_id ?? null,
+    categoryId,
+    categoryId,
+    contextTag,
     row.parent_id ?? null,
     zoomUid,
     row.status ?? 'TODO',
@@ -2073,6 +2104,9 @@ export async function insertTrankilV2Intention(
   try {
     const r = await db.runAsync(sql, args);
     if (VERBOSE_DEBUG) console.log('[DATABASE] rowsAffected:', (r as { changes?: unknown }).changes ?? '—');
+    console.log(
+      `[DATABASE] ✅ Intention sauvée avec succès | Category: ${categoryId} | Context: ${contextTag ?? '—'}`,
+    );
   } catch (e) {
     if (!isNativePrepareAsyncRejected(e)) throw e;
     console.log('[DATABASE] ♻️ Re-open SQLite (prepareAsync rejected)');
@@ -2081,6 +2115,9 @@ export async function insertTrankilV2Intention(
     if (VERBOSE_DEBUG) console.log('[DEBUG_DB] Statut de l instance DB (reopen):', !!nextDb);
     const r = await nextDb.runAsync(sql, args);
     if (VERBOSE_DEBUG) console.log('[DATABASE] rowsAffected:', (r as { changes?: unknown }).changes ?? '—');
+    console.log(
+      `[DATABASE] ✅ Intention sauvée avec succès | Category: ${categoryId} | Context: ${contextTag ?? '—'}`,
+    );
   }
   const stats = await getTrankilV2UserStats();
   void stats;
@@ -2120,6 +2157,7 @@ export async function replaceTrankilV2IntentionOneTap(
       suggested_tags = ?,
       category_id = ?,
       category = ?,
+      context_tag = ?,
       parent_id = ?,
       status = ?,
       is_organized = ?,
@@ -2146,8 +2184,9 @@ export async function replaceTrankilV2IntentionOneTap(
       normalizeDueDate(patch.due_date ?? null),
       patch.content_raw,
       patch.suggested_tags ?? '[]',
-      patch.category_id ?? null,
-      patch.category_id ?? null,
+      normalizeIntentionCategoryId(patch.category_id),
+      normalizeIntentionCategoryId(patch.category_id),
+      normalizeIntentionContextTag(patch.context_tag),
       patch.parent_id ?? null,
       patch.status ?? 'TODO',
       patch.is_organized ?? 0,

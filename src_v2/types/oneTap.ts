@@ -35,6 +35,7 @@ export type OneTapUniversalData = {
 export type OneTapUniversalResult = {
   predictedType: OneTapPredictedType;
   categoryTag: string;
+  contextTag: string;
   title: string;
   data: OneTapUniversalData;
 };

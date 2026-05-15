@@ -41,7 +41,9 @@
 import * as chrono from 'chrono-node';
 
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
+import { logCaptureFlow } from '../utils/captureFlowLog';
 import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
+import { DEBUG_MODE_DOUANE } from './oneTapPersist';
 import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
 import type { ListItemDraft } from './listIntentionModel';
 import {
@@ -111,6 +113,8 @@ export type OneTapUniversalResult = {
   predictedType: OneTapPredictedType;
   /** Étiquette courte (domaine : cuisine, pro, perso, logistique, etc.). */
   categoryTag: string;
+  /** Lieu ou état d’exécution (Bullet-Pipe CONTEXT : BUREAU, MAISON, VOITURE, …). */
+  contextTag: string;
   /** Titre court affichable. */
   title: string;
   /** Champs spécifiques au type (dates, liste inventaire, récurrence, etc.). */
@@ -132,13 +136,45 @@ export const ONE_TAP_CATEGORY_CODES = [
 
 export type OneTapCategoryCode = (typeof ONE_TAP_CATEGORY_CODES)[number];
 
+/** Shortlist CONTEXT prioritaire (Spec v34 Pass 1). */
+export const ONE_TAP_CONTEXT_PREFERRED = ['BUREAU', 'EXTERIEUR', 'CANAPE', 'MAISON'] as const;
+
+/** Résultat normalisé d’une ligne Bullet-Pipe après Douane de parsing. */
+export type ExtractionResult = {
+  type: string;
+  content: string;
+  categoryTag: OneTapCategoryCode;
+  contextTag: string;
+  slot4: string;
+};
+
 function normalizeOneTapCategoryCode(raw: string | null | undefined): OneTapCategoryCode {
   const s = String(raw || '').trim().toUpperCase();
   if (!s) return 'PERSO';
   if (s === 'FAMILLE') return 'HOME';
   if (s === 'PRO') return 'WORK';
   if ((ONE_TAP_CATEGORY_CODES as readonly string[]).includes(s)) return s as OneTapCategoryCode;
+  if (DEBUG_MODE_DOUANE) {
+    console.log(`[DOUANE] ⚠️ CATEGORY_UNKNOWN raw="${String(raw || '').slice(0, 40)}" → fallback PERSO`);
+  }
   return 'PERSO';
+}
+
+export function normalizeOneTapContextTag(raw: string | null | undefined): string {
+  const s = String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Z0-9_]/g, '')
+    .slice(0, 48);
+  return s;
+}
+
+function logDouaneBulletPipeExtracted(row: ExtractionResult): void {
+  if (!DEBUG_MODE_DOUANE) return;
+  console.log(
+    `[DOUANE] 🛂 Bullet-Pipe → type=${row.type} categoryTag=${row.categoryTag} contextTag=${row.contextTag || '—'} slot4=${row.slot4 || 'null'} content="${row.content.slice(0, 72)}"`,
+  );
 }
 
 export type OneTapRecurrence = {
@@ -292,6 +328,7 @@ export type OneTapIntentJson = {
   type: string;
   incomplete?: boolean;
   category?: string;
+  context?: string;
   content?: string;
   notes?: string;
   due?: string;
@@ -344,8 +381,30 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
   });
 }
 
+function bulletPipeRowFromSegments(segs: string[]): ExtractionResult | null {
+  if (segs.length < 3) return null;
+  const type = String(segs[0] ?? '').trim().toUpperCase();
+  if (!['TASK', 'TRIP', 'NOTE', 'HABIT', 'LIST', 'PROJECT'].includes(type)) return null;
+  const content = String(segs[1] ?? '').trim();
+  if (!content) return null;
+  const categoryTag = normalizeOneTapCategoryCode(segs[2]);
+  const hasContextSegment = segs.length >= 5;
+  const slot4 = String(segs[3] ?? '').trim();
+  const contextTag = normalizeOneTapContextTag(hasContextSegment ? segs[4] : '');
+  if (VERBOSE_DEBUG) {
+    console.log('[GeminiDebug] 🗺️ MAPPING_CHECK:', {
+      segmentCategory: segs[2],
+      resolvedCategoryId: categoryTag,
+      segmentContext: hasContextSegment ? segs[4] : '',
+      resolvedContextTag: contextTag,
+    });
+  }
+  return { type, content, categoryTag, contextTag, slot4 };
+}
+
 /**
  * Parse la sortie modèle **Bullet-Pipe** (`> TYPE | …`) en intentions structurées.
+ * Forme cible Spec v34 : `> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT`.
  * Prioritaire sur le JSON dans Path B ; `partial` adapte la dernière ligne en streaming.
  */
 function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
@@ -364,12 +423,6 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
     return trimmed;
   };
 
-  const normalizeType = (raw: string): 'TASK' | 'TRIP' | 'NOTE' | 'HABIT' | 'LIST' | 'PROJECT' | '' => {
-    const t = String(raw || '').trim().toUpperCase();
-    if (t === 'TASK' || t === 'TRIP' || t === 'NOTE' || t === 'HABIT' || t === 'LIST' || t === 'PROJECT') return t;
-    return '';
-  };
-
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -381,32 +434,70 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
       .split('|')
       .map((x) => x.trim())
       .filter((x) => x.length > 0);
-    if (segs.length < 3) continue;
-    const type = normalizeType(segs[0]);
-    if (!type) continue;
-    const content = String(segs[1] ?? '').trim();
-    if (!content) continue;
-    const segmentCategory = segs[2];
-    const categoryId = normalizeOneTapCategoryCode(segmentCategory);
-    if (VERBOSE_DEBUG) {
-      console.log('[GeminiDebug] 🗺️ MAPPING_CHECK:', { segmentCategory, resolvedCategoryId: categoryId });
-    }
-    const due = normalizeDueInput(segs[3] ?? '');
+    const row = bulletPipeRowFromSegments(segs);
+    if (!row) continue;
+    logDouaneBulletPipeExtracted(row);
+    const type = row.type as 'TASK' | 'TRIP' | 'NOTE' | 'HABIT' | 'LIST' | 'PROJECT';
+    const content = row.content;
+    const categoryId = row.categoryTag;
+    const contextId = row.contextTag;
+    const due = normalizeDueInput(row.slot4);
     if (type === 'TRIP') {
-      intents.push({ type: 'TRIP', destination: content, arrivalDue: due, category: categoryId });
+      intents.push({
+        type: 'TRIP',
+        destination: content,
+        arrivalDue: due,
+        category: categoryId,
+        ...(contextId ? { context: contextId } : {}),
+      });
     } else if (type === 'TASK') {
-      intents.push({ type: 'TASK', content, due, category: categoryId });
+      intents.push({
+        type: 'TASK',
+        content,
+        due,
+        category: categoryId,
+        ...(contextId ? { context: contextId } : {}),
+      });
     } else if (type === 'NOTE') {
-      intents.push({ type: 'NOTE', content, category: categoryId });
+      intents.push({
+        type: 'NOTE',
+        content,
+        category: categoryId,
+        ...(contextId ? { context: contextId } : {}),
+      });
     } else if (type === 'HABIT') {
-      intents.push({ type: 'HABIT', content, recurrence: due, category: categoryId });
+      intents.push({
+        type: 'HABIT',
+        content,
+        recurrence: due,
+        category: categoryId,
+        ...(contextId ? { context: contextId } : {}),
+      });
     } else if (type === 'LIST') {
-      const baseCountRaw = parseInt(String(segs[3] ?? '1').trim(), 10);
+      const baseCountRaw = parseInt(String(row.slot4 || '1').trim(), 10);
       const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
-      currentList = { type: 'LIST', title: content, baseCount, unitLabel: 'personne', items: [], category: categoryId };
+      currentList = {
+        type: 'LIST',
+        title: content,
+        baseCount,
+        unitLabel: 'personne',
+        items: [],
+        category: categoryId,
+        ...(contextId ? { context: contextId } : {}),
+      };
       intents.push(currentList);
     } else if (type === 'PROJECT') {
-      currentList = { type: 'PROJECT', title: content, baseCount: 1, unitLabel: 'etape', items: [], category: categoryId };
+      const baseCountRaw = parseInt(String(row.slot4 || '1').trim(), 10);
+      const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
+      currentList = {
+        type: 'PROJECT',
+        title: content,
+        baseCount,
+        unitLabel: 'etape',
+        items: [],
+        category: categoryId,
+        ...(contextId ? { context: contextId } : {}),
+      };
       intents.push(currentList);
     }
     currentList = type === 'LIST' || type === 'PROJECT' ? currentList : null;
@@ -435,13 +526,28 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
     const type = normalizeIntentType(String(r.type ?? ''));
     if (!type) continue;
     const category = typeof r.category === 'string' ? normalizeOneTapCategoryCode(r.category) : '';
+    const context =
+      typeof r.context === 'string'
+        ? normalizeOneTapContextTag(r.context)
+        : typeof r.contextTag === 'string'
+          ? normalizeOneTapContextTag(r.contextTag)
+          : '';
+    const contextField = context ? { context } : {};
     if (type === 'LIST') {
       const title = String(r.title ?? r.content ?? '').trim();
       if (!title) continue;
       const baseCountRaw = Number(r.baseCount ?? 1);
       const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
       const unitLabel = typeof r.unitLabel === 'string' ? r.unitLabel.trim().slice(0, 40) : 'personne';
-      out.push({ type: 'LIST', title, baseCount, unitLabel: unitLabel || 'personne', items: r.items, category });
+      out.push({
+        type: 'LIST',
+        title,
+        baseCount,
+        unitLabel: unitLabel || 'personne',
+        items: r.items,
+        category,
+        ...contextField,
+      });
       continue;
     }
     if (type === 'TASK') {
@@ -449,20 +555,20 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
       if (!content) continue;
       const due = typeof r.due === 'string' ? String(r.due).trim() : '';
       const notes = typeof r.notes === 'string' ? r.notes.trim() : '';
-      out.push({ type: 'TASK', content, due, ...(notes ? { notes } : {}), category });
+      out.push({ type: 'TASK', content, due, ...(notes ? { notes } : {}), category, ...contextField });
       continue;
     }
     if (type === 'TRIP') {
       const destination = String(r.destination ?? r.content ?? r.title ?? '').trim();
       if (!destination) continue;
       const arrivalDue = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : typeof r.due === 'string' ? r.due.trim() : '';
-      out.push({ type: 'TRIP', destination, arrivalDue, category });
+      out.push({ type: 'TRIP', destination, arrivalDue, category, ...contextField });
       continue;
     }
     if (type === 'NOTE') {
       const content = String(r.content ?? r.title ?? '').trim();
       if (!content) continue;
-      out.push({ type: 'NOTE', content, category });
+      out.push({ type: 'NOTE', content, category, ...contextField });
       continue;
     }
     if (type === 'HABIT') {
@@ -470,7 +576,7 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
       if (!content) continue;
       const recurrence = typeof r.recurrence === 'string' ? r.recurrence.trim() : '';
       const preferredTime = typeof r.preferredTime === 'string' ? r.preferredTime.trim() : '';
-      out.push({ type: 'HABIT', content, recurrence, ...(preferredTime ? { preferredTime } : {}), category });
+      out.push({ type: 'HABIT', content, recurrence, ...(preferredTime ? { preferredTime } : {}), category, ...contextField });
       continue;
     }
   }
@@ -798,6 +904,7 @@ function mergeIntentArrayIntoOneTapSkeleton(
   const out: Record<string, unknown> = { ...mergedBase, intents };
   let title = skeleton.title;
   let categoryTag = skeleton.categoryTag;
+  let contextTag = skeleton.contextTag;
   let hasTrip = false;
   let tripTitle = '';
   let primaryType: OneTapPredictedType | null = null;
@@ -806,8 +913,10 @@ function mergeIntentArrayIntoOneTapSkeleton(
     const type = normalizeIntentType(rawIntent?.type);
     if (!type) continue;
     if (!primaryType) primaryType = type;
-    const cat = typeof rawIntent.category === 'string' ? rawIntent.category.trim().slice(0, 80) : '';
+    const cat = typeof rawIntent.category === 'string' ? normalizeOneTapCategoryCode(rawIntent.category) : '';
     if (cat) categoryTag = cat;
+    const ctx = typeof rawIntent.context === 'string' ? normalizeOneTapContextTag(rawIntent.context) : '';
+    if (ctx) contextTag = ctx;
     if (type === 'LIST' || type === 'PROJECT') {
       const listTitle = typeof rawIntent.title === 'string' ? rawIntent.title.trim() : '';
       const baseCountRaw = Number((rawIntent as { baseCount?: unknown }).baseCount ?? 1);
@@ -894,7 +1003,13 @@ function mergeIntentArrayIntoOneTapSkeleton(
   const rawNextTitle = (hasTrip ? tripTitle : title).trim().slice(0, 200) || skeleton.title;
   const nextTitle = rawNextTitle;
   const baseType = hasTrip ? 'TRIP' : (primaryType ?? skeleton.predictedType);
-  return { ...skeleton, predictedType: baseType, categoryTag, title: nextTitle, data };
+  const merged = { ...skeleton, predictedType: baseType, categoryTag, contextTag, title: nextTitle, data };
+  if (DEBUG_MODE_DOUANE) {
+    console.log(
+      `[DOUANE] 🔀 mergeIntentArrayIntoOneTapSkeleton type=${merged.predictedType} categoryTag=${categoryTag} contextTag=${contextTag || '—'} title="${nextTitle.slice(0, 72)}" intents=${intents.length}`,
+    );
+  }
+  return merged;
 }
 
 function patchDataFromWire(wire: OneTapWireFields): Record<string, unknown> {
@@ -1102,6 +1217,11 @@ export function buildOneTapPass1SystemInstruction(): string {
   HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER
 - Use these codes ONLY. Never translate them. Never invent new categories.
 - If unsure, use PERSO.`;
+  const contextContract = `CONTEXT CONTRACT (ABSOLUTE):
+- CONTEXT identifies where or in what state the action should happen.
+- Prefer these codes when they fit: BUREAU, EXTERIEUR, CANAPE, MAISON
+- If none fit, output ONE uppercase token (underscores allowed), e.g. VOITURE, SALLE_DE_SPORT
+- Never translate CONTEXT. Never use sentences.`;
   const titleContract = `DISPLAY TITLE CONTRACT (DESTRUCTIVE STRIPPING):
 - CONTENT must be a PURE action title.
 - MANDATORY: Strip ALL time/date markers (tomorrow, tonight, 9h30, monday, ce soir, demain, stasera, mañana, sàbdo, etc.). Time information must go ONLY into DUE_DATE.
@@ -1117,6 +1237,7 @@ export function buildOneTapPass1SystemInstruction(): string {
   return `${loc}
 lang=${lang2}
 ${catContract}
+${contextContract}
 ${titleContract}
 ${tripContract}
 
@@ -1129,7 +1250,7 @@ Reply ONLY with Bullet-Pipe lines starting with ">".
 No JSON. No markdown. No explanations.
 
 Output format (one line per intent):
-> TYPE | CONTENT | CATEGORY_CODE | SLOT_4
+> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT
 
 Constraints:
 - TYPE: TASK, TRIP, LIST, PROJECT, HABIT
@@ -1143,12 +1264,14 @@ Constraints:
   - TASK/TRIP: DUE_DATE "YYYY-MM-DD HH:mm" or null
   - HABIT: RECURRENCE_TEXT or null
   - LIST/PROJECT: BASE_COUNT integer or null
+- CONTEXT: one CONTEXT CONTRACT token (uppercase); use null only if truly unknown
 
 Examples:
-> TRIP | <CONTENT> | TRAVEL | null
-> TASK | <CONTENT> | PERSO | 2026-05-06 09:30
-> HABIT | <CONTENT> | HEALTH | every day at 06:00
-> PROJECT | <CONTENT> | HOME | null`;
+> TRIP | <CONTENT> | TRAVEL | null | VOITURE
+> TASK | <CONTENT> | PERSO | 2026-05-06 09:30 | BUREAU
+> HABIT | <CONTENT> | HEALTH | every day at 06:00 | MAISON
+> PROJECT | <CONTENT> | HOME | null | CANAPE
+> LIST | <CONTENT> | SHOP | 2 | MAISON`;
 }
 
 /**
@@ -1314,6 +1437,7 @@ export function inferOneTapSkeletonFromTranscript(
   return {
     predictedType,
     categoryTag: normalizeOneTapCategoryCode(categoryTag),
+    contextTag: '',
     title,
     data: normalizeUniversalTemporalInData(base),
   };
@@ -1407,7 +1531,8 @@ export async function refineOneTapWithGeminiCompressed(
         const itemsLen = Array.isArray((it as Record<string, unknown>).items)
           ? ((it as Record<string, unknown>).items as unknown[]).length
           : 0;
-        return `${t}:${title.trim()}:${itemsLen}:${it.incomplete === true ? 1 : 0}`;
+        const ctx = typeof it.context === 'string' ? it.context.trim() : '';
+        return `${t}:${title.trim()}:${itemsLen}:${it.incomplete === true ? 1 : 0}:${ctx}`;
       })
       .join('|');
 
@@ -1449,6 +1574,19 @@ export async function refineOneTapWithGeminiCompressed(
   const extractedFinal = bp.length ? bp : parseJsonIntentsFromBuffer(rawModelText, false);
   if (extractedFinal.length) {
     parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, normalizeIncompletes(extractedFinal));
+    logCaptureFlow(undefined, 'pass1_bullet_pipe_resolved', {
+      categoryTag: parsed.categoryTag,
+      contextTag: parsed.contextTag || '',
+      intentCount: extractedFinal.length,
+      contexts: extractedFinal
+        .map((it) => (typeof it.context === 'string' ? it.context : ''))
+        .filter(Boolean),
+    });
+    if (DEBUG_MODE_DOUANE) {
+      console.log(
+        `[DOUANE] ✅ Pass1 draft categoryTag=${parsed.categoryTag} contextTag=${parsed.contextTag || '—'} intents=${extractedFinal.length}`,
+      );
+    }
   } else {
     if (rawModelText.includes('"intents"')) {
       const forced = parseJsonIntentsFromBuffer(rawModelText, false);
@@ -1514,8 +1652,12 @@ export async function refineOneTapWithGeminiCompressed(
   };
   logGeminiApiPathBResolvedSuccess(metaForLog, {
     categoryTag: parsedWithPerfMeta.categoryTag,
+    contextTag: parsedWithPerfMeta.contextTag,
     data: parsedWithPerfMeta.data,
   });
+  if (parsedWithPerfMeta.contextTag) {
+    console.log(`[OneTap] 📍 CONTEXT_TAG (Pass1): ${parsedWithPerfMeta.contextTag}`);
+  }
 
   if (parsedWithPerfMeta.predictedType === 'LIST') {
     const listRaw = (parsedWithPerfMeta.data as Record<string, unknown>).list;
@@ -1549,7 +1691,7 @@ export async function refineOneTapWithGeminiCompressed(
     const t0ToT1 = Math.round(cp.t1 - cp.t0);
     const totalFromT0 = Math.round(pathBGeminiEnd - cp.t0);
     console.log(
-      `[OneTapPerf] 🏁 END_TO_END_CHAIN${OT_LOG}T0 (End Capture) -> T1 (Local Skeleton): ${t0ToT1}ms${OT_LOG}T1 -> T3 (Gemini Refinement): ${geminiRefineMs}ms${OT_LOG}TOTAL_LATENCY: ${totalFromT0}ms${OT_LOG}RESULT_CAT: ${parsed.categoryTag}`,
+      `[OneTapPerf] 🏁 END_TO_END_CHAIN${OT_LOG}T0 (End Capture) -> T1 (Local Skeleton): ${t0ToT1}ms${OT_LOG}T1 -> T3 (Gemini Refinement): ${geminiRefineMs}ms${OT_LOG}TOTAL_LATENCY: ${totalFromT0}ms${OT_LOG}RESULT_CAT: ${parsed.categoryTag}${OT_LOG}RESULT_CTX: ${parsed.contextTag || '—'}`,
     );
   }
 
@@ -1574,7 +1716,10 @@ export function parseOneTapUniversalJson(raw: string): OneTapUniversalResult {
   if (!title) {
     throw new Error('ONE_TAP_MISSING_TITLE');
   }
-  const categoryTag = String(obj.categoryTag || 'Perso').trim() || 'Perso';
+  const categoryTag = normalizeOneTapCategoryCode(String(obj.categoryTag || 'PERSO'));
+  const contextTag = normalizeOneTapContextTag(
+    typeof obj.contextTag === 'string' ? obj.contextTag : typeof obj.context === 'string' ? obj.context : '',
+  );
   const rawData =
     obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data) ? (obj.data as Record<string, unknown>) : {};
   const defaults = defaultOneTapDataForType(predictedType as OneTapPredictedType);
@@ -1582,6 +1727,7 @@ export function parseOneTapUniversalJson(raw: string): OneTapUniversalResult {
   return {
     predictedType: predictedType as OneTapPredictedType,
     categoryTag,
+    contextTag,
     title,
     data,
   };

@@ -409,12 +409,15 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                       : '—';
             const timeLabel = hm || '—';
             const categoryCode = String(res.parsed.categoryTag || '').trim() || 'PERSO';
+            const contextCode = String(res.parsed.contextTag || '').trim();
             const geminiMsLabel = Number.isFinite(res.httpMeta.latencyMs) ? String(Math.round(res.httpMeta.latencyMs)) : '—';
             const tokensTotalLabel =
               typeof res.httpMeta.tokensTotal === 'number' ? String(Math.round(res.httpMeta.tokensTotal)) : '—';
             const costLabel = Number.isFinite(res.httpMeta.estimatedCostUsd) ? `$${res.httpMeta.estimatedCostUsd.toFixed(6)}` : '—';
             console.log(`[IA-CORE]    ✨ CLEAN : "${clean}"`);
-            console.log(`[IA-CORE]    📅 META  : ${relativeDate} • ${timeLabel} | 🏷️ ${categoryCode}`);
+            console.log(
+              `[IA-CORE]    📅 META  : ${relativeDate} • ${timeLabel} | 🏷️ ${categoryCode}${contextCode ? ` | 📍 ${contextCode}` : ''}`,
+            );
             console.log(
               `[IA-USAGE]   ⏱️ LATENCY : ${geminiMsLabel}ms | 🪙 TOKENS : ${tokensTotalLabel} | 💰 COST : ${costLabel}`,
             );

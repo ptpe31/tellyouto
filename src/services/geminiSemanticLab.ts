@@ -65,12 +65,16 @@ function logGeminiApiCallSuccess(params: GeminiHttpSettledMeta): void {
 
 export function logGeminiApiPathBResolvedSuccess(
   meta: GeminiHttpSettledMeta,
-  parsed: { categoryTag: string; data: Record<string, unknown> },
+  parsed: { categoryTag: string; contextTag?: string; data: Record<string, unknown> },
 ): void {
   const fb = meta.fallbackUsed ? 'YES' : 'NO';
   const entitiesJson = safeJsonForTerminalLog(parsed.data, 2000);
+  const ctxLine =
+    parsed.contextTag && String(parsed.contextTag).trim()
+      ? `${GLOG}Context: ${String(parsed.contextTag).trim()}`
+      : '';
   console.log(
-    `[GeminiAPI] ✅ CALL_SUCCESS${GLOG}Model: ${meta.modelId}${GLOG}Category: ${parsed.categoryTag}${GLOG}Entities: ${entitiesJson}${GLOG}Latency: ${meta.latencyMs}ms${GLOG}FallbackUsed: ${fb}${GLOG}Version: ${meta.versionLabel}${GLOG}Operation: ${meta.operation}`,
+    `[GeminiAPI] ✅ CALL_SUCCESS${GLOG}Model: ${meta.modelId}${GLOG}Category: ${parsed.categoryTag}${ctxLine}${GLOG}Entities: ${entitiesJson}${GLOG}Latency: ${meta.latencyMs}ms${GLOG}FallbackUsed: ${fb}${GLOG}Version: ${meta.versionLabel}${GLOG}Operation: ${meta.operation}`,
   );
 }
 

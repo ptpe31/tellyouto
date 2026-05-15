@@ -23,6 +23,7 @@ import {
 } from './listIntentionModel';
 import { buildLocalTemporalIntentionInsertRow } from './localTemporalIntention';
 import type { OneTapUniversalResult } from './oneTapUniversalCapture';
+import { normalizeOneTapContextTag } from './oneTapUniversalCapture';
 import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from './oneTapUniversalReminders';
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
 import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
@@ -86,6 +87,29 @@ function normalizeDomainCategoryId(raw: string | null | undefined): string {
   if (up === 'PRO') return 'WORK';
   if (['HOME', 'WORK', 'PERSO', 'HEALTH', 'FINANCE', 'TRAVEL', 'SOCIAL', 'SHOP', 'LEARN', 'OTHER'].includes(up)) return up;
   return 'PERSO';
+}
+
+function contextTagForInsert(draft: OneTapUniversalResult): string | null {
+  const normalized = normalizeOneTapContextTag(draft.contextTag);
+  return normalized || null;
+}
+
+function resolveVentilatedIntentTags(
+  r: Record<string, unknown>,
+  draft: OneTapUniversalResult,
+): { categoryTag: string; contextTag: string } {
+  const categoryRaw =
+    (typeof r.category === 'string' ? r.category.trim() : '') ||
+    String(draft.categoryTag ?? '').trim() ||
+    'PERSO';
+  const contextRaw =
+    (typeof r.context === 'string' ? r.context.trim() : '') ||
+    (typeof r.contextTag === 'string' ? String(r.contextTag).trim() : '') ||
+    String(draft.contextTag ?? '').trim();
+  return {
+    categoryTag: normalizeDomainCategoryId(categoryRaw),
+    contextTag: normalizeOneTapContextTag(contextRaw),
+  };
 }
 
 function logisticsFieldsFromDraft(
@@ -171,6 +195,7 @@ async function materializeOneTapIntentionRow(params: {
   const raw = transcript.trim();
   const created_at = Date.now();
   const domainCategoryId = normalizeDomainCategoryId(draft.categoryTag);
+  const contextTagDb = contextTagForInsert(draft);
   const ai_model_used = typeof draft.data.ai_model_used === 'string' ? draft.data.ai_model_used.trim() : null;
   const ai_latency_ms = Number.isFinite(draft.data.ai_latency_ms as number) ? Number(draft.data.ai_latency_ms) : null;
   const tokens_prompt = Number.isFinite(draft.data.tokens_prompt as number) ? Number(draft.data.tokens_prompt) : null;
@@ -205,6 +230,7 @@ async function materializeOneTapIntentionRow(params: {
         ),
         suggested_tags: JSON.stringify(['sans_pression']),
         category_id: domainCategoryId,
+        context_tag: contextTagDb,
         parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
@@ -243,7 +269,7 @@ async function materializeOneTapIntentionRow(params: {
         is_pending_ai: isPendingAi,
         created_at,
       });
-      return { ...row, parent_id: params.parentId ?? null, ...aiMeta };
+      return { ...row, parent_id: params.parentId ?? null, context_tag: contextTagDb, ...aiMeta };
     }
     case 'TRIP': {
       let dueDateYmd = str(draft.data, 'dueDateYmd');
@@ -276,7 +302,13 @@ async function materializeOneTapIntentionRow(params: {
         is_pending_ai: isPendingAi,
         created_at,
       });
-      return { ...row, parent_id: params.parentId ?? null, ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>), ...aiMeta };
+      return {
+        ...row,
+        parent_id: params.parentId ?? null,
+        context_tag: contextTagDb,
+        ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>),
+        ...aiMeta,
+      };
     }
     case 'HABIT': {
       const habitTitle = (title || habitsDefaultTitle).slice(0, 200);
@@ -302,6 +334,7 @@ async function materializeOneTapIntentionRow(params: {
         ),
         suggested_tags: JSON.stringify(['sans_pression']),
         category_id: domainCategoryId,
+        context_tag: contextTagDb,
         parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
@@ -339,6 +372,7 @@ async function materializeOneTapIntentionRow(params: {
         metadata_json: metadataForSync,
         suggested_tags: JSON.stringify(dueDateYmd ? ['regulier'] : ['sans_pression']),
         category_id: domainCategoryId,
+        context_tag: contextTagDb,
         parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
@@ -368,6 +402,7 @@ async function materializeOneTapIntentionRow(params: {
         metadata_json: meta,
         suggested_tags: JSON.stringify(['sans_pression']),
         category_id: domainCategoryId,
+        context_tag: contextTagDb,
         parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
@@ -410,6 +445,7 @@ async function materializeOneTapIntentionRow(params: {
         metadata_json: meta,
         suggested_tags: JSON.stringify(['sans_pression']),
         category_id: domainCategoryId,
+        context_tag: contextTagDb,
         parent_id: params.parentId ?? null,
         status: 'TODO',
         is_organized: 0,
@@ -1048,7 +1084,12 @@ async function persistAndDualWrite(params: {
   });
   if (res.ok) {
     const id = 'intentionId' in res.outcome ? String((res.outcome as { intentionId?: unknown }).intentionId ?? '') : '';
-    if (id) console.log(`[DATABASE] ✅ Persistance confirmée pour ${id}`);
+    const cat = normalizeDomainCategoryId(params.draft.categoryTag);
+    const ctx = normalizeOneTapContextTag(params.draft.contextTag) || '—';
+    if (id) {
+      console.log(`[DATABASE] ✅ Persistance confirmée pour ${id}`);
+      console.log(`[DATABASE] ✅ Intention sauvée avec succès | Category: ${cat} | Context: ${ctx}`);
+    }
     console.log(`[DATABASE] ⏱️ Persistance ${entityLabel} en ${Date.now() - persistStart}ms`);
     console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
   }
@@ -1081,6 +1122,7 @@ export async function persistOneTapDraftVentilated(params: {
   logCaptureFlow(undefined, 'ventilated_enter', {
     predictedType: draft.predictedType,
     categoryTag: draft.categoryTag,
+    contextTag: draft.contextTag,
     allowNoteFallback,
     transcriptLen: transcript.length,
     intentsLen,
@@ -1093,13 +1135,21 @@ export async function persistOneTapDraftVentilated(params: {
       const r = raw as Record<string, unknown>;
       const previewType = String(r.type ?? '').trim().toUpperCase();
       const previewTitle = String(r.title ?? r.content ?? r.destination ?? '').trim();
+      const previewContext =
+        typeof r.context === 'string'
+          ? r.context.trim()
+          : typeof (r as { contextTag?: unknown }).contextTag === 'string'
+            ? String((r as { contextTag: string }).contextTag).trim()
+            : '';
       if (DEBUG_MODE_DOUANE) {
         console.log(`[DOUANE] 📦 JSON_BRUT_AVANT_TRAITEMENT: ${JSON.stringify(r)}`);
-        console.log(`[DOUANE] 🛂 Intention ${i + 1}/${total} détectée : [${previewType || '?'}] ${previewTitle}`.trim());
+        console.log(
+          `[DOUANE] 🛂 Intention ${i + 1}/${total} détectée : [${previewType || '?'}] ${previewTitle} | category=${String(r.category ?? draft.categoryTag)} context=${previewContext || draft.contextTag || '—'}`.trim(),
+        );
       }
       try {
         const type = String(r.type ?? '').trim().toUpperCase();
-        const categoryTag = (typeof r.category === 'string' ? r.category.trim().slice(0, 80) : '') || draft.categoryTag;
+        const { categoryTag, contextTag } = resolveVentilatedIntentTags(r, draft);
         if (type === 'LIST') {
           const title = String(r.title ?? '').trim() || draft.title;
           const items =
@@ -1117,6 +1167,7 @@ export async function persistOneTapDraftVentilated(params: {
           const listDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
+            contextTag,
             title: title.trim().slice(0, 200) || draft.title,
             predictedType: 'LIST',
             data: { list: listBlock },
@@ -1157,6 +1208,7 @@ export async function persistOneTapDraftVentilated(params: {
           const projectDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
+            contextTag,
             title: title.trim().slice(0, 200) || draft.title,
             predictedType: 'PROJECT',
             data: { list: listBlock, project_mode: true },
@@ -1188,6 +1240,7 @@ export async function persistOneTapDraftVentilated(params: {
           const taskDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
+            contextTag,
             title: content.slice(0, 200) || draft.title,
             predictedType: 'TASK',
             data: {
@@ -1223,6 +1276,7 @@ export async function persistOneTapDraftVentilated(params: {
           const tripDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
+            contextTag,
             title: destination.slice(0, 200) || draft.title,
             predictedType: 'TRIP',
             data: {
@@ -1263,6 +1317,7 @@ export async function persistOneTapDraftVentilated(params: {
           const habitDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
+            contextTag,
             title: content.slice(0, 200) || draft.title,
             predictedType: 'HABIT',
             data: {
@@ -1294,6 +1349,7 @@ export async function persistOneTapDraftVentilated(params: {
           const noteDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
+            contextTag,
             title: draft.title,
             predictedType: 'NOTE',
             data: { memo: content.slice(0, 4000) },
@@ -1329,6 +1385,7 @@ export async function persistOneTapDraftVentilated(params: {
           const taskDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
+            contextTag,
             title: destination.slice(0, 200) || draft.title,
             predictedType: 'TASK',
             data: {
