@@ -2,6 +2,20 @@ import type { TrankilV2TimelineItemRow } from '../api';
 
 export const NOTE_FALLBACK_LABEL = 'NOTE_FALLBACK';
 
+/** Intention technique insérée au healthcheck SQLite (hors produit). */
+export const SYSTEM_READY_SENTINEL_TITLE = 'System Ready';
+
+export function isSystemReadySentinelRow(row: {
+  id?: string | null;
+  display_title?: string | null;
+  title?: string | null;
+}): boolean {
+  const id = String(row.id ?? '').trim();
+  if (id.startsWith('system_ready_')) return true;
+  const title = String(row.display_title ?? row.title ?? '').trim();
+  return title === SYSTEM_READY_SENTINEL_TITLE;
+}
+
 function parseJsonArray(raw: string | null | undefined): string[] {
   try {
     const v = JSON.parse(String(raw ?? '[]'));
@@ -31,5 +45,5 @@ export function isHiddenTechnicalNoteFallbackRow(row: TrankilV2TimelineItemRow):
 }
 
 export function filterTimelineVisibleRows<T extends TrankilV2TimelineItemRow>(rows: T[]): T[] {
-  return rows.filter((row) => !isHiddenTechnicalNoteFallbackRow(row));
+  return rows.filter((row) => !isHiddenTechnicalNoteFallbackRow(row) && !isSystemReadySentinelRow(row));
 }

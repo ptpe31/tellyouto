@@ -1318,6 +1318,8 @@ export async function listTrankilV2UnorganizedIntentions(opts?: {
        AND is_organized = 0
        AND (category_id IS NULL OR trim(category_id) = '')
        AND (due_date IS NULL OR trim(due_date) = '')
+       AND trim(title) != 'System Ready'
+       AND id NOT LIKE 'system_ready_%'
        ${ctx}
      ORDER BY created_at DESC`;
   const { sql, params } = appendTimelinePaging(inner, [], opts?.paging);
