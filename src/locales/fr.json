@@ -120,6 +120,11 @@
     "noteMemoSection": "Mémo",
     "finish": "Terminer"
   },
+  "pass2": {
+    "steps_loading": "Lecture...",
+    "list_loading": "création des items ...",
+    "finalizing": "Finalisation de la structure..."
+  },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
     "creditsDepleted": "0 ⚡",

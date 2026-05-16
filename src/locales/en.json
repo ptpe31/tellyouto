@@ -120,6 +120,11 @@
     "noteMemoSection": "Memo",
     "finish": "Finish"
   },
+  "pass2": {
+    "steps_loading": "Reading…",
+    "list_loading": "Creating items…",
+    "finalizing": "Finalizing structure…"
+  },
   "talk": {
     "title": "Talk (dev)",
     "helper": "Quickly insert an intention into talkndone.db (intentions).",

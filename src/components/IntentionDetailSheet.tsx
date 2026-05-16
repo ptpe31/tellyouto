@@ -56,6 +56,11 @@ import {
 import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { AIUniversalProgressOverlay } from './AIUniversalProgressOverlay';
+import {
+  AI_PROGRESS_REVEAL_HOLD_MS,
+  useAIProgressInertia,
+} from '../hooks/useAIProgressInertia';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicRaised } from '../theme/neumorphism';
 import { capturePeekPathAHeightPx } from '../utils/capturePeekLayout';
@@ -117,6 +122,14 @@ function safeParseJsonObject(raw: string | null | undefined): Record<string, unk
   }
 }
 
+function mergeMetadataJsonString(
+  current: string | null | undefined,
+  patch: Record<string, unknown>,
+): string {
+  const root = safeParseJsonObject(current) ?? {};
+  return JSON.stringify({ ...root, ...patch });
+}
+
 function str(obj: Record<string, unknown> | null, key: string): string | null {
   if (!obj) return null;
   const v = obj[key];
@@ -172,6 +185,18 @@ function categoryPastelTabBackground(categoryId: string | null | undefined): str
   if (green.has(up)) return '#D7F5E8';
   if (violet.has(up)) return '#E8DCFF';
   return '#D6E9FF';
+}
+
+/** Couleur de barre overlay Pass 2 (bleu / vert / violet — pas rose / rouge). */
+function categoryPastelBarColor(categoryId: string | null | undefined): string {
+  const up = String(categoryId || '').trim().toUpperCase();
+  const blue = new Set(['WORK', 'FINANCE', 'LEARN', 'TRAVEL', 'OTHER']);
+  const green = new Set(['HOME', 'HEALTH', 'SHOP']);
+  const violet = new Set(['PERSO', 'SOCIAL']);
+  if (blue.has(up)) return '#38bdf8';
+  if (green.has(up)) return '#34d399';
+  if (violet.has(up)) return '#a78bfa';
+  return '#38bdf8';
 }
 
 /** Pastille catégorie : teinte dérivée d’une couleur d’accent (mixeur Talk). */
@@ -319,10 +344,19 @@ function isTripValidated(meta: Record<string, unknown> | null): boolean {
   return Boolean(trip.validatedAtMs);
 }
 
+/** Compteur binaire Pass 2 : `1` = génération déjà consommée (CTA masqué, vue détaillée). */
+const PASS2_UNLOCKED_CONSUMED = 1;
+
 /** Consentement explicite : afficher les blocs Pass 2 (jalons, liste détaillée, Mission/Newton, etc.). */
 function isPass2UnlockedMeta(meta: Record<string, unknown> | null | undefined): boolean {
   if (!meta || typeof meta !== 'object') return false;
-  return meta.pass2_unlocked === true;
+  const v = meta.pass2_unlocked;
+  return v === PASS2_UNLOCKED_CONSUMED || v === true;
+}
+
+function isPass2GenerationConsumed(meta: Record<string, unknown> | null | undefined): boolean {
+  if (!meta || typeof meta !== 'object') return false;
+  return meta.pass2_unlocked === PASS2_UNLOCKED_CONSUMED;
 }
 
 function buildGoogleMapsDirectionsUrlWithOrigin(params: {
@@ -499,6 +533,10 @@ export function IntentionDetailSheet({
   const [sheetPosition, setSheetPosition] = useState<'peek' | 'full'>('full');
   const peekAutoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pass2Running, setPass2Running] = useState(false);
+  const [showPass2Overlay, setShowPass2Overlay] = useState(false);
+  const [pass2OverlayFinalizing, setPass2OverlayFinalizing] = useState(false);
+  const pass2OverlayAwaitingSprintRef = useRef(false);
+  const pass2OverlayRevealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [pickerDraft, setPickerDraft] = useState<Date>(new Date());
   const [isAllDay, setIsAllDay] = useState(false);
@@ -543,6 +581,8 @@ export function IntentionDetailSheet({
   const scrollRef = useRef<ScrollView | null>(null);
   const milestoneYRef = useRef<Record<string, number>>({});
   const restoredZoomRef = useRef(false);
+  /** Dernière metadata_json connue dans la sheet (évite merge stale entre pending → done Pass 2). */
+  const metadataJsonLiveRef = useRef<string | null>(null);
 
   const morphContentOpacity = useRef(new Animated.Value(1)).current;
   const morphPrimedRef = useRef(false);
@@ -573,18 +613,24 @@ export function IntentionDetailSheet({
     }).start();
   }, [row?.id, morphSheetContentOnIntentionChange, morphContentOpacity]);
 
+  useEffect(() => {
+    metadataJsonLiveRef.current = row?.metadata_json ?? null;
+  }, [row?.id, row?.metadata_json]);
+
   const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
   const pass2UnlockedFromMeta = useMemo(() => isPass2UnlockedMeta(meta), [meta]);
   const [pass2UnlockOptimistic, setPass2UnlockOptimistic] = useState(false);
-  useEffect(() => {
-    setPass2UnlockOptimistic(false);
-  }, [row?.id]);
-  useEffect(() => {
-    if (pass2UnlockedFromMeta) setPass2UnlockOptimistic(false);
-  }, [pass2UnlockedFromMeta]);
   const pass2Unlocked = pass2UnlockedFromMeta || pass2UnlockOptimistic;
   const pass2RevealAnim = useRef(new Animated.Value(0)).current;
   const pass2CtaOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (isPass2UnlockedMeta(meta)) {
+      setPass2UnlockOptimistic(true);
+    } else {
+      setPass2UnlockOptimistic(false);
+    }
+  }, [meta, row?.id]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
   const isTrip = Boolean(trip);
   const isProject = Boolean(row && row.type === 'PROJECT');
@@ -627,14 +673,16 @@ export function IntentionDetailSheet({
   /** Fiche « note augmentée » tant que `pass2_unlocked` est absent/faux (hors vue validation capture). */
   const gateLocked = Boolean(visible && row && !pass2Unlocked && !isValidationView && !gateFullTripBypass);
   useLayoutEffect(() => {
-    if (gateFullTripBypass || pass2UnlockedFromMeta) {
+    if (gateFullTripBypass || isPass2GenerationConsumed(meta)) {
       pass2RevealAnim.setValue(1);
       return;
     }
-    if (!pass2UnlockOptimistic) {
-      pass2RevealAnim.setValue(0);
+    if (pass2UnlockedFromMeta || pass2UnlockOptimistic) {
+      pass2RevealAnim.setValue(1);
+      return;
     }
-  }, [gateFullTripBypass, pass2RevealAnim, pass2UnlockedFromMeta, pass2UnlockOptimistic, row?.id]);
+    pass2RevealAnim.setValue(0);
+  }, [gateFullTripBypass, meta, pass2RevealAnim, pass2UnlockedFromMeta, pass2UnlockOptimistic, row?.id]);
 
   useEffect(() => {
     if (gateLocked) pass2CtaOpacity.setValue(1);
@@ -670,7 +718,10 @@ export function IntentionDetailSheet({
   );
 
   const showPass2FooterCta = Boolean(
-    row && row.id !== 'peek_pending' && !pass2UnlockedFromMeta && pass2FooterAction != null,
+    row &&
+      row.id !== 'peek_pending' &&
+      !isPass2GenerationConsumed(meta) &&
+      (isProject || isList || isTrip),
   );
 
   /** Bouton principal (feuille capture réduite Path B / TalkDebug) : hiérarchie TRIP → PROJECT → LIST → défaut. */
@@ -921,7 +972,7 @@ export function IntentionDetailSheet({
         void patchMetadata(row.id, buildProjectMilestonesMetadataPatch(nextProjectPayload), { silent: true });
       }
     }
-  }, [meta, visible]);
+  }, [meta, row?.id, row?.metadata_json, row?.type, visible]);
 
   const comfortReady = useMemo(() => {
     if (!isTrip) return false;
@@ -1231,9 +1282,35 @@ export function IntentionDetailSheet({
     async (options?: { applyOptimistic?: boolean }) => {
       if (!row || row.id === 'peek_pending') return;
       const root = safeParseJsonObject(row.metadata_json) ?? {};
-      await patchMetadata(row.id, { pass2_unlocked: true });
-      onPatchRow?.(row.id, { metadata_json: JSON.stringify({ ...root, pass2_unlocked: true }) });
+      const unlockedJson = JSON.stringify({ ...root, pass2_unlocked: PASS2_UNLOCKED_CONSUMED });
+      await patchMetadata(row.id, { pass2_unlocked: PASS2_UNLOCKED_CONSUMED });
+      metadataJsonLiveRef.current = unlockedJson;
+      onPatchRow?.(row.id, { metadata_json: unlockedJson });
       if (options?.applyOptimistic !== false) setPass2UnlockOptimistic(true);
+    },
+    [onPatchRow, row],
+  );
+
+  const applyPass2MetadataLocally = useCallback(
+    (patch: Record<string, unknown>, options?: { displayTitle?: string }) => {
+      if (!row) return;
+      const nextJson = mergeMetadataJsonString(metadataJsonLiveRef.current ?? row.metadata_json, patch);
+      metadataJsonLiveRef.current = nextJson;
+      if (row.type === 'LIST') {
+        setListPayload(parseListScalablePayloadFromMetadataJson(nextJson));
+      } else if (row.type === 'PROJECT') {
+        const nextProject = parseProjectMilestonesPayloadFromMetadataJson(nextJson);
+        setProjectPayload(nextProject);
+        const pivots: Record<string, string | null> = {};
+        for (const m of nextProject?.milestones ?? []) {
+          pivots[m.uid] = m.pivot_date ?? null;
+        }
+        setProjectPivotDraftByUid(pivots);
+        setProjectDatesDirty(false);
+      }
+      const rowPatch: Partial<TrankilV2TimelineItemRow> = { metadata_json: nextJson };
+      if (options?.displayTitle) rowPatch.display_title = options.displayTitle;
+      onPatchRow?.(row.id, rowPatch);
     },
     [onPatchRow, row],
   );
@@ -1243,11 +1320,13 @@ export function IntentionDetailSheet({
     const raw = String(row.content_raw ?? '').trim();
     const uiLocale = i18n.language || 'fr';
     if (row.type === 'LIST') {
-      await patchMetadata(
-        row.id,
-        { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
-        { silent: true },
-      );
+      const pendingPatch = {
+        is_generating: true,
+        list_enrich_status: 'pending',
+        list_enrich_error: null,
+      };
+      await patchMetadata(row.id, pendingPatch, { silent: true });
+      applyPass2MetadataLocally(pendingPatch);
       const refIso = new Date().toISOString();
       const t0 = Date.now();
       const enriched = await geminiEnrichGenericList(raw, {
@@ -1261,18 +1340,23 @@ export function IntentionDetailSheet({
       if (enriched.mode !== 'LIST') throw new Error('LIST_ENRICH_MODE_MISMATCH');
       const payload = geminiJsonToStoredPayload(enriched.parsed);
       const nextTitle = validationTitle || payload.title;
-      await patchMetadata(row.id, {
+      const donePatch = {
         ...buildListMetadataPatch({ ...payload, title: nextTitle }),
         is_generating: false,
         list_enrich_status: 'done',
         list_enrich_error: null,
-      });
+        pass2_unlocked: PASS2_UNLOCKED_CONSUMED,
+      };
+      await patchMetadata(row.id, donePatch, { silent: true });
+      applyPass2MetadataLocally(donePatch, { displayTitle: nextTitle });
     } else if (row.type === 'PROJECT') {
-      await patchMetadata(
-        row.id,
-        { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
-        { silent: true },
-      );
+      const pendingPatch = {
+        is_generating: true,
+        list_enrich_status: 'pending',
+        list_enrich_error: null,
+      };
+      await patchMetadata(row.id, pendingPatch, { silent: true });
+      applyPass2MetadataLocally(pendingPatch);
       const refIso = new Date().toISOString();
       const t0 = Date.now();
       const enriched = await geminiEnrichGenericList(raw, {
@@ -1286,14 +1370,17 @@ export function IntentionDetailSheet({
       if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
       const payload = enriched.parsed;
       const nextTitle = validationTitle || payload.title;
-      await patchMetadata(row.id, {
+      const donePatch = {
         ...buildProjectMilestonesMetadataPatch({ ...payload, title: nextTitle }),
         is_generating: false,
         list_enrich_status: 'done',
         list_enrich_error: null,
-      });
+        pass2_unlocked: PASS2_UNLOCKED_CONSUMED,
+      };
+      await patchMetadata(row.id, donePatch, { silent: true });
+      applyPass2MetadataLocally(donePatch, { displayTitle: nextTitle });
     }
-  }, [i18n.language, row, validationTitle]);
+  }, [applyPass2MetadataLocally, i18n.language, row, validationTitle]);
 
   const revealPass2DetailedBlocks = useCallback(() => {
     pass2RevealAnim.setValue(0);
@@ -1306,6 +1393,104 @@ export function IntentionDetailSheet({
       }).start();
     });
   }, [pass2RevealAnim]);
+
+  const pass2UsesEnrichmentOverlay = row?.type === 'LIST' || row?.type === 'PROJECT';
+
+  const pass2OverlayBarColor = useMemo(
+    () => categoryPastelBarColor(row?.category_id),
+    [row?.category_id],
+  );
+
+  const clearPass2OverlayRevealTimeout = useCallback(() => {
+    if (pass2OverlayRevealTimeoutRef.current) {
+      clearTimeout(pass2OverlayRevealTimeoutRef.current);
+      pass2OverlayRevealTimeoutRef.current = null;
+    }
+  }, []);
+
+  const finishPass2UnlockReveal = useCallback(() => {
+    revealPass2DetailedBlocks();
+    setPass2Running(false);
+  }, [revealPass2DetailedBlocks]);
+
+  const unlockPass2ForDisplay = useCallback(() => {
+    setPass2UnlockOptimistic(true);
+  }, []);
+
+  const resetPass2AiProgressRef = useRef<() => void>(() => undefined);
+
+  const onPass2OverlaySprintCompleteAt100 = useCallback(() => {
+    clearPass2OverlayRevealTimeout();
+    pass2OverlayRevealTimeoutRef.current = setTimeout(() => {
+      pass2OverlayRevealTimeoutRef.current = null;
+      pass2OverlayAwaitingSprintRef.current = false;
+      setPass2OverlayFinalizing(false);
+      setShowPass2Overlay(false);
+      resetPass2AiProgressRef.current();
+      finishPass2UnlockReveal();
+    }, AI_PROGRESS_REVEAL_HOLD_MS);
+  }, [clearPass2OverlayRevealTimeout, finishPass2UnlockReveal]);
+
+  const {
+    progress: pass2DisplayedPct,
+    reset: resetPass2AiProgress,
+    beginInertia: beginPass2Inertia,
+    startFinalSprintTo100: startPass2FinalSprint,
+  } = useAIProgressInertia({
+    active: showPass2Overlay,
+    onLinearSprintComplete: onPass2OverlaySprintCompleteAt100,
+  });
+
+  resetPass2AiProgressRef.current = resetPass2AiProgress;
+
+  const closePass2Overlay = useCallback(() => {
+    clearPass2OverlayRevealTimeout();
+    pass2OverlayAwaitingSprintRef.current = false;
+    setPass2OverlayFinalizing(false);
+    setShowPass2Overlay(false);
+    resetPass2AiProgress();
+  }, [clearPass2OverlayRevealTimeout, resetPass2AiProgress]);
+
+  const pass2OverlayLabel = useMemo(() => {
+    if (pass2OverlayFinalizing) return t('pass2.finalizing');
+    return isProject ? t('pass2.steps_loading') : t('pass2.list_loading');
+  }, [isProject, pass2OverlayFinalizing, t]);
+
+  useEffect(() => {
+    if (visible) return;
+    closePass2Overlay();
+  }, [closePass2Overlay, visible]);
+
+  const runPass2EnrichmentWithOptionalOverlay = useCallback(async () => {
+    if (!row) return;
+    if (!pass2UsesEnrichmentOverlay) return;
+    setPass2OverlayFinalizing(false);
+    setShowPass2Overlay(true);
+    resetPass2AiProgress();
+    beginPass2Inertia();
+    try {
+      await runPass2GeminiEnrichment();
+    } catch (e) {
+      closePass2Overlay();
+      await patchMetadata(row.id, {
+        is_generating: false,
+        list_enrich_status: 'error',
+        list_enrich_error: e instanceof Error ? e.message : String(e),
+      });
+      throw e;
+    }
+    setPass2OverlayFinalizing(true);
+    pass2OverlayAwaitingSprintRef.current = true;
+    startPass2FinalSprint();
+  }, [
+    beginPass2Inertia,
+    closePass2Overlay,
+    pass2UsesEnrichmentOverlay,
+    resetPass2AiProgress,
+    row,
+    runPass2GeminiEnrichment,
+    startPass2FinalSprint,
+  ]);
 
   const onPressUnlockPass2FromTimeline = useCallback(async () => {
     if (!row || pass2Running || row.id === 'peek_pending') return;
@@ -1326,29 +1511,28 @@ export function IntentionDetailSheet({
         });
       });
       await persistPass2Unlocked({ applyOptimistic: false });
-      setPass2UnlockOptimistic(true);
-      revealPass2DetailedBlocks();
-      try {
-        await runPass2GeminiEnrichment();
-      } catch (e) {
-        await patchMetadata(row.id, {
-          is_generating: false,
-          list_enrich_status: 'error',
-          list_enrich_error: e instanceof Error ? e.message : String(e),
-        });
+      unlockPass2ForDisplay();
+      if (pass2UsesEnrichmentOverlay) {
+        await runPass2EnrichmentWithOptionalOverlay();
+        return;
       }
-    } finally {
-      setPass2Running(false);
+      finishPass2UnlockReveal();
+    } catch {
+      if (!pass2OverlayAwaitingSprintRef.current) {
+        setPass2Running(false);
+      }
     }
   }, [
+    finishPass2UnlockReveal,
     isProUser,
     pass2CtaOpacity,
     pass2Running,
+    pass2UsesEnrichmentOverlay,
     persistPass2Unlocked,
     redirectToProSubscription,
-    revealPass2DetailedBlocks,
     row,
-    runPass2GeminiEnrichment,
+    runPass2EnrichmentWithOptionalOverlay,
+    unlockPass2ForDisplay,
   ]);
 
   const pass2FooterCtaNode = useMemo(() => {
@@ -1397,23 +1581,25 @@ export function IntentionDetailSheet({
     setPass2Running(true);
     try {
       if (!pass2UnlockedFromMeta) {
-        await persistPass2Unlocked();
+        await persistPass2Unlocked({ applyOptimistic: false });
       }
+      unlockPass2ForDisplay();
       openFullSheet();
+      if (pass2UsesEnrichmentOverlay) {
+        await runPass2EnrichmentWithOptionalOverlay();
+        return;
+      }
+      if (!pass2UnlockedFromMeta) {
+        revealPass2DetailedBlocks();
+      }
     } catch {
-      setPass2Running(false);
-      return;
-    }
-    try {
-      await runPass2GeminiEnrichment();
-    } catch (e) {
-      await patchMetadata(row.id, {
-        is_generating: false,
-        list_enrich_status: 'error',
-        list_enrich_error: e instanceof Error ? e.message : String(e),
-      });
+      if (!pass2OverlayAwaitingSprintRef.current) {
+        setPass2Running(false);
+      }
     } finally {
-      setPass2Running(false);
+      if (!pass2OverlayAwaitingSprintRef.current && !pass2UsesEnrichmentOverlay) {
+        setPass2Running(false);
+      }
     }
   };
 
@@ -1958,6 +2144,13 @@ export function IntentionDetailSheet({
   };
 
   return (
+    <>
+    <AIUniversalProgressOverlay
+      isVisible={showPass2Overlay}
+      progress={pass2DisplayedPct}
+      label={pass2OverlayLabel}
+      barColor={pass2OverlayBarColor}
+    />
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} hardwareAccelerated>
       <View style={styles.modalRoot}>
         <Pressable disabled={closing} style={styles.backdrop} onPress={onClose} />
@@ -3160,6 +3353,7 @@ export function IntentionDetailSheet({
         </Animated.View>
       </View>
     </Modal>
+    </>
   );
 }
 
