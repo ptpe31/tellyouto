@@ -52,7 +52,14 @@ import {
  * SPEC « Micro as Bulk(1) » — voir `PROJECT_STATUS.md` §2 / §3.2 / §4.1.
  */
 
-type CapturePayload = { transcript: string; audioUri: string | null; lang?: string; traceId?: string };
+type CapturePayload = {
+  transcript: string;
+  audioUri: string | null;
+  lang?: string;
+  traceId?: string;
+  /** Transcript STT d’origine si l’utilisateur a corrigé manuellement avant envoi. */
+  transcriptOriginal?: string;
+};
 
 /** Données proxy DealerBoard (Talk) : une ligne par intention persistée dans un bulk ventilé. */
 function buildDealerBulkPeekItems(
@@ -510,15 +517,35 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
    * `traceId` propagé pour les logs micro.
    */
   const submitCapturePayload = useCallback(
-    async ({ transcript: rawTranscript, audioUri, lang, traceId }: CapturePayload): Promise<boolean> => {
+    async ({ transcript: rawTranscript, audioUri, lang, traceId, transcriptOriginal }: CapturePayload): Promise<boolean> => {
       const cleaned = rawTranscript.trim();
       if (!cleaned) return false;
       const isMic = Boolean(audioUri);
       const trace = String(traceId || '').trim() || (isMic ? newId() : '');
+      const hadManualTranscript = transcriptOriginal !== undefined;
+      const originalStt = hadManualTranscript ? String(transcriptOriginal || '').trim() : '';
+      const manualEdit = hadManualTranscript && (originalStt !== cleaned || (!originalStt && cleaned.length > 0));
+      if (manualEdit) {
+        userEditedRef.current = true;
+        logCaptureFlow(trace || undefined, 'transcript_manual_edit', {
+          transcript_original: previewForLog(originalStt, 240),
+          transcript_final: previewForLog(cleaned, 240),
+        });
+        if (__DEV__ && VERBOSE_DEBUG && isMic) {
+          console.log(`[MIC] ✏️ Transcription éditée manuellement par l'utilisateur.`);
+          console.log(
+            `[MIC] 🧩 transcript_original vs transcript_final: ${JSON.stringify({
+              transcript_original: previewForLog(originalStt, 240),
+              transcript_final: previewForLog(cleaned, 240),
+            })}`,
+          );
+        }
+      }
       logCaptureFlow(trace || undefined, 'submit_enter', {
         isMic,
         transcriptLen: cleaned.length,
         hasAudio: Boolean(audioUri),
+        manualEdit,
       });
       if (__DEV__ && VERBOSE_DEBUG && isMic) {
         const now = new Date();
@@ -531,7 +558,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       captureActiveRef.current = false;
       lastCaptureWasMicRef.current = Boolean(audioUri);
       lastAudioUriRef.current = audioUri;
-      userEditedRef.current = false;
+      userEditedRef.current = manualEdit;
 
       const uiLocale = lang || spectrum.locale || 'fr-FR';
       const skeleton = inferOneTapSkeletonFromTranscript(cleaned, { uiLocale });

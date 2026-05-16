@@ -1,7 +1,7 @@
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
-import { Check, Lock, Mic, Pause, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
+import { Check, Lock, Mic, Pause, Pencil, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -10,12 +10,16 @@ import {
   DeviceEventEmitter,
   Dimensions,
   Easing,
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from 'react-native-paper';
@@ -32,6 +36,7 @@ import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { MICRO_CAPTURE_START_EVENT_NAME } from '../constants/intentionEvents';
 import { warmGeminiProxySession } from '../services/geminiSemanticLab';
+import { CaptureTranscriptEditor } from './AIUniversalProgressOverlay';
 import { logCaptureFlow, notifyCapturePipelineProgress } from '../utils/captureFlowLog';
 import { isNetInfoConsideredOnline } from '../utils/offlineStability';
 
@@ -125,6 +130,8 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
+  const [isEditingTranscription, setIsEditingTranscription] = useState(false);
+  const [editedTranscript, setEditedTranscript] = useState('');
   const [successLabel, setSuccessLabel] = useState('');
   const [successTone, setSuccessTone] = useState<'online' | 'offline'>('online');
   const [meteringDb, setMeteringDb] = useState(-100);
@@ -133,6 +140,10 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   const sttLangRef = useRef<string>(resolveSpeechLangForSession(i18n.language));
   const micTraceIdRef = useRef<string>('');
   const sttLogGateRef = useRef<{ lastLen: number; firedStart: boolean }>({ lastLen: 0, firedStart: false });
+  const sttSnapshotRef = useRef('');
+  const userManuallyEditedRef = useRef(false);
+  const isEditingTranscriptionRef = useRef(false);
+  isEditingTranscriptionRef.current = isEditingTranscription;
   const successScale = useRef(new Animated.Value(0.8)).current;
   const successOpacity = useRef(new Animated.Value(1)).current;
   const onValidatedRef = useRef(onValidated);
@@ -153,6 +164,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   );
 
   useSpeechRecognitionEvent('result', (event) => {
+    if (isEditingTranscriptionRef.current) return;
     const text = event.results?.[0]?.transcript ?? '';
     if (text.trim().length > 0) {
       setRawTranscript(text);
@@ -192,10 +204,41 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     setIsRecording(false);
     setPhase('idle');
     setRawTranscript('');
+    setIsEditingTranscription(false);
+    setEditedTranscript('');
+    sttSnapshotRef.current = '';
+    userManuallyEditedRef.current = false;
     setSuccessLabel('');
     setSuccessTone('online');
     setMeteringDb(-100);
   }, []);
+
+  const resolveTranscriptForSubmit = useCallback((): { raw: string; originalStt: string } => {
+    const sttRaw = String(rawTranscript || '');
+    const effectiveRaw = userManuallyEditedRef.current ? String(editedTranscript || '') : sttRaw;
+    const originalStt = cleanTranscriptText(sttSnapshotRef.current || sttRaw).trim();
+    return { raw: effectiveRaw, originalStt };
+  }, [editedTranscript, rawTranscript]);
+
+  const startEditTranscription = useCallback(() => {
+    if (!isRecording) return;
+    const snapshot = String(rawTranscript || '');
+    sttSnapshotRef.current = snapshot;
+    setEditedTranscript(snapshot);
+    setIsEditingTranscription(true);
+    userManuallyEditedRef.current = true;
+    if (__DEV__ && VERBOSE_DEBUG) {
+      logCaptureFlow(micTraceIdRef.current || undefined, 'transcript_edit_start', {
+        transcript_original: previewForMicLog(snapshot, 240),
+      });
+    }
+  }, [isRecording, rawTranscript]);
+
+  const onEditedTranscriptChange = useCallback((value: string) => {
+    setEditedTranscript(value);
+    userManuallyEditedRef.current = true;
+    onTranscriptChange?.(value);
+  }, [onTranscriptChange]);
 
   const ensureMicrophoneReady = useCallback(async (): Promise<boolean> => {
     const audioPerm = await Audio.requestPermissionsAsync();
@@ -335,7 +378,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
         await rec.stopAndUnloadAsync();
         uri = rec.getURI() ?? null;
       }
-      transcript = rawTranscript;
+      transcript = resolveTranscriptForSubmit().raw;
     } catch (e) {
       if (isLikelyMissingNativeModuleError(e)) {
         alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
@@ -345,6 +388,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     } finally {
       setIsRecording(false);
       setIsPaused(false);
+      const { originalStt } = resolveTranscriptForSubmit();
       const cleaned = cleanTranscriptText(String(transcript || '')).trim();
       if (__DEV__ && VERBOSE_DEBUG) {
         const now = new Date();
@@ -387,7 +431,13 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
             hasAudio: Boolean(uri),
           });
           void intentionFlow
-            .submitCapturePayload({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current, traceId: micTraceIdRef.current })
+            .submitCapturePayload({
+              transcript: cleaned,
+              transcriptOriginal: userManuallyEditedRef.current ? originalStt : undefined,
+              audioUri: uri,
+              lang: sttLangRef.current,
+              traceId: micTraceIdRef.current,
+            })
             .catch((e) => {
               if (__DEV__ && VERBOSE_DEBUG) {
                 console.log(`[MIC] ❌ submitCapturePayload failed | TRACE: ${micTraceIdRef.current} | ${e instanceof Error ? e.message : String(e)}`);
@@ -416,7 +466,13 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
           hasAudio: Boolean(uri),
         });
         void intentionFlow
-          .submitCapturePayload({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current, traceId: micTraceIdRef.current })
+          .submitCapturePayload({
+            transcript: cleaned,
+            transcriptOriginal: userManuallyEditedRef.current ? originalStt : undefined,
+            audioUri: uri,
+            lang: sttLangRef.current,
+            traceId: micTraceIdRef.current,
+          })
           .catch((e) => {
             if (__DEV__ && VERBOSE_DEBUG) {
               console.log(`[MIC] ❌ submitCapturePayload failed | TRACE: ${micTraceIdRef.current} | ${e instanceof Error ? e.message : String(e)}`);
@@ -440,7 +496,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     onPipelineDashboardOpenImmediate,
     onProfilerStopRecordingT0,
     onPipelineWaitMicPress,
-    rawTranscript,
+    resolveTranscriptForSubmit,
     resetInternal,
     t,
     variant,
@@ -536,6 +592,34 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   }, []);
 
   const isTalkDebug = variant === 'talkDebug';
+  const displayTranscript = isEditingTranscription ? editedTranscript : rawTranscript;
+  const transcriptPlaceholder = t('talkHome.listeningNow', { defaultValue: 'Écoute en cours…' });
+
+  const renderCaptureControls = (
+    rowStyle: StyleProp<ViewStyle>,
+    btnStyle: StyleProp<ViewStyle>,
+    sendBtnStyle?: StyleProp<ViewStyle>,
+  ) => (
+    <View style={rowStyle}>
+      <Pressable style={btnStyle} onPress={() => void cancelRecording()} disabled={disabled}>
+        <Trash2 size={18} color="#fff" />
+      </Pressable>
+      <Pressable style={btnStyle} onPress={() => void togglePause()} disabled={disabled}>
+        {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
+      </Pressable>
+      <Pressable
+        style={[btnStyle, isEditingTranscription ? styles.ctrlBtnActive : null]}
+        onPress={startEditTranscription}
+        disabled={disabled}
+        accessibilityLabel={t('talkCapture.editTranscriptA11y', { defaultValue: 'Corriger la transcription' })}
+      >
+        <Pencil size={18} color="#fff" />
+      </Pressable>
+      <Pressable style={sendBtnStyle ?? btnStyle} onPress={() => void stopRecording()} disabled={disabled}>
+        <SendHorizontal size={sendBtnStyle ? 22 : 18} color="#fff" />
+      </Pressable>
+    </View>
+  );
 
   if (isTalkDebug) {
     const canvasH = Math.round(Dimensions.get('window').height * 0.4);
@@ -584,7 +668,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     }
 
     return (
-      <>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={tdStyles.captureKeyboardWrap}>
         <View style={tdStyles.captureTranscriptShell}>
           <ScrollView
             ref={(ref) => {
@@ -593,11 +677,21 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
             style={tdStyles.captureTranscriptScroll}
             contentContainerStyle={tdStyles.liveTranscriptContent}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
             onContentSizeChange={() => {
-              liveScrollRef.current?.scrollToEnd({ animated: true });
+              if (!isEditingTranscription) {
+                liveScrollRef.current?.scrollToEnd({ animated: true });
+              }
             }}
           >
-            <Text style={tdStyles.liveTranscript}>{rawTranscript.trim() ? rawTranscript : ' '}</Text>
+            <CaptureTranscriptEditor
+              text={displayTranscript.trim() ? displayTranscript : ' '}
+              isEditing={isEditingTranscription}
+              onChangeText={onEditedTranscriptChange}
+              placeholder={transcriptPlaceholder}
+              textStyle={tdStyles.liveTranscript}
+              inputStyle={tdStyles.liveTranscriptInput}
+            />
           </ScrollView>
           {!isPaused ? (
             <VoiceMeteringWaveform meteringDb={meteringDb} accessibilityLabel={waveformA11yLabel} />
@@ -617,18 +711,12 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
             style={tdStyles.transcriptFadeBottom}
           />
         </View>
-        <View style={tdStyles.pilotRowDocked}>
-          <Pressable style={tdStyles.ctrlBtn} onPress={() => void cancelRecording()} disabled={disabled}>
-            <Trash2 size={18} color="#fff" />
-          </Pressable>
-          <Pressable style={tdStyles.ctrlBtn} onPress={() => void togglePause()} disabled={disabled}>
-            {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
-          </Pressable>
-          <Pressable style={[tdStyles.micBtn, tdStyles.ctrlBtnPrimary, disabled ? tdStyles.disabled : null]} onPress={() => void stopRecording()} disabled={disabled}>
-            <SendHorizontal size={22} color="#fff" />
-          </Pressable>
-        </View>
-      </>
+        {renderCaptureControls(
+          tdStyles.pilotRowDocked,
+          tdStyles.ctrlBtn,
+          [tdStyles.micBtn, tdStyles.ctrlBtnPrimary, disabled ? tdStyles.disabled : null],
+        )}
+      </KeyboardAvoidingView>
     );
   }
 
@@ -679,55 +767,55 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   }
 
   return (
-    <View style={[styles.recordingCard, neumorphicInset(theme), compact && styles.recordingCardCompact]}>
-      <View style={styles.waveRow}>
-        {waveHeights.map((h, idx) => (
-          <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused ? 8 : h }]} />
-        ))}
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.captureKeyboardWrap}>
+      <View style={[styles.recordingCard, neumorphicInset(theme), compact && styles.recordingCardCompact]}>
+        <View style={styles.waveRow}>
+          {waveHeights.map((h, idx) => (
+            <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused ? 8 : h }]} />
+          ))}
+        </View>
+        <View style={[styles.liveTranscriptWrap, compact && styles.liveTranscriptWrapCompact]}>
+          <ScrollView
+            ref={(ref) => {
+              liveScrollRef.current = ref;
+            }}
+            style={styles.liveTranscriptScroll}
+            contentContainerStyle={styles.liveTranscriptContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => {
+              if (!isEditingTranscription) {
+                liveScrollRef.current?.scrollToEnd({ animated: true });
+              }
+            }}
+          >
+            <CaptureTranscriptEditor
+              text={displayTranscript.trim() ? displayTranscript : transcriptPlaceholder}
+              isEditing={isEditingTranscription}
+              onChangeText={onEditedTranscriptChange}
+              placeholder={transcriptPlaceholder}
+              textStyle={styles.liveTranscript}
+              inputStyle={styles.liveTranscriptInput}
+            />
+          </ScrollView>
+          <LinearGradient
+            pointerEvents="none"
+            colors={['#111827', 'rgba(17,24,39,0)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.transcriptFadeTop}
+          />
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(17,24,39,0)', '#111827']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.transcriptFadeBottom}
+          />
+        </View>
+        {renderCaptureControls(styles.ctrlRow, styles.ctrlBtn)}
       </View>
-      <View style={[styles.liveTranscriptWrap, compact && styles.liveTranscriptWrapCompact]}>
-        <ScrollView
-          ref={(ref) => {
-            liveScrollRef.current = ref;
-          }}
-          style={styles.liveTranscriptScroll}
-          contentContainerStyle={styles.liveTranscriptContent}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => {
-            liveScrollRef.current?.scrollToEnd({ animated: true });
-          }}
-        >
-          <Text style={styles.liveTranscript}>
-            {rawTranscript.trim() ? rawTranscript : t('talkHome.listeningNow')}
-          </Text>
-        </ScrollView>
-        <LinearGradient
-          pointerEvents="none"
-          colors={['#111827', 'rgba(17,24,39,0)']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={styles.transcriptFadeTop}
-        />
-        <LinearGradient
-          pointerEvents="none"
-          colors={['rgba(17,24,39,0)', '#111827']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={styles.transcriptFadeBottom}
-        />
-      </View>
-      <View style={styles.ctrlRow}>
-        <Pressable style={styles.ctrlBtn} onPress={() => void cancelRecording()} disabled={disabled}>
-          <Trash2 size={18} color="#fff" />
-        </Pressable>
-        <Pressable style={styles.ctrlBtn} onPress={() => void togglePause()} disabled={disabled}>
-          {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
-        </Pressable>
-        <Pressable style={styles.ctrlBtn} onPress={() => void stopRecording()} disabled={disabled}>
-          <SendHorizontal size={18} color="#fff" />
-        </Pressable>
-      </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 });
 
@@ -778,7 +866,8 @@ const styles = StyleSheet.create({
   successText: { marginTop: 20, fontSize: 18, fontWeight: '600', textAlign: 'center', lineHeight: 24, color: '#E3F2FD' },
   transcriptFadeTop: { position: 'absolute', left: 0, right: 0, top: 0, height: 18 },
   transcriptFadeBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 22 },
-  ctrlRow: { flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 12 },
+  captureKeyboardWrap: { width: '100%' },
+  ctrlRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 12 },
   ctrlBtn: {
     width: 44,
     height: 44,
@@ -787,13 +876,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  ctrlBtnActive: {
+    backgroundColor: 'rgba(56,189,248,0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(125,211,252,0.55)',
+  },
+  liveTranscriptInput: {
+    color: '#f9fafb',
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 56,
+    padding: 0,
+    width: '100%',
+  },
 });
 
 const tdStyles = StyleSheet.create({
+  captureKeyboardWrap: { width: '100%' },
   captureTranscriptShell: { width: '100%', position: 'relative', marginBottom: 14 },
   captureTranscriptScroll: { width: '100%' },
   liveTranscriptContent: { paddingHorizontal: 10, paddingVertical: 8 },
   liveTranscript: { color: '#BDC3C7', fontSize: 16, textAlign: 'center', paddingHorizontal: 10, lineHeight: 22 },
+  liveTranscriptInput: {
+    color: '#e2e8f0',
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 22,
+    minHeight: 72,
+    paddingHorizontal: 10,
+    width: '100%',
+  },
   transcriptFadeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 16 },
   transcriptFadeBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 16 },
   pilotRowDocked: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginTop: 4 },

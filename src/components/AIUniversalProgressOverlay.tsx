@@ -1,15 +1,77 @@
 import { BlurView } from 'expo-blur';
 import React from 'react';
-import { Modal, StyleSheet, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  type StyleProp,
+  type TextStyle,
+  View,
+  type ViewStyle,
+} from 'react-native';
+
+export type CaptureTranscriptEditorProps = {
+  text: string;
+  isEditing: boolean;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  textStyle?: StyleProp<TextStyle>;
+  inputStyle?: StyleProp<TextStyle>;
+  containerStyle?: StyleProp<ViewStyle>;
+};
+
+/**
+ * Affichage lecture / édition du transcript STT (TextInput multiline + autoFocus en mode édition).
+ * Réutilisé par {@link TalkCaptureMicButton} et {@link AIUniversalProgressOverlay}.
+ */
+export function CaptureTranscriptEditor({
+  text,
+  isEditing,
+  onChangeText,
+  placeholder,
+  textStyle,
+  inputStyle,
+  containerStyle,
+}: CaptureTranscriptEditorProps) {
+  if (isEditing) {
+    return (
+      <TextInput
+        autoFocus
+        multiline
+        value={text}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="rgba(148,163,184,0.65)"
+        style={[styles.transcriptInput, inputStyle]}
+        textAlignVertical="top"
+        scrollEnabled
+        accessibilityLabel={placeholder}
+      />
+    );
+  }
+  return (
+    <View style={containerStyle}>
+      <Text style={[styles.transcriptText, textStyle]}>{text.trim() ? text : ' '}</Text>
+    </View>
+  );
+}
 
 export type AIUniversalProgressOverlayProps = {
   isVisible: boolean;
   /** 0–100, valeur déjà lissée côté hook / parent. */
   progress: number;
-  /** Titre d’étape affiché au-dessus de la barre. */
+  /** Titre d'étape affiché au-dessus de la barre. */
   label: string;
   /** Couleur de remplissage de la barre (ex. résilience orange). */
   barColor?: string;
+  /** Transcript STT optionnel (lecture ou édition selon `isEditingTranscription`). */
+  transcript?: string;
+  isEditingTranscription?: boolean;
+  onTranscriptChange?: (value: string) => void;
+  transcriptPlaceholder?: string;
 };
 
 const DEFAULT_BAR = '#38bdf8';
@@ -23,25 +85,46 @@ export function AIUniversalProgressOverlay({
   progress,
   label,
   barColor = DEFAULT_BAR,
+  transcript,
+  isEditingTranscription = false,
+  onTranscriptChange,
+  transcriptPlaceholder,
 }: AIUniversalProgressOverlayProps) {
   const pct = Math.max(0, Math.min(100, progress));
   const rounded = Math.round(pct);
+  const showTranscript = typeof transcript === 'string';
 
   return (
     <Modal visible={isVisible} transparent animationType="fade" statusBarTranslucent>
-      <View style={styles.root} pointerEvents="box-none">
+      <KeyboardAvoidingView
+        style={styles.root}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        pointerEvents="box-none"
+      >
         <View style={styles.backdropSolid} pointerEvents="none" />
         <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={styles.center} pointerEvents="box-none">
           <View style={styles.card} pointerEvents="box-none">
-            <Text style={styles.title}>{label}</Text>
+            {showTranscript ? (
+              <View style={styles.transcriptShell}>
+                <CaptureTranscriptEditor
+                  text={transcript}
+                  isEditing={isEditingTranscription}
+                  onChangeText={onTranscriptChange ?? (() => undefined)}
+                  placeholder={transcriptPlaceholder}
+                  textStyle={styles.transcriptText}
+                  inputStyle={styles.transcriptInputOverlay}
+                />
+              </View>
+            ) : null}
+            <Text style={[styles.title, showTranscript ? styles.titleWithTranscript : null]}>{label}</Text>
             <View style={styles.track}>
               <View style={[styles.fill, { width: `${pct}%`, backgroundColor: barColor }]} />
             </View>
             <Text style={styles.pctLabel}>{`${rounded}%`}</Text>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -70,6 +153,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(148,163,184,0.35)',
   },
+  transcriptShell: {
+    width: '100%',
+    maxHeight: 160,
+    marginBottom: 18,
+    borderRadius: 14,
+    backgroundColor: 'rgba(15,23,42,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.28)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  transcriptText: {
+    color: '#e2e8f0',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  transcriptInput: {
+    color: '#f1f5f9',
+    fontSize: 15,
+    lineHeight: 22,
+    minHeight: 72,
+    maxHeight: 140,
+    padding: 0,
+    width: '100%',
+  },
+  transcriptInputOverlay: {
+    textAlign: 'center',
+  },
   title: {
     color: '#f1f5f9',
     fontSize: 17,
@@ -77,6 +189,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 22,
+  },
+  titleWithTranscript: {
+    marginBottom: 16,
   },
   track: {
     height: 10,

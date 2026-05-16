@@ -44,7 +44,7 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
   - **En ligne**, si Path B ou la persistance d’un chunk échoue avec une erreur **réseau ou serveur** (heuristique `isLikelyNetworkOrServerError` dans `offlineStability.ts`), le séquenceur **`runGeminiBulkSequence`** enfile **automatiquement** le transcript restant (ou le transcript complet + copie audio si aucun chunk n’a encore été persisté) dans la même file offline — l’utilisateur n’a pas à valider une Alert pour « sauver sa pensée » dans ce cas.
   - Les erreurs métier / validation (hors heuristique réseau) peuvent encore ouvrir **`proposeOfflineFallback`** (Alert optionnelle) lorsqu’aucune persistance ni enqueue auto n’a eu lieu.
   - **Rejouage** : `analyzeLatestOfflineAudio` n’appelle `markOfflineAudioAsDone` qu’**après** un `submitCapturePayload` ayant retourné `true` (donnée traitée ou re-file de façon sûre) ; sinon l’entrée `pending` est conservée.
-  - **Observabilité** : logs console **`[OFFLINE-STABILITY]`** (`logOfflineStability`) pour enqueue auto, replay, branche offline directe et **`netinfo_online_null_reachable`** ; **`[CAPTURE_FLOW]`** via [captureFlowLog.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/captureFlowLog.ts) : journalisation console **`__DEV__`** + émission **`notifyCapturePipelineProgress`** (`CAPTURE_PIPELINE_PROGRESS_EVENT`, `DeviceEventEmitter`) à chaque `logCaptureFlow` pour corréler `traceId` (ex. micro) avec l’**overlay de progression Talk** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx)) ; phases usuelles : `mic_stop_audio_done`, `mic_submit_invoke`, `submit_enter`, `submit_netinfo`, `peek_snapshot_emit`, `peek_snapshot_offline_queue`, `bulk_start`, `chunk_*`, `peek_first_save_emit`, **`bulk_network_resilience_enqueue`** (enqueue auto Vague 1), `submit_return_after_bulk`, `submit_offline_queued` (dont `reason: netinfo_offline`), etc.
+  - **Observabilité** : logs console **`[OFFLINE-STABILITY]`** (`logOfflineStability`) pour enqueue auto, replay, branche offline directe et **`netinfo_online_null_reachable`** ; **`[CAPTURE_FLOW]`** via [captureFlowLog.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/captureFlowLog.ts) : journalisation console **`__DEV__`** + émission **`notifyCapturePipelineProgress`** (`CAPTURE_PIPELINE_PROGRESS_EVENT`, `DeviceEventEmitter`) à chaque `logCaptureFlow` pour corréler `traceId` (ex. micro) avec l’**overlay de progression Talk** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx)) ; phases usuelles : `mic_stop_audio_done`, `mic_submit_invoke`, `submit_enter`, `submit_netinfo`, `peek_snapshot_emit`, `peek_snapshot_offline_queue`, `bulk_start`, `chunk_*`, `peek_first_save_emit`, **`bulk_network_resilience_enqueue`** (enqueue auto Vague 1), `submit_return_after_bulk`, `submit_offline_queued` (dont `reason: netinfo_offline`), **`transcript_edit_start`**, **`transcript_manual_edit`** (correction STT optionnelle avant envoi), etc.
 - Cycle de vie du titre (critique) :
   - Path A (heuristique locale) : génère un titre “bruit” (brut ou via heuristiques simples) uniquement pour l’affichage immédiat.
   - Path B (Gemini) : fournit le Smart Title définitif via son champ `CONTENT`.
@@ -893,6 +893,21 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 - TalkDebugScreen doit importer et utiliser `TalkCaptureMicButton` (même composant que Timeline).
 - Contrat : permissions, STT natif, enregistrement audio, animation et logs capture sont identiques Debug/Timeline.
 
+#### 1.a) Correction manuelle du transcript STT (optionnelle)
+
+- **Objectif** : permettre à l’utilisateur de corriger la transcription STT **avant** l’envoi au proxy Gemini (Pass 1), pour maximiser la fidélité au sens voulu. La correction reste **optionnelle** : sans action sur le crayon, le flux inchangé (STT brut → `submitCapturePayload`).
+- **UI** — [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) (Talk Debug + Timeline) :
+  - Pendant la dictée (`phase === 'recording'`), barre d’actions : **Corbeille** · **Pause** · **Crayon** (`Pencil`) · **Envoyer**.
+  - Clic **Crayon** : `isEditingTranscription = true` ; snapshot STT figé (`sttSnapshotRef`) ; le flux STT **n’écrase plus** le texte tant que l’édition est active.
+  - Zone transcript : composant partagé [`CaptureTranscriptEditor`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) — mode **lecture** (`Text`) ou **édition** (`TextInput` multiline, `autoFocus`).
+  - `KeyboardAvoidingView` autour du bloc capture pour garder le champ visible au-dessus du clavier.
+  - Clic **Envoyer** : arrêt audio/STT, nettoyage (`cleanTranscriptText`), puis `submitCapturePayload` avec le texte **final** (STT ou corrigé).
+- **Pipeline** — [`IntentionContext.submitCapturePayload`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/IntentionContext.tsx) :
+  - Paramètre optionnel `transcriptOriginal` : transcript STT nettoyé **avant** correction manuelle.
+  - `transcript` (champ principal) = **source de vérité** pour Path A, bulk Gemini et file offline.
+  - Si `transcriptOriginal` est fourni et diffère du final : `userEditedRef` positionné ; logs **`[CAPTURE_FLOW]`** phase `transcript_manual_edit` + **`[MIC] ✏️`** en `__DEV__` avec `transcript_original` vs `transcript_final`.
+- **Overlay progression** — [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) : expose les mêmes primitives (`CaptureTranscriptEditor`, props transcript optionnelles) pour réutilisation ; l’édition produit se fait **avant** l’overlay Pass 1 (pendant la dictée), pas pendant `pipeline_wait`.
+
 ### 2) Unification du cerveau (IntentionContext)
 
 **Contrat absolu : il n’existe plus qu’un seul chemin de traitement/persistance dans `IntentionContext`.**  
@@ -903,7 +918,8 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 - Toute capture unitaire (micro **ou** saisie texte) est routée vers `await runGeminiBulkSequence`, même si le transcript ne contient pas `**`.
 - Mécanique : forcer `chunks=[cleanedTranscript]` pour imposer le chemin “Séquenceur” (CHUNK 1/1), sans heuristique de split.
 - Paramètres obligatoires à transporter jusqu’au bulk :
-  - `transcript` (string) : texte final “clean” (trim + nettoyage des suffixes UI si nécessaire).
+  - `transcript` (string) : texte final “clean” (trim + nettoyage des suffixes UI si nécessaire) — **source de vérité** pour Gemini / offline (y compris après correction manuelle STT).
+  - `transcriptOriginal` (string optionnel) : snapshot STT nettoyé avant correction crayon ; sert aux logs `transcript_manual_edit` uniquement.
   - `audioUri` (string|null) : si micro, le chemin du mémo ; sinon `null`.
   - `lang` (BCP47 optionnel) : langue session STT (si connue).
   - `traceId` (string optionnel) : identifiant de trace micro (logs).
