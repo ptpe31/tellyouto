@@ -23,6 +23,7 @@ import {
 import { syncNativeRailAlarmsAfterIntentionWrite } from '../api/intentionHardwareSync';
 import { IntentInteractionWrapper } from './IntentInteractionWrapper';
 import { generateSmartTitle } from '../services/smartTitle';
+import { formatCreationSubtitle } from '../utils/timeFormat';
 
 type Props = {
   visible: boolean;
@@ -60,21 +61,6 @@ function formatLineTitle(raw: string, t: (k: string) => string): string {
   if (!raw) return t('timeline.untitled');
   if (raw.startsWith('timeline.')) return t(raw);
   return raw;
-}
-
-function formatCreatedLine(createdAt: number, locale?: string): string {
-  try {
-    const d = new Date(createdAt);
-    const loc = locale || Intl.DateTimeFormat().resolvedOptions().locale;
-    const dateStr = new Intl.DateTimeFormat(loc, {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-    }).format(d);
-    return dateStr;
-  } catch {
-    return '';
-  }
 }
 
 export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onChanged }: Props) {
@@ -187,7 +173,7 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
               <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
                 {items.map((row) => {
                   const title = formatLineTitle(resolveDisplayTitle(row), t);
-                  const createdLine = formatCreatedLine(row.created_at, i18n.language);
+                  const createdLine = formatCreationSubtitle(Number(row.created_at), t, i18n.language);
                   return (
                     <IntentInteractionWrapper
                       key={row.id}
@@ -208,7 +194,7 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                           {title}
                         </Text>
                         <Text style={[styles.createdHint, { color: theme.colors.onSurfaceVariant }]}>
-                          {t('timeline.createdOn', { date: createdLine })}
+                          {createdLine}
                         </Text>
                         <View style={styles.rowActions}>
                           {status === 'TODO' ? (

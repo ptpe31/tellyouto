@@ -72,6 +72,7 @@ import { getBestOrphanCluster } from '../services/clusterEngine';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { formatYmdLocal } from '../services/TimeSorter';
+import { shouldShowUndatedOrphanInTodayView } from '../utils/timeFormat';
 import { buildDailyRoadmapPayload, runDailyRoadmapGeminiHtml } from '../services/dailyRoadmapPass3';
 import { ensureGeminiRemoteModelInitialized } from '../services/geminiRemoteModelSteering';
 import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOverlay';
@@ -1110,7 +1111,12 @@ export function TimelineScreen() {
     const enriched = pool
       .map((r) => {
         const dueYmd = normalizeDueDateLocal(r.due_date);
-        const effectiveYmd = dueYmd ?? (isTodayView ? todayYmd : null);
+        let effectiveYmd: string | null = dueYmd;
+        if (!effectiveYmd && isTodayView) {
+          if (shouldShowUndatedOrphanInTodayView(Number(r.created_at), todayYmd)) {
+            effectiveYmd = todayYmd;
+          }
+        }
         if (!effectiveYmd) return null;
         const sortMs = (() => {
           const rawDue = String(r.due_date ?? '').trim();

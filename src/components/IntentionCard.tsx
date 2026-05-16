@@ -8,6 +8,7 @@ import type { TrankilV2TimelineItemRow } from '../api';
 import { generateSmartTitle } from '../services/smartTitle';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
+import { formatCreationSubtitle } from '../utils/timeFormat';
 import { neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
@@ -164,7 +165,6 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
     const now = new Date();
     const todayKey = formatYmdLocal(now);
     const tomorrowKey = addDaysYmd(now, 1);
-    const createdAt = new Date(row.created_at);
 
     const rootDueIso = str(meta, 'dueDateTime');
     const rootYmd = str(meta, 'dueDateYmd');
@@ -186,8 +186,7 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
       baseParsed?.date ??
       null;
     if (!dueRef) {
-      const createdTime = new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(createdAt);
-      return t('timeline.createdTodayAt', { time: createdTime });
+      return formatCreationSubtitle(Number(row.created_at), t, loc, now);
     }
     const dueKey = formatYmdLocal(dueRef);
     const dayLabel =
