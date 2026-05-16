@@ -435,16 +435,17 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 
 **Overlay progression Pass 2 (LIST / PROJECT)** : [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) réutilise [`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) pendant `geminiEnrichGenericList` : `beginInertia()` au clic, `startFinalSprintTo100()` à la résolution Gemini, fermeture overlay au sprint 100 % + hold **150 ms**, puis `revealPass2DetailedBlocks()`. Libellés i18n dédiés : `pass2.steps_loading` (PROJECT), `pass2.list_loading` (LIST), `pass2.finalizing` (sprint final). Barre : pastel catégorie (bleu / vert / violet).
 
-**Hydratation instantanée** : après chaque `patchMetadata` Pass 2, `applyPass2MetadataLocally` met à jour `listPayload` / `projectPayload`, `metadataJsonLiveRef` et `onPatchRow` — items / jalons visibles **sans** fermer la fiche.
+**Hydratation instantanée** : après chaque `patchMetadata` Pass 2, `applyPass2MetadataLocally` met à jour `listPayload` / `projectPayload`, l’état **`metadataJsonLive`** (source locale pour parser `meta` et piloter `showPass2FooterCta`) et **`onPatchRow`** — items / jalons visibles **sans** fermer la fiche. **Obligatoire** : [`TalkDebugScreen`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) et [`TimelineScreen`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) passent `onPatchRow` pour que `row.metadata_json` reflète `pass2_unlocked: 1` (sinon le CTA peut réapparaître à tort après génération).
 
 **Footer — placement et éligibilité** :
 - CTA Pass 2 (néomorphique, pastel) dans **`footerActionsRow`** (Zen) et **`footerRow`** (détaillé), **à gauche** de **Fermer**, aligné à droite.
-- Visible si `pass2_unlocked !== 1`, `row.id !== 'peek_pending'`, type **TRIP | LIST | PROJECT** (`isTrip || isList || isProject`). Pas de CTA pour **TASK** / **HABIT**.
+- **`showPass2FooterCta`** : `row` présent, `row.id !== 'peek_pending'`, **`!isPass2UnlockedMeta(meta)`** (meta dérivée de `metadataJsonLive`), types **TRIP | LIST | PROJECT** uniquement. Pas de CTA pour **TASK** / **HABIT**.
+- **Path B (peek ~25 %)** : le bouton principal de validation n’est rendu **que si** `showPass2FooterCta` (même libellés / même verrou).
 
-**Libellés dynamiques (i18n, pas de texte en dur)** — CTA footer **PRO** (types éligibles uniquement) :
-- `TRIP` / métadonnées trajet / catégorie `TRAVEL` → *Configurer l’itinéraire* (`intentionDetail.actionSetupTrip`).
-- `LIST` / catégorie `SHOP` → *Générer la liste* (`intentionDetail.pass2List`).
-- `PROJECT` → *Générer les étapes* (`intentionDetail.pass2ProjectSteps`).
+**Libellés dynamiques (i18n unifiés `pass2.*`)** — Timeline, Micro Path B et footer sheet :
+- `TRIP` → `pass2.setupTrip` (*Configurer l’itinéraire*).
+- `LIST` → `pass2.generateList` (*Générer la liste*).
+- `PROJECT` → `pass2.generateSteps` (*Générer les étapes*).
 - **`TASK`**, **`HABIT`** (et catégories hors TRIP/LIST/PROJECT éligibles) → **aucun** CTA Pass 2 dans le footer : la fiche reste en mode note / habitude simple sans génération IA supplémentaire à ce stade.
 
 **TRIP — hiérarchie** : en vue **Zen**, Mission, itinéraire précis et **Newton** masqués tant que `pass2_unlocked !== 1`. Passage à la vue riche après CTA **PRO** « Configurer l’itinéraire » (`pass2_unlocked: 1`).
@@ -459,7 +460,7 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 
 **Objectif produit** : le FREE **voit l’opportunité** (CTA verrouillé) ; le PRO consomme le CTA une fois (`pass2_unlocked: 1`) puis enrichit LIST/PROJECT si applicable — jamais auto après Pass 1.
 
-**Comportement du CTA Pass 2 (footer)** (vue Zen / détaillée ; Path B Talk : `talkDebug.action*` + même persistance via `onPressPass2`) :
+**Comportement du CTA Pass 2 (footer)** (vue Zen / détaillée ; Path B Talk : libellés `pass2.*` + même persistance via `onPressPass2` / `onPressPeekValidationPrimary`) :
 
 | | **FREE** | **PRO** |
 |---|----------|---------|
@@ -504,7 +505,7 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 
 ### 3) Footer actions (vue Path B)
 #### Bouton de mutation (Pass 2 — Enrichir)
-- En **fiche timeline / full** : CTA Pass 2 dans le **footer** de `IntentionDetailSheet` (à gauche de **Fermer**), libellés i18n alignés sur la section **Verrou sémantique** (`actionSetupTrip`, `pass2List`, `pass2ProjectSteps` — types **TRIP / LIST / PROJECT** uniquement) ; **gating FREE/PRO** : voir **§6** (`isProUser` via `useUserSpectrum()`).
+- En **fiche timeline / full** : CTA Pass 2 dans le **footer** de `IntentionDetailSheet` (à gauche de **Fermer**), libellés i18n **`pass2.setupTrip` / `pass2.generateList` / `pass2.generateSteps`** (types **TRIP / LIST / PROJECT** uniquement) ; **gating FREE/PRO** : voir **§6** (`isProUser` via `useUserSpectrum()`).
 - **PRO** — Action :
   - Pose **`pass2_unlocked: 1`** via `patchMetadata` (consentement + CTA consommé).
   - **Ensuite uniquement** : enrichissement LIST/PROJECT (`geminiEnrichGenericList`) + overlay inertie dans `IntentionDetailSheet` — **pas** d’enrichissement auto après Pass 1.
@@ -519,8 +520,8 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 - Important : l’intention étant déjà persistée au Pass 1, aucune action supplémentaire n’est requise.
 
 #### Bouton principal contextuel (Talk — Path B uniquement)
-- Le **premier** bouton du footer peut être **remplacé** par une action métier immédiate selon le type d’intention (ex. ouvrir la configuration trajet, lancer la génération liste/projet, ajouter une note) avec libellés i18n sous espace `talkDebug.action*` (`actionSetupTrip`, `actionGeneratePlan`, `actionGenerateList`, `actionAddNote`, …).
-- Le flux **Pass 2** (mutation `pass2_unlocked` + enrichissement) reste disponible via le **second** bouton ou l’action secondaire dédiée selon l’implémentation.
+- Bouton principal peek : libellés **`pass2.*`** (alignés footer Timeline) ; masqué si `pass2_unlocked === 1`. Types **note** : `talkDebug.actionAddNote` (ouvre full sans Pass 2). **TRIP** : `pass2_unlocked: 1` + configuration itinéraire (PRO). **LIST / PROJECT** : `onPressPass2` (overlay + enrichissement).
+- Bouton secondaire : **Terminer** / fermeture sheet.
 - Observabilité : log dev **`[ACTION-ADVISOR]`** lors du choix du libellé / de la route d’action (audit produit).
 
 ### 4) Stabilité technique (contrats)

@@ -621,6 +621,10 @@ export function TalkDebugScreen() {
     setPeekCapturePhase('idle');
   }, []);
 
+  const patchPeekDetailRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
+    setPeekDetailRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }, []);
+
   const applyPeekFirstSavePayload = useCallback((payload: unknown) => {
     const p = payload as {
       intentionId?: unknown;
@@ -739,6 +743,7 @@ export function TalkDebugScreen() {
         row={detailRow}
         theme={theme}
         onClose={closeDetail}
+        onPatchRow={patchPeekDetailRow}
         initialPosition={detailPosition}
         peekHeightPx={detailPeekHeightPx}
         validationMode

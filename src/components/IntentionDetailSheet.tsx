@@ -613,11 +613,18 @@ export function IntentionDetailSheet({
     }).start();
   }, [row?.id, morphSheetContentOnIntentionChange, morphContentOpacity]);
 
+  const [metadataJsonLive, setMetadataJsonLive] = useState<string | null>(null);
+
   useEffect(() => {
-    metadataJsonLiveRef.current = row?.metadata_json ?? null;
+    const next = row?.metadata_json ?? null;
+    metadataJsonLiveRef.current = next;
+    setMetadataJsonLive(next);
   }, [row?.id, row?.metadata_json]);
 
-  const meta = useMemo(() => safeParseJsonObject(row?.metadata_json), [row?.metadata_json]);
+  const meta = useMemo(
+    () => safeParseJsonObject(metadataJsonLive ?? row?.metadata_json),
+    [metadataJsonLive, row?.metadata_json],
+  );
   const pass2UnlockedFromMeta = useMemo(() => isPass2UnlockedMeta(meta), [meta]);
   const [pass2UnlockOptimistic, setPass2UnlockOptimistic] = useState(false);
   const pass2Unlocked = pass2UnlockedFromMeta || pass2UnlockOptimistic;
@@ -627,10 +634,10 @@ export function IntentionDetailSheet({
   useEffect(() => {
     if (isPass2UnlockedMeta(meta)) {
       setPass2UnlockOptimistic(true);
-    } else {
+    } else if (!pass2Running) {
       setPass2UnlockOptimistic(false);
     }
-  }, [meta, row?.id]);
+  }, [meta, pass2Running, row?.id]);
   const trip = useMemo(() => getTripMeta(meta), [meta]);
   const isTrip = Boolean(trip);
   const isProject = Boolean(row && row.type === 'PROJECT');
@@ -733,7 +740,10 @@ export function IntentionDetailSheet({
   );
 
   const showPass2FooterCta = Boolean(
-    row && meta?.pass2_unlocked !== 1 && (isProject || isList || isTrip),
+    row &&
+      row.id !== 'peek_pending' &&
+      !isPass2UnlockedMeta(meta) &&
+      (isProject || isList || isTrip),
   );
 
   /** Bouton principal (feuille capture réduite Path B / TalkDebug) : hiérarchie TRIP → PROJECT → LIST → défaut. */
@@ -1293,6 +1303,7 @@ export function IntentionDetailSheet({
       const unlockedJson = JSON.stringify({ ...root, pass2_unlocked: PASS2_UNLOCKED_CONSUMED });
       await patchMetadata(row.id, { pass2_unlocked: PASS2_UNLOCKED_CONSUMED });
       metadataJsonLiveRef.current = unlockedJson;
+      setMetadataJsonLive(unlockedJson);
       onPatchRow?.(row.id, { metadata_json: unlockedJson });
       if (options?.applyOptimistic !== false) setPass2UnlockOptimistic(true);
     },
@@ -1304,6 +1315,7 @@ export function IntentionDetailSheet({
       if (!row) return;
       const nextJson = mergeMetadataJsonString(metadataJsonLiveRef.current ?? row.metadata_json, patch);
       metadataJsonLiveRef.current = nextJson;
+      setMetadataJsonLive(nextJson);
       if (row.type === 'LIST') {
         setListPayload(parseListScalablePayloadFromMetadataJson(nextJson));
       } else if (row.type === 'PROJECT') {
@@ -2239,13 +2251,15 @@ export function IntentionDetailSheet({
                 {validationTitle || t('timeline.untitled')}
               </Text>
               <View style={styles.validationFooter}>
-                <Button
-                  mode="contained"
-                  disabled={pass2Running || !row || row.id === 'peek_pending'}
-                  onPress={() => void onPressPeekValidationPrimary()}
-                >
-                  {peekValidationPrimaryLabel}
-                </Button>
+                {showPass2FooterCta ? (
+                  <Button
+                    mode="contained"
+                    disabled={pass2Running || !row || row.id === 'peek_pending'}
+                    onPress={() => void onPressPeekValidationPrimary()}
+                  >
+                    {peekValidationPrimaryLabel}
+                  </Button>
+                ) : null}
                 <Button mode="outlined" disabled={pass2Running} onPress={onClose}>
                   {t('intentionDetail.finish')}
                 </Button>
