@@ -10,19 +10,22 @@ import {
   DeviceEventEmitter,
   Dimensions,
   Easing,
-  KeyboardAvoidingView,
+  Keyboard,
+  LayoutAnimation,
   Linking,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  UIManager,
   View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
 
 import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
@@ -56,6 +59,16 @@ function previewForMicLog(value: string, maxLen: number): string {
   const s = String(value || '').replace(/\s+/g, ' ').trim();
   if (s.length <= maxLen) return s;
   return `${s.slice(0, maxLen)}…`;
+}
+
+const KEYBOARD_TOOLBAR_OFFSET = 20;
+
+if (RPlatform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+function configureEditToolbarAnimation(): void {
+  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 }
 
 export type TalkCaptureEndPayload = {
@@ -126,6 +139,8 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   const intentionFlow = useOptionalIntentionContext();
   const { t, i18n } = useTranslation();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const keyboardToolbarLift = useRef(new Animated.Value(0)).current;
   const [phase, setPhase] = useState<'idle' | 'recording' | 'success' | 'pipeline_wait'>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -221,7 +236,8 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   }, [editedTranscript, rawTranscript]);
 
   const startEditTranscription = useCallback(() => {
-    if (!isRecording) return;
+    if (!isRecording || isEditingTranscription) return;
+    configureEditToolbarAnimation();
     const snapshot = String(rawTranscript || '');
     sttSnapshotRef.current = snapshot;
     setEditedTranscript(snapshot);
@@ -232,7 +248,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
         transcript_original: previewForMicLog(snapshot, 240),
       });
     }
-  }, [isRecording, rawTranscript]);
+  }, [isEditingTranscription, isRecording, rawTranscript]);
 
   const onEditedTranscriptChange = useCallback((value: string) => {
     setEditedTranscript(value);
@@ -362,6 +378,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
 
   const stopRecording = useCallback(async () => {
     if (!isRecording) return;
+    setIsEditingTranscription(false);
     onProfilerStopRecordingT0?.();
     const dashboardEarly =
       variant === 'talkDebug' && dashboardPipelineHost && Boolean(intentionFlow);
@@ -532,6 +549,8 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   }, [onPeekStart, onValidated, phase, resetInternal, successOpacity, successScale]);
 
   const cancelRecording = useCallback(async () => {
+    Keyboard.dismiss();
+    setIsEditingTranscription(false);
     try {
       ExpoSpeechRecognitionModule.stop();
       const rec = recRef.current;
@@ -548,6 +567,19 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
       intentionFlow?.cancelCapture();
     }
   }, [intentionFlow, onCaptureCancel, resetInternal]);
+
+  const confirmEditAndSubmit = useCallback(() => {
+    if (!isRecording) return;
+    configureEditToolbarAnimation();
+    setIsEditingTranscription(false);
+    Keyboard.dismiss();
+    void stopRecording();
+  }, [isRecording, stopRecording]);
+
+  const cancelCaptureFromEditToolbar = useCallback(() => {
+    configureEditToolbarAnimation();
+    void cancelRecording();
+  }, [cancelRecording]);
 
   const togglePause = useCallback(async () => {
     if (!isRecording) return;
@@ -591,35 +623,111 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     };
   }, []);
 
+  /**
+   * KeyboardAvoidingView seul ne suffit pas ici : la barre est dans `captureDock` (bas d’écran, flex).
+   * On suit la hauteur clavier et on translateY tout le bloc capture (transcript + barre).
+   */
+  useEffect(() => {
+    const resetLift = () => {
+      Animated.timing(keyboardToolbarLift, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    };
+
+    if (!isEditingTranscription) {
+      resetLift();
+      return;
+    }
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const liftForHeight = (keyboardHeight: number) =>
+      -(Math.max(0, keyboardHeight - insets.bottom) + KEYBOARD_TOOLBAR_OFFSET);
+
+    const onShow = Keyboard.addListener(showEvent, (e) => {
+      const duration = Platform.OS === 'ios' && e.duration ? e.duration : 250;
+      Animated.timing(keyboardToolbarLift, {
+        toValue: liftForHeight(e.endCoordinates.height),
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    const onHide = Keyboard.addListener(hideEvent, (e) => {
+      const duration = Platform.OS === 'ios' && e.duration ? e.duration : 200;
+      Animated.timing(keyboardToolbarLift, {
+        toValue: 0,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, [insets.bottom, isEditingTranscription, keyboardToolbarLift]);
+
   const isTalkDebug = variant === 'talkDebug';
   const displayTranscript = isEditingTranscription ? editedTranscript : rawTranscript;
   const transcriptPlaceholder = t('talkHome.listeningNow', { defaultValue: 'Écoute en cours…' });
 
-  const renderCaptureControls = (
+  const renderActionToolbar = (
     rowStyle: StyleProp<ViewStyle>,
     btnStyle: StyleProp<ViewStyle>,
     sendBtnStyle?: StyleProp<ViewStyle>,
-  ) => (
-    <View style={rowStyle}>
-      <Pressable style={btnStyle} onPress={() => void cancelRecording()} disabled={disabled}>
-        <Trash2 size={18} color="#fff" />
-      </Pressable>
-      <Pressable style={btnStyle} onPress={() => void togglePause()} disabled={disabled}>
-        {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
-      </Pressable>
-      <Pressable
-        style={[btnStyle, isEditingTranscription ? styles.ctrlBtnActive : null]}
-        onPress={startEditTranscription}
-        disabled={disabled}
-        accessibilityLabel={t('talkCapture.editTranscriptA11y', { defaultValue: 'Corriger la transcription' })}
-      >
-        <Pencil size={18} color="#fff" />
-      </Pressable>
-      <Pressable style={sendBtnStyle ?? btnStyle} onPress={() => void stopRecording()} disabled={disabled}>
-        <SendHorizontal size={sendBtnStyle ? 22 : 18} color="#fff" />
-      </Pressable>
-    </View>
-  );
+  ) => {
+    if (isEditingTranscription) {
+      const confirmSize = sendBtnStyle ? 26 : 22;
+      return (
+        <View style={[rowStyle, styles.validationToolbarRow, styles.validationToolbarDock]}>
+          <Pressable
+            style={btnStyle}
+            onPress={cancelCaptureFromEditToolbar}
+            disabled={disabled}
+            accessibilityLabel={t('talkCapture.cancelCaptureA11y', { defaultValue: 'Annuler la capture' })}
+          >
+            <Trash2 size={18} color="#fff" />
+          </Pressable>
+          <Pressable
+            style={[btnStyle, sendBtnStyle, styles.validationConfirmBtn]}
+            onPress={confirmEditAndSubmit}
+            disabled={disabled}
+            accessibilityLabel={t('talkCapture.confirmTranscriptA11y', { defaultValue: 'Valider la transcription' })}
+          >
+            <Check size={confirmSize} color="#fff" />
+          </Pressable>
+        </View>
+      );
+    }
+
+    return (
+      <View style={rowStyle}>
+        <Pressable style={btnStyle} onPress={() => void cancelRecording()} disabled={disabled}>
+          <Trash2 size={18} color="#fff" />
+        </Pressable>
+        <Pressable style={btnStyle} onPress={() => void togglePause()} disabled={disabled}>
+          {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
+        </Pressable>
+        <Pressable
+          style={btnStyle}
+          onPress={startEditTranscription}
+          disabled={disabled}
+          accessibilityLabel={t('talkCapture.editTranscriptA11y', { defaultValue: 'Corriger la transcription' })}
+        >
+          <Pencil size={18} color="#fff" />
+        </Pressable>
+        <Pressable style={sendBtnStyle ?? btnStyle} onPress={() => void stopRecording()} disabled={disabled}>
+          <SendHorizontal size={sendBtnStyle ? 22 : 18} color="#fff" />
+        </Pressable>
+      </View>
+    );
+  };
 
   if (isTalkDebug) {
     const canvasH = Math.round(Dimensions.get('window').height * 0.4);
@@ -668,7 +776,9 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     }
 
     return (
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={tdStyles.captureKeyboardWrap}>
+      <Animated.View
+        style={[tdStyles.captureRecordingWrap, { transform: [{ translateY: keyboardToolbarLift }] }]}
+      >
         <View style={tdStyles.captureTranscriptShell}>
           <ScrollView
             ref={(ref) => {
@@ -693,7 +803,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
               inputStyle={tdStyles.liveTranscriptInput}
             />
           </ScrollView>
-          {!isPaused ? (
+          {!isPaused && !isEditingTranscription ? (
             <VoiceMeteringWaveform meteringDb={meteringDb} accessibilityLabel={waveformA11yLabel} />
           ) : null}
           <LinearGradient
@@ -711,12 +821,12 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
             style={tdStyles.transcriptFadeBottom}
           />
         </View>
-        {renderCaptureControls(
+        {renderActionToolbar(
           tdStyles.pilotRowDocked,
           tdStyles.ctrlBtn,
           [tdStyles.micBtn, tdStyles.ctrlBtnPrimary, disabled ? tdStyles.disabled : null],
         )}
-      </KeyboardAvoidingView>
+      </Animated.View>
     );
   }
 
@@ -767,11 +877,11 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.captureKeyboardWrap}>
+    <Animated.View style={[styles.captureRecordingWrap, { transform: [{ translateY: keyboardToolbarLift }] }]}>
       <View style={[styles.recordingCard, neumorphicInset(theme), compact && styles.recordingCardCompact]}>
         <View style={styles.waveRow}>
           {waveHeights.map((h, idx) => (
-            <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused ? 8 : h }]} />
+            <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused || isEditingTranscription ? 8 : h }]} />
           ))}
         </View>
         <View style={[styles.liveTranscriptWrap, compact && styles.liveTranscriptWrapCompact]}>
@@ -813,9 +923,9 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
             style={styles.transcriptFadeBottom}
           />
         </View>
-        {renderCaptureControls(styles.ctrlRow, styles.ctrlBtn)}
+        {renderActionToolbar(styles.ctrlRow, styles.ctrlBtn)}
       </View>
-    </KeyboardAvoidingView>
+    </Animated.View>
   );
 });
 
@@ -866,7 +976,19 @@ const styles = StyleSheet.create({
   successText: { marginTop: 20, fontSize: 18, fontWeight: '600', textAlign: 'center', lineHeight: 24, color: '#E3F2FD' },
   transcriptFadeTop: { position: 'absolute', left: 0, right: 0, top: 0, height: 18 },
   transcriptFadeBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 22 },
-  captureKeyboardWrap: { width: '100%' },
+  captureRecordingWrap: { width: '100%' },
+  validationToolbarRow: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    width: '100%',
+  },
+  validationToolbarDock: {
+    marginTop: 8,
+    zIndex: 2,
+  },
+  validationConfirmBtn: {
+    marginLeft: 'auto',
+  },
   ctrlRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 12 },
   ctrlBtn: {
     width: 44,
@@ -875,11 +997,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  ctrlBtnActive: {
-    backgroundColor: 'rgba(56,189,248,0.35)',
-    borderWidth: 1,
-    borderColor: 'rgba(125,211,252,0.55)',
   },
   liveTranscriptInput: {
     color: '#f9fafb',
@@ -892,7 +1009,7 @@ const styles = StyleSheet.create({
 });
 
 const tdStyles = StyleSheet.create({
-  captureKeyboardWrap: { width: '100%' },
+  captureRecordingWrap: { width: '100%' },
   captureTranscriptShell: { width: '100%', position: 'relative', marginBottom: 14 },
   captureTranscriptScroll: { width: '100%' },
   liveTranscriptContent: { paddingHorizontal: 10, paddingVertical: 8 },

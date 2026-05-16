@@ -897,11 +897,13 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 
 - **Objectif** : permettre à l’utilisateur de corriger la transcription STT **avant** l’envoi au proxy Gemini (Pass 1), pour maximiser la fidélité au sens voulu. La correction reste **optionnelle** : sans action sur le crayon, le flux inchangé (STT brut → `submitCapturePayload`).
 - **UI** — [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) (Talk Debug + Timeline) :
-  - Pendant la dictée (`phase === 'recording'`), barre d’actions : **Corbeille** · **Pause** · **Crayon** (`Pencil`) · **Envoyer**.
-  - Clic **Crayon** : `isEditingTranscription = true` ; snapshot STT figé (`sttSnapshotRef`) ; le flux STT **n’écrase plus** le texte tant que l’édition est active.
-  - Zone transcript : composant partagé [`CaptureTranscriptEditor`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) — mode **lecture** (`Text`) ou **édition** (`TextInput` multiline, `autoFocus`).
-  - `KeyboardAvoidingView` autour du bloc capture pour garder le champ visible au-dessus du clavier.
-  - Clic **Envoyer** : arrêt audio/STT, nettoyage (`cleanTranscriptText`), puis `submitCapturePayload` avec le texte **final** (STT ou corrigé).
+  - Pendant la dictée (`phase === 'recording'`), barre d’actions standard : **Corbeille** · **Pause** · **Crayon** (`Pencil`) · **Envoyer** (`SendHorizontal`).
+  - Clic **Crayon** : `LayoutAnimation` (easeInEaseOut) → `isEditingTranscription = true` ; snapshot STT figé (`sttSnapshotRef`) ; le flux STT **n’écrase plus** le texte ; `TextInput` (`CaptureTranscriptEditor`, `autoFocus`).
+  - **Mode édition — barre de validation** (remplace Pause/Crayon) :
+    - **Poubelle** (gauche) : `Keyboard.dismiss()` puis annulation capture (`cancelRecording`, comportement poubelle habituel).
+    - **Check** (droite) : validation du texte — `Keyboard.dismiss()`, `isEditingTranscription = false`, puis arrêt audio/STT + `submitCapturePayload` (texte corrigé).
+  - **Remontée clavier** : un `KeyboardAvoidingView` isolé sur la barre ne suffit pas (dock `captureDock` en bas d’écran). Le bloc capture entier (transcript + barre) est translaté via `translateY` animé, piloté par `keyboardWillShow` / `keyboardWillHide` (iOS) ou `keyboardDidShow` / `keyboardDidHide` (Android), avec décalage `hauteurClavier − safeArea.bottom + 20px`.
+  - Clic **Envoyer** (hors mode édition) : arrêt audio/STT, nettoyage (`cleanTranscriptText`), puis `submitCapturePayload` avec le texte **final** (STT ou corrigé).
 - **Pipeline** — [`IntentionContext.submitCapturePayload`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/IntentionContext.tsx) :
   - Paramètre optionnel `transcriptOriginal` : transcript STT nettoyé **avant** correction manuelle.
   - `transcript` (champ principal) = **source de vérité** pour Path A, bulk Gemini et file offline.
