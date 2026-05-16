@@ -121,6 +121,9 @@
     "finish": "Finish"
   },
   "pass2": {
+    "generateSteps": "Generate steps",
+    "generateList": "Generate list",
+    "setupTrip": "Set up itinerary",
     "steps_loading": "Reading…",
     "list_loading": "Creating items…",
     "finalizing": "Finalizing structure…"

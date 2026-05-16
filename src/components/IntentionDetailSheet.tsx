@@ -705,23 +705,35 @@ export function IntentionDetailSheet({
     return null;
   }, [isTrip, row?.category_id, row?.type]);
 
+  const formatPass2CtaLabel = useCallback(
+    (key: 'pass2.setupTrip' | 'pass2.generateList' | 'pass2.generateSteps') => {
+      const label = t(key);
+      return isProUser ? label : `${label} ${t('intentionDetail.pass2LockedSuffix')}`.trim();
+    },
+    [isProUser, t],
+  );
+
   const pass2CtaLabel = useMemo(() => {
-    if (pass2FooterAction === 'trip') return t('intentionDetail.actionSetupTrip');
-    if (pass2FooterAction === 'list') return t('intentionDetail.pass2List');
-    if (pass2FooterAction === 'project') return t('intentionDetail.pass2ProjectSteps');
+    if (pass2FooterAction === 'trip') return t('pass2.setupTrip');
+    if (pass2FooterAction === 'list') return t('pass2.generateList');
+    if (pass2FooterAction === 'project') return t('pass2.generateSteps');
     return '';
   }, [pass2FooterAction, t]);
 
   const pass2MutationButtonLabel = useMemo(
-    () => (isProUser ? pass2CtaLabel : `${pass2CtaLabel} ${t('intentionDetail.pass2LockedSuffix')}`.trim()),
-    [isProUser, pass2CtaLabel, t],
+    () =>
+      pass2FooterAction === 'trip'
+        ? formatPass2CtaLabel('pass2.setupTrip')
+        : pass2FooterAction === 'list'
+          ? formatPass2CtaLabel('pass2.generateList')
+          : pass2FooterAction === 'project'
+            ? formatPass2CtaLabel('pass2.generateSteps')
+            : '',
+    [formatPass2CtaLabel, pass2FooterAction],
   );
 
   const showPass2FooterCta = Boolean(
-    row &&
-      row.id !== 'peek_pending' &&
-      !isPass2GenerationConsumed(meta) &&
-      (isProject || isList || isTrip),
+    row && meta?.pass2_unlocked !== 1 && (isProject || isList || isTrip),
   );
 
   /** Bouton principal (feuille capture réduite Path B / TalkDebug) : hiérarchie TRIP → PROJECT → LIST → défaut. */
@@ -734,15 +746,11 @@ export function IntentionDetailSheet({
   }, [isTrip, row?.type]);
 
   const peekValidationPrimaryLabel = useMemo(() => {
-    if (peekValidationActionKind === 'trip') return t('talkDebug.actionSetupTrip');
-    if (peekValidationActionKind === 'project') {
-      return isProUser ? t('talkDebug.actionGeneratePlan') : `${t('talkDebug.actionGeneratePlan')} ${t('intentionDetail.pass2LockedSuffix')}`.trim();
-    }
-    if (peekValidationActionKind === 'list') {
-      return isProUser ? t('talkDebug.actionGenerateList') : `${t('talkDebug.actionGenerateList')} ${t('intentionDetail.pass2LockedSuffix')}`.trim();
-    }
+    if (peekValidationActionKind === 'trip') return formatPass2CtaLabel('pass2.setupTrip');
+    if (peekValidationActionKind === 'project') return formatPass2CtaLabel('pass2.generateSteps');
+    if (peekValidationActionKind === 'list') return formatPass2CtaLabel('pass2.generateList');
     return t('talkDebug.actionAddNote');
-  }, [isProUser, peekValidationActionKind, t]);
+  }, [formatPass2CtaLabel, peekValidationActionKind, t]);
 
   const actionAdvisorRevealKeyRef = useRef('');
 
@@ -1610,7 +1618,12 @@ export function IntentionDetailSheet({
       return;
     }
     if (peekValidationActionKind === 'trip') {
+      if (!isProUser) {
+        redirectToProSubscription();
+        return;
+      }
       clearPeekAutoCloseTimer();
+      await persistPass2Unlocked({ applyOptimistic: true });
       try {
         await updateTrankilV2IntentionRemindToLeave(row.id, true);
       } catch {
@@ -1636,6 +1649,7 @@ export function IntentionDetailSheet({
     openFullSheet,
     pass2Running,
     peekValidationActionKind,
+    persistPass2Unlocked,
     redirectToProSubscription,
     row,
     tripControlsOpacity,
