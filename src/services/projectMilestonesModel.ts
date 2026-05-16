@@ -113,3 +113,107 @@ export function parseGeminiProjectMilestonesJson(raw: string): ProjectMilestones
 export function buildProjectMilestonesMetadataPatch(payload: ProjectMilestonesPayload): Record<string, unknown> {
   return { [PROJECT_MILESTONES_METADATA_KEY]: payload };
 }
+
+function dateNoonFromYmd(ymd: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const [y, m, d] = ymd.split('-').map((x) => Number(x));
+  const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+  return Number.isFinite(dt.getTime()) ? dt : null;
+}
+
+function formatYmdFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function durationMs(unit: ProjectDurationUnit, value: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (unit === 'hours') return n * 60 * 60 * 1000;
+  if (unit === 'weeks') return n * 7 * 24 * 60 * 60 * 1000;
+  return n * 24 * 60 * 60 * 1000;
+}
+
+export function getProjectStartDateFromMetadataJson(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const root = JSON.parse(raw) as Record<string, unknown>;
+    const p = root.project;
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+    const ymd = String((p as Record<string, unknown>).start_date ?? '').trim();
+    return ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Recalcule les `pivot_date` des jalons à partir d’un `start_date` (même logique que la sheet projet). */
+export function replanProjectMilestonesFromStartDate(
+  payload: ProjectMilestonesPayload,
+  startYmd: string,
+): ProjectMilestonesPayload {
+  const startMs = dateNoonFromYmd(startYmd)?.getTime();
+  if (!startMs) return payload;
+  const ms = payload.milestones;
+  const pivotMsByUid = new Map<string, number>();
+  for (const m of ms) {
+    const ymd = m.pivot_date;
+    const dt = ymd ? dateNoonFromYmd(ymd) : null;
+    if (dt) pivotMsByUid.set(m.uid, dt.getTime());
+  }
+
+  const endDates: Array<number | null> = ms.map(() => null);
+  let cur = startMs;
+  for (let i = 0; i < ms.length; i++) {
+    cur += durationMs(ms[i].unit, ms[i].estimated_duration);
+    const pivot = pivotMsByUid.get(ms[i].uid);
+    if (pivot) cur = pivot;
+    endDates[i] = cur;
+  }
+
+  for (let i = 0; i < ms.length; i++) {
+    const pivot = pivotMsByUid.get(ms[i].uid);
+    if (!pivot) continue;
+    let curPivot = pivot;
+    endDates[i] = pivot;
+    for (let j = i - 1; j >= 0; j--) {
+      const prevPivot = pivotMsByUid.get(ms[j].uid);
+      if (prevPivot) {
+        curPivot = prevPivot;
+        endDates[j] = curPivot;
+        continue;
+      }
+      curPivot -= durationMs(ms[j + 1].unit, ms[j + 1].estimated_duration);
+      endDates[j] = curPivot;
+    }
+  }
+
+  let curEnd = endDates.find((x): x is number => x !== null) ?? null;
+  if (curEnd !== null) {
+    for (let i = 0; i < ms.length; i++) {
+      const pivot = pivotMsByUid.get(ms[i].uid);
+      if (pivot) {
+        curEnd = pivot;
+        endDates[i] = pivot;
+        continue;
+      }
+      if (endDates[i] !== null) {
+        curEnd = endDates[i] as number;
+        continue;
+      }
+      if (curEnd === null) break;
+      curEnd += durationMs(ms[i].unit, ms[i].estimated_duration);
+      endDates[i] = curEnd;
+    }
+  }
+
+  const milestones = ms.map((m, i) => {
+    const dt = endDates[i] !== null ? new Date(Number(endDates[i])) : null;
+    const pivotYmd = dt ? formatYmdFromDate(dt) : m.pivot_date ?? null;
+    return { ...m, pivot_date: pivotYmd };
+  });
+
+  return { ...payload, milestones };
+}

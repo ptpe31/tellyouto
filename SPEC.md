@@ -604,6 +604,10 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - **Pool Timeline** : [TimelineScreen.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) fusionne la **tirelire cachée** (`hiddenUnorganizedForIdeaBank`) et les TODO **sans date** déjà visibles dans le fil courant (`filteredPool`) pour alimenter le moteur (cohérence avec les `category_id` renseignés par Pass 1).
 - **Affichage** : vue **Aujourd’hui**, contexte **ALL**, **TODO** — si le cluster gagnant a **`count >= 2`**, une **seule** carte neumorphique remplace la ligne « N tâches dans la tirelire » ; texte i18n **`timeline.ideaBank.clusterNudge`** (ex. « On le fait avancer ? ») + sous-titre **`timeline.ideaBank.clusterSubtitle`** (`{{count}} · {{category}}` avec libellé `category.*`).
 - **Action** : tap sur la carte ouvre [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) avec **filtrage** sur le `categoryId` du cluster ; la ligne tirelire **classique** subsiste si le cluster n’atteint pas le seuil ou si les conditions de filtre ne s’appliquent pas.
+- **Planifier un projet orphelin** : pour une intention **`PROJECT`** sans `metadata_json.project.start_date`, le bouton **Planifier** affiche i18n **`cluster.planProjectStart`** (« Planifier le début ») et ouvre le sélecteur de date de la modal. À la validation :
+  - persistance via **`patchMetadata`** : `project.start_date` (`YYYY-MM-DD`) + recalcul des `pivot_date` des jalons via **`replanProjectMilestonesFromStartDate`** ([`projectMilestonesModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectMilestonesModel.ts), même algorithme que le replan de la fiche projet) ;
+  - **`updateTrankilV2IntentionTemporal`** : `due_date` = date choisie → sortie du pool orphelin (`due_date` vide) et ancrage sur la Timeline ;
+  - les autres types conservent le flux **Planifier** classique (`due_date` seule, libellé `timeline.ideaBank.schedule`).
 
 ### 3) Séquençage du Flux (Grouping Logic)
 
@@ -825,6 +829,7 @@ Règles :
 - Pour `PROJECT`, `metadata_json` doit contenir :
   - `project.start_date` : `YYYY-MM-DD` (nullable) — “top départ” utilisateur.
   - `project_milestones_v1` : payload jalons.
+- **Replan depuis `start_date`** : [`replanProjectMilestonesFromStartDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectMilestonesModel.ts) recalcule les `pivot_date` des jalons à partir d’une date de début (utilisé par la fiche projet et par la Tirelire / cluster orphelin).
 - Les durées estimées remplacent le mécanisme de quantités (multiplicateur réservé à `LIST`).
 
 ## ARCHITECTURE IA (Latence)

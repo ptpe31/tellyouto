@@ -128,6 +128,9 @@
     "list_loading": "Creating items…",
     "finalizing": "Finalizing structure…"
   },
+  "cluster": {
+    "planProjectStart": "Schedule start"
+  },
   "talk": {
     "title": "Talk (dev)",
     "helper": "Quickly insert an intention into talkndone.db (intentions).",

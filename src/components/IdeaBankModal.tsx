@@ -16,12 +16,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   deleteTrankilV2IntentionById,
   markTrankilV2IntentionDone,
+  patchMetadata,
   updateTrankilV2IntentionTemporal,
   type TrankilIntentStatus,
   type TrankilV2TimelineItemRow,
 } from '../api';
 import { syncNativeRailAlarmsAfterIntentionWrite } from '../api/intentionHardwareSync';
 import { IntentInteractionWrapper } from './IntentInteractionWrapper';
+import {
+  buildProjectMilestonesMetadataPatch,
+  getProjectStartDateFromMetadataJson,
+  parseProjectMilestonesPayloadFromMetadataJson,
+  replanProjectMilestonesFromStartDate,
+} from '../services/projectMilestonesModel';
 import { generateSmartTitle } from '../services/smartTitle';
 import { formatCreationSubtitle } from '../utils/timeFormat';
 
@@ -63,11 +70,17 @@ function formatLineTitle(raw: string, t: (k: string) => string): string {
   return raw;
 }
 
+function isProjectWithoutStartDate(row: TrankilV2TimelineItemRow): boolean {
+  if (String(row.type ?? '').trim().toUpperCase() !== 'PROJECT') return false;
+  return !getProjectStartDateFromMetadataJson(row.metadata_json);
+}
+
 export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onChanged }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [scheduleForId, setScheduleForId] = useState<string | null>(null);
+  const [scheduleMode, setScheduleMode] = useState<'due' | 'projectStart'>('due');
 
   const scheduleDates = useMemo(() => {
     const out: Date[] = [];
@@ -99,6 +112,38 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
     },
     [refresh],
   );
+
+  const onPlanProjectStart = useCallback(
+    async (id: string, startYmd: string) => {
+      const row = items.find((r) => r.id === id);
+      if (!row) return;
+      const payload = parseProjectMilestonesPayloadFromMetadataJson(row.metadata_json);
+      if (!payload) {
+        await updateTrankilV2IntentionTemporal(id, { due_date: startYmd });
+        await patchMetadata(id, { project: { start_date: startYmd } });
+        setScheduleForId(null);
+        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankSchedule');
+        await refresh();
+        return;
+      }
+      const replanned = replanProjectMilestonesFromStartDate(payload, startYmd);
+      const metaPatch = {
+        project: { start_date: startYmd },
+        ...buildProjectMilestonesMetadataPatch(replanned),
+      };
+      await patchMetadata(id, metaPatch);
+      await updateTrankilV2IntentionTemporal(id, { due_date: startYmd });
+      setScheduleForId(null);
+      await syncNativeRailAlarmsAfterIntentionWrite('ideaBankPlanProjectStart');
+      await refresh();
+    },
+    [items, refresh],
+  );
+
+  const openScheduleForRow = useCallback((row: TrankilV2TimelineItemRow) => {
+    setScheduleMode(isProjectWithoutStartDate(row) ? 'projectStart' : 'due');
+    setScheduleForId(row.id);
+  }, []);
 
   const onDelete = useCallback(
     (id: string) => {
@@ -210,11 +255,13 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                           ) : null}
                           <Pressable
                             style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
-                            onPress={() => setScheduleForId(row.id)}
+                            onPress={() => openScheduleForRow(row)}
                           >
                             <CalendarDays size={18} color={theme.colors.secondary} />
                             <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
-                              {t('timeline.ideaBank.schedule')}
+                              {isProjectWithoutStartDate(row)
+                                ? t('cluster.planProjectStart')
+                                : t('timeline.ideaBank.schedule')}
                             </Text>
                           </Pressable>
                           <Pressable
@@ -262,7 +309,9 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
             onPress={(e) => e.stopPropagation()}
           >
             <Text style={[styles.scheduleTitle, { color: theme.colors.onSurface }]}>
-              {t('timeline.ideaBank.scheduleTitle')}
+              {scheduleMode === 'projectStart'
+                ? t('cluster.planProjectStart')
+                : t('timeline.ideaBank.scheduleTitle')}
             </Text>
             {schedulingRow ? (
               <Text
@@ -279,7 +328,12 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                   <Pressable
                     key={ymd}
                     onPress={() => {
-                      if (scheduleForId) void onSetDue(scheduleForId, ymd);
+                      if (!scheduleForId) return;
+                      if (scheduleMode === 'projectStart') {
+                        void onPlanProjectStart(scheduleForId, ymd);
+                      } else {
+                        void onSetDue(scheduleForId, ymd);
+                      }
                     }}
                     style={[
                       styles.dateChip,
