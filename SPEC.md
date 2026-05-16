@@ -429,17 +429,19 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - Moment (jour • heure) lorsque disponible.
 - Mémo / transcript (`memo` ou `content_raw`).
 
-**Consentement explicite (PRO uniquement — voir §6)** : pour un abonné **PRO**, le bouton principal (libellés i18n `intentionDetail.pass2*`) appelle `patchMetadata` avec `pass2_unlocked: true`, puis la vue détaillée apparaît avec **fondu** (`Animated`, ~320 ms). Si `pass2_unlocked === true`, le bouton disparaît et la vue complète s’affiche directement. **Un utilisateur FREE ne doit jamais** persister `pass2_unlocked: true` ni lancer l’enrichissement Pass 2 (Gemini) via ce flux sans passage à l’offre Pro.
+**Consentement explicite (PRO uniquement — voir §6)** : pour un abonné **PRO**, le CTA Pass 2 du **footer** (libellés i18n `intentionDetail.*` ci‑dessous) appelle `patchMetadata` avec `pass2_unlocked: true`, puis la vue détaillée apparaît avec **fondu** du corps (`pass2RevealAnim`, ~320 ms) après **fondu** du bouton (`pass2CtaOpacity`, ~220 ms). Si `pass2_unlocked === true`, le CTA disparaît et la vue complète s’affiche directement. **Un utilisateur FREE ne doit jamais** persister `pass2_unlocked: true` ni lancer l’enrichissement Pass 2 (Gemini) via ce flux sans passage à l’offre Pro.
 
-**Libellés dynamiques (i18n, pas de texte en dur dans les composants)** — intention du libellé « actif » (PRO) :
-- `LIST` / catégorie `SHOP` → *Générer la liste* (`pass2List`).
-- `PROJECT` → *Générer le plan* (`pass2Project`).
-- `TRIP` / `TRAVEL` → *Préparer le trajet* (`pass2Trip`).
-- `HABIT` / `HEALTH` → *Planifier la routine* (`pass2Habit`).
-- `TASK` → *Ajouter une note* (`pass2Task`).
-- Autres → `pass2EnrichDefault` / `pass2Steps` selon produit.
+**Footer — placement et éligibilité** :
+- Le CTA Pass 2 (néomorphique, pastel catégorie) est rendu dans **`footerActionsRow`** (vue Zen `gateLocked`) et **`footerRow`** (vue détaillée, ex. bypass trajet Talk), **à gauche** du bouton **Fermer** (`intentionDetail.close`), groupe aligné à droite (`flexDirection: 'row'`, `justifyContent: 'flex-end'`).
+- Affiché **uniquement** si `metadata_json.pass2_unlocked` est absent/faux, `row.id !== 'peek_pending'`, et le type est **éligible** (voir ci‑dessous). Pas de CTA Pass 2 pour les autres types.
 
-**TRIP — hiérarchie** : en vue **Zen** standard, le bloc **Mission** (niveau 3), les contrôles itinéraire précis (carte / adresses / transport confort), et **Newton** restent **masqués** tant que `pass2_unlocked` est faux (y compris si `remind_to_leave` ou métadonnées trajet sont déjà présentes). Le passage à la vue riche s’effectue après action **PRO** sur le CTA « Préparer le trajet » (qui pose `pass2_unlocked: true`).
+**Libellés dynamiques (i18n, pas de texte en dur)** — CTA footer **PRO** (types éligibles uniquement) :
+- `TRIP` / métadonnées trajet / catégorie `TRAVEL` → *Configurer l’itinéraire* (`intentionDetail.actionSetupTrip`).
+- `LIST` / catégorie `SHOP` → *Générer la liste* (`intentionDetail.pass2List`).
+- `PROJECT` → *Générer les étapes* (`intentionDetail.pass2ProjectSteps`).
+- **`TASK`**, **`HABIT`** (et catégories hors TRIP/LIST/PROJECT éligibles) → **aucun** CTA Pass 2 dans le footer : la fiche reste en mode note / habitude simple sans génération IA supplémentaire à ce stade.
+
+**TRIP — hiérarchie** : en vue **Zen** standard, le bloc **Mission** (niveau 3), les contrôles itinéraire précis (carte / adresses / transport confort), et **Newton** restent **masqués** tant que `pass2_unlocked` est faux (y compris si `remind_to_leave` ou métadonnées trajet sont déjà présentes). Le passage à la vue riche s’effectue après action **PRO** sur le CTA « Configurer l’itinéraire » (qui pose `pass2_unlocked: true`).
 
 **Exception — capture Talk (Path B, sheet full)** : lorsque la sheet est en mode **validation** (`validationMode`), phase peek **`path_b`**, intention **trajet**, et position **full**, un bypass produit **`gateFullTripBypass`** permet d’afficher le corps détaillé (itinéraire, transport, Newton selon surveillabilité) **sans** attendre `pass2_unlocked`, tout en conservant le CTA Pass 2 / enrichissement pour le consentement **PRO** explicite. L’opacité du corps détaillé est pilotée par `pass2RevealAnim` (forcée à **1** lorsque `pass2_unlocked` **ou** `gateFullTripBypass`).
 
@@ -449,9 +451,9 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 
 **Source de vérité** : [`UserSpectrumContext`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/UserSpectrumContext.tsx) via **`useUserSpectrum()`** — booléen effectif **`spectrum.isProUser`**. `spectrum.isProUser === false` ⇒ utilisateur **FREE** ; `true` ⇒ **PRO**.
 
-**Objectif produit** : le FREE **voit l’opportunité** (CTA Pass 2 visible mais **verrouillé**), le PRO **active l’intelligence** (**déverrouillage** `pass2_unlocked: true`, puis **enrichissement Pass 2 uniquement sur cette action** — jamais enchaîné automatiquement après Pass 1).
+**Objectif produit** : le FREE **voit l’opportunité** sur les types éligibles (CTA Pass 2 visible mais **verrouillé**), le PRO **active l’intelligence** (**déverrouillage** `pass2_unlocked: true`, puis **enrichissement Pass 2 LIST/PROJECT uniquement sur cette action** — jamais enchaîné automatiquement après Pass 1).
 
-**Comportement du bouton principal Pass 2** (vue Zen / Path B validation — même logique universelle) :
+**Comportement du CTA Pass 2 (footer)** (vue Zen / vue détaillée avec bypass — même logique ; Path B capture Talk conserve son bouton principal contextuel `talkDebug.action*`) :
 
 | | **FREE** | **PRO** |
 |---|----------|---------|
@@ -496,7 +498,7 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 
 ### 3) Footer actions (vue Path B)
 #### Bouton de mutation (Pass 2 — Enrichir)
-- Proéminent, libellés i18n (`intentionDetail.pass2*`) alignés sur la section **Verrou sémantique** ; **gating FREE/PRO** : voir **IntentionDetailSheet §6** (`isProUser` via `useUserSpectrum()`).
+- En **fiche timeline / full** : CTA Pass 2 dans le **footer** de `IntentionDetailSheet` (à gauche de **Fermer**), libellés i18n alignés sur la section **Verrou sémantique** (`actionSetupTrip`, `pass2List`, `pass2ProjectSteps` — types **TRIP / LIST / PROJECT** uniquement) ; **gating FREE/PRO** : voir **§6** (`isProUser` via `useUserSpectrum()`).
 - **PRO** — Action :
   - Pose **`pass2_unlocked: true`** via `patchMetadata` (consentement explicite).
   - **Ensuite uniquement** : lancer le Pass 2 (enrichissement) lorsque applicable (`LIST` / `PROJECT` → `geminiEnrichGenericList` / équivalent) — **pas** d’enrichissement déclenché avant cette action ni en parallèle silencieux au retour Pass 1.

@@ -584,6 +584,7 @@ export function IntentionDetailSheet({
   }, [pass2UnlockedFromMeta]);
   const pass2Unlocked = pass2UnlockedFromMeta || pass2UnlockOptimistic;
   const pass2RevealAnim = useRef(new Animated.Value(0)).current;
+  const pass2CtaOpacity = useRef(new Animated.Value(1)).current;
   const trip = useMemo(() => getTripMeta(meta), [meta]);
   const isTrip = Boolean(trip);
   const isProject = Boolean(row && row.type === 'PROJECT');
@@ -626,12 +627,18 @@ export function IntentionDetailSheet({
   /** Fiche « note augmentée » tant que `pass2_unlocked` est absent/faux (hors vue validation capture). */
   const gateLocked = Boolean(visible && row && !pass2Unlocked && !isValidationView && !gateFullTripBypass);
   useLayoutEffect(() => {
-    if (pass2Unlocked || gateFullTripBypass) {
+    if (gateFullTripBypass || pass2UnlockedFromMeta) {
       pass2RevealAnim.setValue(1);
-    } else {
+      return;
+    }
+    if (!pass2UnlockOptimistic) {
       pass2RevealAnim.setValue(0);
     }
-  }, [gateFullTripBypass, pass2RevealAnim, pass2Unlocked, row?.id]);
+  }, [gateFullTripBypass, pass2RevealAnim, pass2UnlockedFromMeta, pass2UnlockOptimistic, row?.id]);
+
+  useEffect(() => {
+    if (gateLocked) pass2CtaOpacity.setValue(1);
+  }, [gateLocked, pass2CtaOpacity, row?.id]);
 
   const validationTitle = useMemo(() => {
     const a = String(row?.display_title ?? '').trim();
@@ -639,20 +646,31 @@ export function IntentionDetailSheet({
     const b = String(row?.content_raw ?? '').trim();
     return b ? b.slice(0, 200) : '';
   }, [row?.content_raw, row?.display_title]);
-  const pass2CtaLabel = useMemo(() => {
+  /** Types éligibles au CTA Pass 2 dans le footer : TRIP, LIST, PROJECT uniquement. */
+  const pass2FooterAction = useMemo((): 'trip' | 'list' | 'project' | null => {
     const type = String(row?.type ?? '').trim().toUpperCase();
     const cat = String(row?.category_id ?? '').trim().toUpperCase();
-    if (type === 'LIST' || cat === 'SHOP') return t('intentionDetail.pass2List');
-    if (type === 'PROJECT') return t('intentionDetail.pass2Project');
-    if (type === 'TRIP' || cat === 'TRAVEL') return t('intentionDetail.pass2Trip');
-    if (type === 'HABIT' || cat === 'HEALTH') return t('intentionDetail.pass2Habit');
-    if (type === 'TASK') return t('intentionDetail.pass2Task');
-    return t('intentionDetail.pass2EnrichDefault');
-  }, [row?.category_id, row?.type, t]);
+    if (type === 'TASK' || type === 'HABIT') return null;
+    if (isTrip || type === 'TRIP' || cat === 'TRAVEL') return 'trip';
+    if (type === 'LIST' || cat === 'SHOP') return 'list';
+    if (type === 'PROJECT') return 'project';
+    return null;
+  }, [isTrip, row?.category_id, row?.type]);
+
+  const pass2CtaLabel = useMemo(() => {
+    if (pass2FooterAction === 'trip') return t('intentionDetail.actionSetupTrip');
+    if (pass2FooterAction === 'list') return t('intentionDetail.pass2List');
+    if (pass2FooterAction === 'project') return t('intentionDetail.pass2ProjectSteps');
+    return '';
+  }, [pass2FooterAction, t]);
 
   const pass2MutationButtonLabel = useMemo(
     () => (isProUser ? pass2CtaLabel : `${pass2CtaLabel} ${t('intentionDetail.pass2LockedSuffix')}`.trim()),
     [isProUser, pass2CtaLabel, t],
+  );
+
+  const showPass2FooterCta = Boolean(
+    row && row.id !== 'peek_pending' && !pass2UnlockedFromMeta && pass2FooterAction != null,
   );
 
   /** Bouton principal (feuille capture réduite Path B / TalkDebug) : hiérarchie TRIP → PROJECT → LIST → défaut. */
@@ -1209,13 +1227,85 @@ export function IntentionDetailSheet({
     }).start();
   };
 
-  const persistPass2Unlocked = useCallback(async () => {
-    if (!row || row.id === 'peek_pending') return;
-    const root = safeParseJsonObject(row.metadata_json) ?? {};
-    await patchMetadata(row.id, { pass2_unlocked: true });
-    onPatchRow?.(row.id, { metadata_json: JSON.stringify({ ...root, pass2_unlocked: true }) });
-    setPass2UnlockOptimistic(true);
-  }, [onPatchRow, row]);
+  const persistPass2Unlocked = useCallback(
+    async (options?: { applyOptimistic?: boolean }) => {
+      if (!row || row.id === 'peek_pending') return;
+      const root = safeParseJsonObject(row.metadata_json) ?? {};
+      await patchMetadata(row.id, { pass2_unlocked: true });
+      onPatchRow?.(row.id, { metadata_json: JSON.stringify({ ...root, pass2_unlocked: true }) });
+      if (options?.applyOptimistic !== false) setPass2UnlockOptimistic(true);
+    },
+    [onPatchRow, row],
+  );
+
+  const runPass2GeminiEnrichment = useCallback(async () => {
+    if (!row) return;
+    const raw = String(row.content_raw ?? '').trim();
+    const uiLocale = i18n.language || 'fr';
+    if (row.type === 'LIST') {
+      await patchMetadata(
+        row.id,
+        { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
+        { silent: true },
+      );
+      const refIso = new Date().toISOString();
+      const t0 = Date.now();
+      const enriched = await geminiEnrichGenericList(raw, {
+        uiLocale,
+        mode: 'LIST',
+        referenceTimeIso: refIso,
+      });
+      if (__DEV__) {
+        console.log(`[Pass2] ✅ LIST enrich ${Date.now() - t0}ms | intention=${row.id}`);
+      }
+      if (enriched.mode !== 'LIST') throw new Error('LIST_ENRICH_MODE_MISMATCH');
+      const payload = geminiJsonToStoredPayload(enriched.parsed);
+      const nextTitle = validationTitle || payload.title;
+      await patchMetadata(row.id, {
+        ...buildListMetadataPatch({ ...payload, title: nextTitle }),
+        is_generating: false,
+        list_enrich_status: 'done',
+        list_enrich_error: null,
+      });
+    } else if (row.type === 'PROJECT') {
+      await patchMetadata(
+        row.id,
+        { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
+        { silent: true },
+      );
+      const refIso = new Date().toISOString();
+      const t0 = Date.now();
+      const enriched = await geminiEnrichGenericList(raw, {
+        uiLocale,
+        mode: 'PROJECT',
+        referenceTimeIso: refIso,
+      });
+      if (__DEV__) {
+        console.log(`[Pass2] ✅ PROJECT enrich ${Date.now() - t0}ms | intention=${row.id}`);
+      }
+      if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
+      const payload = enriched.parsed;
+      const nextTitle = validationTitle || payload.title;
+      await patchMetadata(row.id, {
+        ...buildProjectMilestonesMetadataPatch({ ...payload, title: nextTitle }),
+        is_generating: false,
+        list_enrich_status: 'done',
+        list_enrich_error: null,
+      });
+    }
+  }, [i18n.language, row, validationTitle]);
+
+  const revealPass2DetailedBlocks = useCallback(() => {
+    pass2RevealAnim.setValue(0);
+    requestAnimationFrame(() => {
+      Animated.timing(pass2RevealAnim, {
+        toValue: 1,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [pass2RevealAnim]);
 
   const onPressUnlockPass2FromTimeline = useCallback(async () => {
     if (!row || pass2Running || row.id === 'peek_pending') return;
@@ -1225,19 +1315,78 @@ export function IntentionDetailSheet({
     }
     setPass2Running(true);
     try {
-      await persistPass2Unlocked();
-      pass2RevealAnim.setValue(0);
-      requestAnimationFrame(() => {
-        Animated.timing(pass2RevealAnim, {
-          toValue: 1,
-          duration: 320,
+      await new Promise<void>((resolve) => {
+        Animated.timing(pass2CtaOpacity, {
+          toValue: 0,
+          duration: 220,
+          easing: Easing.out(Easing.quad),
           useNativeDriver: true,
-        }).start();
+        }).start(({ finished }) => {
+          if (finished) resolve();
+        });
       });
+      await persistPass2Unlocked({ applyOptimistic: false });
+      setPass2UnlockOptimistic(true);
+      revealPass2DetailedBlocks();
+      try {
+        await runPass2GeminiEnrichment();
+      } catch (e) {
+        await patchMetadata(row.id, {
+          is_generating: false,
+          list_enrich_status: 'error',
+          list_enrich_error: e instanceof Error ? e.message : String(e),
+        });
+      }
     } finally {
       setPass2Running(false);
     }
-  }, [isProUser, pass2RevealAnim, pass2Running, persistPass2Unlocked, redirectToProSubscription, row]);
+  }, [
+    isProUser,
+    pass2CtaOpacity,
+    pass2Running,
+    persistPass2Unlocked,
+    redirectToProSubscription,
+    revealPass2DetailedBlocks,
+    row,
+    runPass2GeminiEnrichment,
+  ]);
+
+  const pass2FooterCtaNode = useMemo(() => {
+    if (!showPass2FooterCta) return null;
+    return (
+      <Animated.View style={{ opacity: pass2CtaOpacity, marginRight: 10 }}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={pass2Running}
+          onPress={() => void onPressUnlockPass2FromTimeline()}
+          style={({ pressed }) => [
+            styles.pass2FooterBtn,
+            neumorphicRaised(theme),
+            {
+              backgroundColor: categoryTabBackground,
+              opacity: pressed && !pass2Running ? 0.9 : 1,
+            },
+          ]}
+        >
+          {pass2Running ? (
+            <ActivityIndicator size="small" color={theme.colors.onSurface} />
+          ) : (
+            <Text style={[styles.pass2FooterBtnText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+              {pass2MutationButtonLabel}
+            </Text>
+          )}
+        </Pressable>
+      </Animated.View>
+    );
+  }, [
+    categoryTabBackground,
+    onPressUnlockPass2FromTimeline,
+    pass2CtaOpacity,
+    pass2MutationButtonLabel,
+    pass2Running,
+    showPass2FooterCta,
+    theme,
+  ]);
 
   const onPressPass2 = async () => {
     if (!row || pass2Running) return;
@@ -1248,10 +1397,7 @@ export function IntentionDetailSheet({
     setPass2Running(true);
     try {
       if (!pass2UnlockedFromMeta) {
-        await patchMetadata(row.id, { pass2_unlocked: true });
-        const root = safeParseJsonObject(row.metadata_json) ?? {};
-        onPatchRow?.(row.id, { metadata_json: JSON.stringify({ ...root, pass2_unlocked: true }) });
-        setPass2UnlockOptimistic(true);
+        await persistPass2Unlocked();
       }
       openFullSheet();
     } catch {
@@ -1259,67 +1405,13 @@ export function IntentionDetailSheet({
       return;
     }
     try {
-      const raw = String(row.content_raw ?? '').trim();
-      const uiLocale = i18n.language || 'fr';
-      if (row.type === 'LIST') {
-        await patchMetadata(
-          row.id,
-          { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
-          { silent: true },
-        );
-        const refIso = new Date().toISOString();
-        const t0 = Date.now();
-        const enriched = await geminiEnrichGenericList(raw, {
-          uiLocale,
-          mode: 'LIST',
-          referenceTimeIso: refIso,
-        });
-        if (__DEV__) {
-          console.log(`[Pass2] ✅ LIST enrich ${Date.now() - t0}ms | intention=${row.id}`);
-        }
-        if (enriched.mode !== 'LIST') throw new Error('LIST_ENRICH_MODE_MISMATCH');
-        const payload = geminiJsonToStoredPayload(enriched.parsed);
-        const nextTitle = validationTitle || payload.title;
-        await patchMetadata(row.id, {
-          ...buildListMetadataPatch({ ...payload, title: nextTitle }),
-          is_generating: false,
-          list_enrich_status: 'done',
-          list_enrich_error: null,
-        });
-      } else if (row.type === 'PROJECT') {
-        await patchMetadata(
-          row.id,
-          { is_generating: true, list_enrich_status: 'pending', list_enrich_error: null },
-          { silent: true },
-        );
-        const refIso = new Date().toISOString();
-        const t0 = Date.now();
-        const enriched = await geminiEnrichGenericList(raw, {
-          uiLocale,
-          mode: 'PROJECT',
-          referenceTimeIso: refIso,
-        });
-        if (__DEV__) {
-          console.log(`[Pass2] ✅ PROJECT enrich ${Date.now() - t0}ms | intention=${row.id}`);
-        }
-        if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
-        const payload = enriched.parsed;
-        const nextTitle = validationTitle || payload.title;
-        await patchMetadata(row.id, {
-          ...buildProjectMilestonesMetadataPatch({ ...payload, title: nextTitle }),
-          is_generating: false,
-          list_enrich_status: 'done',
-          list_enrich_error: null,
-        });
-      }
+      await runPass2GeminiEnrichment();
     } catch (e) {
-      if (row) {
-        await patchMetadata(row.id, {
-          is_generating: false,
-          list_enrich_status: 'error',
-          list_enrich_error: e instanceof Error ? e.message : String(e),
-        });
-      }
+      await patchMetadata(row.id, {
+        is_generating: false,
+        list_enrich_status: 'error',
+        list_enrich_error: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       setPass2Running(false);
     }
@@ -2055,19 +2147,12 @@ export function IntentionDetailSheet({
                   <View style={{ height: 12 }} />
                 </ScrollView>
                 <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-                  {row && row.id !== 'peek_pending' ? (
-                    <Button
-                      mode="contained"
-                      onPress={() => void onPressUnlockPass2FromTimeline()}
-                      disabled={pass2Running}
-                      style={styles.footerBtn}
-                    >
-                      {pass2MutationButtonLabel}
+                  <View style={styles.footerActionsRow}>
+                    {pass2FooterCtaNode}
+                    <Button mode="text" onPress={onClose} style={styles.footerCloseBtn} labelStyle={styles.footerCloseLabel}>
+                      {t('intentionDetail.close')}
                     </Button>
-                  ) : null}
-                  <Button mode="outlined" onPress={onClose} style={styles.footerCloseBtn}>
-                    {t('intentionDetail.close')}
-                  </Button>
+                  </View>
                 </View>
               </>
             ) : (
@@ -2928,7 +3013,8 @@ export function IntentionDetailSheet({
                     {t('intentionDetail.launchRoute')}
                   </Button>
                 ) : null}
-                <Button mode="outlined" onPress={onClose} style={[styles.footerCloseBtn, !routeReady ? { flex: 1 } : null]}>
+                {pass2FooterCtaNode}
+                <Button mode="text" onPress={onClose} style={styles.footerCloseBtn} labelStyle={styles.footerCloseLabel}>
                   {t('intentionDetail.close')}
                 </Button>
               </View>
@@ -3261,7 +3347,19 @@ const styles = StyleSheet.create({
   comfortLine: { fontSize: 12, fontWeight: '700' },
   newtonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   footer: { paddingHorizontal: 16, paddingTop: 10 },
-  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  footerBtn: { borderRadius: 16, flex: 1 },
-  footerCloseBtn: { borderRadius: 16 },
+  footerActionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
+  footerBtn: { borderRadius: 16 },
+  pass2FooterBtn: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: 240,
+  },
+  pass2FooterBtnText: { fontSize: 14, fontWeight: '800', textAlign: 'center' },
+  footerCloseBtn: { borderRadius: 16, marginLeft: 0 },
+  footerCloseLabel: { fontSize: 14, fontWeight: '700' },
 });
