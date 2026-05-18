@@ -411,6 +411,7 @@ export function TimelineScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
+  const [detailFocusArrival, setDetailFocusArrival] = useState(false);
   const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(() => capturePeekPathAHeightPx());
   const [peekCapturePhase, setPeekCapturePhase] = useState<'idle' | 'path_a' | 'path_b'>('idle');
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
@@ -447,6 +448,16 @@ export function TimelineScreen() {
 
   /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante. */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
+    setDetailFocusArrival(false);
+    setPeekCapturePhase('idle');
+    setDetailRow(r);
+    setDetailPosition('full');
+    setDetailOpen(true);
+  }, []);
+
+  /** TRIP non configuré : sheet full + focus champ arrivée. */
+  const openDetailTripSetup = useCallback((r: TrankilV2TimelineItemRow) => {
+    setDetailFocusArrival(true);
     setPeekCapturePhase('idle');
     setDetailRow(r);
     setDetailPosition('full');
@@ -466,6 +477,7 @@ export function TimelineScreen() {
     setDetailOpen(false);
     setDetailRow(null);
     setDetailPosition('full');
+    setDetailFocusArrival(false);
     setDetailPeekHeightPx(capturePeekPathAHeightPx());
     setPeekCapturePhase('idle');
   }, []);
@@ -1366,6 +1378,7 @@ export function TimelineScreen() {
           enabled={showCompleteOrb}
           onToggleComplete={() => void handleToggleRowComplete(row)}
           onPress={() => openDetail(row)}
+          onPressTripSetup={() => openDetailTripSetup(row)}
         />
       );
       return (
@@ -1397,6 +1410,7 @@ export function TimelineScreen() {
       i18n,
       openSavedDailyRoadmap,
       openDetail,
+      openDetailTripSetup,
       pendingLocalDone,
       reload,
       setIdeaBankCategoryFilter,
@@ -1512,6 +1526,8 @@ export function TimelineScreen() {
         validationMode
         peekCapturePhase={peekCapturePhase}
         captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
+        focusArrivalAddressOnOpen={detailFocusArrival}
+        onFocusArrivalAddressConsumed={() => setDetailFocusArrival(false)}
       />
 
       <TimelineFilterModal

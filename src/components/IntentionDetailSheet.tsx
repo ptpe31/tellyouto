@@ -89,6 +89,9 @@ type Props = {
   intentionMixAccentColor?: string | null;
   /** Fondu du corps de feuille lors du changement d’intention (N cartes). */
   morphSheetContentOnIntentionChange?: boolean;
+  /** Timeline TRIP : ouvrir en édition le champ arrivée dès l’entrée en full. */
+  focusArrivalAddressOnOpen?: boolean;
+  onFocusArrivalAddressConsumed?: () => void;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -515,6 +518,8 @@ export function IntentionDetailSheet({
   captureSheetMaxHeightRatio,
   intentionMixAccentColor,
   morphSheetContentOnIntentionChange,
+  focusArrivalAddressOnOpen,
+  onFocusArrivalAddressConsumed,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
@@ -1306,6 +1311,21 @@ export function IntentionDetailSheet({
       setEntered(true);
     });
   }, [clearPeekAutoCloseTimer, initialPosition, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
+
+  useEffect(() => {
+    if (!visible || !entered || !focusArrivalAddressOnOpen || !isTrip) return;
+    setSheetPosition('full');
+    translateY.stopAnimation();
+    Animated.spring(translateY, {
+      toValue: 0,
+      damping: 28,
+      stiffness: 220,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start();
+    setArrivalEditing(true);
+    onFocusArrivalAddressConsumed?.();
+  }, [entered, focusArrivalAddressOnOpen, isTrip, onFocusArrivalAddressConsumed, translateY, visible]);
 
   /** Ajustement peek (ex. Path A → B) sans extinction ni renvoi sous l’écran. */
   useEffect(() => {

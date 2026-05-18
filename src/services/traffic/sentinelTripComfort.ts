@@ -7,6 +7,8 @@ export type SentinelTripComfortSnapshot = {
   scan1DurationSec: number | null;
   lastTrafficDurationSec: number;
   targetDurationSec: number;
+  displayedTOptimisteMs: number | null;
+  displayedTPessimisteMs: number | null;
 };
 
 export async function getSentinelTripComfortSnapshot(
@@ -17,7 +19,8 @@ export async function getSentinelTripComfortSnapshot(
   await ensureSentinelTripsSchema();
   return withTrankilV2Database(async (db) => {
     const row = await db.getFirstAsync<Record<string, unknown>>(
-      `SELECT scan_count, scan1_at_ms, scan1_duration_sec, last_traffic_duration, target_duration_sec
+      `SELECT scan_count, scan1_at_ms, scan1_duration_sec, last_traffic_duration, target_duration_sec,
+              displayed_t_optimiste_ms, displayed_t_pessimiste_ms
        FROM sentinel_trips WHERE id = ?`,
       [id],
     );
@@ -28,6 +31,10 @@ export async function getSentinelTripComfortSnapshot(
       scan1DurationSec: row.scan1_duration_sec == null ? null : Number(row.scan1_duration_sec),
       lastTrafficDurationSec: Math.max(0, Number(row.last_traffic_duration ?? 0)),
       targetDurationSec: Math.max(0, Number(row.target_duration_sec ?? 0)),
+      displayedTOptimisteMs:
+        row.displayed_t_optimiste_ms == null ? null : Number(row.displayed_t_optimiste_ms),
+      displayedTPessimisteMs:
+        row.displayed_t_pessimiste_ms == null ? null : Number(row.displayed_t_pessimiste_ms),
     };
   });
 }

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
 import { IconButton } from 'react-native-paper';
@@ -6,9 +6,16 @@ import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import { generateSmartTitle } from '../services/smartTitle';
+import { getSentinelTripComfortSnapshot } from '../services/traffic/sentinelTripComfort';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
 import { formatCreationSubtitle } from '../utils/timeFormat';
+import {
+  getTripMetaFromRoot,
+  isPass2UnlockedMeta,
+  resolveTripTimelineFooter,
+  type TripTimelineFooter,
+} from '../utils/tripTimelineCard';
 import { neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
@@ -18,6 +25,8 @@ type Props = {
   enabled: boolean;
   onToggleComplete: () => void;
   onPress?: () => void;
+  /** TRIP non configuré : ouvre la sheet en full sur le champ arrivée. */
+  onPressTripSetup?: () => void;
 };
 
 function parseDueDate(raw: string | null | undefined): { date: Date; hasTime: boolean } | null {
@@ -46,18 +55,6 @@ function capitalizeFirst(raw: string): string {
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
-function hasTemporalResidue(raw: string): boolean {
-  const s = String(raw || '').toLowerCase();
-  if (!s.trim()) return false;
-  if (/\b(\d{1,2}[:h]\d{0,2}|am|pm)\b/.test(s)) return true;
-  if (/\b(today|tomorrow|tonight|yesterday)\b/.test(s)) return true;
-  if (/\b(aujourd'hui|demain|ce soir|hier|après-demain)\b/.test(s)) return true;
-  if (/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(s)) return true;
-  if (/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/.test(s)) return true;
-  if (/\b\d{4}-\d{2}-\d{2}\b/.test(s)) return true;
-  return false;
-}
-
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
   const s = String(raw ?? '').trim();
   if (!s) return null;
@@ -76,29 +73,6 @@ function str(obj: Record<string, unknown> | null, key: string): string | null {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
   return s ? s : null;
-}
-
-function hasTruthyRecurrence(meta: Record<string, unknown> | null): boolean {
-  if (!meta) return false;
-  const rr = str(meta, 'recurrence_rrule');
-  if (rr) return true;
-  const rec = meta.recurrence;
-  if (rec && typeof rec === 'object' && !Array.isArray(rec) && Object.keys(rec as object).length > 0) return true;
-  const cadence = str(meta, 'cadenceDescription');
-  if (cadence) return true;
-  const recurringTask = meta.recurring_task;
-  if (recurringTask && typeof recurringTask === 'object' && !Array.isArray(recurringTask)) return true;
-  const trip = meta.trip;
-  if (trip && typeof trip === 'object' && !Array.isArray(trip)) {
-    const tr = trip as Record<string, unknown>;
-    const tripRec = tr.recurrence;
-    if (tripRec && typeof tripRec === 'object' && !Array.isArray(tripRec) && Object.keys(tripRec as object).length > 0) return true;
-    const tripCadence = str(tr, 'cadenceDescription');
-    if (tripCadence) return true;
-    const tripRRule = str(tr, 'recurrence_rrule');
-    if (tripRRule) return true;
-  }
-  return false;
 }
 
 function parseHm(raw: string | null): string | null {
@@ -139,14 +113,67 @@ function getTripTransportIcon(raw: string | null | undefined): string | null {
   return null;
 }
 
-export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleComplete, onPress }: Props) {
+function tripFooterLabel(footer: TripTimelineFooter, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  switch (footer.kind) {
+    case 'setup':
+      return t('intentionDetail.actionSetupAlert');
+    case 'trafficLive':
+      return t('timeline.trafficLiveMinutes', { minutes: footer.minutes });
+    case 'trafficConfigured':
+      return t('timeline.trafficScanConfigured');
+    case 'estimatedDeparture':
+      return footer.label;
+    default:
+      return '';
+  }
+}
+
+export function IntentionCard({
+  row,
+  theme,
+  pendingLocalDone,
+  enabled,
+  onToggleComplete,
+  onPress,
+  onPressTripSetup,
+}: Props) {
   const { t, i18n } = useTranslation();
   const meta = useMemo(() => safeParseJsonObject(row.metadata_json), [row.metadata_json]);
-  const trip = useMemo(() => {
-    const r = meta?.trip;
-    if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
-    return r as Record<string, unknown>;
-  }, [meta]);
+  const trip = useMemo(() => getTripMetaFromRoot(meta), [meta]);
+  const isTripCard = Boolean(trip);
+  const pass2Unlocked = useMemo(() => isPass2UnlockedMeta(meta), [meta]);
+
+  const [sentinelComfort, setSentinelComfort] = useState<Awaited<ReturnType<typeof getSentinelTripComfortSnapshot>>>(null);
+
+  useEffect(() => {
+    if (!isTripCard || !pass2Unlocked || !row.id) {
+      setSentinelComfort(null);
+      return;
+    }
+    let cancelled = false;
+    void getSentinelTripComfortSnapshot(row.id)
+      .then((snap) => {
+        if (!cancelled) setSentinelComfort(snap);
+      })
+      .catch(() => {
+        if (!cancelled) setSentinelComfort(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isTripCard, pass2Unlocked, row.id, row.metadata_json]);
+
+  const tripFooter = useMemo(() => {
+    if (!isTripCard) return null;
+    return resolveTripTimelineFooter({
+      meta,
+      trip,
+      dueDate: row.due_date,
+      sentinel: sentinelComfort,
+      locale: i18n.language,
+      t,
+    });
+  }, [i18n.language, isTripCard, meta, row.due_date, sentinelComfort, t, trip]);
 
   const titleText = useMemo(() => {
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
@@ -226,12 +253,19 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
     return null;
   }
 
+  const showTripFooter = Boolean(tripFooter);
+  const footerIsSetup = tripFooter?.kind === 'setup';
+
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={titleText}
-      style={[styles.card, { backgroundColor: theme.colors.surface }]}
+      style={[
+        styles.card,
+        { backgroundColor: theme.colors.surface },
+        showTripFooter ? styles.cardTrip : null,
+      ]}
     >
       <View style={styles.row}>
         <Pressable
@@ -272,8 +306,61 @@ export function IntentionCard({ row, theme, pendingLocalDone, enabled, onToggleC
           ) : null}
         </View>
       </View>
+
+      {showTripFooter && tripFooter ? (
+        <View style={styles.tripFooterWrap}>
+          {footerIsSetup ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('intentionDetail.actionSetupAlert')}
+              onPress={(e) => {
+                e?.stopPropagation?.();
+                onPressTripSetup?.();
+              }}
+              style={({ pressed }) => [
+                styles.tripSetupBtn,
+                {
+                  borderColor: theme.colors.outlineVariant,
+                  backgroundColor: theme.colors.surfaceVariant,
+                  opacity: pressed ? 0.88 : 1,
+                },
+              ]}
+            >
+              <Text style={[styles.tripSetupBtnText, { color: theme.colors.primary }]} numberOfLines={2}>
+                {tripFooterLabel(tripFooter, t)}
+              </Text>
+            </Pressable>
+          ) : (
+            <View
+              style={[
+                styles.tripBadge,
+                {
+                  backgroundColor: theme.colors.primaryContainer,
+                  borderColor: theme.colors.outlineVariant,
+                },
+              ]}
+            >
+              <Text style={[styles.tripBadgeText, { color: theme.colors.onPrimaryContainer }]} numberOfLines={2}>
+                {tripFooterLabel(tripFooter, t)}
+              </Text>
+            </View>
+          )}
+        </View>
+      ) : null}
     </Pressable>
   );
+}
+
+function hasTemporalResidue(raw: string): boolean {
+  const s = String(raw || '').toLowerCase();
+  if (!s.trim()) return false;
+  if (/\b(\d{1,2}[:h]\d{0,2}|am|pm)\b/.test(s)) return true;
+  if (/\b(today|tomorrow|tonight|yesterday)\b/.test(s)) return true;
+  if (/\b(aujourd'hui|demain|ce soir|hier|après-demain)\b/.test(s)) return true;
+  if (/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(s)) return true;
+  if (/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/.test(s)) return true;
+  if (/\b\d{4}-\d{2}-\d{2}\b/.test(s)) return true;
+  return false;
 }
 
 const CIRCLE_SIZE = 54;
@@ -287,7 +374,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
     marginBottom: 12,
   },
-  row: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cardTrip: {
+    height: undefined,
+    minHeight: 105,
+    paddingBottom: 10,
+  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: CIRCLE_SIZE },
   circle: { width: CIRCLE_SIZE, height: CIRCLE_SIZE, borderRadius: CIRCLE_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
   circleIcon: { margin: 0 },
   textCol: { flex: 1, minWidth: 0 },
@@ -296,4 +388,23 @@ const styles = StyleSheet.create({
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
   pendingChip: { marginTop: 4, fontSize: 12, fontWeight: '800' },
   subtitleRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+  tripFooterWrap: { marginTop: 8, paddingTop: 2 },
+  tripSetupBtn: {
+    alignSelf: 'stretch',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  tripSetupBtnText: { fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  tripBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    maxWidth: '100%',
+  },
+  tripBadgeText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
 });

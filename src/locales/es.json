@@ -249,6 +249,12 @@
   },
   "timeline": {
     "allDuration": "Todo el día",
+    "tripSetupCta": "¿Avisarme cuándo salir?",
+    "trafficScanConfigured": "Escaneo de tráfico real activado 🛡️",
+    "trafficLiveMinutes": "Tráfico: {{minutes}} min 🛡️",
+    "estimatedDepartureSingle": "[ Salida est.: {{time}} ]",
+    "estimatedDepartureWindow": "[ {{start}} – {{end}} ]",
+    "estimatedDeparturePending": "[ Salida est. ]",
     "newBadge": "NUEVO",
     "createdTodayAt": "Creado hoy a las {{time}}",
     "subtitle": "Riel del día — ventanas sugeridas según tu espectro (Momentum alto → bloques más profundos).",

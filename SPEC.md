@@ -561,7 +561,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Contrat Phase 2 (IntentionCard) : l’action et l’identité sont fusionnées. Un unique cercle neumorphique à gauche (taille tactile stable) contient l’icône de catégorie et sert de seul bouton d’action.
 - État pending (Undo 3s) : quand `pendingLocalDone` est actif, l’icône de catégorie dans le cercle est remplacée par une coche de validation.
 - Largeur & respiration : le conteneur principal de la carte (rectangle neumorphique) ne doit pas être “bord à bord”. Il conserve un retrait horizontal visible (gouttières) pour laisser respirer le texte, et peut être plafonné par un `maxWidth` afin d’éviter les lignes trop longues sur grands écrans.
-- Densité & hauteur : la carte Phase 2 doit être plus fine (hauteur visuelle cible 105) ; l’espacement vertical entre cartes est géré par le flux (ex. `marginBottom` côté carte) et la respiration horizontale par le parent (ex. wrapper `paddingHorizontal: 16` dans `TimelineScreen`).
+- Densité & hauteur : la carte Phase 2 doit être plus fine (hauteur visuelle cible **105** pour TASK / HABIT / LIST / PROJECT / NOTE) ; l’espacement vertical entre cartes est géré par le flux (ex. `marginBottom` côté carte) et la respiration horizontale par le parent (ex. wrapper `paddingHorizontal: 16` dans `TimelineScreen`). Les cartes **TRIP** (`metadata_json.trip` présent) peuvent s’étendre en hauteur pour un **pied de carte** dédié (voir § 2.c).
 - Titre intelligent (universal) : la ligne 1 affiche `row.title` (source de vérité Gemini). `generateSmartTitle(row.content_raw)` reste un fallback local (offline/heuristique), jamais un nettoyage appliqué sur un titre Gemini.
 - Sous-titre temporel (maquette) : la ligne 2 affiche le label au format `{JourLabel} • {Heure}` (point médian), sans répétition d’informations déjà présentes dans le titre.
   - JourLabel : “Aujourd’hui”, “Demain”, sinon nom du jour (ex. “Lundi”, “Jeudi”) calculé en local via `formatYmdLocal` + comparaison à J+0/J+1.
@@ -570,6 +570,20 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - TRIP (source de vérité) : l’heure affichée est dérivée de `arrivalDue` (ISO) quand disponible ; sinon fallback sur `dueDateTime`/`dueTimeHm`.
   - Récurrence : si `recurrence` (objet OneTap) ou `recurrence_rrule` (SQLite) est non null/non vide, afficher une icône discrète “repeat” (flèches entrelacées) juste avant le bloc horaire, avec la même couleur grise que le sous-titre.
 - Mirroring temporel (réalité actuelle) : `due_date` (SQLite) est un jour clé `YYYY-MM-DD`. L’heure affichée provient de `metadata_json` (`dueTimeHm` / `dueDateTime` / `trip.arrivalDue`) selon le type. L’affichage UI ne doit pas altérer le tri ni les valeurs persistées.
+
+#### 2.c) Carte TRIP — pied de carte ([`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx))
+
+**Périmètre** : uniquement les lignes avec `metadata_json.trip` (objet non vide). TASK / HABIT / LIST / PROJECT sans bloc `trip` : **aucun** pied de carte ni changement de layout.
+
+**Source d’état** : `metadata_json.pass2_unlocked` (compteur binaire, voir § Verrou sémantique) + lecture optionnelle `sentinel_trips` via [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts) / [`sentinelTripComfort.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripComfort.ts) lorsque `pass2_unlocked === 1`.
+
+| Cas | Condition | UI pied de carte | Action |
+|-----|-----------|------------------|--------|
+| **A** | `pass2_unlocked !== 1` | Bouton épuré bas de carte : `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*) | Ouvre [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) en **`full`** avec `focusArrivalAddressOnOpen` (champ **Arrivée** en édition Places) — [`TimelineScreen.openDetailTripSetup`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) |
+| **B** | `pass2_unlocked === 1` **et** au moins un scan Newton enregistré (`scan_count ≥ 1` ou `scan1_at_ms`) | Badge discret (`primaryContainer`) : `timeline.trafficScanConfigured` (*Scan traffic réel configuré 🛡️*) ; si durée réelle connue (`sentinel_trips.last_traffic_duration` ou `trip.last_traffic_duration`) → `timeline.trafficLiveMinutes` (ex. *Circulation : 22 min 🛡️*) | Aucun (tap carte → fiche habituelle) |
+| **C** | `pass2_unlocked === 1` **sans** scan Newton encore | Badge créneau **statique** entre crochets : fenêtre `displayed_t_optimiste_ms` – `displayed_t_pessimiste_ms` si dispo (`timeline.estimatedDepartureWindow`), sinon `[ Départ estimé : HH:mm ]` (`timeline.estimatedDepartureSingle`) dérivé de l’heure d’arrivée − durée standard | Aucun |
+
+**Isolation layout** : le `Pressable` du bouton Cas A consomme le toucher (pas de propagation vers l’ouverture « tap carte » générique). Les types non-TRIP conservent la hauteur fixe 105 px.
 
 ### 2) Découplage Pilotage / Contenu
 

@@ -257,6 +257,14 @@ Fichier : `src/services/CaptureProcessingService.ts`
 - **Planifier le début (PROJECT)** : dans [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx), si `type === 'PROJECT'` et pas de `project.start_date` (`getProjectStartDateFromMetadataJson`), le CTA **Planifier le début** (`cluster.planProjectStart`) ouvre le sélecteur de date ; à la validation : `patchMetadata` (`start_date` + `buildProjectMilestonesMetadataPatch` après `replanProjectMilestonesFromStartDate`) puis `updateTrankilV2IntentionTemporal({ due_date })` — l’intention quitte le pool orphelin et apparaît sur la Timeline. Autres types : `due_date` seul (`timeline.ideaBank.schedule`).
 - Util partagée : [`projectMilestonesModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectMilestonesModel.ts) — `getProjectStartDateFromMetadataJson`, `replanProjectMilestonesFromStartDate`.
 
+### 3.1c Timeline — carte TRIP (`IntentionCard`)
+
+- [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) : pied de carte **uniquement** si `metadata_json.trip` ; logique centralisée [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts) (`resolveTripTimelineFooter`).
+- **Cas A** (`pass2_unlocked !== 1`) : bouton `intentionDetail.actionSetupAlert` → `onPressTripSetup` / [`TimelineScreen.openDetailTripSetup`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) : sheet **full** + `focusArrivalAddressOnOpen` sur le champ arrivée ([`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx)).
+- **Cas B** (`pass2_unlocked === 1` + scan Newton) : badge `timeline.trafficScanConfigured` ou `timeline.trafficLiveMinutes` (lecture `sentinel_trips` + repli `trip.last_traffic_duration`).
+- **Cas C** (configuré, pas de scan) : badge créneau statique `[ HH:mm ]` ou `[ start – end ]` (`timeline.estimatedDeparture*`).
+- TASK / HABIT / LIST / PROJECT : layout inchangé (hauteur 105).
+
 ### 3.2 Orchestration UI capture
 
 - `src/context/IntentionContext.tsx`
