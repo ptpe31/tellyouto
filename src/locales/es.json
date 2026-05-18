@@ -930,7 +930,11 @@
     "labelTransport": "Transporte",
     "comfortTitle": "Confort del trayecto",
     "comfortFixed": "Franja fija de salida: {{time}}",
-    "comfortOptimized": "Franja optimizada de salida"
+    "comfortOptimized": "Franja optimizada de salida",
+    "comfortEstimatedTag": "Estimado",
+    "comfortRealTag": "Real",
+    "comfortDurationPending": "—",
+    "actionSetupAlert": "¿Avisarme cuándo salir?"
   },
   "talkDebug": {
     "noteSaved": "Nota guardada",

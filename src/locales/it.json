@@ -930,7 +930,11 @@
     "labelTransport": "Trasporto",
     "comfortTitle": "Comfort del viaggio",
     "comfortFixed": "Finestra fissa di partenza: {{time}}",
-    "comfortOptimized": "Finestra ottimizzata di partenza"
+    "comfortOptimized": "Finestra ottimizzata di partenza",
+    "comfortEstimatedTag": "Stimato",
+    "comfortRealTag": "Reale",
+    "comfortDurationPending": "—",
+    "actionSetupAlert": "Avvisami quando partire?"
   },
   "talkDebug": {
     "noteSaved": "Nota salvata",

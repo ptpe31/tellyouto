@@ -41,7 +41,14 @@ import {
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import { reconcileSentinelForIntentionId } from '../services/traffic/sentinelReconciler';
-import { getLocationFavoriteByAlias } from '../services/traffic/locationFavorites';
+import { getLocationFavoriteByAlias, upsertLocationFavorite } from '../services/traffic/locationFavorites';
+import {
+  getSentinelTripComfortSnapshot,
+  hasNewtonFirstScanRecorded,
+  realTravelDurationSec,
+  standardTravelDurationSec,
+  type SentinelTripComfortSnapshot,
+} from '../services/traffic/sentinelTripComfort';
 import {
   buildListMetadataPatch,
   geminiJsonToStoredPayload,
@@ -263,6 +270,18 @@ function formatDurationLabel(value: number, unit: string, lng: string): string {
   if (unit === 'hours') return `${count} hour${count > 1 ? 's' : ''}`;
   if (unit === 'weeks') return `${count} week${count > 1 ? 's' : ''}`;
   return `${count} day${count > 1 ? 's' : ''}`;
+}
+
+function formatTravelDurationSec(totalSec: number, lng: string): string {
+  const sec = Math.max(0, Math.round(Number(totalSec) || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const isFr = String(lng || '').toLowerCase().startsWith('fr');
+  if (h > 0) {
+    const mm = String(m).padStart(2, '0');
+    return isFr ? `${h} h ${mm}` : `${h}h ${mm}m`;
+  }
+  return isFr ? `${m} min` : `${m} min`;
 }
 
 function detectChecklistFromText(raw: string): ChecklistItem[] | null {
@@ -546,6 +565,7 @@ export function IntentionDetailSheet({
   const [originLng, setOriginLng] = useState<number | null>(null);
   const [arrivalLat, setArrivalLat] = useState<number | null>(null);
   const [arrivalLng, setArrivalLng] = useState<number | null>(null);
+  const [sentinelComfort, setSentinelComfort] = useState<SentinelTripComfortSnapshot | null>(null);
   const [listPayload, setListPayload] = useState<ListScalablePayload | null>(null);
   const [projectPayload, setProjectPayload] = useState<ProjectMilestonesPayload | null>(null);
   const [projectStartPickerOpen, setProjectStartPickerOpen] = useState(false);
@@ -713,15 +733,20 @@ export function IntentionDetailSheet({
   }, [isTrip, row?.category_id, row?.type]);
 
   const formatPass2CtaLabel = useCallback(
-    (key: 'pass2.setupTrip' | 'pass2.generateList' | 'pass2.generateSteps') => {
+    (key: 'pass2.generateList' | 'pass2.generateSteps') => {
       const label = t(key);
       return isProUser ? label : `${label} ${t('intentionDetail.pass2LockedSuffix')}`.trim();
     },
     [isProUser, t],
   );
 
+  const formatTripPass2Label = useCallback(() => {
+    const label = t('intentionDetail.actionSetupAlert');
+    return isProUser ? label : `${label} ${t('intentionDetail.pass2LockedSuffix')}`.trim();
+  }, [isProUser, t]);
+
   const pass2CtaLabel = useMemo(() => {
-    if (pass2FooterAction === 'trip') return t('pass2.setupTrip');
+    if (pass2FooterAction === 'trip') return t('intentionDetail.actionSetupAlert');
     if (pass2FooterAction === 'list') return t('pass2.generateList');
     if (pass2FooterAction === 'project') return t('pass2.generateSteps');
     return '';
@@ -730,13 +755,13 @@ export function IntentionDetailSheet({
   const pass2MutationButtonLabel = useMemo(
     () =>
       pass2FooterAction === 'trip'
-        ? formatPass2CtaLabel('pass2.setupTrip')
+        ? formatTripPass2Label()
         : pass2FooterAction === 'list'
           ? formatPass2CtaLabel('pass2.generateList')
           : pass2FooterAction === 'project'
             ? formatPass2CtaLabel('pass2.generateSteps')
             : '',
-    [formatPass2CtaLabel, pass2FooterAction],
+    [formatPass2CtaLabel, formatTripPass2Label, pass2FooterAction],
   );
 
   const showPass2FooterCta = Boolean(
@@ -756,11 +781,11 @@ export function IntentionDetailSheet({
   }, [isTrip, row?.type]);
 
   const peekValidationPrimaryLabel = useMemo(() => {
-    if (peekValidationActionKind === 'trip') return formatPass2CtaLabel('pass2.setupTrip');
+    if (peekValidationActionKind === 'trip') return formatTripPass2Label();
     if (peekValidationActionKind === 'project') return formatPass2CtaLabel('pass2.generateSteps');
     if (peekValidationActionKind === 'list') return formatPass2CtaLabel('pass2.generateList');
     return t('talkDebug.actionAddNote');
-  }, [formatPass2CtaLabel, peekValidationActionKind, t]);
+  }, [formatPass2CtaLabel, formatTripPass2Label, peekValidationActionKind, t]);
 
   const actionAdvisorRevealKeyRef = useRef('');
 
@@ -992,10 +1017,45 @@ export function IntentionDetailSheet({
     }
   }, [meta, row?.id, row?.metadata_json, row?.type, visible]);
 
-  const comfortReady = useMemo(() => {
-    if (!isTrip) return false;
-    return Number.isFinite(Number(arrivalLat)) && Number.isFinite(Number(arrivalLng));
-  }, [arrivalLat, arrivalLng, isTrip]);
+  const refreshSentinelComfort = useCallback(async () => {
+    const id = String(row?.id ?? '').trim();
+    if (!id || id === 'peek_pending' || !isTrip) {
+      setSentinelComfort(null);
+      return;
+    }
+    try {
+      setSentinelComfort(await getSentinelTripComfortSnapshot(id));
+    } catch {
+      setSentinelComfort(null);
+    }
+  }, [isTrip, row?.id]);
+
+  useEffect(() => {
+    if (!visible || !isTrip || !row?.id) {
+      setSentinelComfort(null);
+      return;
+    }
+    void refreshSentinelComfort();
+  }, [visible, isTrip, row?.id, meta, newtonEnabled, remindToLeaveEnabled, arrivalLat, arrivalLng, refreshSentinelComfort]);
+
+  useEffect(() => {
+    if (!visible || !isTrip || !newtonEnabled || !row?.id) return;
+    const timer = setInterval(() => void refreshSentinelComfort(), 5000);
+    return () => clearInterval(timer);
+  }, [visible, isTrip, newtonEnabled, row?.id, refreshSentinelComfort]);
+
+  const comfortDurations = useMemo(() => {
+    const pending = t('intentionDetail.comfortDurationPending');
+    const estSec = standardTravelDurationSec(sentinelComfort);
+    const realSec = realTravelDurationSec(sentinelComfort);
+    const progressRatio =
+      estSec != null && realSec != null && estSec > 0 ? Math.min(1, Math.max(0, realSec / estSec)) : null;
+    return {
+      estimated: estSec != null ? formatTravelDurationSec(estSec, i18n.language) : pending,
+      real: realSec != null ? formatTravelDurationSec(realSec, i18n.language) : pending,
+      progressRatio,
+    };
+  }, [i18n.language, sentinelComfort, t]);
 
   /** Mission / Newton : visible en feuille pleine même sans « rappel au départ », pour revoir la logique masquage. */
   const showMission = isTrip && (showTripControls || sheetPosition === 'full');
@@ -1014,15 +1074,17 @@ export function IntentionDetailSheet({
   }, [isAllDay, meta, showMission, trip]);
   const showSurveillanceMissing = showMission && !isNewtonSurveillable;
 
-  const routeReady = useMemo(() => {
+  const destinationCoordsReady = useMemo(() => {
     if (!isTrip) return false;
-    return (
-      Number.isFinite(Number(originLat)) &&
-      Number.isFinite(Number(originLng)) &&
-      Number.isFinite(Number(arrivalLat)) &&
-      Number.isFinite(Number(arrivalLng))
-    );
-  }, [arrivalLat, arrivalLng, isTrip, originLat, originLng]);
+    return Number.isFinite(Number(arrivalLat)) && Number.isFinite(Number(arrivalLng));
+  }, [arrivalLat, arrivalLng, isTrip]);
+
+  const newtonFirstScanReady = useMemo(() => hasNewtonFirstScanRecorded(sentinelComfort), [sentinelComfort]);
+
+  const routeReady = useMemo(
+    () => destinationCoordsReady && newtonFirstScanReady,
+    [destinationCoordsReady, newtonFirstScanReady],
+  );
 
   useEffect(() => {
     if (remindToLeaveEnabled) {
@@ -1129,8 +1191,9 @@ export function IntentionDetailSheet({
       setArrivalText(fav.formattedAddress);
       await updateTrankilV2IntentionLocationAddress(row.id, { location_address: fav.formattedAddress }, { silent: true });
       await patchMetadata(row.id, { trip: tripPatch });
+      await refreshSentinelComfort();
     })();
-  }, [arrivalText, isTrip, row, trip, visible]);
+  }, [arrivalText, isTrip, row, trip, visible, refreshSentinelComfort]);
 
   const panResponder = useMemo(
     () =>
@@ -1701,6 +1764,7 @@ export function IntentionDetailSheet({
       await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
     }
     await reconcileSentinelForIntentionId(row.id);
+    await refreshSentinelComfort();
   };
 
   const onToggleChecklistItem = async (uid: string) => {
@@ -1725,6 +1789,7 @@ export function IntentionDetailSheet({
     const tripPatch = await touchValidateTrip(root, { newtonEnabled: nextEnabled });
     await patchMetadata(row.id, { trip: tripPatch });
     await reconcileSentinelForIntentionId(row.id);
+    await refreshSentinelComfort();
   };
 
   const onSelectTransportMode = async (mode: 'auto' | 'transit' | 'walking' | 'bike') => {
@@ -1736,6 +1801,7 @@ export function IntentionDetailSheet({
     const tripPatch = await touchValidateTrip(root, { transportMode: mode });
     await patchMetadata(row.id, { trip: tripPatch });
     await reconcileSentinelForIntentionId(row.id);
+    await refreshSentinelComfort();
   };
 
   const persistDueDateTime = async (d: Date, opts?: { closePicker?: boolean; allDay?: boolean }) => {
@@ -2614,7 +2680,6 @@ export function IntentionDetailSheet({
                             const root = safeParseJsonObject(row.metadata_json) ?? {};
                             const tripMeta = getTripMeta(root) ?? {};
                             void (async () => {
-                              void tripMeta;
                               const tripPatch = await touchValidateTrip(root, {
                                 location_address: p.formattedAddress,
                                 location_place_id: p.placeId,
@@ -2624,7 +2689,17 @@ export function IntentionDetailSheet({
                               });
                               await updateTrankilV2IntentionLocationAddress(row.id, { location_address: p.formattedAddress }, { silent: true });
                               await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+                              const alias = String(str(tripMeta, 'destination_name') ?? '').trim();
+                              if (alias) {
+                                void upsertLocationFavorite({
+                                  alias,
+                                  formattedAddress: p.formattedAddress,
+                                  lat: p.lat,
+                                  lng: p.lng,
+                                }).catch(() => undefined);
+                              }
                               await reconcileSentinelForIntentionId(row.id);
+                              await refreshSentinelComfort();
                             })();
                           }}
                           disabled={false}
@@ -2745,12 +2820,40 @@ export function IntentionDetailSheet({
                             />
                           </View>
 
-                          <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
-                            {t('intentionDetail.comfortFixed', { time: `${pad2(pickerDraft.getHours())}:${pad2(pickerDraft.getMinutes())}` })}
-                          </Text>
-                          <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
-                            {t('intentionDetail.comfortOptimized')}
-                          </Text>
+                          <View style={styles.comfortSlotRow}>
+                            <View style={styles.comfortSlotCol}>
+                              <Text style={[styles.comfortSlotTag, { color: theme.colors.onSurfaceVariant }]}>
+                                {t('intentionDetail.comfortEstimatedTag')}
+                              </Text>
+                              <Text style={[styles.comfortSlotValue, { color: theme.colors.onSurface }]}>
+                                {comfortDurations.estimated}
+                              </Text>
+                            </View>
+                            <View style={styles.comfortSlotCol}>
+                              <Text style={[styles.comfortSlotTag, { color: theme.colors.onSurfaceVariant }]}>
+                                {t('intentionDetail.comfortRealTag')}
+                              </Text>
+                              <Text style={[styles.comfortSlotValue, { color: theme.colors.onSurface }]}>
+                                {comfortDurations.real}
+                              </Text>
+                            </View>
+                          </View>
+                          <View
+                            style={[styles.comfortProgressTrack, { backgroundColor: theme.colors.surfaceVariant }]}
+                          >
+                            <View
+                              style={[
+                                styles.comfortProgressFill,
+                                {
+                                  backgroundColor: theme.colors.primary,
+                                  width:
+                                    comfortDurations.progressRatio != null
+                                      ? `${Math.round(comfortDurations.progressRatio * 100)}%`
+                                      : '0%',
+                                },
+                              ]}
+                            />
+                          </View>
 
                           <View style={styles.impactSlot}>
                             {ecoBadge ? (
@@ -3567,6 +3670,12 @@ const styles = StyleSheet.create({
   co2Text: { fontSize: 12, fontWeight: '700' },
   impactSlot: { height: 32, justifyContent: 'center' },
   comfortLine: { fontSize: 12, fontWeight: '700' },
+  comfortSlotRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
+  comfortSlotCol: { flex: 1, gap: 4 },
+  comfortSlotTag: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },
+  comfortSlotValue: { fontSize: 15, fontWeight: '800' },
+  comfortProgressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', marginTop: 10 },
+  comfortProgressFill: { height: 4, borderRadius: 2 },
   newtonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   footer: { paddingHorizontal: 16, paddingTop: 10 },
   footerActionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },

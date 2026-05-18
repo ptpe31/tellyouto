@@ -442,13 +442,13 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - **`showPass2FooterCta`** : `row` présent, `row.id !== 'peek_pending'`, **`!isPass2UnlockedMeta(meta)`** (meta dérivée de `metadataJsonLive`), types **TRIP | LIST | PROJECT** uniquement. Pas de CTA pour **TASK** / **HABIT**.
 - **Path B (peek ~25 %)** : le bouton principal de validation n’est rendu **que si** `showPass2FooterCta` (même libellés / même verrou).
 
-**Libellés dynamiques (i18n unifiés `pass2.*`)** — Timeline, Micro Path B et footer sheet :
-- `TRIP` → `pass2.setupTrip` (*Configurer l’itinéraire*).
+**Libellés dynamiques (i18n)** — Timeline, Micro Path B et footer sheet :
+- `TRIP` → `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*).
 - `LIST` → `pass2.generateList` (*Générer la liste*).
 - `PROJECT` → `pass2.generateSteps` (*Générer les étapes*).
 - **`TASK`**, **`HABIT`** (et catégories hors TRIP/LIST/PROJECT éligibles) → **aucun** CTA Pass 2 dans le footer : la fiche reste en mode note / habitude simple sans génération IA supplémentaire à ce stade.
 
-**TRIP — hiérarchie** : en vue **Zen**, Mission, itinéraire précis et **Newton** masqués tant que `pass2_unlocked !== 1`. Passage à la vue riche après CTA **PRO** « Configurer l’itinéraire » (`pass2_unlocked: 1`).
+**TRIP — hiérarchie** : en vue **Zen**, Mission, itinéraire précis et **Newton** masqués tant que `pass2_unlocked !== 1`. Passage à la vue riche après CTA **PRO** « Me prévenir quand partir ? » (`intentionDetail.actionSetupAlert`, `pass2_unlocked: 1`).
 
 **Exception — capture Talk (Path B, sheet full)** : `gateFullTripBypass` (trajet + `path_b` + full) affiche itinéraire / Newton **sans** `pass2_unlocked === 1` ; CTA footer trajet reste visible tant que `pass2_unlocked !== 1`. `pass2RevealAnim` → **1** si `pass2_unlocked === 1` ou bypass.
 
@@ -505,7 +505,7 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 
 ### 3) Footer actions (vue Path B)
 #### Bouton de mutation (Pass 2 — Enrichir)
-- En **fiche timeline / full** : CTA Pass 2 dans le **footer** de `IntentionDetailSheet` (à gauche de **Fermer**), libellés i18n **`pass2.setupTrip` / `pass2.generateList` / `pass2.generateSteps`** (types **TRIP / LIST / PROJECT** uniquement) ; **gating FREE/PRO** : voir **§6** (`isProUser` via `useUserSpectrum()`).
+- En **fiche timeline / full** : CTA Pass 2 dans le **footer** de `IntentionDetailSheet` (à gauche de **Fermer**), libellés i18n **`intentionDetail.actionSetupAlert`** (TRIP) / **`pass2.generateList`** / **`pass2.generateSteps`** (types **TRIP / LIST / PROJECT** uniquement) ; **gating FREE/PRO** : voir **§6** (`isProUser` via `useUserSpectrum()`).
 - **PRO** — Action :
   - Pose **`pass2_unlocked: 1`** via `patchMetadata` (consentement + CTA consommé).
   - **Ensuite uniquement** : enrichissement LIST/PROJECT (`geminiEnrichGenericList`) + overlay inertie dans `IntentionDetailSheet` — **pas** d’enrichissement auto après Pass 1.
@@ -520,7 +520,7 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 - Important : l’intention étant déjà persistée au Pass 1, aucune action supplémentaire n’est requise.
 
 #### Bouton principal contextuel (Talk — Path B uniquement)
-- Bouton principal peek : libellés **`pass2.*`** (alignés footer Timeline) ; masqué si `pass2_unlocked === 1`. Types **note** : `talkDebug.actionAddNote` (ouvre full sans Pass 2). **TRIP** : `pass2_unlocked: 1` + configuration itinéraire (PRO). **LIST / PROJECT** : `onPressPass2` (overlay + enrichissement).
+- Bouton principal peek : libellés alignés footer Timeline (`intentionDetail.actionSetupAlert` pour **TRIP**, `pass2.*` pour LIST/PROJECT) ; masqué si `pass2_unlocked === 1`. Types **note** : `talkDebug.actionAddNote` (ouvre full sans Pass 2). **TRIP** : `pass2_unlocked: 1` + configuration mission / itinéraire (PRO). **LIST / PROJECT** : `onPressPass2` (overlay + enrichissement).
 - Bouton secondaire : **Terminer** / fermeture sheet.
 - Observabilité : log dev **`[ACTION-ADVISOR]`** lors du choix du libellé / de la route d’action (audit produit).
 
@@ -712,11 +712,20 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Recherche contextuelle (Saved information) :
   - À l’affichage, si `destination_name` correspond à un alias enregistré (ex. “Mami”), la vue doit résoudre l’adresse sauvegardée et l’utiliser comme arrivée par défaut.
   - Source : table locale de favoris (ex. `location_favorites`) ou autre stockage équivalent.
+- **Auto-apprentissage silencieux (favoris)** :
+  - Lors du `onSelect` Google Places sur le champ **Arrivée**, si `metadata_json.trip.destination_name` est renseigné (alias IA, ex. “Jean-Pierre”, “Travail”), exécuter en tâche de fond un `upsertLocationFavorite` (alias → `formattedAddress`, `lat`, `lng`) dans `location_favorites`.
+  - **Aucune** alerte ni pop-up utilisateur ; échec silencieux (`catch` sans UI).
 - Indicateur carbone :
   - Walking/Bike : badge “Eco‑Friendly”.
   - Auto : texte d’impact estimé (ex. “Impact CO2 standard”).
+- **Confort de trajet — créneau de départ (UI épurée)** :
+  - Sous le bloc Transport / Newton : deux colonnes **Estimé** / **Réel** (`intentionDetail.comfortEstimatedTag` / `comfortRealTag`) affichant la **durée de trajet** (format court, ex. `25 min`).
+  - **Estimé** : durée standard — `scan1_duration_sec` dans `sentinel_trips` après le 1er scan, sinon estimation initiale (`last_traffic_duration` avant scan).
+  - **Réel** : dernière durée trafic mesurée (`last_traffic_duration`) après au moins un scan Newton enregistré.
+  - Barre de progression fine entre les deux (ratio réel / estimé, plafonné à 100 %).
+  - Lecture via [`sentinelTripComfort.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripComfort.ts) ; rafraîchissement à l’ouverture de la sheet et polling **5 s** tant que Newton est actif.
 - Action : bouton “Lancer l’itinéraire” ouvrant un deep link vers Google Maps/Waze avec :
-  - `origin` si le départ a été précisé,
+  - `origin` si le départ a été précisé (sinon position courante côté app cartes),
   - `destination` = adresse d’arrivée exacte,
   - `travelmode` selon le mode sélectionné (auto/transit/walking/bike).
 - Deep link universel (sélecteur natif) :
@@ -731,10 +740,13 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - Lors d’une saisie manuelle dans le champ Arrivée (`onChangeText`) : vider immédiatement `metadata_json.trip.location_lat` / `location_lng` (et champs associés) pour marquer l’arrivée comme non exploitable.
   - Lors de la sélection d’une suggestion Google Places (`onSelect`) : renseigner immédiatement `metadata_json.trip.location_lat` / `location_lng` (+ `location_place_id`, `location_address`) pour marquer l’arrivée exploitable.
   - Condition d’affichage “Confort de trajet” (Transport + Newton) : afficher uniquement si `metadata_json.trip.location_lat` est présent et non nul (indépendant du Départ).
-- Départ (impact uniquement sur le bouton GPS) :
+- Départ (deep link uniquement) :
   - Lors d’une saisie manuelle dans le champ Départ : vider `metadata_json.trip.origin_lat` / `origin_lng`.
   - Lors de la sélection Places : renseigner `origin_lat` / `origin_lng` (+ `origin_place_id`, `origin_address`).
-  - Condition d’affichage du bouton GPS (GO) : afficher/activer uniquement si Départ ET Arrivée ont des coordonnées.
+  - Affichage par défaut « Ma position » si `origin_address` vide ; **pas** de lecture GPS device dans la sheet pour ce libellé.
+- Bouton GPS (GO) — `routeReady` :
+  - Afficher/activer **uniquement** si l’**arrivée** a des coordonnées valides (`metadata_json.trip.location_lat` / `location_lng`) **et** qu’au moins un **premier scan Newton** est enregistré dans `sentinel_trips` (`scan_count ≥ 1` ou `scan1_at_ms` non nul — voir `hasNewtonFirstScanRecorded` dans `sentinelTripComfort.ts`).
+  - Le départ explicite n’est **pas** requis pour afficher le bouton (le deep link peut omettre `origin`).
 
 ### 5) Synchronisation (Top‑Down Sync)
 
