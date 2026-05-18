@@ -43,6 +43,7 @@ export function GooglePlacesAutocompleteField(props: {
         setLastQuery(q);
         setLoading(true);
         try {
+          console.log(`[API-CALL] 💸 GOOGLE PLACES AUTOCOMPLETE | Input: "${q}"`);
           const url =
             `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=` +
             encodeURIComponent(q) +
@@ -80,6 +81,7 @@ export function GooglePlacesAutocompleteField(props: {
     setLoading(true);
     void (async () => {
       try {
+        console.log(`[API-CALL] 💸 GOOGLE PLACES DETAILS | Requesting PlaceID: ${p.placeId}`);
         const url =
           `https://maps.googleapis.com/maps/api/place/details/json?place_id=` +
           encodeURIComponent(p.placeId) +

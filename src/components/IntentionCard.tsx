@@ -16,6 +16,7 @@ import {
   resolveTripTimelineFooter,
   type TripTimelineFooter,
 } from '../utils/tripTimelineCard';
+import { normalizeTripTransportMode } from '../utils/tripTransportMode';
 import { neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
@@ -104,13 +105,10 @@ function getCategoryIcon(categoryId: string | null | undefined, type: TrankilV2T
 }
 
 function getTripTransportIcon(raw: string | null | undefined): string | null {
-  const v = String(raw ?? '').trim().toLowerCase();
-  if (!v) return null;
-  if (v === 'auto' || v === 'car' || v === 'driving') return 'car';
-  if (v === 'transit' || v === 'train') return 'train';
-  if (v === 'walking' || v === 'walk') return 'walk';
-  if (v === 'bike' || v === 'bicycle' || v === 'bicycling') return 'bike';
-  return null;
+  const mode = normalizeTripTransportMode(raw);
+  if (mode === 'walking') return 'walk';
+  if (mode === 'bike') return 'bike';
+  return 'car';
 }
 
 function tripFooterLabel(footer: TripTimelineFooter, t: (key: string, opts?: Record<string, unknown>) => string): string {

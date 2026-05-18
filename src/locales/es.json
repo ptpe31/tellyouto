@@ -249,7 +249,6 @@
   },
   "timeline": {
     "allDuration": "Todo el día",
-    "tripSetupCta": "¿Avisarme cuándo salir?",
     "trafficScanConfigured": "Escaneo de tráfico real activado 🛡️",
     "trafficLiveMinutes": "Tráfico: {{minutes}} min 🛡️",
     "estimatedDepartureSingle": "[ Salida est.: {{time}} ]",
@@ -923,7 +922,6 @@
     "save": "Guardar",
     "notePlaceholder": "Añadir una nota…",
     "transportAuto": "Auto",
-    "transportTransit": "Transporte",
     "transportWalking": "Caminando",
     "transportBike": "Bici",
     "ecoFriendly": "Eco-Friendly 🌱",

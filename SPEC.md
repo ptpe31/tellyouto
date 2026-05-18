@@ -704,10 +704,10 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 ### 4) TRIP — Transport & Carbone
 
-- Sélecteur de mode : 4 icônes (Auto, Transit, Walking, Bike). Par défaut : `auto`.
+- Sélecteur de mode : 3 icônes (Auto, Marche, Vélo). Par défaut : `auto`. Le mode **transit / bus** n’est plus proposé (horaires TC non gérés) ; les valeurs legacy `transit` en base sont normalisées vers `auto`.
 - Persistance : le mode de transport doit être persisté en SQLite (champ dédié ou metadata), et un champ DB peut être nécessaire.
 - Icône dynamique Timeline :
-  - Pour un TRIP, l’icône affichée dans la Timeline doit refléter la colonne SQLite `transport_mode` (auto/transit/walking/bicycle).
+  - Pour un TRIP, l’icône affichée dans la Timeline doit refléter la colonne SQLite `transport_mode` (auto/walking/bike ; legacy `transit` affiché comme auto).
   - Si `transport_mode` est vide, fallback sur l’icône avion.
   - La mise à jour doit être instantanée dès qu’un mode est sélectionné dans la Bottom Sheet (optimistic UI + persistance).
 - UI épurée :
@@ -741,7 +741,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Action : bouton “Lancer l’itinéraire” ouvrant un deep link vers Google Maps/Waze avec :
   - `origin` si le départ a été précisé (sinon position courante côté app cartes),
   - `destination` = adresse d’arrivée exacte,
-  - `travelmode` selon le mode sélectionné (auto/transit/walking/bike).
+  - `travelmode` selon le mode sélectionné (auto/walking/bike).
 - Deep link universel (sélecteur natif) :
   - Android : utiliser un schéma `geo:0,0?q=` pour déclencher le sélecteur natif si plusieurs apps GPS sont installées.
   - iOS : ouvrir via schémas natifs (Apple Maps / Google Maps / Waze) et afficher un sélecteur natif (ActionSheet) si plusieurs fournisseurs sont disponibles.

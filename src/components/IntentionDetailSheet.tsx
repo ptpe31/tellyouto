@@ -71,6 +71,11 @@ import {
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicRaised } from '../theme/neumorphism';
 import { capturePeekPathAHeightPx } from '../utils/capturePeekLayout';
+import {
+  isLegacyTransitTransportMode,
+  normalizeTripTransportMode,
+  type TripTransportMode,
+} from '../utils/tripTransportMode';
 
 type Props = {
   visible: boolean;
@@ -346,13 +351,13 @@ function getTripMeta(meta: Record<string, unknown> | null): Record<string, unkno
   return t as Record<string, unknown>;
 }
 
-function getTransportMode(meta: Record<string, unknown> | null): 'auto' | 'transit' | 'walking' | 'bike' {
+function getTransportMode(
+  meta: Record<string, unknown> | null,
+  rowTransportMode?: string | null,
+): TripTransportMode {
   const trip = getTripMeta(meta);
-  const raw = String(str(trip, 'transportMode') ?? '').trim().toLowerCase();
-  if (raw === 'transit') return 'transit';
-  if (raw === 'walking' || raw === 'walk') return 'walking';
-  if (raw === 'bike' || raw === 'bicycle') return 'bike';
-  return 'auto';
+  const raw = String(str(trip, 'transportMode') ?? rowTransportMode ?? '').trim();
+  return normalizeTripTransportMode(raw);
 }
 
 function getNewtonEnabled(meta: Record<string, unknown> | null): boolean {
@@ -384,16 +389,10 @@ function isPass2GenerationConsumed(meta: Record<string, unknown> | null | undefi
 function buildGoogleMapsDirectionsUrlWithOrigin(params: {
   origin?: string | null;
   destination: string;
-  mode: 'auto' | 'transit' | 'walking' | 'bike';
+  mode: TripTransportMode;
 }): string {
   const travelmode =
-    params.mode === 'transit'
-      ? 'transit'
-      : params.mode === 'walking'
-        ? 'walking'
-        : params.mode === 'bike'
-          ? 'bicycling'
-          : 'driving';
+    params.mode === 'walking' ? 'walking' : params.mode === 'bike' ? 'bicycling' : 'driving';
   const base = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(params.destination)}&travelmode=${travelmode}`;
   const origin = String(params.origin ?? '').trim();
   if (!origin) return base;
@@ -408,9 +407,9 @@ function buildGeoUrl(destination: string): string {
 function buildAppleMapsUrl(params: {
   origin?: string | null;
   destination: string;
-  mode: 'auto' | 'transit' | 'walking' | 'bike';
+  mode: TripTransportMode;
 }): string {
-  const dirflg = params.mode === 'transit' ? 'r' : params.mode === 'walking' ? 'w' : 'd';
+  const dirflg = params.mode === 'walking' ? 'w' : 'd';
   const dest = encodeURIComponent(params.destination);
   const origin = String(params.origin ?? '').trim();
   const base = `maps://?daddr=${dest}&dirflg=${dirflg}`;
@@ -421,17 +420,16 @@ function buildAppleMapsUrl(params: {
 function buildGoogleMapsUrlNative(params: {
   origin?: string | null;
   destination: string;
-  mode: 'auto' | 'transit' | 'walking' | 'bike';
+  mode: TripTransportMode;
 }): string {
   const destination = encodeURIComponent(params.destination);
   const origin = String(params.origin ?? '').trim();
   if (Platform.OS === 'android') {
-    const mode =
-      params.mode === 'transit' ? 'r' : params.mode === 'walking' ? 'w' : params.mode === 'bike' ? 'b' : 'd';
+    const mode = params.mode === 'walking' ? 'w' : params.mode === 'bike' ? 'b' : 'd';
     return `google.navigation:q=${destination}&mode=${mode}`;
   }
   const directionsmode =
-    params.mode === 'transit' ? 'transit' : params.mode === 'walking' ? 'walking' : params.mode === 'bike' ? 'bicycling' : 'driving';
+    params.mode === 'walking' ? 'walking' : params.mode === 'bike' ? 'bicycling' : 'driving';
   const base = `comgooglemaps://?daddr=${destination}&directionsmode=${encodeURIComponent(directionsmode)}`;
   if (!origin) return base;
   return `${base}&saddr=${encodeURIComponent(origin)}`;
@@ -444,7 +442,7 @@ function buildWazeUrl(destination: string): string {
 async function openNavigationUniversal(params: {
   origin?: string | null;
   destination: string;
-  mode: 'auto' | 'transit' | 'walking' | 'bike';
+  mode: TripTransportMode;
 }): Promise<void> {
   const destination = String(params.destination ?? '').trim();
   if (!destination) return;
@@ -952,7 +950,7 @@ export function IntentionDetailSheet({
   }, [meta, row, transcription, visible]);
 
   const [newtonEnabled, setNewtonEnabled] = useState(false);
-  const [transportMode, setTransportMode] = useState<'auto' | 'transit' | 'walking' | 'bike'>('auto');
+  const [transportMode, setTransportMode] = useState<TripTransportMode>('auto');
   const [originText, setOriginText] = useState('');
   const [originEditing, setOriginEditing] = useState(false);
   const [arrivalText, setArrivalText] = useState('');
@@ -963,18 +961,39 @@ export function IntentionDetailSheet({
   useEffect(() => {
     if (!visible) return;
     setNewtonEnabled(getNewtonEnabled(meta));
-    setTransportMode(getTransportMode(meta));
+    const nextTransportMode = getTransportMode(meta, row?.transport_mode);
+    setTransportMode(nextTransportMode);
+    const legacyTransportRaw = String(
+      str(getTripMeta(meta), 'transportMode') ?? row?.transport_mode ?? '',
+    ).trim();
+    if (row?.id && isLegacyTransitTransportMode(legacyTransportRaw)) {
+      void (async () => {
+        await updateTrankilV2IntentionTransportMode(row.id, { transport_mode: 'auto' }, { silent: true });
+        const root = safeParseJsonObject(row.metadata_json) ?? {};
+        const tripPatch = await touchValidateTrip(root, { transportMode: 'auto' });
+        await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+        onPatchRow?.(row.id, { transport_mode: 'auto' });
+      })();
+    }
     const tMeta = getTripMeta(meta);
+    const nextArrivalText = String(str(tMeta, 'location_address') ?? str(meta, 'location_address') ?? '').trim();
     setOriginText(String(str(tMeta, 'origin_address') ?? '').trim());
-    setArrivalText(String(str(tMeta, 'location_address') ?? str(meta, 'location_address') ?? '').trim());
+    setArrivalText(nextArrivalText);
     const oLat = Number((tMeta as any)?.origin_lat);
     const oLng = Number((tMeta as any)?.origin_lng);
     setOriginLat(Number.isFinite(oLat) ? oLat : null);
     setOriginLng(Number.isFinite(oLng) ? oLng : null);
     const aLat = Number((tMeta as any)?.location_lat);
     const aLng = Number((tMeta as any)?.location_lng);
-    setArrivalLat(Number.isFinite(aLat) ? aLat : null);
-    setArrivalLng(Number.isFinite(aLng) ? aLng : null);
+    const nextArrivalLat = Number.isFinite(aLat) ? aLat : null;
+    const nextArrivalLng = Number.isFinite(aLng) ? aLng : null;
+    setArrivalLat(nextArrivalLat);
+    setArrivalLng(nextArrivalLng);
+    if (tMeta && row?.id) {
+      console.log(
+        `[TRIP-INIT] 🗺️ Opening Sheet ID: ${row.id} | Alias: ${str(tMeta, 'destination_name') ?? '—'} | HasAddress: ${Boolean(nextArrivalText)} | HasCoords: ${nextArrivalLat != null && nextArrivalLng != null}`,
+      );
+    }
     setOriginEditing(false);
     setArrivalEditing(false);
     setSourceExpanded(false);
@@ -1812,7 +1831,7 @@ export function IntentionDetailSheet({
     await refreshSentinelComfort();
   };
 
-  const onSelectTransportMode = async (mode: 'auto' | 'transit' | 'walking' | 'bike') => {
+  const onSelectTransportMode = async (mode: TripTransportMode) => {
     if (!row) return;
     setTransportMode(mode);
     onPatchRow?.(row.id, { transport_mode: mode });
@@ -2711,12 +2730,25 @@ export function IntentionDetailSheet({
                               await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
                               const alias = String(str(tripMeta, 'destination_name') ?? '').trim();
                               if (alias) {
-                                void upsertLocationFavorite({
-                                  alias,
-                                  formattedAddress: p.formattedAddress,
-                                  lat: p.lat,
-                                  lng: p.lng,
-                                }).catch(() => undefined);
+                                try {
+                                  const learnAction = await upsertLocationFavorite({
+                                    alias,
+                                    formattedAddress: p.formattedAddress,
+                                    lat: p.lat,
+                                    lng: p.lng,
+                                  });
+                                  if (learnAction === 'created') {
+                                    console.log(
+                                      `[TRIP-LEARN] 🧠 Auto-created favorite for alias "${alias}" -> ${p.formattedAddress} (${p.lat}, ${p.lng})`,
+                                    );
+                                  } else {
+                                    console.log(
+                                      `[TRIP-LEARN] 🔄 Silently updated favorite "${alias}" with new address -> ${p.formattedAddress}`,
+                                    );
+                                  }
+                                } catch {
+                                  // silent — no UI
+                                }
                               }
                               await reconcileSentinelForIntentionId(row.id);
                               await refreshSentinelComfort();
@@ -2785,7 +2817,6 @@ export function IntentionDetailSheet({
                             {(
                               [
                                 { key: 'auto', icon: 'car', label: t('intentionDetail.transportAuto') },
-                                { key: 'transit', icon: 'bus', label: t('intentionDetail.transportTransit') },
                                 { key: 'walking', icon: 'walk', label: t('intentionDetail.transportWalking') },
                                 { key: 'bike', icon: 'bike', label: t('intentionDetail.transportBike') },
                               ] as const

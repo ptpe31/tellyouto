@@ -26,7 +26,8 @@ export async function ensureLocationFavoritesSchema(): Promise<void> {
   });
 }
 
-export async function upsertLocationFavorite(input: LocationFavoriteRow): Promise<void> {
+export async function upsertLocationFavorite(input: LocationFavoriteRow): Promise<'created' | 'updated'> {
+  const existing = await getLocationFavoriteByAlias(input.alias);
   await ensureLocationFavoritesSchema();
   await withTrankilV2Database(async (db) => {
     const now = Date.now();
@@ -36,6 +37,7 @@ export async function upsertLocationFavorite(input: LocationFavoriteRow): Promis
       [input.alias.trim(), input.formattedAddress.trim(), input.lat, input.lng, now]
     );
   });
+  return existing ? 'updated' : 'created';
 }
 
 export async function getLocationFavoriteByAlias(alias: string): Promise<LocationFavoriteRow | null> {

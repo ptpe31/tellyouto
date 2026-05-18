@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getTrankilV2IntentionById, withTrankilV2Database } from '../../api/trankilV2Db';
 import { consumeSentinelQuotaOnTripValidation } from '../QuotaManager';
 import { USER_SPECTRUM_STORAGE_KEY } from '../../context/UserSpectrumContext';
+import { normalizeTripTransportMode } from '../../utils/tripTransportMode';
 import { activateSentinelTrip, ensureSentinelTripsSchema, kickSentinelAfterActivation } from './sentinelActivation';
 import { getSentinelScheduler, startSentinelRuntime } from './sentinelRuntime';
 
@@ -58,7 +59,8 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
     msFromUnknown(trip.dueDateTime) ??
     msFromUnknown(meta.dueDateTime) ??
     null;
-  const transportMode = row.transport_mode == null ? null : String(row.transport_mode || '').trim() || null;
+  const transportModeRaw = row.transport_mode == null ? null : String(row.transport_mode || '').trim() || null;
+  const transportMode = transportModeRaw ? normalizeTripTransportMode(transportModeRaw) : null;
 
   await ensureSentinelTripsSchema();
 
@@ -83,6 +85,10 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
   const isProUser = await readIsProUserLocal();
   const quota = await consumeSentinelQuotaOnTripValidation({ isProUser });
   const sentinelMode = quota.mode === 'STATIC' ? 'STATIC' : 'SENTINEL';
+
+  console.log(
+    `[TRIP-SENTINEL] 📡 Reconciling background task for ID: ${id} | DestinationCoords: ${destLat},${destLng}`,
+  );
 
   await activateSentinelTrip({
     tripTaskId: id,

@@ -25,7 +25,6 @@ function getApiKey(): string {
 
 function normalizeMode(mode: string | null | undefined): string {
   const m = String(mode || '').toLowerCase();
-  if (m === 'transit') return 'transit';
   if (m === 'walking' || m === 'walk') return 'walking';
   if (m === 'bike' || m === 'bicycling') return 'bicycling';
   return 'driving';
@@ -62,6 +61,10 @@ export class DistanceMatrixMapsService implements MapsService {
 
     const apiKey = getApiKey();
     if (!apiKey) throw new Error('DistanceMatrixMapsService: missing api key');
+
+    console.log(
+      `[API-CALL] 💸 GOOGLE DISTANCE MATRIX | Origins: ${originLat},${originLng} | Dest: ${destLat},${destLng} | Mode: ${mode}`,
+    );
 
     const url =
       `https://maps.googleapis.com/maps/api/distancematrix/json` +
