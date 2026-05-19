@@ -208,6 +208,76 @@ export class SentinelNotificationManager {
     });
   }
 
+  async sendGoNoGoPush(input: {
+    tripTaskId: string;
+    destination: string;
+    variant: 'smooth' | 'leave_now';
+    departInMin: number;
+    lat?: number;
+    lng?: number;
+  }): Promise<void> {
+    const n = getNotifications();
+    if (!n) return;
+    await ensureSentinelCategory();
+    ensureResponseListener();
+    const identifier = `sentinel_gonogo_${input.tripTaskId}_${Date.now()}`;
+    const title = i18n.t('sentinel.probe3Title', { destination: input.destination });
+    const body =
+      input.variant === 'smooth'
+        ? i18n.t('sentinel.probe3Smooth', { minutes: Math.max(1, input.departInMin) })
+        : i18n.t('sentinel.probe3LeaveNow');
+    const payload: SentinelPayload = {
+      kind: 'sentinel_trip',
+      tripTaskId: input.tripTaskId,
+      destination: input.destination,
+      ...(Number.isFinite(input.lat) && Number.isFinite(input.lng)
+        ? { lat: input.lat as number, lng: input.lng as number }
+        : {}),
+    };
+    await n.scheduleNotificationAsync({
+      identifier,
+      content: {
+        title,
+        body,
+        data: payload,
+        categoryIdentifier: SENTINEL_NOTIFICATION_CATEGORY_ID,
+        sound: true,
+        priority: Platform.OS === 'android' ? n.AndroidNotificationPriority.HIGH : undefined,
+      },
+      trigger: null,
+    });
+  }
+
+  async sendProbeUnavailablePush(input: {
+    tripTaskId: string;
+    destination: string;
+  }): Promise<void> {
+    const n = getNotifications();
+    if (!n) return;
+    await ensureSentinelCategory();
+    ensureResponseListener();
+    const identifier = `sentinel_probe_unavail_${input.tripTaskId}_${Date.now()}`;
+    const title = i18n.t('sentinel.probe3Title', { destination: input.destination });
+    const body = i18n.t('sentinel.probe3Unavailable');
+    const payload: SentinelPayload = {
+      kind: 'sentinel_trip',
+      tripTaskId: input.tripTaskId,
+      destination: input.destination,
+    };
+    await n.scheduleNotificationAsync({
+      identifier,
+      content: {
+        title,
+        body,
+        data: payload,
+        categoryIdentifier: SENTINEL_NOTIFICATION_CATEGORY_ID,
+        sound: true,
+        priority: Platform.OS === 'android' ? n.AndroidNotificationPriority.HIGH : undefined,
+      },
+      trigger: null,
+    });
+  }
+
   async cancel(tripTaskId: string): Promise<void> {
     const n = getNotifications();
     if (!n) return;

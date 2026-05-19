@@ -285,7 +285,7 @@ Objectif : réduire la friction sur les trajets en introduisant une hiérarchie 
 ### Niveau 1 — Capture (déjà validé, ne pas modifier)
 Mode par défaut (équivalent “Note”) :
 - Afficher uniquement : **Titre**, **Note**, **Moment** (Date ou Jour/Heure).
-- Aucune exigence de destination/transport/Newton à ce niveau.
+- Aucune exigence de destination/transport/surveillance trafic à ce niveau.
 
 ### Niveau 2 — Engagement
 Ajouter un switch i18n :
@@ -306,39 +306,64 @@ Le bloc “Mission” ne s’affiche que si `remind_to_leave` est ON.
 Contenu du bloc :
 - Sélecteurs destination (adresse validée) + origine si exposée dans l’UI actuelle
 - Sélecteur du mode de transport
+- Pill **créneau élastique** (PRO uniquement, après PROBE1) : `[ borne basse – borne haute ]`
 
-#### Logique Newton (visibilité conditionnelle)
-Le switch/bouton i18n “Activer Newton” doit être **invisible** tant que les conditions de surveillance ne sont pas remplies.
+#### Surveillance trafic — Créneau élastique (remplace Newton)
 
-Conditions minimales “surveillable” :
+**Modèle v34 (mai 2026)** : un seul interrupteur **`remind_to_leave`** (*Me prévenir quand partir*), réservé **PRO**. Plus de switch « Activer Newton » séparé.
+
+Conditions minimales « surveillable » :
 - **Adresse valide** (destination) :
   - `trip.location_place_id` non vide
   - `trip.location_lat` et `trip.location_lng` finies
   - `trip.location_address` non vide
 - **Heure d’arrivée précise** :
   - `metadata_json.trip.arrivalDue` ou `metadata_json.trip.dueDateTime` défini (ISO)
-  - et `meta.is_all_day` == false (donc pas “All Day”)
+  - et `meta.is_all_day` == false (donc pas « All Day »)
+
+**FREE** : activation du rappel → redirection paywall `ProSubscription` (pas de créneau ni sondes).
+
+**Formule créneau élastique** ([`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts)) :
+- `Buffer = max(10 min, 30 % × D_std)`
+- Fenêtre affichée : `[ arrivée − (D_std + Buffer) … arrivée − D_std ]`
+- Ex. arrivée 19h30, `D_std = 30 min` → `[18h50 – 19h00]`
+- Cas B (PROBE2) : si trafic live déborde du buffer → fenêtre décalée (`elastic_shifted: true`, ⚠️ UI)
+
+**Sondes API (max 2–3 appels Distance Matrix)** — [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) :
+| Sonde | Rôle |
+|-------|------|
+| **PROBE1** | Calcule `D_std` (`standard_duration_min`), fenêtre initiale ; GPS origine différé si absent (fallback 30 min + `≈`, retry 3 min) |
+| **PROBE2** | Mesure trafic live ; shift créneau si débordement |
+| **PROBE3** | Go/No-Go → push locale (`sentinel.probe3*`) ; mission `DONE` |
+
+**Planification** : zéro polling. Un `setTimeout` par TRIP sur `sentinel_trips.next_real_scan_at_ms` ([`TrafficSchedulerV4`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts)). Background OS ([`SentinelBackgroundService`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/SentinelBackgroundService.ts)) : tick **uniquement** si sonde échue.
+
+**Métadonnées trip** (`metadata_json.trip`) : `standard_duration_min`, `elastic_start_ms`, `elastic_end_ms`, `elastic_buffer_min`, `elastic_approximate`, `elastic_shifted`, `origin_lat/lng`, `last_traffic_duration`.
+
+**Annulation / reset mission** ([`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts)) :
+- `cancelTripMission(id)` : clear timers + annule PROBE2/3 planifiées — appelé si suppression TRIP, désactivation `remind_to_leave`, ou destination invalide.
+- `resetTripMissionAndRelaunchProbe1(id)` : si changement de destination avec `pass2_unlocked === 1` → cancel + clear elastic metadata + PROBE1 immédiat.
+
+**Dégradation gracieuse** : échec API PROBE2 → créneau inchangé (pas de shift) + retry ; échec PROBE3 → push `sentinel.probe3Unavailable` (*Estimation indisponible, vérifiez le trafic manuellement*).
 
 Règle UI :
-- Si non surveillable : Newton est **caché** par défaut (pas seulement *disabled*).
-- Si surveillable : Newton devient visible (et activable).
-
-**Implémentation v34 (Talk — sheet full après capture)** : le contrôle Newton peut être rendu **visible mais désactivé** tant que le trajet n’est pas surveillable, pour éviter une disparition ambiguë lors de l’édition immédiate ; harmoniser avec la règle « invisible » sur les autres surfaces si le produit le demande.
+- Si non surveillable : indicateur « infos manquantes » (triangle jaune).
+- Si surveillable + PRO : pill créneau élastique sous le switch rappel.
 
 #### Aide visuelle (surveillabilité)
-Afficher un indicateur visuel (ex: triangle jaune) dans le bloc “Mission” si des informations manquent pour rendre le trajet surveillable par Newton.
+Afficher un indicateur visuel (ex: triangle jaune) dans le bloc “Mission” si des informations manquent pour activer la surveillance trafic.
 
 Contrat d’affichage :
 - Indicateur visible si `remind_to_leave` est ON et que `surveillable === false`.
-- Tooltip/texte d’aide i18n à prévoir (clé à créer si absent) :
+- Tooltip/texte d’aide i18n :
   - `intentionDetail.surveillanceMissingInfo`
-  - Message attendu : expliquer ce qui manque (ex: “Ajoute une destination valide et une heure d’arrivée pour activer Newton.”)
+  - Message attendu : expliquer ce qui manque (ex: « Ajoute une destination valide et une heure d’arrivée précise. »)
 
 ### Critères d’acceptation
 - Un trajet fraîchement créé reste en “Niveau 1” sans aucune UI de mission tant que l’utilisateur n’a pas activé “Me prévenir quand partir”.
-- Une fois le switch ON, le bloc Mission apparaît immédiatement.
-- Newton n’apparaît jamais tant que destination valide + heure précise ne sont pas réunies.
-- Un trajet “All Day” ne peut pas afficher Newton (car heure imprécise), et doit afficher l’indicateur “infos manquantes” si Mission activée.
+- Une fois le switch ON (PRO), le bloc Mission apparaît immédiatement.
+- La surveillance trafic ne démarre que si destination valide + heure précise sont réunies.
+- Un trajet “All Day” ne peut pas lancer les sondes (heure imprécise), et doit afficher l’indicateur “infos manquantes” si Mission activée.
 
 ---
 
@@ -448,9 +473,9 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - `PROJECT` → `pass2.generateSteps` (*Générer les étapes*).
 - **`TASK`**, **`HABIT`** (et catégories hors TRIP/LIST/PROJECT éligibles) → **aucun** CTA Pass 2 dans le footer : la fiche reste en mode note / habitude simple sans génération IA supplémentaire à ce stade.
 
-**TRIP — hiérarchie** : en vue **Zen**, Mission, itinéraire précis et **Newton** masqués tant que `pass2_unlocked !== 1`. Passage à la vue riche après CTA **PRO** « Me prévenir quand partir ? » (`intentionDetail.actionSetupAlert`, `pass2_unlocked: 1`).
+**TRIP — hiérarchie** : en vue **Zen**, Mission et itinéraire précis masqués tant que `pass2_unlocked !== 1`. Passage à la vue riche après CTA **PRO** « Me prévenir quand partir ? » (`intentionDetail.actionSetupAlert`, `pass2_unlocked: 1`).
 
-**Exception — capture Talk (Path B, sheet full)** : `gateFullTripBypass` (trajet + `path_b` + full) affiche itinéraire / Newton **sans** `pass2_unlocked === 1` ; CTA footer trajet reste visible tant que `pass2_unlocked !== 1`. `pass2RevealAnim` → **1** si `pass2_unlocked === 1` ou bypass.
+**Exception — capture Talk (Path B, sheet full)** : `gateFullTripBypass` (trajet + `path_b` + full) affiche itinéraire **sans** `pass2_unlocked === 1` ; CTA footer trajet reste visible tant que `pass2_unlocked !== 1`. `pass2RevealAnim` → **1** si `pass2_unlocked === 1` ou bypass.
 
 **Cas `peek_pending`** : même squelette Zen si la sheet est ouverte en plein hors Path B ; le bouton de déverrouillage est masqué (pas d’`id` stable pour persister).
 
@@ -575,13 +600,16 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 **Périmètre** : uniquement les lignes avec `metadata_json.trip` (objet non vide). TASK / HABIT / LIST / PROJECT sans bloc `trip` : **aucun** pied de carte ni changement de layout.
 
-**Source d’état** : `metadata_json.pass2_unlocked` (compteur binaire, voir § Verrou sémantique) + lecture optionnelle `sentinel_trips` via [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts) / [`sentinelTripComfort.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripComfort.ts) lorsque `pass2_unlocked === 1`.
+**Source d’état** : `metadata_json.pass2_unlocked` + champs élastiques dans `metadata_json.trip` (lecture via [`tripElasticDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts) / [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts)). **Plus de lecture live `sentinel_trips` depuis la carte Timeline.**
 
 | Cas | Condition | UI pied de carte | Action |
 |-----|-----------|------------------|--------|
 | **A** | `pass2_unlocked !== 1` | Bouton épuré bas de carte : `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*) | Ouvre [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) en **`full`** avec `focusArrivalAddressOnOpen` (champ **Arrivée** en édition Places) — [`TimelineScreen.openDetailTripSetup`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) |
-| **B** | `pass2_unlocked === 1` **et** au moins un scan Newton enregistré (`scan_count ≥ 1` ou `scan1_at_ms`) | Badge discret (`primaryContainer`) : `timeline.trafficScanConfigured` (*Scan traffic réel configuré 🛡️*) ; si durée réelle connue (`sentinel_trips.last_traffic_duration` ou `trip.last_traffic_duration`) → `timeline.trafficLiveMinutes` (ex. *Circulation : 22 min 🛡️*) | Aucun (tap carte → fiche habituelle) |
-| **C** | `pass2_unlocked === 1` **sans** scan Newton encore | Badge créneau **statique** entre crochets : fenêtre `displayed_t_optimiste_ms` – `displayed_t_pessimiste_ms` si dispo (`timeline.estimatedDepartureWindow`), sinon `[ Départ estimé : HH:mm ]` (`timeline.estimatedDepartureSingle`) dérivé de l’heure d’arrivée − durée standard | Aucun |
+| **B** | `pass2_unlocked === 1` **et** PRO (`isProUser`) **et** fenêtre élastique connue | Badge discret : `timeline.elasticDepartureWindow` (*Départ estimé : {{window}}*) ; variantes `elasticDepartureApprox` (≈), `elasticDepartureShifted` (⚠️) | Aucun (tap carte → fiche habituelle) |
+| **C** | `pass2_unlocked === 1`, PRO, mission active mais PROBE1 en attente | `timeline.elasticDeparturePending` | Aucun |
+| **—** | FREE avec `pass2_unlocked === 1` | **Aucun** badge créneau (rappel → paywall) | — |
+
+**Supprimé** : badge « Circulation : X min » et badges scan Newton (`trafficScanConfigured`, `trafficLiveMinutes`).
 
 **Isolation layout** : le `Pressable` du bouton Cas A consomme le toucher (pas de propagation vers l’ouverture « tap carte » générique). Les types non-TRIP conservent la hauteur fixe 105 px.
 
@@ -693,12 +721,12 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - Option A : table dédiée `intention_check_items` (recommandé pour requêtes/tri).
   - Option B : champ JSON dans `metadata_json` (plus simple, moins queryable).
 
-### 3) TRIP — Newton & Alertes
+### 3) TRIP — Créneau élastique & alertes
 
-- Newton switch : interrupteur “Activer Newton”.
-  - État initial : `false`.
-  - Calcul fenêtres de tir + alertes de départ : activé uniquement si l’utilisateur active Newton manuellement.
-- Indicateur “à valider” en Timeline :
+- **Switch unique** : `remind_to_leave` (*Me prévenir quand partir*) — PRO uniquement pour activer les sondes ; FREE → paywall.
+- **État initial** : `remind_to_leave = 0` ; aucune sonde tant que non activé.
+- **Calcul fenêtre + alertes** : moteur élastique PROBE1/2/3 (voir § Niveau 3 Mission).
+- Indicateur « à valider » en Timeline :
   - Affiché si l’intention est un TRIP (ou une intention complexe) et que les détails n’ont pas été validés.
   - Disparaît dès la première interaction/validation dans la Bottom Sheet (persistée).
 
@@ -712,7 +740,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - La mise à jour doit être instantanée dès qu’un mode est sélectionné dans la Bottom Sheet (optimistic UI + persistance).
 - UI épurée :
   - Le sélecteur est très espacé et sans libellés (“Trajet/Transport” supprimés).
-  - Newton : ligne dédiée “Activer Newton” + Switch sous le sélecteur.
+  - Sous le switch rappel : pill créneau élastique (PRO + données PROBE1).
   - Stabilité : aucun layout shift lors du changement de mode (slot CO2/Eco‑Friendly à hauteur fixe).
 - Bloc adresses (juste au‑dessus du bouton “Lancer l’itinéraire”) :
   - **Point de départ** :
@@ -722,7 +750,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - **Point d’arrivée** :
     - Affichage : si une adresse exacte est connue (favori/validation), afficher l’adresse complète en couleur secondaire ; sinon afficher le nom de lieu extrait par l’IA (ex. `destination_name`) comme indicateur.
     - Interaction : tap → autocomplétion (Google Places) pour valider/affiner l’adresse.
-    - Stockage : l’adresse d’arrivée validée est la source de vérité pour Newton.
+    - Stockage : l’adresse d’arrivée validée est la source de vérité pour les sondes élastiques.
 - Recherche contextuelle (Saved information) :
   - À l’affichage, si `destination_name` correspond à un alias enregistré (ex. “Mami”), la vue doit résoudre l’adresse sauvegardée et l’utiliser comme arrivée par défaut.
   - Source : table locale de favoris (ex. `location_favorites`) ou autre stockage équivalent.
@@ -732,16 +760,15 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Indicateur carbone :
   - Walking/Bike : badge “Eco‑Friendly”.
   - Auto : texte d’impact estimé (ex. “Impact CO2 standard”).
-- **Confort de trajet — créneau de départ (UI épurée)** :
-  - Sous le bloc Transport / Newton : deux colonnes **Estimé** / **Réel** (`intentionDetail.comfortEstimatedTag` / `comfortRealTag`) affichant la **durée de trajet** (format court, ex. `25 min`).
-  - **Estimé** : durée standard — `scan1_duration_sec` dans `sentinel_trips` après le 1er scan, sinon estimation initiale (`last_traffic_duration` avant scan).
-  - **Réel** : dernière durée trafic mesurée (`last_traffic_duration`) après au moins un scan Newton enregistré.
-  - Barre de progression fine entre les deux (ratio réel / estimé, plafonné à 100 %).
-  - Lecture via [`sentinelTripComfort.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripComfort.ts) ; rafraîchissement à l’ouverture de la sheet et polling **5 s** tant que Newton est actif.
-- Action : bouton “Lancer l’itinéraire” ouvrant un deep link vers Google Maps/Waze avec :
-  - `origin` si le départ a été précisé (sinon position courante côté app cartes),
-  - `destination` = adresse d’arrivée exacte,
-  - `travelmode` selon le mode sélectionné (auto/walking/bike).
+- **Confort de trajet — créneau élastique (UI épurée)** :
+  - Sous le bloc Transport : pill avec fenêtre `[ HH:mm – HH:mm ]` dérivée de `metadata_json.trip` (`elastic_start_ms` / `elastic_end_ms`).
+  - Variantes i18n : `comfortElasticDeparture`, `comfortElasticDepartureApprox` (≈), `comfortElasticDepartureShifted` (⚠️), `comfortElasticDeparturePending`.
+  - Lecture via [`tripElasticDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts) — **aucun polling**, **aucune** lecture SQLite `sentinel_trips` depuis la sheet.
+- Action : bouton “Lancer l’itinéraire” (`intentionDetail.launchRoute`) :
+  - **Actif** si coords **arrivée** valides (`location_lat` / `location_lng`).
+  - Origine : `origin_lat` / `origin_address` **ou** « Ma position » (origine vide → Maps/Waze utilisent la position courante).
+  - **Désactivé** + hint `launchRouteDisabledHint` + log `[TRIP-NAV] 🚫 Cannot launch: Missing coordinates` si coords destination absentes.
+  - Deep link : `origin` si départ précisé, sinon position courante côté app cartes ; `destination` = adresse d’arrivée ; `travelmode` selon mode (auto/walking/bike).
 - Deep link universel (sélecteur natif) :
   - Android : utiliser un schéma `geo:0,0?q=` pour déclencher le sélecteur natif si plusieurs apps GPS sont installées.
   - iOS : ouvrir via schémas natifs (Apple Maps / Google Maps / Waze) et afficher un sélecteur natif (ActionSheet) si plusieurs fournisseurs sont disponibles.
@@ -753,19 +780,21 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 - Arrivée (source de vérité) :
   - Lors d’une saisie manuelle dans le champ Arrivée (`onChangeText`) : vider immédiatement `metadata_json.trip.location_lat` / `location_lng` (et champs associés) pour marquer l’arrivée comme non exploitable.
   - Lors de la sélection d’une suggestion Google Places (`onSelect`) : renseigner immédiatement `metadata_json.trip.location_lat` / `location_lng` (+ `location_place_id`, `location_address`) pour marquer l’arrivée exploitable.
-  - Condition d’affichage “Confort de trajet” (Transport + Newton) : afficher uniquement si `metadata_json.trip.location_lat` est présent et non nul (indépendant du Départ).
+  - Condition d’affichage bloc Mission / créneau : `metadata_json.trip.location_lat` présent (indépendant du Départ).
 - Départ (deep link uniquement) :
   - Lors d’une saisie manuelle dans le champ Départ : vider `metadata_json.trip.origin_lat` / `origin_lng`.
   - Lors de la sélection Places : renseigner `origin_lat` / `origin_lng` (+ `origin_place_id`, `origin_address`).
   - Affichage par défaut « Ma position » si `origin_address` vide ; **pas** de lecture GPS device dans la sheet pour ce libellé.
-- Bouton GPS (GO) — `routeReady` :
-  - Afficher/activer **uniquement** si l’**arrivée** a des coordonnées valides (`metadata_json.trip.location_lat` / `location_lng`) **et** qu’au moins un **premier scan Newton** est enregistré dans `sentinel_trips` (`scan_count ≥ 1` ou `scan1_at_ms` non nul — voir `hasNewtonFirstScanRecorded` dans `sentinelTripComfort.ts`).
-  - Le départ explicite n’est **pas** requis pour afficher le bouton (le deep link peut omettre `origin`).
+- Bouton GPS (GO) — `canLaunchNavigation` :
+  - Afficher pour tout TRIP ; **activer** si coords **arrivée** valides.
+  - Origine vide = « Ma position » (deep link sans `origin`).
+  - **Ne pas** exiger de scan PROBE1 ni coords départ pour activer le bouton.
 
 ### 5) Synchronisation (Top‑Down Sync)
 
-- Temps réel : toute modification (heure, mode de transport, switch Newton, checkbox, adresses départ/arrivée) déclenche un UPDATE SQL immédiat via le repository.
-- Persistance Newton : toute adresse d’arrivée saisie/validée doit être sauvegardée immédiatement dans la colonne SQLite `intentions.location_address` (en plus du JSON), afin d’être exploitable par le calcul trafic.
+- Temps réel : toute modification (heure, mode de transport, switch rappel, checkbox, adresses départ/arrivée) déclenche un UPDATE SQL immédiat via le repository.
+- Changement destination avec mission active → `resetTripMissionAndRelaunchProbe1` ; désactivation rappel / suppression → `cancelTripMission`.
+- Persistance adresse : toute adresse d’arrivée validée doit être sauvegardée immédiatement dans `intentions.location_address` (en plus du JSON).
 - Refresh : la Timeline se rafraîchit automatiquement en arrière‑plan (icône triangle, heure, sous‑titre, etc.).
 - Gestion clavier :
   - Utiliser `KeyboardAvoidingView` (ou équivalent) et un footer fixe (bouton itinéraire) pour que les champs Places restent accessibles au‑dessus du clavier.

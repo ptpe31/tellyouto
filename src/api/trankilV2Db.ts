@@ -2573,8 +2573,16 @@ export async function getLatestDailySummaryForDate(
 }
 
 export async function deleteTrankilV2IntentionById(id: string): Promise<void> {
+  const trimmed = String(id || '').trim();
+  if (trimmed) {
+    const { cancelTripMission } = await import('../services/traffic/sentinelTripMission');
+    await cancelTripMission(trimmed);
+  }
   await initTrankilV2Schema();
   const db = await getDb();
+  if (trimmed) {
+    await db.runAsync(`DELETE FROM sentinel_trips WHERE id = ?`, [trimmed]);
+  }
   await db.runAsync(`DELETE FROM intentions WHERE id = ?`, [id]);
   await syncAfterIntentionWrite('deleteTrankilV2IntentionById');
   notifyIntentionsChanged({ id, reason: 'delete' });

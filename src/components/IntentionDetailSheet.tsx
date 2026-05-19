@@ -40,15 +40,10 @@ import {
 } from '../api/trankilV2Db';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
-import { reconcileSentinelForIntentionId } from '../services/traffic/sentinelReconciler';
+import { reconcileSentinelForIntentionId, resetTripMissionAndRelaunchProbe1 } from '../services/traffic/sentinelReconciler';
+import { cancelTripMission } from '../services/traffic/sentinelTripMission';
+import { isPass2UnlockedMeta } from '../utils/tripTimelineCard';
 import { getLocationFavoriteByAlias, upsertLocationFavorite } from '../services/traffic/locationFavorites';
-import {
-  getSentinelTripComfortSnapshot,
-  hasNewtonFirstScanRecorded,
-  realTravelDurationSec,
-  standardTravelDurationSec,
-  type SentinelTripComfortSnapshot,
-} from '../services/traffic/sentinelTripComfort';
 import {
   buildListMetadataPatch,
   geminiJsonToStoredPayload,
@@ -76,6 +71,7 @@ import {
   normalizeTripTransportMode,
   type TripTransportMode,
 } from '../utils/tripTransportMode';
+import { resolveElasticSlotDisplay } from '../utils/tripElasticDisplay';
 
 type Props = {
   visible: boolean;
@@ -360,9 +356,38 @@ function getTransportMode(
   return normalizeTripTransportMode(raw);
 }
 
-function getNewtonEnabled(meta: Record<string, unknown> | null): boolean {
-  const trip = getTripMeta(meta);
-  return Boolean(trip && trip.newtonEnabled);
+async function syncSentinelAfterDestinationChange(
+  intentionId: string,
+  meta: Record<string, unknown> | null,
+): Promise<void> {
+  if (isPass2UnlockedMeta(meta)) {
+    await resetTripMissionAndRelaunchProbe1(intentionId);
+    return;
+  }
+  await reconcileSentinelForIntentionId(intentionId);
+}
+
+function canLaunchTripNavigation(input: {
+  trip: Record<string, unknown> | null;
+  arrivalLat: number | null;
+  arrivalLng: number | null;
+  originLat: number | null;
+  originLng: number | null;
+  originText: string;
+}): boolean {
+  const t = input.trip ?? {};
+  const destLat = Number(t.location_lat ?? input.arrivalLat);
+  const destLng = Number(t.location_lng ?? input.arrivalLng);
+  if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+    console.log('[TRIP-NAV] 🚫 Cannot launch: Missing coordinates');
+    return false;
+  }
+  const originLat = Number(t.origin_lat ?? input.originLat);
+  const originLng = Number(t.origin_lng ?? input.originLng);
+  const originAddress = String(t.origin_address ?? input.originText ?? '').trim();
+  const hasOriginCoords = Number.isFinite(originLat) && Number.isFinite(originLng);
+  if (hasOriginCoords || originAddress.length > 0) return true;
+  return true;
 }
 
 function isTripValidated(meta: Record<string, unknown> | null): boolean {
@@ -374,12 +399,7 @@ function isTripValidated(meta: Record<string, unknown> | null): boolean {
 /** Compteur binaire Pass 2 : `1` = génération déjà consommée (CTA masqué, vue détaillée). */
 const PASS2_UNLOCKED_CONSUMED = 1;
 
-/** Consentement explicite : afficher les blocs Pass 2 (jalons, liste détaillée, Mission/Newton, etc.). */
-function isPass2UnlockedMeta(meta: Record<string, unknown> | null | undefined): boolean {
-  if (!meta || typeof meta !== 'object') return false;
-  const v = meta.pass2_unlocked;
-  return v === PASS2_UNLOCKED_CONSUMED || v === true;
-}
+/** Consentement explicite : afficher les blocs Pass 2 (jalons, liste détaillée, Mission, etc.). */
 
 function isPass2GenerationConsumed(meta: Record<string, unknown> | null | undefined): boolean {
   if (!meta || typeof meta !== 'object') return false;
@@ -568,7 +588,6 @@ export function IntentionDetailSheet({
   const [originLng, setOriginLng] = useState<number | null>(null);
   const [arrivalLat, setArrivalLat] = useState<number | null>(null);
   const [arrivalLng, setArrivalLng] = useState<number | null>(null);
-  const [sentinelComfort, setSentinelComfort] = useState<SentinelTripComfortSnapshot | null>(null);
   const [listPayload, setListPayload] = useState<ListScalablePayload | null>(null);
   const [projectPayload, setProjectPayload] = useState<ProjectMilestonesPayload | null>(null);
   const [projectStartPickerOpen, setProjectStartPickerOpen] = useState(false);
@@ -949,7 +968,6 @@ export function IntentionDetailSheet({
     setChecklist(detected);
   }, [meta, row, transcription, visible]);
 
-  const [newtonEnabled, setNewtonEnabled] = useState(false);
   const [transportMode, setTransportMode] = useState<TripTransportMode>('auto');
   const [originText, setOriginText] = useState('');
   const [originEditing, setOriginEditing] = useState(false);
@@ -960,7 +978,6 @@ export function IntentionDetailSheet({
   const [favoriteArrival, setFavoriteArrival] = useState<string | null>(null);
   useEffect(() => {
     if (!visible) return;
-    setNewtonEnabled(getNewtonEnabled(meta));
     const nextTransportMode = getTransportMode(meta, row?.transport_mode);
     setTransportMode(nextTransportMode);
     const legacyTransportRaw = String(
@@ -1041,49 +1058,32 @@ export function IntentionDetailSheet({
     }
   }, [meta, row?.id, row?.metadata_json, row?.type, visible]);
 
-  const refreshSentinelComfort = useCallback(async () => {
-    const id = String(row?.id ?? '').trim();
-    if (!id || id === 'peek_pending' || !isTrip) {
-      setSentinelComfort(null);
-      return;
+  const elasticSlotDisplay = useMemo(() => {
+    if (!isTrip || !isProUser) return null;
+    return resolveElasticSlotDisplay({
+      meta,
+      trip: trip as Record<string, unknown> | null,
+      dueDate: row?.due_date ?? null,
+      locale: i18n.language,
+    });
+  }, [i18n.language, isProUser, isTrip, meta, row?.due_date, trip]);
+
+  const elasticComfortLabel = useMemo(() => {
+    if (!elasticSlotDisplay?.windowLabel) {
+      return t('intentionDetail.comfortElasticDeparturePending');
     }
-    try {
-      setSentinelComfort(await getSentinelTripComfortSnapshot(id));
-    } catch {
-      setSentinelComfort(null);
+    if (elasticSlotDisplay.shifted) {
+      return t('intentionDetail.comfortElasticDepartureShifted', { window: elasticSlotDisplay.windowLabel });
     }
-  }, [isTrip, row?.id]);
-
-  useEffect(() => {
-    if (!visible || !isTrip || !row?.id) {
-      setSentinelComfort(null);
-      return;
+    if (elasticSlotDisplay.approximate) {
+      return t('intentionDetail.comfortElasticDepartureApprox', { window: elasticSlotDisplay.windowLabel });
     }
-    void refreshSentinelComfort();
-  }, [visible, isTrip, row?.id, meta, newtonEnabled, remindToLeaveEnabled, arrivalLat, arrivalLng, refreshSentinelComfort]);
+    return t('intentionDetail.comfortElasticDeparture', { window: elasticSlotDisplay.windowLabel });
+  }, [elasticSlotDisplay, t]);
 
-  useEffect(() => {
-    if (!visible || !isTrip || !newtonEnabled || !row?.id) return;
-    const timer = setInterval(() => void refreshSentinelComfort(), 5000);
-    return () => clearInterval(timer);
-  }, [visible, isTrip, newtonEnabled, row?.id, refreshSentinelComfort]);
-
-  const comfortDurations = useMemo(() => {
-    const pending = t('intentionDetail.comfortDurationPending');
-    const estSec = standardTravelDurationSec(sentinelComfort);
-    const realSec = realTravelDurationSec(sentinelComfort);
-    const progressRatio =
-      estSec != null && realSec != null && estSec > 0 ? Math.min(1, Math.max(0, realSec / estSec)) : null;
-    return {
-      estimated: estSec != null ? formatTravelDurationSec(estSec, i18n.language) : pending,
-      real: realSec != null ? formatTravelDurationSec(realSec, i18n.language) : pending,
-      progressRatio,
-    };
-  }, [i18n.language, sentinelComfort, t]);
-
-  /** Mission / Newton : visible en feuille pleine même sans « rappel au départ », pour revoir la logique masquage. */
+  /** Mission : visible en feuille pleine même sans « rappel au départ ». */
   const showMission = isTrip && (showTripControls || sheetPosition === 'full');
-  const isNewtonSurveillable = useMemo(() => {
+  const isTripRemindReady = useMemo(() => {
     if (!showMission) return false;
     if (isAllDay) return false;
     const placeId = String(str(trip as any, 'location_place_id') ?? '').trim();
@@ -1096,19 +1096,19 @@ export function IntentionDetailSheet({
     const arrivalOk = arrivalIso ? Number.isFinite(Date.parse(arrivalIso)) : false;
     return Boolean(placeId && address && Number.isFinite(lat) && Number.isFinite(lng) && arrivalOk);
   }, [isAllDay, meta, showMission, trip]);
-  const showSurveillanceMissing = showMission && !isNewtonSurveillable;
+  const showSurveillanceMissing = showMission && remindToLeaveEnabled && !isTripRemindReady;
 
-  const destinationCoordsReady = useMemo(() => {
+  const canLaunchNavigation = useMemo(() => {
     if (!isTrip) return false;
-    return Number.isFinite(Number(arrivalLat)) && Number.isFinite(Number(arrivalLng));
-  }, [arrivalLat, arrivalLng, isTrip]);
-
-  const newtonFirstScanReady = useMemo(() => hasNewtonFirstScanRecorded(sentinelComfort), [sentinelComfort]);
-
-  const routeReady = useMemo(
-    () => destinationCoordsReady && newtonFirstScanReady,
-    [destinationCoordsReady, newtonFirstScanReady],
-  );
+    return canLaunchTripNavigation({
+      trip: trip as Record<string, unknown> | null,
+      arrivalLat,
+      arrivalLng,
+      originLat,
+      originLng,
+      originText,
+    });
+  }, [isTrip, trip, arrivalLat, arrivalLng, originLat, originLng, originText]);
 
   useEffect(() => {
     if (remindToLeaveEnabled) {
@@ -1215,9 +1215,9 @@ export function IntentionDetailSheet({
       setArrivalText(fav.formattedAddress);
       await updateTrankilV2IntentionLocationAddress(row.id, { location_address: fav.formattedAddress }, { silent: true });
       await patchMetadata(row.id, { trip: tripPatch });
-      await refreshSentinelComfort();
+      await syncSentinelAfterDestinationChange(row.id, meta);
     })();
-  }, [arrivalText, isTrip, row, trip, visible, refreshSentinelComfort]);
+  }, [arrivalText, isTrip, meta, row, trip, visible]);
 
   const panResponder = useMemo(
     () =>
@@ -1794,16 +1794,17 @@ export function IntentionDetailSheet({
   const onToggleRemindToLeave = async () => {
     if (!row) return;
     const next = !remindToLeaveEnabled;
+    if (next && !isProUser) {
+      redirectToProSubscription();
+      return;
+    }
     setRemindToLeaveEnabled(next);
     await updateTrankilV2IntentionRemindToLeave(row.id, next);
-    if (!next && newtonEnabled) {
-      setNewtonEnabled(false);
-      const root = safeParseJsonObject(row.metadata_json) ?? {};
-      const tripPatch = await touchValidateTrip(root, { newtonEnabled: false });
-      await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+    if (!next) {
+      await cancelTripMission(row.id);
+    } else {
+      await reconcileSentinelForIntentionId(row.id);
     }
-    await reconcileSentinelForIntentionId(row.id);
-    await refreshSentinelComfort();
   };
 
   const onToggleChecklistItem = async (uid: string) => {
@@ -1820,17 +1821,6 @@ export function IntentionDetailSheet({
     await patchMetadata(row.id, patch);
   };
 
-  const onToggleNewton = async () => {
-    if (!row) return;
-    const nextEnabled = !newtonEnabled;
-    setNewtonEnabled(nextEnabled);
-    const root = safeParseJsonObject(row.metadata_json) ?? {};
-    const tripPatch = await touchValidateTrip(root, { newtonEnabled: nextEnabled });
-    await patchMetadata(row.id, { trip: tripPatch });
-    await reconcileSentinelForIntentionId(row.id);
-    await refreshSentinelComfort();
-  };
-
   const onSelectTransportMode = async (mode: TripTransportMode) => {
     if (!row) return;
     setTransportMode(mode);
@@ -1840,7 +1830,6 @@ export function IntentionDetailSheet({
     const tripPatch = await touchValidateTrip(root, { transportMode: mode });
     await patchMetadata(row.id, { trip: tripPatch });
     await reconcileSentinelForIntentionId(row.id);
-    await refreshSentinelComfort();
   };
 
   const persistDueDateTime = async (d: Date, opts?: { closePicker?: boolean; allDay?: boolean }) => {
@@ -1860,7 +1849,7 @@ export function IntentionDetailSheet({
         tripBase
           ? {
               ...tripBase,
-              ...(effectiveAllDay ? { newtonEnabled: false } : null),
+              ...(effectiveAllDay ? {} : null),
               dueDateTime: effectiveAllDay ? null : nextDue,
               dueDateYmd: ymd,
               dueTimeHm: nextTimeHm,
@@ -2410,7 +2399,6 @@ export function IntentionDetailSheet({
                               value={isAllDay}
                               onValueChange={(v) => {
                                 setIsAllDay(v);
-                                if (v) setNewtonEnabled(false);
                                 const now = new Date();
                                 const base = new Date(pickerDraft);
                                 if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
@@ -2588,7 +2576,6 @@ export function IntentionDetailSheet({
                           value={isAllDay}
                           onValueChange={(v) => {
                             setIsAllDay(v);
-                            if (v) setNewtonEnabled(false);
                             const now = new Date();
                             const base = new Date(pickerDraft);
                             if (!v) base.setHours(now.getHours(), now.getMinutes(), 0, 0);
@@ -2706,7 +2693,7 @@ export function IntentionDetailSheet({
                                 });
                                 await updateTrankilV2IntentionLocationAddress(row.id, { location_address: raw || null }, { silent: true });
                                 await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
-                                await reconcileSentinelForIntentionId(row.id);
+                                await syncSentinelAfterDestinationChange(row.id, root);
                               })();
                             }, 250);
                           }}
@@ -2750,8 +2737,7 @@ export function IntentionDetailSheet({
                                   // silent — no UI
                                 }
                               }
-                              await reconcileSentinelForIntentionId(row.id);
-                              await refreshSentinelComfort();
+                              await syncSentinelAfterDestinationChange(row.id, root);
                             })();
                           }}
                           disabled={false}
@@ -2798,9 +2784,14 @@ export function IntentionDetailSheet({
                         </Text>
                         <View style={styles.newtonRow}>
                           <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>
-                            {t('intentionDetail.remindToLeave')}
+                            {isProUser
+                              ? t('intentionDetail.remindToLeave')
+                              : `${t('intentionDetail.remindToLeave')} ${t('intentionDetail.pass2LockedSuffix')}`.trim()}
                           </Text>
-                          <Switch value={remindToLeaveEnabled} onValueChange={() => void onToggleRemindToLeave()} />
+                          <Switch
+                            value={remindToLeaveEnabled}
+                            onValueChange={() => void onToggleRemindToLeave()}
+                          />
                         </View>
                       </View>
 
@@ -2860,51 +2851,23 @@ export function IntentionDetailSheet({
                             </Text>
                           ) : null}
 
-                          <View style={styles.newtonRow}>
-                            <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>
-                              {t('intentionDetail.newton')}
-                            </Text>
-                            <Switch
-                              value={newtonEnabled}
-                              onValueChange={() => void onToggleNewton()}
-                              disabled={!isNewtonSurveillable}
-                            />
-                          </View>
-
-                          <View style={styles.comfortSlotRow}>
-                            <View style={styles.comfortSlotCol}>
-                              <Text style={[styles.comfortSlotTag, { color: theme.colors.onSurfaceVariant }]}>
-                                {t('intentionDetail.comfortEstimatedTag')}
-                              </Text>
-                              <Text style={[styles.comfortSlotValue, { color: theme.colors.onSurface }]}>
-                                {comfortDurations.estimated}
-                              </Text>
-                            </View>
-                            <View style={styles.comfortSlotCol}>
-                              <Text style={[styles.comfortSlotTag, { color: theme.colors.onSurfaceVariant }]}>
-                                {t('intentionDetail.comfortRealTag')}
-                              </Text>
-                              <Text style={[styles.comfortSlotValue, { color: theme.colors.onSurface }]}>
-                                {comfortDurations.real}
-                              </Text>
-                            </View>
-                          </View>
-                          <View
-                            style={[styles.comfortProgressTrack, { backgroundColor: theme.colors.surfaceVariant }]}
-                          >
+                          {isProUser ? (
                             <View
                               style={[
-                                styles.comfortProgressFill,
+                                styles.comfortDeparturePill,
                                 {
-                                  backgroundColor: theme.colors.primary,
-                                  width:
-                                    comfortDurations.progressRatio != null
-                                      ? `${Math.round(comfortDurations.progressRatio * 100)}%`
-                                      : '0%',
+                                  backgroundColor: theme.colors.secondaryContainer,
+                                  opacity: elasticSlotDisplay?.approximate ? 0.78 : 1,
                                 },
                               ]}
-                            />
-                          </View>
+                            >
+                              <Text
+                                style={[styles.comfortDeparturePillText, { color: theme.colors.onSecondaryContainer }]}
+                              >
+                                {elasticComfortLabel}
+                              </Text>
+                            </View>
+                          ) : null}
 
                           <View style={styles.impactSlot}>
                             {ecoBadge ? (
@@ -3372,21 +3335,28 @@ export function IntentionDetailSheet({
 
             <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
               <View style={styles.footerRow}>
-                {isTrip && routeReady ? (
-                  <Button
-                    mode="contained"
-                    onPress={() =>
-                      void openNavigationUniversal({
-                        origin: originText.trim() ? originText.trim() : null,
-                        destination: arrivalDisplay ?? '',
-                        mode: transportMode,
-                      })
-                    }
-                    disabled={!routeReady}
-                    style={styles.footerBtn}
-                  >
-                    {t('intentionDetail.launchRoute')}
-                  </Button>
+                {isTrip ? (
+                  <View style={styles.footerLaunchCol}>
+                    <Button
+                      mode="contained"
+                      onPress={() =>
+                        void openNavigationUniversal({
+                          origin: originText.trim() ? originText.trim() : null,
+                          destination: arrivalDisplay ?? '',
+                          mode: transportMode,
+                        })
+                      }
+                      disabled={!canLaunchNavigation}
+                      style={styles.footerBtn}
+                    >
+                      {t('intentionDetail.launchRoute')}
+                    </Button>
+                    {!canLaunchNavigation ? (
+                      <Text style={[styles.launchRouteHint, { color: theme.colors.onSurfaceVariant }]}>
+                        {t('intentionDetail.launchRouteDisabledHint')}
+                      </Text>
+                    ) : null}
+                  </View>
                 ) : null}
                 {pass2FooterCtaNode}
                 <Button mode="text" onPress={onClose} style={styles.footerCloseBtn} labelStyle={styles.footerCloseLabel}>
@@ -3721,6 +3691,14 @@ const styles = StyleSheet.create({
   co2Text: { fontSize: 12, fontWeight: '700' },
   impactSlot: { height: 32, justifyContent: 'center' },
   comfortLine: { fontSize: 12, fontWeight: '700' },
+  comfortDeparturePill: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  comfortDeparturePillText: { fontSize: 14, fontWeight: '800' },
   comfortSlotRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   comfortSlotCol: { flex: 1, gap: 4 },
   comfortSlotTag: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },
@@ -3731,7 +3709,9 @@ const styles = StyleSheet.create({
   footer: { paddingHorizontal: 16, paddingTop: 10 },
   footerActionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
+  footerLaunchCol: { flexShrink: 1, maxWidth: '58%' },
   footerBtn: { borderRadius: 16 },
+  launchRouteHint: { fontSize: 11, marginTop: 4, lineHeight: 14 },
   pass2FooterBtn: {
     minHeight: 44,
     paddingHorizontal: 16,

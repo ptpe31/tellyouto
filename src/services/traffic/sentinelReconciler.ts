@@ -1,11 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { getTrankilV2IntentionById, withTrankilV2Database } from '../../api/trankilV2Db';
+import { getTrankilV2IntentionById } from '../../api/trankilV2Db';
 import { consumeSentinelQuotaOnTripValidation } from '../QuotaManager';
 import { USER_SPECTRUM_STORAGE_KEY } from '../../context/UserSpectrumContext';
 import { normalizeTripTransportMode } from '../../utils/tripTransportMode';
+import {
+  hasTripStandardDurationMin,
+  readTripOriginCoords,
+  tripMetadataNeedsGpsCatchup,
+} from './sentinelElasticTripMetadata';
 import { activateSentinelTrip, ensureSentinelTripsSchema, kickSentinelAfterActivation } from './sentinelActivation';
-import { getSentinelScheduler, startSentinelRuntime } from './sentinelRuntime';
+import { cancelTripMission, clearTripElasticProbeMetadata } from './sentinelTripMission';
 
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> {
   if (!raw) return {};
@@ -49,7 +54,6 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
   const trip = meta.trip && typeof meta.trip === 'object' && !Array.isArray(meta.trip) ? (meta.trip as Record<string, unknown>) : null;
   if (!trip) return;
 
-  const newtonEnabled = Boolean(trip.newtonEnabled);
   const destLat = typeof trip.location_lat === 'number' ? Number(trip.location_lat) : NaN;
   const destLng = typeof trip.location_lng === 'number' ? Number(trip.location_lng) : NaN;
   const placeId = typeof trip.location_place_id === 'string' ? String(trip.location_place_id) : '';
@@ -64,30 +68,27 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
 
   await ensureSentinelTripsSchema();
 
-  if (!remindToLeave || !newtonEnabled) {
-    await withTrankilV2Database(async (db) => {
-      await db.runAsync(`UPDATE sentinel_trips SET status = 'PAUSED' WHERE id = ?`, [id]);
-    });
-    const scheduler = getSentinelScheduler();
-    if (scheduler) await scheduler.cancelTask(id);
+  const isProUser = await readIsProUserLocal();
+
+  if (!remindToLeave || !isProUser) {
+    await cancelTripMission(id);
     return;
   }
 
   if (!destination || !Number.isFinite(destLat) || !Number.isFinite(destLng) || !placeId || !arrivalMs) {
-    await withTrankilV2Database(async (db) => {
-      await db.runAsync(`UPDATE sentinel_trips SET status = 'PAUSED' WHERE id = ?`, [id]);
-    });
-    const scheduler = getSentinelScheduler();
-    if (scheduler) await scheduler.cancelTask(id);
+    await cancelTripMission(id);
     return;
   }
 
-  const isProUser = await readIsProUserLocal();
   const quota = await consumeSentinelQuotaOnTripValidation({ isProUser });
   const sentinelMode = quota.mode === 'STATIC' ? 'STATIC' : 'SENTINEL';
+  const origin = readTripOriginCoords(trip);
+  const needsGpsCatchup = tripMetadataNeedsGpsCatchup(trip);
+  const hasStandardDuration = hasTripStandardDurationMin(trip);
+  const standardDurationMin = hasStandardDuration ? Number(trip.standard_duration_min) : undefined;
 
   console.log(
-    `[TRIP-SENTINEL] 📡 Reconciling background task for ID: ${id} | DestinationCoords: ${destLat},${destLng}`,
+    `[TRIP-SENTINEL] 📡 Reconciling elastic task for ID: ${id} | GPS catch-up: ${needsGpsCatchup ? 'yes' : 'no'} | D_std: ${hasStandardDuration ? standardDurationMin : 'pending'}`,
   );
 
   await activateSentinelTrip({
@@ -98,7 +99,20 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
     lng: destLng,
     sentinelMode,
     transportMode,
+    originLat: origin.lat,
+    originLng: origin.lng,
+    standardDurationMin,
+    needsGpsCatchup,
   });
 
   await kickSentinelAfterActivation(id);
+}
+
+/** Reset complet après changement de destination : annule sondes + relance PROBE1. */
+export async function resetTripMissionAndRelaunchProbe1(intentionId: string): Promise<void> {
+  const id = String(intentionId || '').trim();
+  if (!id) return;
+  await cancelTripMission(id);
+  await clearTripElasticProbeMetadata(id);
+  await reconcileSentinelForIntentionId(id);
 }

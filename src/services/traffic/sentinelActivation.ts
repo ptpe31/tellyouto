@@ -1,5 +1,9 @@
 import { withTrankilV2Database } from '../../api/trankilV2Db';
-import { computeNewtonWindow } from './TrafficEngine';
+import {
+  computeElasticDepartureWindow,
+  DEFAULT_ELASTIC_D_STD_MIN,
+  scheduleElasticProbes,
+} from '../../utils/elasticSlotEngine';
 import { startSentinelRuntime } from './sentinelRuntime';
 
 async function tryAddColumn(db: { execAsync: (sql: string) => Promise<void> }, sql: string) {
@@ -69,29 +73,40 @@ export async function activateSentinelTrip(input: {
   tripTaskId: string;
   formattedAddress: string;
   targetArrivalMs: number;
-  initialDurationSec?: number;
   lat?: number;
   lng?: number;
+  originLat?: number | null;
+  originLng?: number | null;
   sentinelMode?: 'SENTINEL' | 'STATIC';
   transportMode?: string | null;
-}): Promise<{ tOptimisteMs: number; tPessimisteMs: number }> {
+  standardDurationMin?: number;
+  needsGpsCatchup?: boolean;
+}): Promise<void> {
   const nowMs = Date.now();
-  const durationSec = Math.max(0, Number(input.initialDurationSec ?? 25 * 60) || 0);
-  const { tOptimisteMs, tPessimisteMs } = computeNewtonWindow(input.targetArrivalMs, durationSec);
+  const dStdMin = Math.max(1, Number(input.standardDurationMin ?? DEFAULT_ELASTIC_D_STD_MIN) || DEFAULT_ELASTIC_D_STD_MIN);
+  const window = computeElasticDepartureWindow(input.targetArrivalMs, dStdMin);
+  const windowStartMs = window?.startDate.getTime() ?? input.targetArrivalMs - dStdMin * 60_000;
+  const windowEndMs = window?.endDate.getTime() ?? input.targetArrivalMs;
+  const hasProbe1Done = input.standardDurationMin != null && Number.isFinite(Number(input.standardDurationMin));
+  const scanCount = hasProbe1Done ? 1 : 0;
+  const probes = scheduleElasticProbes({ windowStartMs, dStdMin, nowMs });
+  const nextProbeReason = hasProbe1Done
+    ? probes?.probe2AtMs != null
+      ? 'PROBE2_TREND'
+      : 'PROBE3_GONOGO'
+    : 'PROBE1_CONFIG';
+  const nextProbeAtMs = hasProbe1Done ? probes?.probe2AtMs ?? probes?.probe3AtMs ?? null : nowMs;
   const sentinelMode = input.sentinelMode ?? 'SENTINEL';
-  const vigilanceStatus =
-    nowMs >= input.targetArrivalMs
-      ? 'FINISHED'
-      : nowMs >= tPessimisteMs
-        ? 'VIGILANCE_RED'
-        : nowMs >= tOptimisteMs
-          ? 'VIGILANCE_ORANGE'
-          : 'VIGILANCE_BLUE';
+  const vigilanceStatus = nowMs >= input.targetArrivalMs ? 'FINISHED' : 'VIGILANCE_BLUE';
 
   await ensureSentinelTripsSchema();
   await withTrankilV2Database(async (db) => {
     const lat = typeof input.lat === 'number' && Number.isFinite(input.lat) ? input.lat : null;
     const lng = typeof input.lng === 'number' && Number.isFinite(input.lng) ? input.lng : null;
+    const oLat =
+      typeof input.originLat === 'number' && Number.isFinite(input.originLat) ? input.originLat : null;
+    const oLng =
+      typeof input.originLng === 'number' && Number.isFinite(input.originLng) ? input.originLng : null;
     const mode = input.transportMode == null ? null : String(input.transportMode || '').trim() || null;
     const fp =
       lat != null && lng != null
@@ -99,6 +114,7 @@ export async function activateSentinelTrip(input: {
             input.targetArrivalMs,
           )}|${mode || 'driving'}`
         : `na,na|${Math.round(input.targetArrivalMs)}|${mode || 'driving'}`;
+    const durationSec = Math.round(dStdMin * 60);
     await db.runAsync(
       `INSERT OR REPLACE INTO sentinel_trips (
         id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,
@@ -118,12 +134,12 @@ export async function activateSentinelTrip(input: {
         ?, ?, ?, ?,
         ?, 1, 0,
         ?, ?, ?, ?, ?,
-        NULL, NULL, NULL, NULL, NULL,
+        NULL, ?, ?, NULL, NULL,
         ?, ?, NULL,
         ?, ?, ?,
         0, ?, ?, ?,
         0, 0, 0,
-        NULL, NULL, ?, ?, ?
+        ?, ?, ?, ?, ?
       )`,
       [
         input.tripTaskId,
@@ -131,33 +147,39 @@ export async function activateSentinelTrip(input: {
         input.targetArrivalMs,
         vigilanceStatus === 'FINISHED' ? 'DONE' : 'ACTIVE',
         sentinelMode,
-        0,
+        durationSec,
         durationSec,
         0,
-        tOptimisteMs,
-        tPessimisteMs,
+        windowStartMs,
+        windowEndMs,
         vigilanceStatus,
         nowMs,
         1,
         fp,
+        scanCount,
         0,
         0,
-        10,
-        tOptimisteMs,
-        tPessimisteMs,
-        tOptimisteMs,
-        tPessimisteMs,
+        hasProbe1Done ? nowMs : null,
+        hasProbe1Done ? durationSec : null,
+        windowStartMs,
+        windowEndMs,
+        windowStartMs,
+        windowEndMs,
         nowMs,
-        vigilanceStatus === 'FINISHED' ? null : nowMs,
-        vigilanceStatus === 'FINISHED' ? null : 'SCAN1_INITIAL',
+        vigilanceStatus === 'FINISHED' ? null : nextProbeAtMs,
+        vigilanceStatus === 'FINISHED' ? null : nextProbeReason,
+        oLat,
+        oLng,
         lat,
         lng,
         mode,
-      ]
+      ],
     );
   });
 
-  return { tOptimisteMs, tPessimisteMs };
+  if (input.needsGpsCatchup) {
+    console.log(`[TRIP-SENTINEL] 📍 GPS catch-up scheduled on PROBE1 for ${input.tripTaskId}`);
+  }
 }
 
 export async function kickSentinelAfterActivation(tripTaskId: string): Promise<void> {

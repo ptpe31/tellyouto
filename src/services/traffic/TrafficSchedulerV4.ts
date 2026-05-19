@@ -1,22 +1,14 @@
 import { withTrankilV2Database, insertUserActivityLog } from '../../api/trankilV2Db';
 import { VERBOSE_DEBUG } from '../../config/verboseDebug';
-import i18n from '../../locales/i18n';
-import { computeNewtonWindow } from './TrafficEngine';
-import { getForegroundOriginSnapshot } from './SentinelLocationService';
 import { SentinelNotificationManager } from './TrafficNotificationService';
-
-export const INNER_SAFETY_MARGIN_SEC = 300;
-export const CRITICAL_BUFFER_MIN = 5;
-export const INTERNAL_TICK_MS = 60_000;
-export const UI_LAZY_DRIFT_MS = 5 * 60 * 1000;
-export const VFLOW_INIT_SEC_PER_MIN = 10;
-export const VFLOW_CAP_SEC_PER_MIN = 30;
-export const CACHE_TTL_MS = 15 * 60 * 1000;
+import type { ElasticProbeReason } from './sentinelElasticProbes';
+import { loadTripMetaForIntention } from './sentinelElasticTripMetadata';
+import { runElasticSchedulerTick } from './trafficSchedulerElasticTick';
 
 export type TrafficTaskStatus = 'ACTIVE' | 'PAUSED' | 'DONE' | 'ERROR';
 
-export type ScanReason = 'SCAN1_INITIAL' | 'SCAN2_ENTRY_ORANGE' | 'SCAN2_RETRY' | 'SCAN3_CRITICAL';
-export type FlowMode = 'REAL' | 'EXTRAPOLATED';
+export type ScanReason = ElasticProbeReason;
+export type FlowMode = 'REAL' | 'SCHEDULED';
 
 export type TripTaskRowV4 = {
   id: string;
@@ -101,6 +93,8 @@ type TickResult = {
   };
   traceForce: boolean;
   done: boolean;
+  goNoGo?: { variant: 'smooth' | 'leave_now'; departInMin: number } | null;
+  probe3Unavailable?: { destination: string } | null;
 };
 
 function fmtHm(ms: number): string {
@@ -111,51 +105,11 @@ function fmtHm(ms: number): string {
   return `${h}:${m}`;
 }
 
-function clamp(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, n));
-}
-
 function computeFingerprint(task: TripTaskRowV4): string {
   const dLat = task.destLat == null ? 'na' : String(Math.round(task.destLat * 10_000) / 10_000);
   const dLng = task.destLng == null ? 'na' : String(Math.round(task.destLng * 10_000) / 10_000);
   const mode = String(task.transportMode || 'driving');
   return `${dLat},${dLng}|${Math.round(task.arrivalAtMs)}|${mode}`;
-}
-
-function computeCriticalDepartureAtMs(arrivalAtMs: number, stabilizedTrafficSec: number): number {
-  return arrivalAtMs - (Math.max(0, stabilizedTrafficSec) + INNER_SAFETY_MARGIN_SEC) * 1000;
-}
-
-function shouldUpdateUi(params: {
-  scanHappened: boolean;
-  criticalBreak: boolean;
-  displayedStartMs: number | null;
-  displayedEndMs: number | null;
-  internalStartMs: number;
-  internalEndMs: number;
-}): boolean {
-  if (params.scanHappened) return true;
-  if (params.criticalBreak) return true;
-  if (params.displayedStartMs == null || params.displayedEndMs == null) return true;
-  const drift = Math.max(
-    Math.abs(params.displayedStartMs - params.internalStartMs),
-    Math.abs(params.displayedEndMs - params.internalEndMs),
-  );
-  return drift >= UI_LAZY_DRIFT_MS;
-}
-
-function predictScan3AtMs(params: {
-  scan2AtMs: number;
-  baseTPessimisteMs: number;
-  vFlowSecPerMin: number;
-  nowMs: number;
-}): number | null {
-  const denom = 60_000 + Math.max(0, params.vFlowSecPerMin) * 1000;
-  const numer = params.baseTPessimisteMs - params.scan2AtMs - CRITICAL_BUFFER_MIN * 60_000;
-  if (!Number.isFinite(numer) || numer <= 0) return params.nowMs;
-  const x = numer / denom;
-  if (!Number.isFinite(x) || x <= 0) return params.nowMs;
-  return Math.max(params.nowMs, Math.round(params.scan2AtMs + x * 60_000));
 }
 
 async function tryAddColumn(db: { execAsync: (sql: string) => Promise<void> }, sql: string) {
@@ -217,32 +171,20 @@ export class TrafficSchedulerV4 {
     if (Object.keys(result.patch).length > 0) {
       await this.persistPatch(taskId, result.patch);
     }
-    if (result.ui) {
-      const vigilance = String(result.patch.vigilanceStatus ?? task.vigilanceStatus ?? 'VIGILANCE_BLUE');
-      const safety = Boolean(result.patch.modeSafety ?? task.modeSafety);
-      const trafficLabel =
-        task.sentinelMode === 'STATIC'
-          ? i18n.t('sentinel.notifStatusStatic')
-          : vigilance === 'VIGILANCE_ORANGE'
-            ? i18n.t('sentinel.notifStatusOrange')
-            : vigilance === 'VIGILANCE_RED'
-              ? i18n.t('sentinel.notifStatusRed')
-              : i18n.t('sentinel.notifStatusBlue');
-      await this.notificationManager.update({
+    if (result.goNoGo) {
+      await this.notificationManager.sendGoNoGoPush({
         tripTaskId: taskId,
-        stateVersion: result.ui.stateVersion,
         destination: task.destination,
-        targetArrivalMs: task.arrivalAtMs,
-        nowMs: wallNowMs,
-        tOptimisteMs: result.ui.internalStartMs,
-        displayedWindowStartMs: result.ui.displayedStartMs,
-        displayedWindowEndMs: result.ui.displayedEndMs,
-        nextRealUpdateAtMs: result.ui.nextRealScanAtMs,
-        vigilanceStatus: vigilance,
-        trafficLabel,
+        variant: result.goNoGo.variant,
+        departInMin: result.goNoGo.departInMin,
         lat: task.destLat ?? undefined,
         lng: task.destLng ?? undefined,
-        modeSafety: safety,
+      });
+    }
+    if (result.probe3Unavailable) {
+      await this.notificationManager.sendProbeUnavailablePush({
+        tripTaskId: taskId,
+        destination: result.probe3Unavailable.destination,
       });
     }
     await this.trace(task, result.trace, wallNowMs, result.traceForce);
@@ -257,546 +199,31 @@ export class TrafficSchedulerV4 {
   }
 
   private async computeTick(task: TripTaskRowV4, nowMs: number): Promise<TickResult> {
-    const patch: Partial<TripTaskRowV4> = {};
-
-    if (nowMs >= task.arrivalAtMs) {
-      patch.status = 'DONE';
-      patch.vigilanceStatus = 'FINISHED';
-      patch.nextRealScanAtMs = null;
-      patch.nextRealScanReason = null;
-      return {
-        patch,
-        ui: null,
-        trace: {
-          displayedStartMs: task.displayedTOptimisteMs,
-          displayedEndMs: task.displayedTPessimisteMs,
-          internalStartMs: task.displayedTOptimisteMs ?? nowMs,
-          internalEndMs: task.displayedTPessimisteMs ?? nowMs,
-          flowMode: 'EXTRAPOLATED',
-          vFlowSecPerMin: task.vFlowSecPerMin,
-          nextRealScanAtMs: null,
-          nextRealScanReason: null,
-          apiCallsTotal: task.apiCallsTotal,
-          apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-          apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-        },
-        traceForce: true,
-        done: true,
-      };
-    }
-
-    const computedFp = computeFingerprint(task);
-    const storedFp = String(task.fingerprint || '');
-    if (!storedFp || storedFp !== computedFp) {
-      patch.fingerprint = computedFp;
-      patch.scanCount = 0;
-      patch.flowCalibrated = false;
-      patch.vFlowSecPerMin = VFLOW_INIT_SEC_PER_MIN;
-      patch.lastRealScanAtMs = null;
-      patch.scan1AtMs = null;
-      patch.scan1DurationSec = null;
-      patch.scan2AtMs = null;
-      patch.scan2DurationSec = null;
-      patch.baseTOptimisteMs = null;
-      patch.baseTPessimisteMs = null;
-      patch.internalTPessimisteMs = null;
-      patch.nextRealScanAtMs = nowMs;
-      patch.nextRealScanReason = 'SCAN1_INITIAL';
-      patch.modeSafety = false;
-      patch.lastErrorAt = null;
-      patch.stateVersion = task.stateVersion + 1;
-      return {
-        patch,
-        ui: {
-          stateVersion: patch.stateVersion,
-          displayedStartMs: task.displayedTOptimisteMs ?? nowMs,
-          displayedEndMs: task.displayedTPessimisteMs ?? nowMs,
-          internalStartMs: task.displayedTOptimisteMs ?? nowMs,
-          internalEndMs: task.displayedTPessimisteMs ?? nowMs,
-          flowMode: 'EXTRAPOLATED',
-          vFlowSecPerMin: patch.vFlowSecPerMin,
-          nextRealScanAtMs: nowMs,
-          nextRealScanReason: patch.nextRealScanReason,
-          apiCallsTotal: task.apiCallsTotal,
-          apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-          apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-        },
-        trace: {
-          displayedStartMs: task.displayedTOptimisteMs,
-          displayedEndMs: task.displayedTPessimisteMs,
-          internalStartMs: task.displayedTOptimisteMs ?? nowMs,
-          internalEndMs: task.displayedTPessimisteMs ?? nowMs,
-          flowMode: 'EXTRAPOLATED',
-          vFlowSecPerMin: patch.vFlowSecPerMin,
-          nextRealScanAtMs: nowMs,
-          nextRealScanReason: patch.nextRealScanReason,
-          apiCallsTotal: task.apiCallsTotal,
-          apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-          apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-        },
-        traceForce: true,
-        done: false,
-      };
-    }
-
-    const scanCount = Math.max(0, Math.round(task.scanCount));
-    const baseTOpt = task.baseTOptimisteMs ?? task.tOptimisteMs ?? null;
-    const baseTPess = task.baseTPessimisteMs ?? task.tPessimisteMs ?? null;
-
-    const needsScan1 = scanCount === 0;
-    const needsScan2 = scanCount === 1 && baseTOpt != null && nowMs >= baseTOpt;
-
-    const vFlowSecPerMin = clamp(Number(task.vFlowSecPerMin || VFLOW_INIT_SEC_PER_MIN), 0, VFLOW_CAP_SEC_PER_MIN);
-    const lastScanAtMs = task.lastRealScanAtMs ?? task.scan2AtMs ?? task.scan1AtMs ?? null;
-
-    const elapsedMin = lastScanAtMs == null ? 0 : Math.max(0, (nowMs - lastScanAtMs) / 60_000);
-    const degradationSec = elapsedMin * vFlowSecPerMin;
-
-    const internalStartMs = baseTOpt ?? computeCriticalDepartureAtMs(task.arrivalAtMs, task.lastTrafficDuration);
-    const basePessMs = baseTPess ?? computeCriticalDepartureAtMs(task.arrivalAtMs, task.lastTrafficDuration);
-    const computedInternalEndMs = Math.round(basePessMs - degradationSec * 1000);
-    const g1EndMs = Math.max(computedInternalEndMs, nowMs);
-    const previousInternalEndMs = task.internalTPessimisteMs;
-    const g3EndMs =
-      previousInternalEndMs == null ? g1EndMs : Math.min(Number(previousInternalEndMs), g1EndMs);
-
-    const bufferSafetyMin = (g3EndMs - nowMs) / 60_000;
-    const criticalBreak = bufferSafetyMin <= CRITICAL_BUFFER_MIN;
-    const needsScan3 = scanCount >= 2 && scanCount < 3 && criticalBreak;
-
-    const scanReason: ScanReason | null = needsScan1
-      ? 'SCAN1_INITIAL'
-      : needsScan2
-        ? 'SCAN2_ENTRY_ORANGE'
-        : needsScan3
-          ? 'SCAN3_CRITICAL'
-          : null;
-
-    const willRealScan =
-      scanReason !== null && task.sentinelMode === 'SENTINEL' && this.options?.disableRealScans !== true;
-
-    if (task.sentinelMode === 'STATIC') {
-      patch.vigilanceStatus = nowMs >= internalStartMs ? 'VIGILANCE_ORANGE' : 'VIGILANCE_BLUE';
-      patch.internalTPessimisteMs = g3EndMs;
-      patch.nextRealScanAtMs = null;
-      patch.nextRealScanReason = null;
-    }
-
-    if (willRealScan) {
-      return this.computeRealScanTick(task, nowMs, scanReason);
-    }
-
-    if (baseTOpt != null && scanCount === 1) {
-      patch.nextRealScanAtMs = baseTOpt;
-      patch.nextRealScanReason = 'SCAN2_ENTRY_ORANGE';
-    } else if (scanCount >= 2 && scanCount < 3 && baseTPess != null && task.scan2AtMs != null) {
-      patch.nextRealScanAtMs = predictScan3AtMs({
-        scan2AtMs: task.scan2AtMs,
-        baseTPessimisteMs: baseTPess,
-        vFlowSecPerMin,
-        nowMs,
-      });
-      patch.nextRealScanReason = 'SCAN3_CRITICAL';
-    } else {
-      patch.nextRealScanAtMs = null;
-      patch.nextRealScanReason = null;
-    }
-
-    patch.internalTPessimisteMs = g3EndMs;
-    patch.vFlowSecPerMin = vFlowSecPerMin;
-    patch.vigilanceStatus =
-      nowMs >= task.arrivalAtMs
-        ? 'FINISHED'
-        : nowMs >= g3EndMs
-          ? 'VIGILANCE_RED'
-          : nowMs >= internalStartMs
-            ? 'VIGILANCE_ORANGE'
-            : 'VIGILANCE_BLUE';
-
-    const displayedStartMs = task.displayedTOptimisteMs;
-    const displayedEndMs = task.displayedTPessimisteMs;
-    const doUi = shouldUpdateUi({
-      scanHappened: false,
-      criticalBreak,
-      displayedStartMs,
-      displayedEndMs,
-      internalStartMs,
-      internalEndMs: g3EndMs,
+    const tripMeta = await loadTripMetaForIntention(task.id);
+    const elastic = await runElasticSchedulerTick({
+      task,
+      tripMeta,
+      nowMs,
+      mapsService: this.mapsService,
+      disableRealScans: this.options?.disableRealScans,
     });
-    if (!doUi) {
-      if (task.vigilanceStatus === 'VIGILANCE_ORANGE' || task.vigilanceStatus === 'VIGILANCE_RED') {
-        patch.apiCallsAvoidedExtrapolation = task.apiCallsAvoidedExtrapolation + 1;
-      }
-      return {
-        patch,
-        ui: null,
-        trace: {
-          displayedStartMs: task.displayedTOptimisteMs,
-          displayedEndMs: task.displayedTPessimisteMs,
-          internalStartMs,
-          internalEndMs: g3EndMs,
-          flowMode: 'EXTRAPOLATED',
-          vFlowSecPerMin,
-          nextRealScanAtMs: patch.nextRealScanAtMs ?? null,
-          nextRealScanReason: patch.nextRealScanReason ?? null,
-          apiCallsTotal: task.apiCallsTotal,
-          apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-          apiCallsAvoidedExtrapolation: patch.apiCallsAvoidedExtrapolation ?? task.apiCallsAvoidedExtrapolation,
-        },
-        traceForce: criticalBreak,
-        done: false,
-      };
-    }
-
-    patch.displayedTOptimisteMs = internalStartMs;
-    patch.displayedTPessimisteMs = g3EndMs;
-    patch.lastUiUpdateAtMs = nowMs;
-    patch.stateVersion = task.stateVersion + 1;
-    const ui = {
-      stateVersion: patch.stateVersion,
-      displayedStartMs: internalStartMs,
-      displayedEndMs: g3EndMs,
-      internalStartMs,
-      internalEndMs: g3EndMs,
-      flowMode: 'EXTRAPOLATED' as const,
-      vFlowSecPerMin,
-      nextRealScanAtMs: patch.nextRealScanAtMs ?? null,
-      nextRealScanReason: patch.nextRealScanReason ?? null,
-      apiCallsTotal: task.apiCallsTotal,
-      apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-      apiCallsAvoidedExtrapolation: patch.apiCallsAvoidedExtrapolation ?? task.apiCallsAvoidedExtrapolation,
-    };
-    if (criticalBreak && scanCount >= 2 && scanCount < 3) {
-      patch.nextRealScanAtMs = nowMs;
-      patch.nextRealScanReason = 'SCAN3_CRITICAL';
-    }
-    if (task.vigilanceStatus === 'VIGILANCE_ORANGE' || task.vigilanceStatus === 'VIGILANCE_RED') {
-      patch.apiCallsAvoidedExtrapolation = (patch.apiCallsAvoidedExtrapolation ?? task.apiCallsAvoidedExtrapolation) + 1;
-      ui.apiCallsAvoidedExtrapolation = patch.apiCallsAvoidedExtrapolation;
-    }
     return {
-      patch,
-      ui,
-      trace: {
-        displayedStartMs: internalStartMs,
-        displayedEndMs: g3EndMs,
-        internalStartMs,
-        internalEndMs: g3EndMs,
-        flowMode: 'EXTRAPOLATED',
-        vFlowSecPerMin,
-        nextRealScanAtMs: patch.nextRealScanAtMs ?? null,
-        nextRealScanReason: patch.nextRealScanReason ?? null,
-        apiCallsTotal: task.apiCallsTotal,
-        apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-        apiCallsAvoidedExtrapolation: ui.apiCallsAvoidedExtrapolation,
-      },
-      traceForce: true,
-      done: false,
+      patch: elastic.patch,
+      ui: null,
+      goNoGo: elastic.goNoGo,
+      probe3Unavailable: elastic.probe3Unavailable,
+      trace: elastic.trace,
+      traceForce: elastic.traceForce,
+      done: elastic.done,
     };
-  }
-
-  private async computeRealScanTick(
-    task: TripTaskRowV4,
-    nowMs: number,
-    reason: ScanReason,
-  ): Promise<TickResult> {
-    const patch: Partial<TripTaskRowV4> = {};
-    const scanCount = Math.max(0, Math.round(task.scanCount));
-
-    let originLat = task.originLat;
-    let originLng = task.originLng;
-    if ((originLat == null || originLng == null) && reason === 'SCAN1_INITIAL') {
-      try {
-        const pos = await getForegroundOriginSnapshot({ maxAgeMs: 60_000 });
-        originLat = pos.lat;
-        originLng = pos.lng;
-        patch.originLat = originLat;
-        patch.originLng = originLng;
-      } catch {
-        patch.lastErrorAt = nowMs;
-        patch.status = 'ERROR';
-        patch.modeSafety = true;
-        patch.vigilanceStatus = 'VIGILANCE_RED';
-        patch.stateVersion = task.stateVersion + 1;
-        patch.displayedTOptimisteMs = task.displayedTOptimisteMs ?? nowMs;
-        patch.displayedTPessimisteMs = task.displayedTPessimisteMs ?? nowMs;
-        patch.lastUiUpdateAtMs = nowMs;
-        return {
-          patch,
-          ui: {
-            stateVersion: patch.stateVersion,
-            displayedStartMs: patch.displayedTOptimisteMs,
-            displayedEndMs: patch.displayedTPessimisteMs,
-            internalStartMs: patch.displayedTOptimisteMs,
-            internalEndMs: patch.displayedTPessimisteMs,
-            flowMode: 'REAL',
-            vFlowSecPerMin: task.vFlowSecPerMin,
-            nextRealScanAtMs: null,
-            nextRealScanReason: null,
-            apiCallsTotal: task.apiCallsTotal,
-            apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-            apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-          },
-          trace: {
-            displayedStartMs: patch.displayedTOptimisteMs,
-            displayedEndMs: patch.displayedTPessimisteMs,
-            internalStartMs: patch.displayedTOptimisteMs,
-            internalEndMs: patch.displayedTPessimisteMs,
-            flowMode: 'REAL',
-            vFlowSecPerMin: task.vFlowSecPerMin,
-            nextRealScanAtMs: null,
-            nextRealScanReason: null,
-            apiCallsTotal: task.apiCallsTotal,
-            apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-            apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-          },
-          traceForce: true,
-          done: false,
-        };
-      }
-    }
-
-    if (
-      originLat == null ||
-      originLng == null ||
-      task.destLat == null ||
-      task.destLng == null ||
-      !Number.isFinite(originLat) ||
-      !Number.isFinite(originLng) ||
-      !Number.isFinite(task.destLat) ||
-      !Number.isFinite(task.destLng)
-    ) {
-      patch.lastErrorAt = nowMs;
-      patch.status = 'ERROR';
-      patch.modeSafety = true;
-      patch.vigilanceStatus = 'VIGILANCE_RED';
-      patch.stateVersion = task.stateVersion + 1;
-      patch.displayedTOptimisteMs = task.displayedTOptimisteMs ?? nowMs;
-      patch.displayedTPessimisteMs = task.displayedTPessimisteMs ?? nowMs;
-      patch.lastUiUpdateAtMs = nowMs;
-      return {
-        patch,
-        ui: {
-          stateVersion: patch.stateVersion,
-          displayedStartMs: patch.displayedTOptimisteMs,
-          displayedEndMs: patch.displayedTPessimisteMs,
-          internalStartMs: patch.displayedTOptimisteMs,
-          internalEndMs: patch.displayedTPessimisteMs,
-          flowMode: 'REAL',
-          vFlowSecPerMin: task.vFlowSecPerMin,
-          nextRealScanAtMs: null,
-          nextRealScanReason: null,
-          apiCallsTotal: task.apiCallsTotal,
-          apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-          apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-        },
-        trace: {
-          displayedStartMs: patch.displayedTOptimisteMs,
-          displayedEndMs: patch.displayedTPessimisteMs,
-          internalStartMs: patch.displayedTOptimisteMs,
-          internalEndMs: patch.displayedTPessimisteMs,
-          flowMode: 'REAL',
-          vFlowSecPerMin: task.vFlowSecPerMin,
-          nextRealScanAtMs: null,
-          nextRealScanReason: null,
-          apiCallsTotal: task.apiCallsTotal,
-          apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-          apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-        },
-        traceForce: true,
-        done: false,
-      };
-    }
-
-    try {
-      const sample = await this.mapsService.fetchTrafficSample({
-        ...task,
-        originLat,
-        originLng,
-      });
-      const fromCache = sample.fromCache === true;
-      patch.apiCallsAvoidedCache = task.apiCallsAvoidedCache + (fromCache ? 1 : 0);
-      patch.apiCallsTotal = task.apiCallsTotal + (fromCache ? 0 : 1);
-
-      const durationSec = Math.max(0, Number(sample.trafficDurationSec) || 0);
-      const { tOptimisteMs, tPessimisteMs } = computeNewtonWindow(task.arrivalAtMs, durationSec);
-
-      patch.lastRealScanAtMs = nowMs;
-      patch.lastErrorAt = null;
-      patch.status = 'ACTIVE';
-      patch.modeSafety = false;
-      patch.baseTOptimisteMs = tOptimisteMs;
-      patch.baseTPessimisteMs = tPessimisteMs;
-      patch.internalTPessimisteMs = null;
-      patch.tOptimisteMs = tOptimisteMs;
-      patch.tPessimisteMs = tPessimisteMs;
-      patch.lastTrafficDuration = durationSec;
-      patch.vigilanceStatus =
-        nowMs >= task.arrivalAtMs
-          ? 'FINISHED'
-          : nowMs >= tPessimisteMs
-            ? 'VIGILANCE_RED'
-            : nowMs >= tOptimisteMs
-              ? 'VIGILANCE_ORANGE'
-              : 'VIGILANCE_BLUE';
-
-      if (reason === 'SCAN1_INITIAL') {
-        patch.scanCount = 1;
-        patch.scan1AtMs = nowMs;
-        patch.scan1DurationSec = durationSec;
-        patch.vFlowSecPerMin = VFLOW_INIT_SEC_PER_MIN;
-        patch.flowCalibrated = false;
-        patch.nextRealScanAtMs = tOptimisteMs;
-        patch.nextRealScanReason = 'SCAN2_ENTRY_ORANGE';
-      } else if (reason === 'SCAN2_ENTRY_ORANGE' || reason === 'SCAN2_RETRY') {
-        patch.scanCount = 2;
-        patch.scan2AtMs = nowMs;
-        patch.scan2DurationSec = durationSec;
-        const scan1AtMs = task.scan1AtMs ?? nowMs;
-        const scan1DurationSec = task.scan1DurationSec ?? durationSec;
-        const deltaTrafficSec = Math.max(0, durationSec - scan1DurationSec);
-        const deltaMin = Math.max(0.1, (nowMs - scan1AtMs) / 60_000);
-        const computedSecPerMin = deltaTrafficSec / deltaMin;
-        patch.vFlowSecPerMin = clamp(computedSecPerMin, 0, VFLOW_CAP_SEC_PER_MIN);
-        patch.flowCalibrated = true;
-        patch.nextRealScanAtMs = predictScan3AtMs({
-          scan2AtMs: nowMs,
-          baseTPessimisteMs: tPessimisteMs,
-          vFlowSecPerMin: patch.vFlowSecPerMin,
-          nowMs,
-        });
-        patch.nextRealScanReason = 'SCAN3_CRITICAL';
-      } else if (reason === 'SCAN3_CRITICAL') {
-        patch.scanCount = 3;
-        patch.nextRealScanAtMs = null;
-        patch.nextRealScanReason = null;
-      }
-
-      const internalStartMs = tOptimisteMs;
-      const internalEndMs = tPessimisteMs;
-      patch.displayedTOptimisteMs = internalStartMs;
-      patch.displayedTPessimisteMs = internalEndMs;
-      patch.lastUiUpdateAtMs = nowMs;
-      patch.stateVersion = task.stateVersion + 1;
-
-      const ui = {
-        stateVersion: patch.stateVersion,
-        displayedStartMs: internalStartMs,
-        displayedEndMs: internalEndMs,
-        internalStartMs,
-        internalEndMs,
-        flowMode: 'REAL' as const,
-        vFlowSecPerMin: patch.vFlowSecPerMin ?? task.vFlowSecPerMin,
-        nextRealScanAtMs: patch.nextRealScanAtMs ?? null,
-        nextRealScanReason: patch.nextRealScanReason ?? null,
-        apiCallsTotal: patch.apiCallsTotal ?? task.apiCallsTotal,
-        apiCallsAvoidedCache: patch.apiCallsAvoidedCache ?? task.apiCallsAvoidedCache,
-        apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-      };
-      return {
-        patch,
-        ui,
-        trace: {
-          displayedStartMs: internalStartMs,
-          displayedEndMs: internalEndMs,
-          internalStartMs,
-          internalEndMs,
-          flowMode: 'REAL',
-          vFlowSecPerMin: ui.vFlowSecPerMin,
-          nextRealScanAtMs: ui.nextRealScanAtMs,
-          nextRealScanReason: ui.nextRealScanReason,
-          apiCallsTotal: ui.apiCallsTotal,
-          apiCallsAvoidedCache: ui.apiCallsAvoidedCache,
-          apiCallsAvoidedExtrapolation: ui.apiCallsAvoidedExtrapolation,
-        },
-        traceForce: true,
-        done: patch.vigilanceStatus === 'FINISHED',
-      };
-    } catch {
-      patch.lastErrorAt = nowMs;
-      patch.status = 'ERROR';
-      patch.nextRealScanAtMs =
-        reason === 'SCAN2_ENTRY_ORANGE' && task.scan2AtMs == null ? nowMs + 3 * 60_000 : task.nextRealScanAtMs;
-      patch.nextRealScanReason =
-        reason === 'SCAN2_ENTRY_ORANGE' && task.scan2AtMs == null ? 'SCAN2_RETRY' : task.nextRealScanReason;
-      if (reason === 'SCAN3_CRITICAL') {
-        patch.modeSafety = true;
-        patch.vigilanceStatus = 'VIGILANCE_RED';
-        patch.displayedTOptimisteMs = task.displayedTOptimisteMs ?? nowMs;
-        patch.displayedTPessimisteMs = task.displayedTPessimisteMs ?? nowMs;
-        patch.lastUiUpdateAtMs = nowMs;
-        patch.stateVersion = task.stateVersion + 1;
-        return {
-          patch,
-          ui: {
-            stateVersion: patch.stateVersion,
-            displayedStartMs: patch.displayedTOptimisteMs,
-            displayedEndMs: patch.displayedTPessimisteMs,
-            internalStartMs: patch.displayedTOptimisteMs,
-            internalEndMs: patch.displayedTPessimisteMs,
-            flowMode: 'REAL',
-            vFlowSecPerMin: task.vFlowSecPerMin,
-            nextRealScanAtMs: patch.nextRealScanAtMs ?? null,
-            nextRealScanReason: patch.nextRealScanReason ?? null,
-            apiCallsTotal: task.apiCallsTotal,
-            apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-            apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-          },
-          trace: {
-            displayedStartMs: patch.displayedTOptimisteMs,
-            displayedEndMs: patch.displayedTPessimisteMs,
-            internalStartMs: patch.displayedTOptimisteMs,
-            internalEndMs: patch.displayedTPessimisteMs,
-            flowMode: 'REAL',
-            vFlowSecPerMin: task.vFlowSecPerMin,
-            nextRealScanAtMs: patch.nextRealScanAtMs ?? null,
-            nextRealScanReason: patch.nextRealScanReason ?? null,
-            apiCallsTotal: task.apiCallsTotal,
-            apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-            apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-          },
-          traceForce: true,
-          done: false,
-        };
-      }
-      return {
-        patch,
-        ui: null,
-        trace: {
-          displayedStartMs: task.displayedTOptimisteMs,
-          displayedEndMs: task.displayedTPessimisteMs,
-          internalStartMs: task.displayedTOptimisteMs ?? nowMs,
-          internalEndMs: task.displayedTPessimisteMs ?? nowMs,
-          flowMode: 'REAL',
-          vFlowSecPerMin: task.vFlowSecPerMin,
-          nextRealScanAtMs: patch.nextRealScanAtMs ?? task.nextRealScanAtMs,
-          nextRealScanReason: patch.nextRealScanReason ?? task.nextRealScanReason,
-          apiCallsTotal: task.apiCallsTotal,
-          apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-          apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
-        },
-        traceForce: true,
-        done: false,
-      };
-    }
   }
 
   private async planNext(task: TripTaskRowV4): Promise<void> {
     if (this.options?.disableTimers === true) return;
     const nowMs = Date.now();
     if (task.status !== 'ACTIVE') return;
-    const baseTOpt = task.baseTOptimisteMs ?? task.tOptimisteMs ?? null;
-    const scanCount = Math.max(0, Math.round(task.scanCount));
-    const nextRealScanAtMs =
-      scanCount === 0
-        ? nowMs
-        : scanCount === 1 && baseTOpt != null
-          ? baseTOpt
-          : task.nextRealScanAtMs;
-    const nextAt = Math.min(
-      nowMs + INTERNAL_TICK_MS,
-      nextRealScanAtMs != null ? Math.max(nowMs, nextRealScanAtMs) : nowMs + INTERNAL_TICK_MS,
-    );
+    const nextAt = task.nextRealScanAtMs;
+    if (nextAt == null) return;
     const delay = Math.max(250, nextAt - nowMs);
     this.clearTimer(task.id);
     const timer = setTimeout(() => {
@@ -952,7 +379,7 @@ export class TrafficSchedulerV4 {
     stateVersion: Number(row.state_version ?? 0),
     scanCount: Number(row.scan_count ?? 0),
     flowCalibrated: Number(row.flow_calibrated ?? 0) === 1,
-    vFlowSecPerMin: Number(row.v_flow_sec_per_min ?? VFLOW_INIT_SEC_PER_MIN),
+    vFlowSecPerMin: Number(row.v_flow_sec_per_min ?? 10),
     lastRealScanAtMs: row.last_real_scan_at_ms == null ? null : Number(row.last_real_scan_at_ms),
     scan1AtMs: row.scan1_at_ms == null ? null : Number(row.scan1_at_ms),
     scan1DurationSec: row.scan1_duration_sec == null ? null : Number(row.scan1_duration_sec),

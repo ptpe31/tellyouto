@@ -1,12 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
 import { IconButton } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
-import { getSentinelTripComfortSnapshot } from '../services/traffic/sentinelTripComfort';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
 import { formatCreationSubtitle } from '../utils/timeFormat';
@@ -115,11 +115,7 @@ function tripFooterLabel(footer: TripTimelineFooter, t: (key: string, opts?: Rec
   switch (footer.kind) {
     case 'setup':
       return t('intentionDetail.actionSetupAlert');
-    case 'trafficLive':
-      return t('timeline.trafficLiveMinutes', { minutes: footer.minutes });
-    case 'trafficConfigured':
-      return t('timeline.trafficScanConfigured');
-    case 'estimatedDeparture':
+    case 'elasticDeparture':
       return footer.label;
     default:
       return '';
@@ -136,30 +132,12 @@ export function IntentionCard({
   onPressTripSetup,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const { spectrum } = useUserSpectrum();
+  const isProUser = spectrum.isProUser;
   const meta = useMemo(() => safeParseJsonObject(row.metadata_json), [row.metadata_json]);
   const trip = useMemo(() => getTripMetaFromRoot(meta), [meta]);
   const isTripCard = Boolean(trip);
   const pass2Unlocked = useMemo(() => isPass2UnlockedMeta(meta), [meta]);
-
-  const [sentinelComfort, setSentinelComfort] = useState<Awaited<ReturnType<typeof getSentinelTripComfortSnapshot>>>(null);
-
-  useEffect(() => {
-    if (!isTripCard || !pass2Unlocked || !row.id) {
-      setSentinelComfort(null);
-      return;
-    }
-    let cancelled = false;
-    void getSentinelTripComfortSnapshot(row.id)
-      .then((snap) => {
-        if (!cancelled) setSentinelComfort(snap);
-      })
-      .catch(() => {
-        if (!cancelled) setSentinelComfort(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isTripCard, pass2Unlocked, row.id, row.metadata_json]);
 
   const tripFooter = useMemo(() => {
     if (!isTripCard) return null;
@@ -167,11 +145,11 @@ export function IntentionCard({
       meta,
       trip,
       dueDate: row.due_date,
-      sentinel: sentinelComfort,
       locale: i18n.language,
+      isProUser,
       t,
     });
-  }, [i18n.language, isTripCard, meta, row.due_date, sentinelComfort, t, trip]);
+  }, [i18n.language, isProUser, isTripCard, meta, row.due_date, t, trip]);
 
   const titleText = useMemo(() => {
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
@@ -335,6 +313,8 @@ export function IntentionCard({
                 {
                   backgroundColor: theme.colors.primaryContainer,
                   borderColor: theme.colors.outlineVariant,
+                  opacity:
+                    tripFooter.kind === 'elasticDeparture' && tripFooter.approximate ? 0.78 : 1,
                 },
               ]}
             >
@@ -386,23 +366,30 @@ const styles = StyleSheet.create({
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
   pendingChip: { marginTop: 4, fontSize: 12, fontWeight: '800' },
   subtitleRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
-  tripFooterWrap: { marginTop: 8, paddingTop: 2 },
+  tripFooterWrap: {
+    marginTop: 8,
+    paddingTop: 2,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
   tripSetupBtn: {
-    alignSelf: 'stretch',
     borderRadius: 12,
     borderWidth: 1,
     paddingVertical: 8,
     paddingHorizontal: 12,
     alignItems: 'center',
+    maxWidth: '100%',
+    flexShrink: 1,
   },
-  tripSetupBtnText: { fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  tripSetupBtnText: { fontSize: 13, fontWeight: '800', textAlign: 'right' },
   tripBadge: {
-    alignSelf: 'flex-start',
     borderRadius: 10,
     borderWidth: 1,
     paddingVertical: 5,
     paddingHorizontal: 10,
     maxWidth: '100%',
+    flexShrink: 1,
   },
-  tripBadgeText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
+  tripBadgeText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.2, textAlign: 'right' },
 });

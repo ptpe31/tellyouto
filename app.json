@@ -19,9 +19,14 @@
         "NSLocationWhenInUseUsageDescription": "La position est utilisée pour estimer le temps de trajet et afficher une fenêtre de départ sereine.",
         "LSApplicationQueriesSchemes": [
           "waze",
+          "comgooglemaps",
+          "waze",
           "comgooglemaps"
-        ]
-      }
+        ],
+        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone."
+      },
+      "bundleIdentifier": "com.trankil.talkndone"
     },
     "android": {
       "package": "com.trankil.talkndone",
@@ -31,7 +36,8 @@
       },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
       ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -40,6 +46,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-dev-client",
       "expo-speech-recognition",
       "@react-native-community/datetimepicker"
     ]
