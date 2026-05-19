@@ -4,13 +4,14 @@ import { getTrankilV2IntentionById } from '../../api/trankilV2Db';
 import { consumeSentinelQuotaOnTripValidation } from '../QuotaManager';
 import { USER_SPECTRUM_STORAGE_KEY } from '../../context/UserSpectrumContext';
 import { normalizeTripTransportMode } from '../../utils/tripTransportMode';
+import { isTripAllDay } from '../../utils/tripElasticDisplay';
 import {
   hasTripStandardDurationMin,
   readTripOriginCoords,
   tripMetadataNeedsGpsCatchup,
 } from './sentinelElasticTripMetadata';
 import { activateSentinelTrip, ensureSentinelTripsSchema, kickSentinelAfterActivation } from './sentinelActivation';
-import { cancelTripMission, clearTripElasticProbeMetadata } from './sentinelTripMission';
+import { cancelTripMission, clearTripElasticProbeMetadata, suspendTripMissionForAllDay } from './sentinelTripMission';
 
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> {
   if (!raw) return {};
@@ -68,6 +69,11 @@ export async function reconcileSentinelForIntentionId(intentionId: string): Prom
 
   await ensureSentinelTripsSchema();
 
+  if (isTripAllDay(meta, trip, row.due_date ?? null)) {
+    await suspendTripMissionForAllDay(id);
+    return;
+  }
+
   const isProUser = await readIsProUserLocal();
 
   if (!remindToLeave || !isProUser) {
@@ -114,5 +120,31 @@ export async function resetTripMissionAndRelaunchProbe1(intentionId: string): Pr
   if (!id) return;
   await cancelTripMission(id);
   await clearTripElasticProbeMetadata(id);
+  await reconcileSentinelForIntentionId(id);
+}
+
+/** Réveil après retour à un horaire précis — relance PROBE1 si remind ON et metadata élastique vide. */
+export async function wakeTripMissionAfterTimedRestore(intentionId: string): Promise<void> {
+  const id = String(intentionId || '').trim();
+  if (!id) return;
+  const row = await getTrankilV2IntentionById(id);
+  if (!row) return;
+
+  const meta = safeParseJsonObject(row.metadata_json);
+  const trip =
+    meta.trip && typeof meta.trip === 'object' && !Array.isArray(meta.trip)
+      ? (meta.trip as Record<string, unknown>)
+      : null;
+  if (!trip || isTripAllDay(meta, trip, row.due_date ?? null)) return;
+  if (!Boolean(row.remind_to_leave)) return;
+
+  const isProUser = await readIsProUserLocal();
+  if (!isProUser) return;
+
+  if (!hasTripStandardDurationMin(trip)) {
+    await resetTripMissionAndRelaunchProbe1(id);
+    return;
+  }
+
   await reconcileSentinelForIntentionId(id);
 }

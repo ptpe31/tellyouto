@@ -115,6 +115,8 @@ function tripFooterLabel(footer: TripTimelineFooter, t: (key: string, opts?: Rec
   switch (footer.kind) {
     case 'setup':
       return t('intentionDetail.actionSetupAlert');
+    case 'allDay':
+      return footer.label;
     case 'elasticDeparture':
       return footer.label;
     default:
@@ -314,7 +316,11 @@ export function IntentionCard({
                   backgroundColor: theme.colors.primaryContainer,
                   borderColor: theme.colors.outlineVariant,
                   opacity:
-                    tripFooter.kind === 'elasticDeparture' && tripFooter.approximate ? 0.78 : 1,
+                    tripFooter.kind === 'elasticDeparture' && tripFooter.approximate
+                      ? 0.78
+                      : tripFooter.kind === 'allDay'
+                        ? 0.92
+                        : 1,
                 },
               ]}
             >

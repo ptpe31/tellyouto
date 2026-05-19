@@ -260,6 +260,7 @@
     "elasticDepartureApprox": "[ Salida est.: ≈ {{window}} ]",
     "elasticDepartureShifted": "[ ⚠️ Salida est.: {{window}} ]",
     "elasticDeparturePending": "[ Salida est. ]",
+    "tripAllDay": "Todo el día",
     "newBadge": "NUEVO",
     "createdTodayAt": "Creado hoy a las {{time}}",
     "subtitle": "Riel del día — ventanas sugeridas según tu espectro (Momentum alto → bloques más profundos).",
@@ -948,6 +949,7 @@
     "comfortElasticDepartureApprox": "Salida est.: ≈ {{window}}",
     "comfortElasticDepartureShifted": "⚠️ Salida est.: {{window}}",
     "comfortElasticDeparturePending": "Salida est.",
+    "allDayNoDepartureSlot": "Evento de todo el día — sin franja de salida",
     "actionSetupAlert": "¿Avisarme cuándo salir?"
   },
   "talkDebug": {

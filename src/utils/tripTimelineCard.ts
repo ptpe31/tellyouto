@@ -1,4 +1,4 @@
-import { resolveElasticSlotDisplay } from './tripElasticDisplay';
+import { isTripAllDay, resolveElasticSlotDisplay } from './tripElasticDisplay';
 
 const PASS2_UNLOCKED = 1;
 
@@ -17,6 +17,7 @@ export function getTripMetaFromRoot(meta: Record<string, unknown> | null): Recor
 
 export type TripTimelineFooter =
   | { kind: 'setup' }
+  | { kind: 'allDay'; label: string }
   | { kind: 'elasticDeparture'; label: string; approximate?: boolean; shifted?: boolean };
 
 export function resolveTripTimelineFooter(input: {
@@ -32,6 +33,10 @@ export function resolveTripTimelineFooter(input: {
 
   if (!isPass2UnlockedMeta(meta)) {
     return { kind: 'setup' };
+  }
+
+  if (isTripAllDay(meta, trip, dueDate)) {
+    return { kind: 'allDay', label: t('timeline.tripAllDay') };
   }
 
   if (!isProUser) {

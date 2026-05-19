@@ -260,6 +260,7 @@
     "elasticDepartureApprox": "[ Partenza stim.: ≈ {{window}} ]",
     "elasticDepartureShifted": "[ ⚠️ Partenza stim.: {{window}} ]",
     "elasticDeparturePending": "[ Partenza stim. ]",
+    "tripAllDay": "Tutto il giorno",
     "newBadge": "NUOVO",
     "createdTodayAt": "Creato oggi alle {{time}}",
     "subtitle": "Binario della giornata — slot suggeriti in base allo spettro (Momentum alto → blocchi più profondi).",
@@ -948,6 +949,7 @@
     "comfortElasticDepartureApprox": "Partenza stim.: ≈ {{window}}",
     "comfortElasticDepartureShifted": "⚠️ Partenza stim.: {{window}}",
     "comfortElasticDeparturePending": "Partenza stim.",
+    "allDayNoDepartureSlot": "Evento tutto il giorno — nessuna fascia di partenza",
     "actionSetupAlert": "Avvisami quando partire?"
   },
   "talkDebug": {

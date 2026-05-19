@@ -40,9 +40,10 @@ import {
 } from '../api/trankilV2Db';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
-import { reconcileSentinelForIntentionId, resetTripMissionAndRelaunchProbe1 } from '../services/traffic/sentinelReconciler';
-import { cancelTripMission } from '../services/traffic/sentinelTripMission';
+import { reconcileSentinelForIntentionId, resetTripMissionAndRelaunchProbe1, wakeTripMissionAfterTimedRestore } from '../services/traffic/sentinelReconciler';
+import { cancelTripMission, suspendTripMissionForAllDay } from '../services/traffic/sentinelTripMission';
 import { isPass2UnlockedMeta } from '../utils/tripTimelineCard';
+import { isTripAllDay } from '../utils/tripElasticDisplay';
 import { getLocationFavoriteByAlias, upsertLocationFavorite } from '../services/traffic/locationFavorites';
 import {
   buildListMetadataPatch,
@@ -1060,6 +1061,7 @@ export function IntentionDetailSheet({
 
   const elasticSlotDisplay = useMemo(() => {
     if (!isTrip || !isProUser) return null;
+    if (isTripAllDay(meta, trip as Record<string, unknown> | null, row?.due_date ?? null)) return null;
     return resolveElasticSlotDisplay({
       meta,
       trip: trip as Record<string, unknown> | null,
@@ -1068,7 +1070,15 @@ export function IntentionDetailSheet({
     });
   }, [i18n.language, isProUser, isTrip, meta, row?.due_date, trip]);
 
+  const tripIsAllDay = useMemo(
+    () => isTripAllDay(meta, trip as Record<string, unknown> | null, row?.due_date ?? null),
+    [meta, row?.due_date, trip],
+  );
+
   const elasticComfortLabel = useMemo(() => {
+    if (tripIsAllDay) {
+      return t('intentionDetail.allDayNoDepartureSlot');
+    }
     if (!elasticSlotDisplay?.windowLabel) {
       return t('intentionDetail.comfortElasticDeparturePending');
     }
@@ -1079,7 +1089,7 @@ export function IntentionDetailSheet({
       return t('intentionDetail.comfortElasticDepartureApprox', { window: elasticSlotDisplay.windowLabel });
     }
     return t('intentionDetail.comfortElasticDeparture', { window: elasticSlotDisplay.windowLabel });
-  }, [elasticSlotDisplay, t]);
+  }, [elasticSlotDisplay, t, tripIsAllDay]);
 
   /** Mission : visible en feuille pleine même sans « rappel au départ ». */
   const showMission = isTrip && (showTripControls || sheetPosition === 'full');
@@ -1096,7 +1106,7 @@ export function IntentionDetailSheet({
     const arrivalOk = arrivalIso ? Number.isFinite(Date.parse(arrivalIso)) : false;
     return Boolean(placeId && address && Number.isFinite(lat) && Number.isFinite(lng) && arrivalOk);
   }, [isAllDay, meta, showMission, trip]);
-  const showSurveillanceMissing = showMission && remindToLeaveEnabled && !isTripRemindReady;
+  const showSurveillanceMissing = showMission && remindToLeaveEnabled && !isTripRemindReady && !tripIsAllDay;
 
   const canLaunchNavigation = useMemo(() => {
     if (!isTrip) return false;
@@ -1792,7 +1802,7 @@ export function IntentionDetailSheet({
   ]);
 
   const onToggleRemindToLeave = async () => {
-    if (!row) return;
+    if (!row || tripIsAllDay) return;
     const next = !remindToLeaveEnabled;
     if (next && !isProUser) {
       redirectToProSubscription();
@@ -1862,7 +1872,12 @@ export function IntentionDetailSheet({
     setPickerDraft(d);
     await patchMetadata(row.id, nextMeta, { silent: true });
     await updateTrankilV2IntentionTemporal(row.id, { due_date: nextDue });
-    await reconcileSentinelForIntentionId(row.id);
+    if (effectiveAllDay) {
+      setRemindToLeaveEnabled(false);
+      await suspendTripMissionForAllDay(row.id);
+    } else {
+      await wakeTripMissionAfterTimedRestore(row.id);
+    }
   };
 
   const openTemporalPicker = () => {
@@ -2789,7 +2804,8 @@ export function IntentionDetailSheet({
                               : `${t('intentionDetail.remindToLeave')} ${t('intentionDetail.pass2LockedSuffix')}`.trim()}
                           </Text>
                           <Switch
-                            value={remindToLeaveEnabled}
+                            value={remindToLeaveEnabled && !tripIsAllDay}
+                            disabled={tripIsAllDay}
                             onValueChange={() => void onToggleRemindToLeave()}
                           />
                         </View>
@@ -2857,7 +2873,7 @@ export function IntentionDetailSheet({
                                 styles.comfortDeparturePill,
                                 {
                                   backgroundColor: theme.colors.secondaryContainer,
-                                  opacity: elasticSlotDisplay?.approximate ? 0.78 : 1,
+                                  opacity: tripIsAllDay ? 0.92 : elasticSlotDisplay?.approximate ? 0.78 : 1,
                                 },
                               ]}
                             >

@@ -1,6 +1,8 @@
+import { getTrankilV2IntentionById } from '../../api/trankilV2Db';
 import {
   computeElasticDepartureWindow,
 } from '../../utils/elasticSlotEngine';
+import { isTripAllDay, parseTripArrivalIso } from '../../utils/tripElasticDisplay';
 import { getForegroundOriginSnapshot } from './SentinelLocationService';
 import {
   buildShiftedTripPatch,
@@ -350,6 +352,47 @@ export async function runElasticSchedulerTick(input: {
 }): Promise<ElasticTickResult> {
   const { task, tripMeta, nowMs, mapsService, disableRealScans } = input;
   const patch: Partial<TripTaskRowV4> = {};
+
+  const row = await getTrankilV2IntentionById(task.id);
+  let metaRoot: Record<string, unknown> | null = null;
+  if (row?.metadata_json) {
+    try {
+      const parsed = JSON.parse(row.metadata_json) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object') metaRoot = parsed;
+    } catch {
+      metaRoot = null;
+    }
+  }
+  const dueDate = row?.due_date ?? null;
+  if (isTripAllDay(metaRoot, tripMeta, dueDate)) {
+    patch.status = 'PAUSED';
+    patch.nextRealScanAtMs = null;
+    patch.nextRealScanReason = null;
+    patch.vigilanceStatus = 'FINISHED';
+    return {
+      patch,
+      goNoGo: null,
+      probe3Unavailable: null,
+      trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'SCHEDULED'),
+      traceForce: true,
+      done: false,
+    };
+  }
+
+  const arrivalIso = parseTripArrivalIso(metaRoot, tripMeta, dueDate);
+  if (!arrivalIso || !Number.isFinite(Date.parse(arrivalIso))) {
+    patch.status = 'PAUSED';
+    patch.nextRealScanAtMs = null;
+    patch.nextRealScanReason = null;
+    return {
+      patch,
+      goNoGo: null,
+      probe3Unavailable: null,
+      trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'SCHEDULED'),
+      traceForce: true,
+      done: false,
+    };
+  }
 
   if (nowMs >= task.arrivalAtMs) {
     patch.status = 'DONE';

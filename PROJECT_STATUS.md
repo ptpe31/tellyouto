@@ -93,9 +93,9 @@ Fichiers clés sous `src/services/traffic/` :
 | [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts) | Exécution PROBE1/2/3 (Distance Matrix) |
 | [`TrafficSchedulerV4.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts) | 1 `setTimeout`/TRIP sur `next_real_scan_at_ms` |
 | [`SentinelBackgroundService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/SentinelBackgroundService.ts) | Filet OS : tick **si sonde due** (pas de polling global) |
-| [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts) | `cancelTripMission`, `clearTripElasticProbeMetadata` |
-| [`sentinelReconciler.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelReconciler.ts) | Activation + `resetTripMissionAndRelaunchProbe1` |
-| [`tripElasticDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts) | Affichage UI depuis `metadata_json.trip` uniquement |
+| [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts) | `cancelTripMission`, `clearTripElasticProbeMetadata`, **`suspendTripMissionForAllDay`** |
+| [`sentinelReconciler.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelReconciler.ts) | Activation + reset + **`wakeTripMissionAfterTimedRestore`** ; branche All Day |
+| [`tripElasticDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts) | Affichage UI depuis `metadata_json.trip` ; **`isTripAllDay`** |
 
 **Legacy conservé** : `TrafficScheduler.ts` / `TrafficEngine.ts` (DebugScreen simulateur) ; colonnes SQLite `displayed_t_*`, `newtonEnabled` en metadata (nettoyage UI fait).
 
@@ -191,7 +191,7 @@ SPEC (v34) : **aucun** enrichissement Pass 2 automatique après Pass 1 ; uniquem
 
 - **`oneTapPersist.ts`** : insertion `LIST` / `PROJECT` avec placeholders minimaux (`list_enrich_status: 'idle'`, `is_generating: false`) — **pas** d’appel `geminiEnrichGenericList` dans la Douane.
 - **`IntentionDetailSheet.tsx`** : footer CTA TRIP/LIST/PROJECT ; `pass2_unlocked: 1` au clic PRO ; TRIP → `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*) ; LIST/PROJECT → `pass2.generateList` / `pass2.generateSteps` ; `metadataJsonLive` + `showPass2FooterCta` (masque CTA dès `pass2_unlocked === 1` en UI, y compris Path B peek) ; overlay inertie LIST/PROJECT ; `applyPass2MetadataLocally` + `onPatchRow` ; `onPressPass2` / Path B ; logs `[Pass2] ✅`.
-- **TRIP logistique (sheet)** : pill **créneau élastique** PRO ([`tripElasticDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts)) ; switch unique `remind_to_leave` (FREE → paywall) ; auto-apprentissage silencieux `location_favorites` ; bouton **Lancer l’itinéraire** si coords arrivée (`canLaunchNavigation`, origine vide = Ma position) ; **transport** : 3 modes (`auto` / `walking` / `bike`) ; logs `[TRIP-SENTINEL]` / `[TRIP-NAV]` / `[TRIP-ERROR]`.
+- **TRIP logistique (sheet)** : pill **créneau élastique** PRO ; switch `remind_to_leave` (FREE → paywall) ; **All Day** → `suspendTripMissionForAllDay` (remind OFF, clear metadata, stop sondes) ; retour horaire → `wakeTripMissionAfterTimedRestore` ; bouton **Lancer l’itinéraire** si coords arrivée.
 - **`TalkDebugScreen.tsx`** : `onPatchRow={patchPeekDetailRow}` sur `IntentionDetailSheet` (sync `peekDetailRows` après Pass 2 — évite CTA fantôme post-génération).
 - **Pass 1** : `buildOneTapPass1SystemInstruction` + `buildOneTapPass1UserContent` dans [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) ; proxy reçoit `systemInstruction` + corps user réduit (référence temps + dictée + seed heuristique).
 - **Pré-warming** : [`warmGeminiProxySession`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) appelé depuis [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) après `setIsRecording(true)` si réseau disponible.
@@ -278,6 +278,7 @@ Fichier : `src/services/CaptureProcessingService.ts`
 - [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) : pied de carte **uniquement** si `metadata_json.trip` ; logique [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts) (`resolveTripTimelineFooter`) — lecture **metadata only** (plus de fetch `sentinel_trips`).
 - **Cas A** (`pass2_unlocked !== 1`) : bouton `intentionDetail.actionSetupAlert` → sheet full + focus arrivée.
 - **Cas B** (PRO + fenêtre élastique) : badge `timeline.elasticDepartureWindow` / `Approx` / `Shifted`.
+- **All Day** (`isTripAllDay`) : badge `timeline.tripAllDay` — pas de créneau.
 - **Cas C** (PRO, PROBE1 pending) : `timeline.elasticDeparturePending`.
 - FREE avec pass2 : pas de badge créneau.
 - TASK / HABIT / LIST / PROJECT : layout inchangé (hauteur 105).
@@ -367,7 +368,7 @@ SPEC : après dictée, peek relatif au viewport, transition à la persistance Pa
 - `IntentionDetailSheet` : entrée complète (opacity + translate) **uniquement** à `visible` false→true ; passage Path A→B = **spring** sur `peekTranslateY` sans ré-entrée (évite flash) ; props `peekCapturePhase`, `captureSheetMaxHeightRatio` (0.95 en flux capture), validation UI **Path B** ; hauteurs peek = ratios viewport (`capturePeekPathAHeightPx` / `capturePeekPathBHeightPx`, sans plancher px) ; full sheet = `windowHeight × ratio` (0,86 / 0,92 si source étendue, ou 0,95 capture), sans plancher 240 px ; auto-fermeture 4 s en Path B ; timer annulé par pan / full / focus `TextInput` ; slot 1 neumorphique + pastel par `category_id`.
 - **Verrou Pass 2** : `pass2_unlocked` (**`1`** = CTA consommé). **`metadataJsonLive`** alimente `meta` pour `showPass2FooterCta` (footer + Path B). CTA masqué si `isPass2UnlockedMeta(meta)` ; types **TRIP | LIST | PROJECT** ; TRIP → **`intentionDetail.actionSetupAlert`** ; LIST/PROJECT → **`pass2.*`**. **`TalkDebugScreen`** : `patchPeekDetailRow` via `onPatchRow`. **PRO** : overlay + hydratation locale ; réouverture → vue détaillée sans CTA. **FREE** : 🔒 + `ProSubscription`. **Trajet** : `gateFullTripBypass` ; CTA si `!== 1`.
 - **Path B — bouton principal (Talk)** : TRIP → `actionSetupAlert` ; LIST/PROJECT → `pass2.generateList` / `pass2.generateSteps` ; masqué après génération ; log **`[ACTION-ADVISOR]`**.
-- **TRIP — créneau élastique & guidage** : pill fenêtre départ depuis `metadata_json.trip` ; `cancelTripMission` si rappel OFF / suppression ; `resetTripMissionAndRelaunchProbe1` si changement destination (pass2 actif) ; **Lancer l’itinéraire** : coords arrivée requises, origine optionnelle (Ma position).
+- **TRIP — créneau élastique & guidage** : pill fenêtre ; **All Day** → mode passif (`allDayNoDepartureSlot`, switch remind disabled/OFF) ; `suspendTripMissionForAllDay` / `wakeTripMissionAfterTimedRestore`.
 - **TRIP — carte Timeline** : badges élastiques PRO uniquement ; CTA setup si `pass2_unlocked !== 1`.
 - **TRIP — transport** : 3 icônes sheet ; legacy `transit`→`auto` ; plus de switch Newton.
 - **Gating monétisation Pass 2 (SPEC §6)** — `useUserSpectrum().spectrum.isProUser` dans `IntentionDetailSheet` : FREE sans écriture `pass2_unlocked: 1` ; PRO persiste `1` + enrichissement optionnel LIST/PROJECT.

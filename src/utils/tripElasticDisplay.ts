@@ -30,8 +30,32 @@ export function parseTripArrivalIso(
     str(trip, 'arrivalDue') ??
     str(trip, 'dueDateTime') ??
     str(meta, 'dueDateTime') ??
-    (dueDate ? String(dueDate).trim() : null)
+    (dueDate && !isDateOnlyDueValue(dueDate) ? String(dueDate).trim() : null)
   );
+}
+
+function isDateOnlyDueValue(dueDate: string): boolean {
+  const due = String(dueDate ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(due) || /^\d{8}$/.test(due);
+}
+
+/** TRIP sans heure d'arrivée précise — créneau élastique non calculable. */
+export function isTripAllDay(
+  meta: Record<string, unknown> | null,
+  trip: Record<string, unknown> | null,
+  dueDate: string | null,
+): boolean {
+  if (meta) {
+    const flag = meta.is_all_day;
+    if (flag === 1 || flag === true) return true;
+  }
+  const arrivalIso = parseTripArrivalIso(meta, trip, dueDate);
+  if (arrivalIso && Number.isFinite(Date.parse(arrivalIso))) return false;
+  const due = dueDate ? String(dueDate).trim() : '';
+  if (isDateOnlyDueValue(due)) return true;
+  const tripYmd = str(trip, 'dueDateYmd');
+  if (tripYmd && !str(trip, 'dueTimeHm') && !str(trip, 'arrivalDue')) return true;
+  return false;
 }
 
 export type ElasticSlotDisplay = {
@@ -95,6 +119,10 @@ export function resolveElasticSlotDisplay(input: {
     dStdMin: DEFAULT_ELASTIC_D_STD_MIN,
   };
   if (!trip) return empty;
+
+  if (isTripAllDay(meta, trip, dueDate)) {
+    return { ...empty, approximate: false, shifted: false };
+  }
 
   const shifted = trip.elastic_shifted === true;
   const stored = resolveStoredElasticWindow(trip);

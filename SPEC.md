@@ -447,6 +447,27 @@ smooth     sinon  →  push « partez dans Δ_depart minutes »
 | PROBE2 API en échec | créneau **inchangé**, retry PROBE2 dans 5 min |
 | PROBE3 API en échec | push `probe3Unavailable`, retry PROBE3 dans 2 min |
 
+##### 7. Suspension « Toute la journée » (All Day)
+
+**Condition** : `metadata_json.is_all_day === 1` **ou** absence d’`arrivalDue` / `dueDateTime` horaire (date seule `YYYY-MM-DD`) — helper [`isTripAllDay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts).
+
+`T_arr` devient **indéfini** → le créneau élastique n’a plus de sens mathématique.
+
+**Suspension immédiate** — [`suspendTripMissionForAllDay(id)`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts) (Option A) :
+1. `cancelTripMission(id)` — stop timers, sondes, notifs
+2. `clearTripElasticProbeMetadata(id)` — purge `elastic_*`, `standard_duration_min`
+3. `remind_to_leave = 0` en SQLite (silencieux, pas de paywall)
+
+**UI passive** :
+- Pill créneau → remplacée par `intentionDetail.allDayNoDepartureSlot`
+- Switch « Me prévenir » → **désactivé** (OFF forcé)
+- Timeline → badge `timeline.tripAllDay` (*Toute la journée*), pas de créneau erroné
+
+**Réveil** — bascule Timed → All Day inverse dans `persistDueDateTime` :
+- [`wakeTripMissionAfterTimedRestore(id)`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelReconciler.ts) : si `remind_to_leave === 1` (réactivation manuelle) et metadata élastique vide → `resetTripMissionAndRelaunchProbe1` (PROBE1 immédiat)
+
+**Garde-fous** : `sentinelReconciler` et `trafficSchedulerElasticTick` vérifient `isTripAllDay` avant toute activation ou exécution de sonde.
+
 **Sondes API (max 2–3 appels Distance Matrix)** — [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) :
 | Sonde | Rôle |
 |-------|------|
@@ -460,7 +481,9 @@ smooth     sinon  →  push « partez dans Δ_depart minutes »
 
 **Annulation / reset mission** ([`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts)) :
 - `cancelTripMission(id)` : clear timers + annule PROBE2/3 planifiées — appelé si suppression TRIP, désactivation `remind_to_leave`, ou destination invalide.
-- `resetTripMissionAndRelaunchProbe1(id)` : si changement de destination avec `pass2_unlocked === 1` → cancel + clear elastic metadata + PROBE1 immédiat.
+- `suspendTripMissionForAllDay(id)` : All Day → cancel + clear metadata + `remind_to_leave = 0`.
+- `resetTripMissionAndRelaunchProbe1(id)` : changement destination avec `pass2_unlocked === 1` → cancel + clear + PROBE1.
+- `wakeTripMissionAfterTimedRestore(id)` : retour horaire + remind ON → PROBE1 si metadata vide.
 
 **Dégradation gracieuse** : échec API PROBE2 → créneau inchangé (pas de shift) + retry ; échec PROBE3 → push `sentinel.probe3Unavailable` (*Estimation indisponible, vérifiez le trafic manuellement*).
 

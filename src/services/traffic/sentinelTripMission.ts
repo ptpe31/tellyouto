@@ -1,4 +1,9 @@
-import { getTrankilV2IntentionById, patchMetadata, withTrankilV2Database } from '../../api/trankilV2Db';
+import {
+  getTrankilV2IntentionById,
+  patchMetadata,
+  updateTrankilV2IntentionRemindToLeave,
+  withTrankilV2Database,
+} from '../../api/trankilV2Db';
 import { getSentinelScheduler } from './sentinelRuntime';
 
 function safeParseTripMeta(raw: string | null | undefined): Record<string, unknown> | null {
@@ -66,4 +71,16 @@ export async function clearTripElasticProbeMetadata(intentionId: string): Promis
     },
     { silent: true },
   );
+}
+
+/** Suspension mission : All Day — arrêt sondes, clear metadata, remind OFF (Option A). */
+export async function suspendTripMissionForAllDay(intentionId: string): Promise<void> {
+  const id = String(intentionId || '').trim();
+  if (!id) return;
+
+  await cancelTripMission(id);
+  await clearTripElasticProbeMetadata(id);
+  await updateTrankilV2IntentionRemindToLeave(id, false);
+
+  console.log(`[TRIP-SENTINEL] ⏸ Mission suspended (all-day) for ${id}`);
 }
