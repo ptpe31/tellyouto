@@ -323,11 +323,129 @@ Conditions minimales « surveillable » :
 
 **FREE** : activation du rappel → redirection paywall `ProSubscription` (pas de créneau ni sondes).
 
-**Formule créneau élastique** ([`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts)) :
-- `Buffer = max(10 min, 30 % × D_std)`
-- Fenêtre affichée : `[ arrivée − (D_std + Buffer) … arrivée − D_std ]`
-- Ex. arrivée 19h30, `D_std = 30 min` → `[18h50 – 19h00]`
-- Cas B (PROBE2) : si trafic live déborde du buffer → fenêtre décalée (`elastic_shifted: true`, ⚠️ UI)
+#### Formules mathématiques — Créneau élastique
+
+Implémentation de référence : [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts).
+
+**Notation**
+
+| Symbole | Unité | Définition |
+|---------|-------|------------|
+| `T_arr` | ms (timestamp) | Heure d’arrivée cible (`arrivalDue` / `dueDateTime`) |
+| `D_std` | min | Durée **statique** du trajet (sans trafic), mesurée à PROBE1 via Distance Matrix (`standard_duration_min`) |
+| `D_live` | min | Durée **live** avec trafic, mesurée à PROBE2 ou PROBE3 |
+| `Buffer` | min | Marge élastique absorbant les micro-variations de trafic |
+| `T_start` | ms | Borne **basse** du créneau (= partir au plus tôt) |
+| `T_end` | ms | Borne **haute** du créneau (= partir au plus tard) |
+| `now` | ms | Horodatage courant |
+
+**Constantes produit**
+
+```
+BUFFER_FLOOR     = 10 min
+BUFFER_RATIO     = 0,30        (30 %)
+PROBE2_LEAD      = 45 min      (avant T_start)
+PROBE3_LEAD      = 15 min      (avant T_start)
+SHORT_TRIP_MAX   = 15 min      (pas de PROBE2 si D_std < 15)
+DEFAULT_D_STD    = 30 min      (fallback PROBE1 sans GPS / avant 1er scan)
+```
+
+##### 1. Buffer élastique
+
+```
+Buffer = max(BUFFER_FLOOR, round(D_std × BUFFER_RATIO, 1 décimale))
+       = max(10, 0,30 × D_std)
+```
+
+Exemples :
+- `D_std = 20` → `Buffer = max(10, 6) = 10 min`
+- `D_std = 30` → `Buffer = max(10, 9) = 10 min`
+- `D_std = 45` → `Buffer = max(10, 13,5) = 13,5 min`
+
+##### 2. Fenêtre initiale (après PROBE1 — Cas nominal)
+
+```
+T_start = T_arr − (D_std + Buffer) × 60 000
+T_end   = T_arr − D_std × 60 000
+```
+
+Contrainte : `T_start ≤ T_end` (sinon fenêtre invalide).
+
+**Exemple canonique** : `T_arr = 19h30`, `D_std = 30`, `Buffer = 10`
+
+```
+T_start = 19h30 − 40 min = 18h50
+T_end   = 19h30 − 30 min = 19h00
+→ Affichage UI : [ 18h50 – 19h00 ]
+```
+
+Largeur du créneau affiché : `Buffer` (= 10 min dans cet exemple).
+
+##### 3. Cas A vs Cas B (PROBE2 — absorption du trafic)
+
+À PROBE2, on compare le trafic live à la capacité d’absorption :
+
+```
+absorbé  ⟺  D_live ≤ D_std + Buffer
+```
+
+- **Cas A** (`absorbé = true`) : le créneau **initial** est conservé (`T_start`, `T_end` inchangés). Pas de flag `elastic_shifted`.
+- **Cas B** (`absorbé = false`) : le trafic déborde → **recalcul** avec `D_live` et le **Buffer initial** (figé à PROBE1, non recalculé) :
+
+```
+T_start' = T_arr − (D_live + Buffer) × 60 000
+T_end'   = T_arr − D_live × 60 000
+```
+
+**Exemple Cas B** : même trajet (`T_arr = 19h30`, `Buffer = 10`), mais `D_live = 55 min` à PROBE2 :
+
+```
+T_start' = 19h30 − 65 min = 18h25
+T_end'   = 19h30 − 55 min = 18h35
+→ Affichage UI : [ 18h25 – 18h35 ]  +  elastic_shifted: true  +  ⚠️
+```
+
+##### 4. Planification des sondes PROBE2 / PROBE3
+
+Les sondes 2 et 3 sont ancrées sur la **borne basse courante** `T_start` (initiale ou décalée) :
+
+```
+T_probe3 = T_start − PROBE3_LEAD × 60 000     (= T_start − 15 min)
+T_probe2_raw = T_start − PROBE2_LEAD × 60 000 (= T_start − 45 min)
+```
+
+Règles d’éligibilité PROBE2 :
+- **Absente** si `D_std < SHORT_TRIP_MAX` (trajet court < 15 min → seulement PROBE1 + PROBE3).
+- Sinon : `T_probe2 = max(now, min(T_probe2_raw, T_probe3 − 1 min))` (PROBE2 toujours **strictement avant** PROBE3).
+
+Garde-fou temporel : `T_probe3 = max(now, T_start − 15 min)`.
+
+PROBE1 est toujours immédiat (`now`) à l’activation ou après reset destination.
+
+##### 5. Décision Go / No-Go (PROBE3)
+
+À PROBE3, on mesure une dernière fois `D_live` et on calcule le délai avant départ optimal :
+
+```
+T_depart = T_arr − D_live × 60 000
+Δ_depart = max(0, round((T_depart − now) / 60 000))   // minutes restantes
+```
+
+Variante push :
+```
+leave_now  si  D_live > D_std + Buffer     (Cas B persistant)
+          ou  Δ_depart ≤ 5 min
+smooth     sinon  →  push « partez dans Δ_depart minutes »
+```
+
+##### 6. Fallbacks numériques
+
+| Situation | Comportement |
+|-----------|--------------|
+| PROBE1 sans GPS origine | `D_std = DEFAULT_D_STD = 30`, `elastic_approximate: true`, retry GPS dans 3 min |
+| PROBE1 API en échec | retry PROBE1 dans 3 min, créneau non modifié |
+| PROBE2 API en échec | créneau **inchangé**, retry PROBE2 dans 5 min |
+| PROBE3 API en échec | push `probe3Unavailable`, retry PROBE3 dans 2 min |
 
 **Sondes API (max 2–3 appels Distance Matrix)** — [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) :
 | Sonde | Rôle |
