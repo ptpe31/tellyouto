@@ -1,6 +1,8 @@
 import { getTrankilV2IntentionById } from '../../api/trankilV2Db';
 import {
   computeElasticDepartureWindow,
+  normalizeElasticTransportMode,
+  skipsElasticProbe2,
 } from '../../utils/elasticSlotEngine';
 import { isTripAllDay, parseTripArrivalIso } from '../../utils/tripElasticDisplay';
 import { getForegroundOriginSnapshot } from './SentinelLocationService';
@@ -194,7 +196,8 @@ async function executeElasticProbe(input: {
 
     if (reason === 'PROBE1_CONFIG' || reason === 'PROBE1_RETRY') {
       const dStdMin = Math.max(1, Math.round(staticSec / 60));
-      const window = computeElasticDepartureWindow(task.arrivalAtMs, dStdMin);
+      const elasticMode = normalizeElasticTransportMode(task.transportMode);
+      const window = computeElasticDepartureWindow(task.arrivalAtMs, dStdMin, elasticMode);
       if (!window) throw new Error('elastic window failed');
 
       await patchTripElasticMetadata(task.id, {
@@ -236,6 +239,9 @@ async function executeElasticProbe(input: {
     }
 
     if (reason === 'PROBE2_TREND') {
+      if (skipsElasticProbe2(task.transportMode)) {
+        throw new Error('PROBE2 skipped for non-driving mode');
+      }
       const dStdMin = resolveDStdMin(task, tripMeta);
       const bufferMin = computeBufferForTask(task, tripMeta);
       const dLiveMin = Math.max(1, Math.round(trafficSec / 60));

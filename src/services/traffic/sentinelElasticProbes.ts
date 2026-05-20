@@ -2,7 +2,9 @@ import {
   computeElasticBufferMin,
   computeElasticDepartureWindow,
   isTrafficAbsorbedByElasticBuffer,
+  normalizeElasticTransportMode,
   scheduleElasticProbes,
+  skipsElasticProbe2,
 } from '../../utils/elasticSlotEngine';
 import { hasTripStandardDurationMin } from './sentinelElasticTripMetadata';
 import type { TripTaskRowV4 } from './TrafficSchedulerV4';
@@ -49,7 +51,8 @@ export function resolveElasticWindowStartMs(task: TripTaskRowV4, tripMeta: Recor
     if (Number.isFinite(stored)) return stored;
   }
   const dStdMin = resolveDStdMin(task, tripMeta);
-  const window = computeElasticDepartureWindow(task.arrivalAtMs, dStdMin);
+  const elasticMode = normalizeElasticTransportMode(task.transportMode);
+  const window = computeElasticDepartureWindow(task.arrivalAtMs, dStdMin, elasticMode);
   return window?.startDate.getTime() ?? task.tOptimisteMs ?? task.arrivalAtMs - dStdMin * 60_000;
 }
 
@@ -62,12 +65,23 @@ export function scheduleNextElasticProbe(input: {
   const { task, tripMeta, scanCount, nowMs } = input;
   const dStdMin = resolveDStdMin(task, tripMeta);
   const windowStartMs = resolveElasticWindowStartMs(task, tripMeta);
-  const probes = scheduleElasticProbes({ windowStartMs, dStdMin, nowMs });
+  const probes = scheduleElasticProbes({
+    windowStartMs,
+    dStdMin,
+    nowMs,
+    skipProbe2: skipsElasticProbe2(task.transportMode),
+  });
 
   if (scanCount <= 0) {
     return { nextRealScanAtMs: nowMs, nextRealScanReason: 'PROBE1_CONFIG' };
   }
   if (scanCount === 1) {
+    if (skipsElasticProbe2(task.transportMode)) {
+      return {
+        nextRealScanAtMs: probes?.probe3AtMs ?? nowMs,
+        nextRealScanReason: 'PROBE3_GONOGO',
+      };
+    }
     if (probes?.probe2AtMs != null) {
       return { nextRealScanAtMs: probes.probe2AtMs, nextRealScanReason: 'PROBE2_TREND' };
     }
@@ -104,6 +118,9 @@ export function resolveDueElasticProbe(input: {
 
   if (nextAt == null || scheduledReason == null) return null;
   if (nowMs < nextAt) return null;
+  if (scheduledReason === 'PROBE2_TREND' && skipsElasticProbe2(task.transportMode)) {
+    return 'PROBE3_GONOGO';
+  }
   return scheduledReason;
 }
 
@@ -119,7 +136,8 @@ export function computeBufferForTask(task: TripTaskRowV4, tripMeta: Record<strin
   const stored = tripMeta ? Number(tripMeta.elastic_buffer_min) : NaN;
   if (Number.isFinite(stored) && stored > 0) return stored;
   const dStdMin = resolveDStdMin(task, tripMeta);
-  return computeElasticBufferMin(dStdMin) ?? 10;
+  const elasticMode = normalizeElasticTransportMode(task.transportMode);
+  return computeElasticBufferMin(dStdMin, elasticMode) ?? 10;
 }
 
 export function computeDepartInMinutes(arrivalAtMs: number, dLiveSec: number, nowMs: number): number {

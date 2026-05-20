@@ -6,16 +6,18 @@ import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { generateSmartTitle } from '../services/smartTitle';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
 import { formatCreationSubtitle } from '../utils/timeFormat';
+import { hasTripStandardDurationMin, isTripAllDay } from '../utils/tripElasticDisplay';
 import {
   getTripMetaFromRoot,
-  isPass2UnlockedMeta,
   resolveTripTimelineFooter,
   type TripTimelineFooter,
 } from '../utils/tripTimelineCard';
+import { isTripMissionActive } from '../utils/tripTripReadiness';
 import { normalizeTripTransportMode } from '../utils/tripTransportMode';
 import { neumorphicRaised } from '../theme/neumorphism';
 
@@ -26,8 +28,8 @@ type Props = {
   enabled: boolean;
   onToggleComplete: () => void;
   onPress?: () => void;
-  /** TRIP non configuré : ouvre la sheet en full sur le champ arrivée. */
-  onPressTripSetup?: () => void;
+  /** TRIP footer CTA : setup PRO ou lockedSetup FREE (paywall). */
+  onPressTripFooter?: (footer: TripTimelineFooter) => void;
 };
 
 function parseDueDate(raw: string | null | undefined): { date: Date; hasTime: boolean } | null {
@@ -112,11 +114,13 @@ function getTripTransportIcon(raw: string | null | undefined): string | null {
 }
 
 function tripFooterLabel(footer: TripTimelineFooter, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  if (!footer || typeof footer.kind !== 'string') return '';
   switch (footer.kind) {
     case 'setup':
       return t('intentionDetail.actionSetupAlert');
-    case 'allDay':
-      return footer.label;
+    case 'lockedSetup':
+      return t('intentionDetail.actionSetupAlertLocked');
+    case 'scanScheduled':
     case 'elasticDeparture':
       return footer.label;
     default:
@@ -131,7 +135,7 @@ export function IntentionCard({
   enabled,
   onToggleComplete,
   onPress,
-  onPressTripSetup,
+  onPressTripFooter,
 }: Props) {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
@@ -139,7 +143,21 @@ export function IntentionCard({
   const meta = useMemo(() => safeParseJsonObject(row.metadata_json), [row.metadata_json]);
   const trip = useMemo(() => getTripMetaFromRoot(meta), [meta]);
   const isTripCard = Boolean(trip);
-  const pass2Unlocked = useMemo(() => isPass2UnlockedMeta(meta), [meta]);
+
+  const probeClockActive = useMemo(() => {
+    if (!isTripCard || !trip) return false;
+    if (isTripAllDay(meta, trip, row.due_date)) return false;
+    if (!isProUser) return false;
+    if (hasTripStandardDurationMin(trip)) return false;
+    return isTripMissionActive({
+      remindToLeave: Boolean(row.remind_to_leave),
+      meta,
+      trip,
+      dueDate: row.due_date,
+    });
+  }, [isProUser, isTripCard, meta, row.due_date, row.remind_to_leave, trip]);
+
+  const probeClockTick = useProbeScheduleClock(probeClockActive);
 
   const tripFooter = useMemo(() => {
     if (!isTripCard) return null;
@@ -149,9 +167,11 @@ export function IntentionCard({
       dueDate: row.due_date,
       locale: i18n.language,
       isProUser,
+      remindToLeave: Boolean(row.remind_to_leave),
       t,
+      nowMs: probeClockTick,
     });
-  }, [i18n.language, isProUser, isTripCard, meta, row.due_date, t, trip]);
+  }, [i18n.language, isProUser, isTripCard, meta, probeClockTick, row.due_date, row.remind_to_leave, t, trip]);
 
   const titleText = useMemo(() => {
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
@@ -231,8 +251,9 @@ export function IntentionCard({
     return null;
   }
 
-  const showTripFooter = Boolean(tripFooter);
-  const footerIsSetup = tripFooter?.kind === 'setup';
+  const showTripFooter = Boolean(tripFooter?.kind);
+  const footerIsCta = tripFooter?.kind === 'setup' || tripFooter?.kind === 'lockedSetup';
+  const footerLabel = tripFooter ? tripFooterLabel(tripFooter, t) : '';
 
   return (
     <Pressable
@@ -285,15 +306,19 @@ export function IntentionCard({
         </View>
       </View>
 
-      {showTripFooter && tripFooter ? (
+      {showTripFooter && tripFooter && footerLabel ? (
         <View style={styles.tripFooterWrap}>
-          {footerIsSetup ? (
+          {footerIsCta && onPressTripFooter ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={t('intentionDetail.actionSetupAlert')}
+              accessibilityLabel={
+                tripFooter.kind === 'lockedSetup'
+                  ? t('intentionDetail.actionSetupAlertLocked')
+                  : t('intentionDetail.actionSetupAlert')
+              }
               onPress={(e) => {
                 e?.stopPropagation?.();
-                onPressTripSetup?.();
+                onPressTripFooter(tripFooter);
               }}
               style={({ pressed }) => [
                 styles.tripSetupBtn,
@@ -305,7 +330,7 @@ export function IntentionCard({
               ]}
             >
               <Text style={[styles.tripSetupBtnText, { color: theme.colors.primary }]} numberOfLines={2}>
-                {tripFooterLabel(tripFooter, t)}
+                {footerLabel}
               </Text>
             </Pressable>
           ) : (
@@ -318,14 +343,14 @@ export function IntentionCard({
                   opacity:
                     tripFooter.kind === 'elasticDeparture' && tripFooter.approximate
                       ? 0.78
-                      : tripFooter.kind === 'allDay'
-                        ? 0.92
+                      : tripFooter.kind === 'scanScheduled'
+                        ? 0.95
                         : 1,
                 },
               ]}
             >
               <Text style={[styles.tripBadgeText, { color: theme.colors.onPrimaryContainer }]} numberOfLines={2}>
-                {tripFooterLabel(tripFooter, t)}
+                {footerLabel}
               </Text>
             </View>
           )}

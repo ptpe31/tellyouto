@@ -259,7 +259,8 @@
     "elasticDepartureWindow": "[ Partenza stim.: {{window}} ]",
     "elasticDepartureApprox": "[ Partenza stim.: ≈ {{window}} ]",
     "elasticDepartureShifted": "[ ⚠️ Partenza stim.: {{window}} ]",
-    "elasticDeparturePending": "[ Partenza stim. ]",
+    "scanTrafficScheduled": "Scansione traffico reale prevista alle {{time}}",
+    "scanTrafficInProgress": "Scansione in corso…",
     "tripAllDay": "Tutto il giorno",
     "newBadge": "NUOVO",
     "createdTodayAt": "Creato oggi alle {{time}}",
@@ -950,7 +951,12 @@
     "comfortElasticDepartureShifted": "⚠️ Partenza stim.: {{window}}",
     "comfortElasticDeparturePending": "Partenza stim.",
     "allDayNoDepartureSlot": "Evento tutto il giorno — nessuna fascia di partenza",
-    "actionSetupAlert": "Avvisami quando partire?"
+    "actionSetupAlert": "Avvisami quando partire?",
+    "actionSetupAlertLocked": "Avvisami quando partire? 🔒",
+    "tripSurveillanceStart": "Monitora il tragitto",
+    "tripSurveillanceStartLocked": "Monitora il tragitto 🔒",
+    "tripSurveillanceActive": "Sorveglianza attiva 🛡️",
+    "surveillanceMissingInfo": "Aggiungi una destinazione valida e un orario di arrivo per attivare la sorveglianza."
   },
   "talkDebug": {
     "noteSaved": "Nota salvata",

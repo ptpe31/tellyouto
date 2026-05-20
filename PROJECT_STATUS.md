@@ -109,13 +109,16 @@ Fichiers clés sous `src/services/traffic/` :
 |---------|------|
 | [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts) | Formule buffer (auto vs piéton/vélo) + fenêtre + planification PROBE2/3 |
 | [`tripTripReadiness.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts) | Blocages mission (`destination`, `arrival_time`) |
-| [`tripProbeScheduleDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripProbeScheduleDisplay.ts) | Libellé « Scan circulation prévu à HH:mm » |
+| [`tripProbeScheduleDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripProbeScheduleDisplay.ts) | Badge scan C1/C2 : `scanTrafficScheduled` / `scanTrafficInProgress` |
+| [`useProbeScheduleClock.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) | Tick 30 s pour bascule badge futur → en cours |
+| [`tripSurveillanceButton.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripSurveillanceButton.ts) | États Big Button Sheet (`Surveiller le trajet` / active / locked) |
+| [`sentinelDbRetry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelDbRetry.ts) | Retry sync metadata SQLite + recovery kick |
 | [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) | Résolution sondes, retry échec API |
 | [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts) | Exécution PROBE1/2/3 (Distance Matrix) |
 | [`TrafficSchedulerV4.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts) | 1 `setTimeout`/TRIP sur `next_real_scan_at_ms` |
 | [`SentinelBackgroundService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/SentinelBackgroundService.ts) | Filet OS : tick **si sonde due** (pas de polling global) |
 | [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts) | `cancelTripMission`, `clearTripElasticProbeMetadata`, **`suspendTripMissionForAllDay`** |
-| [`sentinelReconciler.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelReconciler.ts) | Activation + reset + **`wakeTripMissionAfterTimedRestore`** ; branche All Day |
+| [`sentinelReconciler.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelReconciler.ts) | Activation + reset + debounce 500 ms + mutex ; reconcile **onSelect only** |
 | [`tripElasticDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts) | Affichage UI depuis `metadata_json.trip` ; **`isTripAllDay`** |
 
 **Legacy conservé** : `TrafficScheduler.ts` / `TrafficEngine.ts` (DebugScreen simulateur) ; colonnes SQLite `displayed_t_*`, `newtonEnabled` en metadata (nettoyage UI fait).
@@ -297,13 +300,14 @@ Fichier : `src/services/CaptureProcessingService.ts`
 ### 3.1c Timeline — carte TRIP (`IntentionCard`)
 
 - [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) : pied de carte **uniquement** si `metadata_json.trip` ; logique [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts) (`resolveTripTimelineFooter`) — lecture **metadata only** + `remind_to_leave` (SQL Timeline).
-- **Cas A** (`pass2_unlocked !== 1`) : bouton `intentionDetail.actionSetupAlert` → sheet full + focus arrivée.
-- **All Day** : badge `timeline.tripAllDay`.
-- **Cas B** (PRO + PROBE1 fait) : badge fenêtre élastique (`Window` / `Approx` ≈ / `Shifted` ⚠️).
-- **Cas C** (`remind_to_leave === 1` + mission active + PROBE1 pending) : badge `timeline.scanTrafficScheduled` (miroir `trip.next_probe_at_ms`).
-- **Cas D** (PRO sans mission active) : bouton setup.
+- **All Day** : **aucun** footer Timeline (pas de badge).
+- **FREE** : footer CTA verrouillé → paywall direct ; tap corps → **hub TRIP unifié** (vitrine + `tripSurveillanceStartLocked`).
+- **PRO + PROBE1 fait** : badge fenêtre élastique (`Window` / `Approx` ≈ / `Shifted` ⚠️).
+- **PRO + mission active + PROBE1 pending** : badge scan à 3 états — `timeline.scanTrafficScheduled` (heure miroir `trip.next_probe_at_ms`), `timeline.scanTrafficInProgress` (≤ 60 s avant l’heure ou heure passée), puis fenêtre élastique après PROBE1 ; horloge locale [`useProbeScheduleClock`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) (tick 30 s, cleanup au démontage).
+- **Reconcile Sentinel** : déclenché **uniquement** à la sélection autocomplete (`onSelect`), pas à chaque frappe ; debounce 500 ms ; mutex activation par `intentionId` ; retry SQLite [`withSentinelDbRetry`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelDbRetry.ts) (logs `[TRIP-SENTINEL-RECOVERY]`).
+- **PRO non configuré** : footer CTA setup **ou** tap corps → **même Sheet hub unifiée** (mémo + logistique + Big Button).
+- **Sheet TRIP** : plus de switch — Big Button [`tripSurveillanceButton.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripSurveillanceButton.ts) (`tripSurveillanceStart` / `tripSurveillanceActive` / locked) ; toast si champs manquants ; origine GPS non bloquante.
 - **Anti-faux créneau** : pas de fenêtre UI sans `standard_duration_min`.
-- FREE avec pass2 : pas de badge créneau.
 - TASK / HABIT / LIST / PROJECT : layout inchangé (hauteur 105).
 
 ### 3.2 Orchestration UI capture

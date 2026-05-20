@@ -5,10 +5,14 @@
 
 export const ELASTIC_BUFFER_FLOOR_MIN = 10;
 export const ELASTIC_BUFFER_RATIO = 0.3;
+export const ELASTIC_WALK_BIKE_BUFFER_FLOOR_MIN = 5;
+export const ELASTIC_WALK_BIKE_BUFFER_RATIO = 0.1;
 export const ELASTIC_PROBE2_LEAD_MIN = 45;
 export const ELASTIC_PROBE3_LEAD_MIN = 15;
 export const ELASTIC_SHORT_TRIP_MAX_MIN = 15;
 export const DEFAULT_ELASTIC_D_STD_MIN = 30;
+
+export type ElasticTransportMode = 'driving' | 'walking' | 'bicycling';
 
 export type ElasticDepartureWindow = {
   /** Borne basse — heure de départ recommandée (partir tôt). */
@@ -24,9 +28,12 @@ export type ElasticProbeSchedule = {
   probe3AtMs: number;
 };
 
-function parseArrivalMs(input: Date | string): number | null {
+function parseArrivalMs(input: Date | string | number): number | null {
   if (input instanceof Date) {
     return Number.isFinite(input.getTime()) ? input.getTime() : null;
+  }
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    return input;
   }
   const raw = String(input ?? '').trim();
   if (!raw) return null;
@@ -34,11 +41,34 @@ function parseArrivalMs(input: Date | string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** Buffer = max(10 min, 30 % de D_std). */
-export function computeElasticBufferMin(dStdMin: number): number | null {
+export function normalizeElasticTransportMode(raw: string | null | undefined): ElasticTransportMode {
+  const m = String(raw ?? '').trim().toLowerCase();
+  if (m === 'walking' || m === 'walk') return 'walking';
+  if (m === 'bike' || m === 'bicycling' || m === 'bicycle') return 'bicycling';
+  return 'driving';
+}
+
+export function skipsElasticProbe2(transportMode: string | null | undefined): boolean {
+  const m = normalizeElasticTransportMode(transportMode);
+  return m === 'walking' || m === 'bicycling';
+}
+
+function bufferConfig(mode: ElasticTransportMode): { floor: number; ratio: number } {
+  if (mode === 'walking' || mode === 'bicycling') {
+    return { floor: ELASTIC_WALK_BIKE_BUFFER_FLOOR_MIN, ratio: ELASTIC_WALK_BIKE_BUFFER_RATIO };
+  }
+  return { floor: ELASTIC_BUFFER_FLOOR_MIN, ratio: ELASTIC_BUFFER_RATIO };
+}
+
+/** Buffer = max(floor, ratio × D_std) — auto vs piéton/vélo. */
+export function computeElasticBufferMin(
+  dStdMin: number,
+  mode: ElasticTransportMode = 'driving',
+): number | null {
   const dStd = Number(dStdMin);
   if (!Number.isFinite(dStd) || dStd <= 0) return null;
-  return Math.max(ELASTIC_BUFFER_FLOOR_MIN, Math.round(dStd * ELASTIC_BUFFER_RATIO * 10) / 10);
+  const cfg = bufferConfig(mode);
+  return Math.max(cfg.floor, Math.round(dStd * cfg.ratio * 10) / 10);
 }
 
 /**
@@ -46,12 +76,13 @@ export function computeElasticBufferMin(dStdMin: number): number | null {
  * Ex. arrivée 19h30, D_std 30, Buffer 10 → [ 18h50 – 19h00 ].
  */
 export function computeElasticDepartureWindow(
-  arrivalTime: Date | string,
+  arrivalTime: Date | string | number,
   dStdMin: number,
+  mode: ElasticTransportMode = 'driving',
 ): ElasticDepartureWindow | null {
   const arrivalMs = parseArrivalMs(arrivalTime);
   const dStd = Number(dStdMin);
-  const bufferMin = computeElasticBufferMin(dStd);
+  const bufferMin = computeElasticBufferMin(dStd, mode);
   if (arrivalMs == null || bufferMin == null) return null;
 
   const startMs = arrivalMs - (dStd + bufferMin) * 60_000;
@@ -84,7 +115,7 @@ export function isTrafficAbsorbedByElasticBuffer(
  * start = arrivée − (D_live + buffer), end = arrivée − D_live.
  */
 export function computeShiftedElasticWindow(
-  arrivalTime: Date | string,
+  arrivalTime: Date | string | number,
   dLiveMin: number,
   bufferMin: number,
 ): ElasticDepartureWindow | null {
@@ -112,6 +143,7 @@ export function scheduleElasticProbes(input: {
   windowStartMs: number;
   dStdMin: number;
   nowMs?: number;
+  skipProbe2?: boolean;
 }): ElasticProbeSchedule | null {
   const startMs = Number(input.windowStartMs);
   const dStd = Number(input.dStdMin);
@@ -119,11 +151,11 @@ export function scheduleElasticProbes(input: {
   if (!Number.isFinite(startMs) || !Number.isFinite(dStd) || dStd <= 0) return null;
 
   const probe3AtMs = startMs - ELASTIC_PROBE3_LEAD_MIN * 60_000;
+  const skipProbe2 = input.skipProbe2 === true || dStd < ELASTIC_SHORT_TRIP_MAX_MIN;
   const probe2RawMs = startMs - ELASTIC_PROBE2_LEAD_MIN * 60_000;
-  const probe2AtMs =
-    dStd < ELASTIC_SHORT_TRIP_MAX_MIN
-      ? null
-      : Math.max(nowMs, Math.min(probe2RawMs, probe3AtMs - 60_000));
+  const probe2AtMs = skipProbe2
+    ? null
+    : Math.max(nowMs, Math.min(probe2RawMs, probe3AtMs - 60_000));
 
   return {
     probe2AtMs,

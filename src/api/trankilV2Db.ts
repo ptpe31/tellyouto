@@ -86,6 +86,7 @@ export type TrankilV2TimelineItemRow = {
   metadata_json?: string | null;
   is_pending_ai?: number;
   transport_mode?: string | null;
+  remind_to_leave?: number;
 };
 
 export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
@@ -751,7 +752,7 @@ export async function listTrankilV2TimelineItemsByDate(
   await initTrankilV2Schema();
   const db = await getDb();
   const inner = `
-    SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode
+    SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode, remind_to_leave
     FROM (
       SELECT
         i.id AS id,
@@ -772,6 +773,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.metadata_json AS metadata_json,
         COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
         i.transport_mode AS transport_mode,
+        COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
         i.due_date AS effective_date,
         1 AS section_order
       FROM intentions i
@@ -803,6 +805,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.metadata_json AS metadata_json,
         COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
         i.transport_mode AS transport_mode,
+        COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
         i.due_date AS effective_date,
         2 AS section_order
       FROM intentions i
@@ -836,6 +839,7 @@ export async function listTrankilV2TimelineItemsByDate(
         i.metadata_json AS metadata_json,
         COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
         i.transport_mode AS transport_mode,
+        COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
         COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
         3 AS section_order
       FROM intentions i
@@ -902,6 +906,7 @@ WITH dated AS (
       i.metadata_json AS metadata_json,
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
       i.transport_mode AS transport_mode,
+      COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
       i.due_date AS effective_date,
       1 AS section_order
     FROM intentions i
@@ -931,6 +936,7 @@ WITH dated AS (
       i.metadata_json AS metadata_json,
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
       i.transport_mode AS transport_mode,
+      COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
       i.due_date AS effective_date,
       2 AS section_order
     FROM intentions i
@@ -962,6 +968,7 @@ WITH dated AS (
       i.metadata_json AS metadata_json,
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
       i.transport_mode AS transport_mode,
+      COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
       COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
       3 AS section_order
     FROM intentions i
@@ -993,6 +1000,7 @@ lowp AS (
     i.metadata_json AS metadata_json,
     COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
     i.transport_mode AS transport_mode,
+    COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
     NULL AS effective_date,
     1 AS section_order
   FROM intentions i
@@ -1008,7 +1016,7 @@ lowp AS (
     ${ctx}
     AND NOT EXISTS (SELECT 1 FROM dated d WHERE d.id = i.id)
 )
-SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode
+SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode, remind_to_leave
 FROM (
   SELECT * FROM dated
   UNION ALL
@@ -1064,7 +1072,8 @@ export async function listTrankilV2UndatedRootTasks(
        i.suggested_tags AS suggested_tags,
        i.metadata_json AS metadata_json,
        COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
-       i.transport_mode AS transport_mode
+       i.transport_mode AS transport_mode,
+       COALESCE(i.remind_to_leave, 0) AS remind_to_leave
      FROM intentions i
      WHERE i.status = ?
        AND COALESCE(i.is_archived, 0) = 0
@@ -1411,6 +1420,7 @@ export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow)
     metadata_json: row.metadata_json,
     is_pending_ai: row.is_pending_ai ?? 0,
     transport_mode: row.transport_mode ?? null,
+    remind_to_leave: row.remind_to_leave ?? 0,
   };
 }
 

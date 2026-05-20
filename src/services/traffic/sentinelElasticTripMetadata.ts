@@ -1,4 +1,5 @@
 import { getTrankilV2IntentionById, patchMetadata } from '../../api/trankilV2Db';
+import { withSentinelDbRetry } from './sentinelDbRetry';
 import {
   computeElasticBufferMin,
   computeElasticDepartureWindow,
@@ -17,6 +18,8 @@ export type TripElasticMetadataPatch = {
   origin_lng?: number;
   origin_address?: string;
   last_traffic_duration?: number;
+  next_probe_at_ms?: number | null;
+  next_probe_reason?: string | null;
 };
 
 function safeParseTrip(metaJson: string | null | undefined): Record<string, unknown> | null {
@@ -37,11 +40,9 @@ export async function loadTripMetaForIntention(intentionId: string): Promise<Rec
   return safeParseTrip(row.metadata_json);
 }
 
-export function hasTripStandardDurationMin(trip: Record<string, unknown> | null | undefined): boolean {
-  if (!trip) return false;
-  const parsed = Number(trip.standard_duration_min);
-  return trip.standard_duration_min != null && Number.isFinite(parsed) && parsed > 0;
-}
+import { hasTripStandardDurationMin } from '../../utils/tripElasticDisplay';
+
+export { hasTripStandardDurationMin };
 
 export function readTripOriginCoords(trip: Record<string, unknown> | null | undefined): {
   lat: number | null;
@@ -112,8 +113,25 @@ export function computeTripElasticWindowFromMeta(
       dStdMin: dStd,
     };
   }
-  const dStdMin = hasTripStandardDurationMin(trip) ? dStd : 30;
+  const dStdMin = hasTripStandardDurationMin(trip) ? dStd : null;
+  if (dStdMin == null) return null;
   return computeElasticDepartureWindow(arrivalMs, dStdMin);
+}
+
+export async function syncTripProbeScheduleMetadata(
+  intentionId: string,
+  nextAtMs: number | null | undefined,
+  reason: string | null | undefined,
+): Promise<void> {
+  const patch: TripElasticMetadataPatch = {
+    next_probe_at_ms: nextAtMs ?? null,
+    next_probe_reason: reason ?? null,
+  };
+  await withSentinelDbRetry(
+    'syncTripProbeScheduleMetadata',
+    intentionId,
+    () => patchTripElasticMetadata(intentionId, patch),
+  );
 }
 
 export async function patchTripElasticMetadata(
@@ -133,6 +151,8 @@ export async function patchTripElasticMetadata(
   if (patch.origin_lng != null) tripPatch.origin_lng = patch.origin_lng;
   if (patch.origin_address != null) tripPatch.origin_address = patch.origin_address;
   if (patch.last_traffic_duration != null) tripPatch.last_traffic_duration = patch.last_traffic_duration;
+  if (patch.next_probe_at_ms !== undefined) tripPatch.next_probe_at_ms = patch.next_probe_at_ms;
+  if (patch.next_probe_reason !== undefined) tripPatch.next_probe_reason = patch.next_probe_reason;
   if (Object.keys(tripPatch).length === 0) return;
   console.log(`[TRIP-SENTINEL] 📝 Elastic metadata patch for ${id}:`, Object.keys(tripPatch).join(', '));
   await patchMetadata(id, { trip: tripPatch }, { silent: true });

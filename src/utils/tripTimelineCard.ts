@@ -1,4 +1,10 @@
-import { isTripAllDay, resolveElasticSlotDisplay } from './tripElasticDisplay';
+import {
+  hasTripStandardDurationMin,
+  isTripAllDay,
+  resolveElasticSlotDisplay,
+} from './tripElasticDisplay';
+import { resolveProbeScheduleLabel } from './tripProbeScheduleDisplay';
+import { isTripMissionActive } from './tripTripReadiness';
 
 const PASS2_UNLOCKED = 1;
 
@@ -17,7 +23,8 @@ export function getTripMetaFromRoot(meta: Record<string, unknown> | null): Recor
 
 export type TripTimelineFooter =
   | { kind: 'setup' }
-  | { kind: 'allDay'; label: string }
+  | { kind: 'lockedSetup' }
+  | { kind: 'scanScheduled'; label: string }
   | { kind: 'elasticDeparture'; label: string; approximate?: boolean; shifted?: boolean };
 
 export function resolveTripTimelineFooter(input: {
@@ -26,38 +33,53 @@ export function resolveTripTimelineFooter(input: {
   dueDate: string | null;
   locale: string;
   isProUser: boolean;
+  remindToLeave: boolean;
   t: (key: string, opts?: Record<string, unknown>) => string;
+  /** Horloge locale pour basculer futur → « Scan en cours… ». */
+  nowMs?: number;
 }): TripTimelineFooter | null {
-  const { meta, trip, dueDate, locale, isProUser, t } = input;
+  const { meta, trip, dueDate, locale, isProUser, remindToLeave, t, nowMs } = input;
   if (!trip) return null;
 
-  if (!isPass2UnlockedMeta(meta)) {
-    return { kind: 'setup' };
-  }
-
   if (isTripAllDay(meta, trip, dueDate)) {
-    return { kind: 'allDay', label: t('timeline.tripAllDay') };
-  }
-
-  if (!isProUser) {
     return null;
   }
 
-  const slot = resolveElasticSlotDisplay({ meta, trip, dueDate, locale });
-  if (slot.windowLabel) {
-    let labelKey = 'timeline.elasticDepartureWindow';
-    if (slot.shifted) {
-      labelKey = 'timeline.elasticDepartureShifted';
-    } else if (slot.approximate) {
-      labelKey = 'timeline.elasticDepartureApprox';
-    }
-    return {
-      kind: 'elasticDeparture',
-      label: t(labelKey, { window: slot.windowLabel }),
-      approximate: slot.approximate,
-      shifted: slot.shifted,
-    };
+  if (!isProUser) {
+    return { kind: 'lockedSetup' };
   }
 
-  return { kind: 'elasticDeparture', label: t('timeline.elasticDeparturePending') };
+  const missionActive = isTripMissionActive({ remindToLeave, meta, trip, dueDate });
+  const probe1Done = hasTripStandardDurationMin(trip);
+
+  if (probe1Done) {
+    const slot = resolveElasticSlotDisplay({ meta, trip, dueDate, locale });
+    if (slot.windowLabel) {
+      let labelKey = 'timeline.elasticDepartureWindow';
+      if (slot.shifted) {
+        labelKey = 'timeline.elasticDepartureShifted';
+      } else if (slot.approximate) {
+        labelKey = 'timeline.elasticDepartureApprox';
+      }
+      return {
+        kind: 'elasticDeparture',
+        label: t(labelKey, { window: slot.windowLabel }),
+        approximate: slot.approximate,
+        shifted: slot.shifted,
+      };
+    }
+  }
+
+  if (missionActive && !probe1Done) {
+    const nextProbeAtMs = Number(trip.next_probe_at_ms);
+    const label = resolveProbeScheduleLabel({
+      nextProbeAtMs: Number.isFinite(nextProbeAtMs) && nextProbeAtMs > 0 ? nextProbeAtMs : null,
+      locale,
+      nowMs,
+      t,
+    });
+    return { kind: 'scanScheduled', label };
+  }
+
+  return { kind: 'setup' };
 }

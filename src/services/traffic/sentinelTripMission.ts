@@ -45,6 +45,10 @@ export async function cancelTripMission(intentionId: string): Promise<void> {
   });
 
   console.log(`[TRIP-SENTINEL] 🛑 Mission cancelled for ${id}`);
+  const { waitForSentinelMissionActivation } = await import('./sentinelReconciler');
+  await waitForSentinelMissionActivation(id);
+  const { syncTripProbeScheduleMetadata } = await import('./sentinelElasticTripMetadata');
+  await syncTripProbeScheduleMetadata(id, null, null);
 }
 
 export async function clearTripElasticProbeMetadata(intentionId: string): Promise<void> {
@@ -67,6 +71,8 @@ export async function clearTripElasticProbeMetadata(intentionId: string): Promis
         elastic_end_ms: null,
         elastic_buffer_min: null,
         last_traffic_duration: null,
+        next_probe_at_ms: null,
+        next_probe_reason: null,
       },
     },
     { silent: true },

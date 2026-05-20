@@ -2,8 +2,11 @@ import { withTrankilV2Database } from '../../api/trankilV2Db';
 import {
   computeElasticDepartureWindow,
   DEFAULT_ELASTIC_D_STD_MIN,
+  normalizeElasticTransportMode,
   scheduleElasticProbes,
+  skipsElasticProbe2,
 } from '../../utils/elasticSlotEngine';
+import { syncTripProbeScheduleMetadata } from './sentinelElasticTripMetadata';
 import { startSentinelRuntime } from './sentinelRuntime';
 
 async function tryAddColumn(db: { execAsync: (sql: string) => Promise<void> }, sql: string) {
@@ -84,18 +87,31 @@ export async function activateSentinelTrip(input: {
 }): Promise<void> {
   const nowMs = Date.now();
   const dStdMin = Math.max(1, Number(input.standardDurationMin ?? DEFAULT_ELASTIC_D_STD_MIN) || DEFAULT_ELASTIC_D_STD_MIN);
-  const window = computeElasticDepartureWindow(input.targetArrivalMs, dStdMin);
+  const elasticMode = normalizeElasticTransportMode(input.transportMode);
+  const window = computeElasticDepartureWindow(input.targetArrivalMs, dStdMin, elasticMode);
   const windowStartMs = window?.startDate.getTime() ?? input.targetArrivalMs - dStdMin * 60_000;
   const windowEndMs = window?.endDate.getTime() ?? input.targetArrivalMs;
   const hasProbe1Done = input.standardDurationMin != null && Number.isFinite(Number(input.standardDurationMin));
   const scanCount = hasProbe1Done ? 1 : 0;
-  const probes = scheduleElasticProbes({ windowStartMs, dStdMin, nowMs });
+  const probes = scheduleElasticProbes({
+    windowStartMs,
+    dStdMin,
+    nowMs,
+    skipProbe2: skipsElasticProbe2(input.transportMode),
+  });
+  const skipProbe2 = skipsElasticProbe2(input.transportMode);
   const nextProbeReason = hasProbe1Done
-    ? probes?.probe2AtMs != null
-      ? 'PROBE2_TREND'
-      : 'PROBE3_GONOGO'
+    ? skipProbe2
+      ? 'PROBE3_GONOGO'
+      : probes?.probe2AtMs != null
+        ? 'PROBE2_TREND'
+        : 'PROBE3_GONOGO'
     : 'PROBE1_CONFIG';
-  const nextProbeAtMs = hasProbe1Done ? probes?.probe2AtMs ?? probes?.probe3AtMs ?? null : nowMs;
+  const nextProbeAtMs = hasProbe1Done
+    ? skipProbe2
+      ? probes?.probe3AtMs ?? null
+      : probes?.probe2AtMs ?? probes?.probe3AtMs ?? null
+    : nowMs;
   const sentinelMode = input.sentinelMode ?? 'SENTINEL';
   const vigilanceStatus = nowMs >= input.targetArrivalMs ? 'FINISHED' : 'VIGILANCE_BLUE';
 
@@ -179,6 +195,10 @@ export async function activateSentinelTrip(input: {
 
   if (input.needsGpsCatchup) {
     console.log(`[TRIP-SENTINEL] 📍 GPS catch-up scheduled on PROBE1 for ${input.tripTaskId}`);
+  }
+
+  if (vigilanceStatus !== 'FINISHED') {
+    await syncTripProbeScheduleMetadata(input.tripTaskId, nextProbeAtMs, nextProbeReason);
   }
 }
 

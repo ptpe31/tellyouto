@@ -13,6 +13,11 @@ import {
 import { activateSentinelTrip, ensureSentinelTripsSchema, kickSentinelAfterActivation } from './sentinelActivation';
 import { cancelTripMission, clearTripElasticProbeMetadata, suspendTripMissionForAllDay } from './sentinelTripMission';
 
+const RECONCILE_DEBOUNCE_MS = 500;
+
+const reconcileDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const missionActivations = new Map<string, Promise<void>>();
+
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> {
   if (!raw) return {};
   try {
@@ -44,80 +49,133 @@ async function readIsProUserLocal(): Promise<boolean> {
   }
 }
 
-export async function reconcileSentinelForIntentionId(intentionId: string): Promise<void> {
+/** Attend la fin d'une activation Sentinel en cours (évite cancel/reconcile concurrent). */
+export async function waitForSentinelMissionActivation(intentionId: string): Promise<void> {
   const id = String(intentionId || '').trim();
   if (!id) return;
-  const row = await getTrankilV2IntentionById(id);
-  if (!row) return;
+  const inflight = missionActivations.get(id);
+  if (inflight) {
+    try {
+      await inflight;
+    } catch {
+      // ignore — l'appelant gère son propre flux
+    }
+  }
+}
 
-  const remindToLeave = Boolean(row.remind_to_leave);
-  const meta = safeParseJsonObject(row.metadata_json);
-  const trip = meta.trip && typeof meta.trip === 'object' && !Array.isArray(meta.trip) ? (meta.trip as Record<string, unknown>) : null;
-  if (!trip) return;
+async function reconcileSentinelForIntentionIdInner(intentionId: string): Promise<void> {
+  const id = String(intentionId || '').trim();
+  if (!id) return;
 
-  const destLat = typeof trip.location_lat === 'number' ? Number(trip.location_lat) : NaN;
-  const destLng = typeof trip.location_lng === 'number' ? Number(trip.location_lng) : NaN;
-  const placeId = typeof trip.location_place_id === 'string' ? String(trip.location_place_id) : '';
-  const destination = String(trip.location_address || row.location_address || '').trim();
-  const arrivalMs =
-    msFromUnknown(trip.arrivalDue) ??
-    msFromUnknown(trip.dueDateTime) ??
-    msFromUnknown(meta.dueDateTime) ??
-    null;
-  const transportModeRaw = row.transport_mode == null ? null : String(row.transport_mode || '').trim() || null;
-  const transportMode = transportModeRaw ? normalizeTripTransportMode(transportModeRaw) : null;
-
-  await ensureSentinelTripsSchema();
-
-  if (isTripAllDay(meta, trip, row.due_date ?? null)) {
-    await suspendTripMissionForAllDay(id);
+  const existing = missionActivations.get(id);
+  if (existing) {
+    await existing;
     return;
   }
 
-  const isProUser = await readIsProUserLocal();
+  const run = (async () => {
+    const row = await getTrankilV2IntentionById(id);
+    if (!row) return;
 
-  if (!remindToLeave || !isProUser) {
-    await cancelTripMission(id);
-    return;
+    if (Number(row.remind_to_leave) !== 1) {
+      await cancelTripMission(id);
+      return;
+    }
+
+    const remindToLeave = Boolean(row.remind_to_leave);
+    const meta = safeParseJsonObject(row.metadata_json);
+    const trip = meta.trip && typeof meta.trip === 'object' && !Array.isArray(meta.trip) ? (meta.trip as Record<string, unknown>) : null;
+    if (!trip) return;
+
+    const destLat = typeof trip.location_lat === 'number' ? Number(trip.location_lat) : NaN;
+    const destLng = typeof trip.location_lng === 'number' ? Number(trip.location_lng) : NaN;
+    const placeId = typeof trip.location_place_id === 'string' ? String(trip.location_place_id) : '';
+    const destination = String(trip.location_address || row.location_address || '').trim();
+    const arrivalMs =
+      msFromUnknown(trip.arrivalDue) ??
+      msFromUnknown(trip.dueDateTime) ??
+      msFromUnknown(meta.dueDateTime) ??
+      null;
+    const transportModeRaw = row.transport_mode == null ? null : String(row.transport_mode || '').trim() || null;
+    const transportMode = transportModeRaw ? normalizeTripTransportMode(transportModeRaw) : null;
+
+    await ensureSentinelTripsSchema();
+
+    if (isTripAllDay(meta, trip, row.due_date ?? null)) {
+      await suspendTripMissionForAllDay(id);
+      return;
+    }
+
+    const isProUser = await readIsProUserLocal();
+
+    if (!remindToLeave || !isProUser) {
+      await cancelTripMission(id);
+      return;
+    }
+
+    if (!destination || !Number.isFinite(destLat) || !Number.isFinite(destLng) || !placeId || !arrivalMs) {
+      await cancelTripMission(id);
+      return;
+    }
+
+    const quota = await consumeSentinelQuotaOnTripValidation({ isProUser });
+    const sentinelMode = quota.mode === 'STATIC' ? 'STATIC' : 'SENTINEL';
+    const origin = readTripOriginCoords(trip);
+    const needsGpsCatchup = tripMetadataNeedsGpsCatchup(trip);
+    const hasStandardDuration = hasTripStandardDurationMin(trip);
+    const standardDurationMin = hasStandardDuration ? Number(trip.standard_duration_min) : undefined;
+
+    console.log(
+      `[TRIP-SENTINEL] 📡 Reconciling elastic task for ID: ${id} | GPS catch-up: ${needsGpsCatchup ? 'yes' : 'no'} | D_std: ${hasStandardDuration ? standardDurationMin : 'pending'}`,
+    );
+
+    await activateSentinelTrip({
+      tripTaskId: id,
+      formattedAddress: destination,
+      targetArrivalMs: arrivalMs,
+      lat: destLat,
+      lng: destLng,
+      sentinelMode,
+      transportMode,
+      originLat: origin.lat,
+      originLng: origin.lng,
+      standardDurationMin,
+      needsGpsCatchup,
+    });
+
+    await kickSentinelAfterActivation(id);
+  })();
+
+  missionActivations.set(id, run);
+  try {
+    await run;
+  } finally {
+    missionActivations.delete(id);
   }
+}
 
-  if (!destination || !Number.isFinite(destLat) || !Number.isFinite(destLng) || !placeId || !arrivalMs) {
-    await cancelTripMission(id);
-    return;
-  }
+export function reconcileSentinelForIntentionId(intentionId: string): Promise<void> {
+  const id = String(intentionId || '').trim();
+  if (!id) return Promise.resolve();
 
-  const quota = await consumeSentinelQuotaOnTripValidation({ isProUser });
-  const sentinelMode = quota.mode === 'STATIC' ? 'STATIC' : 'SENTINEL';
-  const origin = readTripOriginCoords(trip);
-  const needsGpsCatchup = tripMetadataNeedsGpsCatchup(trip);
-  const hasStandardDuration = hasTripStandardDurationMin(trip);
-  const standardDurationMin = hasStandardDuration ? Number(trip.standard_duration_min) : undefined;
+  return new Promise((resolve) => {
+    const existingTimer = reconcileDebounceTimers.get(id);
+    if (existingTimer) clearTimeout(existingTimer);
 
-  console.log(
-    `[TRIP-SENTINEL] 📡 Reconciling elastic task for ID: ${id} | GPS catch-up: ${needsGpsCatchup ? 'yes' : 'no'} | D_std: ${hasStandardDuration ? standardDurationMin : 'pending'}`,
-  );
+    const timer = setTimeout(() => {
+      reconcileDebounceTimers.delete(id);
+      void reconcileSentinelForIntentionIdInner(id).finally(resolve);
+    }, RECONCILE_DEBOUNCE_MS);
 
-  await activateSentinelTrip({
-    tripTaskId: id,
-    formattedAddress: destination,
-    targetArrivalMs: arrivalMs,
-    lat: destLat,
-    lng: destLng,
-    sentinelMode,
-    transportMode,
-    originLat: origin.lat,
-    originLng: origin.lng,
-    standardDurationMin,
-    needsGpsCatchup,
+    reconcileDebounceTimers.set(id, timer);
   });
-
-  await kickSentinelAfterActivation(id);
 }
 
 /** Reset complet après changement de destination : annule sondes + relance PROBE1. */
 export async function resetTripMissionAndRelaunchProbe1(intentionId: string): Promise<void> {
   const id = String(intentionId || '').trim();
   if (!id) return;
+  await waitForSentinelMissionActivation(id);
   await cancelTripMission(id);
   await clearTripElasticProbeMetadata(id);
   await reconcileSentinelForIntentionId(id);

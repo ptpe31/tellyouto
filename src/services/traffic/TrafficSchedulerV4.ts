@@ -2,7 +2,7 @@ import { withTrankilV2Database, insertUserActivityLog } from '../../api/trankilV
 import { VERBOSE_DEBUG } from '../../config/verboseDebug';
 import { SentinelNotificationManager } from './TrafficNotificationService';
 import type { ElasticProbeReason } from './sentinelElasticProbes';
-import { loadTripMetaForIntention } from './sentinelElasticTripMetadata';
+import { loadTripMetaForIntention, syncTripProbeScheduleMetadata } from './sentinelElasticTripMetadata';
 import { runElasticSchedulerTick } from './trafficSchedulerElasticTick';
 
 export type TrafficTaskStatus = 'ACTIVE' | 'PAUSED' | 'DONE' | 'ERROR';
@@ -170,6 +170,20 @@ export class TrafficSchedulerV4 {
     const result = await this.computeTick(task, wallNowMs);
     if (Object.keys(result.patch).length > 0) {
       await this.persistPatch(taskId, result.patch);
+      if (
+        result.patch.nextRealScanAtMs !== undefined ||
+        result.patch.nextRealScanReason !== undefined
+      ) {
+        const synced = await this.getTaskById(taskId);
+        const { withSentinelDbRetry } = await import('./sentinelDbRetry');
+        await withSentinelDbRetry('sync probe schedule after tick', taskId, () =>
+          syncTripProbeScheduleMetadata(
+            taskId,
+            synced?.nextRealScanAtMs ?? null,
+            synced?.nextRealScanReason ?? null,
+          ),
+        );
+      }
     }
     if (result.goNoGo) {
       await this.notificationManager.sendGoNoGoPush({

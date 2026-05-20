@@ -80,28 +80,20 @@ function resolveStoredElasticWindow(trip: Record<string, unknown>): ElasticDepar
   return elasticWindowFromStoredMs(startMs, endMs, parsedStd, bufferMin);
 }
 
-function resolveStandardDurationMin(trip: Record<string, unknown>): { minutes: number; approximate: boolean } {
-  if (trip.elastic_approximate === true) {
-    const raw = Number(trip.standard_duration_min);
-    return {
-      minutes: Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_ELASTIC_D_STD_MIN,
-      approximate: true,
-    };
-  }
-  if (trip.elastic_approximate === false) {
-    const raw = Number(trip.standard_duration_min);
-    return {
-      minutes: Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_ELASTIC_D_STD_MIN,
-      approximate: false,
-    };
-  }
+/** PROBE1 terminé — `standard_duration_min` persisté en metadata. */
+export function hasTripStandardDurationMin(trip: Record<string, unknown> | null | undefined): boolean {
+  if (!trip) return false;
+  const parsed = Number(trip.standard_duration_min);
+  return trip.standard_duration_min != null && Number.isFinite(parsed) && parsed > 0;
+}
 
-  const raw = trip.standard_duration_min;
-  const parsed = Number(raw);
-  if (raw != null && Number.isFinite(parsed) && parsed > 0) {
-    return { minutes: parsed, approximate: false };
-  }
-  return { minutes: DEFAULT_ELASTIC_D_STD_MIN, approximate: true };
+function resolveStandardDurationMin(trip: Record<string, unknown>): { minutes: number; approximate: boolean } | null {
+  if (!hasTripStandardDurationMin(trip)) return null;
+  const raw = Number(trip.standard_duration_min);
+  const minutes = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_ELASTIC_D_STD_MIN;
+  if (trip.elastic_approximate === true) return { minutes, approximate: true };
+  if (trip.elastic_approximate === false) return { minutes, approximate: false };
+  return { minutes, approximate: false };
 }
 
 export function resolveElasticSlotDisplay(input: {
@@ -124,12 +116,18 @@ export function resolveElasticSlotDisplay(input: {
     return { ...empty, approximate: false, shifted: false };
   }
 
+  if (!hasTripStandardDurationMin(trip)) {
+    return { ...empty, approximate: false, shifted: false };
+  }
+
   const shifted = trip.elastic_shifted === true;
   const stored = resolveStoredElasticWindow(trip);
-  const { minutes: dStdMin, approximate } = resolveStandardDurationMin(trip);
+  const std = resolveStandardDurationMin(trip);
+  if (!std) return { ...empty, approximate: false, shifted: false };
 
+  const { minutes: dStdMin, approximate } = std;
   const arrivalIso = parseTripArrivalIso(meta, trip, dueDate);
-  const computed = arrivalIso ? computeElasticDepartureWindow(arrivalIso, dStdMin) : null;
+  const computed = !stored && arrivalIso ? computeElasticDepartureWindow(arrivalIso, dStdMin) : null;
   const window = stored ?? computed;
 
   return {

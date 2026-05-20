@@ -42,8 +42,13 @@ import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import { reconcileSentinelForIntentionId, resetTripMissionAndRelaunchProbe1, wakeTripMissionAfterTimedRestore } from '../services/traffic/sentinelReconciler';
 import { cancelTripMission, suspendTripMissionForAllDay } from '../services/traffic/sentinelTripMission';
+import { showAppToast } from '../services/appToast';
+import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { isPass2UnlockedMeta } from '../utils/tripTimelineCard';
-import { isTripAllDay } from '../utils/tripElasticDisplay';
+import { isTripAllDay, hasTripStandardDurationMin, resolveElasticSlotDisplay } from '../utils/tripElasticDisplay';
+import { resolveProbeScheduleLabel } from '../utils/tripProbeScheduleDisplay';
+import { resolveTripSurveillanceUiState, tripSurveillanceLabelKey } from '../utils/tripSurveillanceButton';
+import { getTripReadinessBlockers, isTripMissionActive, isTripReadyForScan } from '../utils/tripTripReadiness';
 import { getLocationFavoriteByAlias, upsertLocationFavorite } from '../services/traffic/locationFavorites';
 import {
   buildListMetadataPatch,
@@ -72,7 +77,6 @@ import {
   normalizeTripTransportMode,
   type TripTransportMode,
 } from '../utils/tripTransportMode';
-import { resolveElasticSlotDisplay } from '../utils/tripElasticDisplay';
 
 type Props = {
   visible: boolean;
@@ -91,9 +95,6 @@ type Props = {
   intentionMixAccentColor?: string | null;
   /** Fondu du corps de feuille lors du changement d’intention (N cartes). */
   morphSheetContentOnIntentionChange?: boolean;
-  /** Timeline TRIP : ouvrir en édition le champ arrivée dès l’entrée en full. */
-  focusArrivalAddressOnOpen?: boolean;
-  onFocusArrivalAddressConsumed?: () => void;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -537,8 +538,6 @@ export function IntentionDetailSheet({
   captureSheetMaxHeightRatio,
   intentionMixAccentColor,
   morphSheetContentOnIntentionChange,
-  focusArrivalAddressOnOpen,
-  onFocusArrivalAddressConsumed,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
@@ -550,7 +549,6 @@ export function IntentionDetailSheet({
     Number.isFinite(rawPeek) && rawPeek > 0 ? rawPeek : capturePeekPathAHeightPx();
   const translateY = useRef(new Animated.Value(0)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
-  const tripControlsOpacity = useRef(new Animated.Value(0)).current;
   const [sheetHeight, setSheetHeight] = useState(0);
   const [closing, setClosing] = useState(false);
   const [entered, setEntered] = useState(false);
@@ -584,7 +582,6 @@ export function IntentionDetailSheet({
   const [pickerDraft, setPickerDraft] = useState<Date>(new Date());
   const [isAllDay, setIsAllDay] = useState(false);
   const [remindToLeaveEnabled, setRemindToLeaveEnabled] = useState(false);
-  const [showTripControls, setShowTripControls] = useState(false);
   const [originLat, setOriginLat] = useState<number | null>(null);
   const [originLng, setOriginLng] = useState<number | null>(null);
   const [arrivalLat, setArrivalLat] = useState<number | null>(null);
@@ -715,10 +712,10 @@ export function IntentionDetailSheet({
   const showSlot3 = multiIntents.length > 2;
   const isValidationView =
     Boolean(validationMode) && visible && sheetPosition === 'peek' && peekCapturePhase === 'path_b';
-  /** Talk Path B + trajet + feuille pleine : afficher l’édition logistique sans exiger `pass2_unlocked`. */
+  /** TRIP hub : logistique visible en feuille pleine sans exiger Pass 2. */
   const gateFullTripBypass = useMemo(
-    () => Boolean(validationMode && peekCapturePhase === 'path_b' && isTrip && sheetPosition === 'full'),
-    [isTrip, peekCapturePhase, sheetPosition, validationMode],
+    () => Boolean(isTrip && sheetPosition === 'full' && !isValidationView),
+    [isTrip, isValidationView, sheetPosition],
   );
   /** Fiche « note augmentée » tant que `pass2_unlocked` est absent/faux (hors vue validation capture). */
   const gateLocked = Boolean(visible && row && !pass2Unlocked && !isValidationView && !gateFullTripBypass);
@@ -994,7 +991,9 @@ export function IntentionDetailSheet({
       })();
     }
     const tMeta = getTripMeta(meta);
-    const nextArrivalText = String(str(tMeta, 'location_address') ?? str(meta, 'location_address') ?? '').trim();
+    const addressFromMeta = String(str(tMeta, 'location_address') ?? str(meta, 'location_address') ?? '').trim();
+    const aliasFromMeta = String(str(tMeta, 'destination_name') ?? '').trim();
+    const nextArrivalText = addressFromMeta;
     setOriginText(String(str(tMeta, 'origin_address') ?? '').trim());
     setArrivalText(nextArrivalText);
     const oLat = Number((tMeta as any)?.origin_lat);
@@ -1009,7 +1008,7 @@ export function IntentionDetailSheet({
     setArrivalLng(nextArrivalLng);
     if (tMeta && row?.id) {
       console.log(
-        `[TRIP-INIT] 🗺️ Opening Sheet ID: ${row.id} | Alias: ${str(tMeta, 'destination_name') ?? '—'} | HasAddress: ${Boolean(nextArrivalText)} | HasCoords: ${nextArrivalLat != null && nextArrivalLng != null}`,
+        `[TRIP-INIT] 🗺️ Opening Sheet ID: ${row.id} | Alias: ${aliasFromMeta || '—'} | HasAddress: ${Boolean(addressFromMeta)} | HasCoords: ${nextArrivalLat != null && nextArrivalLng != null}`,
       );
     }
     setOriginEditing(false);
@@ -1075,38 +1074,95 @@ export function IntentionDetailSheet({
     [meta, row?.due_date, trip],
   );
 
+  /** Mission logistique TRIP : visible en feuille pleine. */
+  const showMission = isTrip && sheetPosition === 'full';
+
+  const canEnableRemindToLeave = useMemo(() => {
+    if (!isProUser || tripIsAllDay) return false;
+    return isTripReadyForScan({
+      meta,
+      trip: trip as Record<string, unknown> | null,
+      dueDate: row?.due_date ?? null,
+    });
+  }, [isProUser, meta, row?.due_date, trip, tripIsAllDay]);
+
+  const tripSurveillanceUiState = useMemo(
+    () =>
+      resolveTripSurveillanceUiState({
+        isProUser,
+        tripIsAllDay,
+        remindToLeaveEnabled,
+        canEnableRemindToLeave,
+      }),
+    [canEnableRemindToLeave, isProUser, remindToLeaveEnabled, tripIsAllDay],
+  );
+
+  const probeScheduleClockActive = useMemo(() => {
+    if (tripIsAllDay || elasticSlotDisplay?.windowLabel) return false;
+    if (!remindToLeaveEnabled) return false;
+    const tripRecord = trip as Record<string, unknown> | null;
+    if (
+      !isTripMissionActive({
+        remindToLeave: remindToLeaveEnabled,
+        meta,
+        trip: tripRecord,
+        dueDate: row?.due_date ?? null,
+      })
+    ) {
+      return false;
+    }
+    return !hasTripStandardDurationMin(tripRecord);
+  }, [elasticSlotDisplay?.windowLabel, meta, remindToLeaveEnabled, row?.due_date, trip, tripIsAllDay]);
+
+  const probeScheduleClockTick = useProbeScheduleClock(probeScheduleClockActive);
+
   const elasticComfortLabel = useMemo(() => {
     if (tripIsAllDay) {
       return t('intentionDetail.allDayNoDepartureSlot');
     }
-    if (!elasticSlotDisplay?.windowLabel) {
-      return t('intentionDetail.comfortElasticDeparturePending');
+    const tripRecord = trip as Record<string, unknown> | null;
+    if (elasticSlotDisplay?.windowLabel) {
+      if (elasticSlotDisplay.shifted) {
+        return t('intentionDetail.comfortElasticDepartureShifted', { window: elasticSlotDisplay.windowLabel });
+      }
+      if (elasticSlotDisplay.approximate) {
+        return t('intentionDetail.comfortElasticDepartureApprox', { window: elasticSlotDisplay.windowLabel });
+      }
+      return t('intentionDetail.comfortElasticDeparture', { window: elasticSlotDisplay.windowLabel });
     }
-    if (elasticSlotDisplay.shifted) {
-      return t('intentionDetail.comfortElasticDepartureShifted', { window: elasticSlotDisplay.windowLabel });
+    if (
+      remindToLeaveEnabled &&
+      isTripMissionActive({
+        remindToLeave: remindToLeaveEnabled,
+        meta,
+        trip: tripRecord,
+        dueDate: row?.due_date ?? null,
+      }) &&
+      !hasTripStandardDurationMin(tripRecord)
+    ) {
+      const nextProbeAtMs = Number(tripRecord?.next_probe_at_ms);
+      return resolveProbeScheduleLabel({
+        nextProbeAtMs: Number.isFinite(nextProbeAtMs) && nextProbeAtMs > 0 ? nextProbeAtMs : null,
+        locale: i18n.language,
+        nowMs: probeScheduleClockTick,
+        t,
+      });
     }
-    if (elasticSlotDisplay.approximate) {
-      return t('intentionDetail.comfortElasticDepartureApprox', { window: elasticSlotDisplay.windowLabel });
-    }
-    return t('intentionDetail.comfortElasticDeparture', { window: elasticSlotDisplay.windowLabel });
-  }, [elasticSlotDisplay, t, tripIsAllDay]);
+    return null;
+  }, [elasticSlotDisplay, i18n.language, meta, probeScheduleClockTick, remindToLeaveEnabled, row?.due_date, t, trip, tripIsAllDay]);
 
-  /** Mission : visible en feuille pleine même sans « rappel au départ ». */
-  const showMission = isTrip && (showTripControls || sheetPosition === 'full');
-  const isTripRemindReady = useMemo(() => {
-    if (!showMission) return false;
-    if (isAllDay) return false;
-    const placeId = String(str(trip as any, 'location_place_id') ?? '').trim();
-    const address = String(str(trip as any, 'location_address') ?? str(meta as any, 'location_address') ?? '').trim();
-    const lat = Number((trip as any)?.location_lat);
-    const lng = Number((trip as any)?.location_lng);
-    const arrivalIso = String(
-      str(trip as any, 'arrivalDue') ?? str(trip as any, 'dueDateTime') ?? str(meta as any, 'dueDateTime') ?? '',
-    ).trim();
-    const arrivalOk = arrivalIso ? Number.isFinite(Date.parse(arrivalIso)) : false;
-    return Boolean(placeId && address && Number.isFinite(lat) && Number.isFinite(lng) && arrivalOk);
-  }, [isAllDay, meta, showMission, trip]);
-  const showSurveillanceMissing = showMission && remindToLeaveEnabled && !isTripRemindReady && !tripIsAllDay;
+  const tripReadinessBlockers = useMemo(() => {
+    if (!showMission || tripIsAllDay || canEnableRemindToLeave) return [];
+    return getTripReadinessBlockers({
+      meta,
+      trip: trip as Record<string, unknown> | null,
+      dueDate: row?.due_date ?? null,
+    });
+  }, [canEnableRemindToLeave, meta, row?.due_date, showMission, trip, tripIsAllDay]);
+
+  const showArrivalBlocker = tripReadinessBlockers.includes('arrival_time');
+  const showDestinationBlocker = tripReadinessBlockers.includes('destination');
+  const showTripFieldReadiness = isTrip && showMission && !tripIsAllDay;
 
   const canLaunchNavigation = useMemo(() => {
     if (!isTrip) return false;
@@ -1119,19 +1175,6 @@ export function IntentionDetailSheet({
       originText,
     });
   }, [isTrip, trip, arrivalLat, arrivalLng, originLat, originLng, originText]);
-
-  useEffect(() => {
-    if (remindToLeaveEnabled) {
-      setShowTripControls(true);
-      tripControlsOpacity.stopAnimation();
-      Animated.timing(tripControlsOpacity, { toValue: 1, duration: 180, useNativeDriver: true }).start();
-      return;
-    }
-    tripControlsOpacity.stopAnimation();
-    Animated.timing(tripControlsOpacity, { toValue: 0, duration: 140, useNativeDriver: true }).start(() => {
-      setShowTripControls(false);
-    });
-  }, [remindToLeaveEnabled, tripControlsOpacity]);
 
   useEffect(
     () => () => {
@@ -1340,21 +1383,6 @@ export function IntentionDetailSheet({
       setEntered(true);
     });
   }, [clearPeekAutoCloseTimer, initialPosition, peekTranslateY, sheetOpacity, translateY, visible, windowHeight]);
-
-  useEffect(() => {
-    if (!visible || !entered || !focusArrivalAddressOnOpen || !isTrip) return;
-    setSheetPosition('full');
-    translateY.stopAnimation();
-    Animated.spring(translateY, {
-      toValue: 0,
-      damping: 28,
-      stiffness: 220,
-      mass: 0.9,
-      useNativeDriver: true,
-    }).start();
-    setArrivalEditing(true);
-    onFocusArrivalAddressConsumed?.();
-  }, [entered, focusArrivalAddressOnOpen, isTrip, onFocusArrivalAddressConsumed, translateY, visible]);
 
   /** Ajustement peek (ex. Path A → B) sans extinction ni renvoi sous l’écran. */
   useEffect(() => {
@@ -1754,8 +1782,6 @@ export function IntentionDetailSheet({
         // ignore
       }
       setRemindToLeaveEnabled(true);
-      setShowTripControls(true);
-      tripControlsOpacity.setValue(1);
       void reconcileSentinelForIntentionId(row.id);
       openFullSheet();
       return;
@@ -1776,7 +1802,6 @@ export function IntentionDetailSheet({
     persistPass2Unlocked,
     redirectToProSubscription,
     row,
-    tripControlsOpacity,
     onPressPass2,
   ]);
 
@@ -1801,20 +1826,33 @@ export function IntentionDetailSheet({
     row?.type,
   ]);
 
-  const onToggleRemindToLeave = async () => {
+  const onPressTripSurveillance = async () => {
     if (!row || tripIsAllDay) return;
-    const next = !remindToLeaveEnabled;
-    if (next && !isProUser) {
+
+    if (tripSurveillanceUiState === 'free_locked') {
       redirectToProSubscription();
       return;
     }
-    setRemindToLeaveEnabled(next);
-    await updateTrankilV2IntentionRemindToLeave(row.id, next);
-    if (!next) {
-      await cancelTripMission(row.id);
-    } else {
-      await reconcileSentinelForIntentionId(row.id);
+    if (tripSurveillanceUiState === 'pro_incomplete') {
+      showAppToast(t('intentionDetail.surveillanceMissingInfo'));
+      return;
     }
+    if (tripSurveillanceUiState === 'all_day') {
+      return;
+    }
+
+    if (tripSurveillanceUiState === 'pro_active') {
+      setRemindToLeaveEnabled(false);
+      await updateTrankilV2IntentionRemindToLeave(row.id, false);
+      await cancelTripMission(row.id);
+      onPatchRow?.(row.id, { remind_to_leave: 0 });
+      return;
+    }
+
+    setRemindToLeaveEnabled(true);
+    await updateTrankilV2IntentionRemindToLeave(row.id, true);
+    onPatchRow?.(row.id, { remind_to_leave: 1 });
+    await reconcileSentinelForIntentionId(row.id);
   };
 
   const onToggleChecklistItem = async (uid: string) => {
@@ -1839,7 +1877,11 @@ export function IntentionDetailSheet({
     await updateTrankilV2IntentionTransportMode(row.id, { transport_mode: mode }, { silent: true });
     const tripPatch = await touchValidateTrip(root, { transportMode: mode });
     await patchMetadata(row.id, { trip: tripPatch });
-    await reconcileSentinelForIntentionId(row.id);
+    if (remindToLeaveEnabled) {
+      await resetTripMissionAndRelaunchProbe1(row.id);
+    } else {
+      await reconcileSentinelForIntentionId(row.id);
+    }
   };
 
   const persistDueDateTime = async (d: Date, opts?: { closePicker?: boolean; allDay?: boolean }) => {
@@ -1951,8 +1993,9 @@ export function IntentionDetailSheet({
 
   const ecoBadge = transportMode === 'walking' || transportMode === 'bike';
   const originDisplay = originText.trim() ? originText.trim() : t('intentionDetail.currentPosition');
-  const arrivalDisplay = arrivalText.trim() ? arrivalText.trim() : favoriteArrival ? favoriteArrival : destinationLabel;
-  const arrivalIsAddress = Boolean(arrivalText.trim() || favoriteArrival);
+  const savedArrivalAddress = arrivalText.trim() || (favoriteArrival ? favoriteArrival.trim() : '');
+  const arrivalDisplay = savedArrivalAddress || null;
+  const arrivalIsAddress = Boolean(savedArrivalAddress);
   const projectCalendarMode = useMemo(() => {
     if (!isProject || !projectPayload) return false;
     if (projectStartDraftYmd) return true;
@@ -2577,9 +2620,18 @@ export function IntentionDetailSheet({
                       <View pointerEvents="none" style={styles.addrIconWrap}>
                         <IconButton icon="calendar-month-outline" size={18} iconColor={theme.colors.onSurfaceVariant} style={styles.addrIcon} />
                       </View>
-                      <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                      <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant, flex: 1 }]} numberOfLines={1}>
                         {subtitle}
                       </Text>
+                      {showTripFieldReadiness ? (
+                        showArrivalBlocker ? (
+                          <IconButton icon="alert" size={18} iconColor="#eab308" style={styles.addrIcon} />
+                        ) : (
+                          <View pointerEvents="none">
+                            <IconButton icon="check-circle" size={18} iconColor="#16a34a" style={styles.addrIcon} />
+                          </View>
+                        )
+                      ) : null}
                     </Pressable>
                   ) : null}
 
@@ -2694,21 +2746,25 @@ export function IntentionDetailSheet({
                             if (!row) return;
                             const raw = text.trim();
                             const root = safeParseJsonObject(row.metadata_json) ?? {};
-                            const tripMeta = getTripMeta(root) ?? {};
                             if (arrivalSaveTimer.current) clearTimeout(arrivalSaveTimer.current);
                             arrivalSaveTimer.current = setTimeout(() => {
                               arrivalSaveTimer.current = null;
                               void (async () => {
-                                void tripMeta;
                                 const tripPatch = await touchValidateTrip(root, {
-                                  location_address: raw,
+                                  location_address: raw || null,
                                   location_place_id: null,
                                   location_lat: null,
                                   location_lng: null,
                                 });
-                                await updateTrankilV2IntentionLocationAddress(row.id, { location_address: raw || null }, { silent: true });
+                                await updateTrankilV2IntentionLocationAddress(
+                                  row.id,
+                                  { location_address: raw || null },
+                                  { silent: true },
+                                );
                                 await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
-                                await syncSentinelAfterDestinationChange(row.id, root);
+                                if (!raw && remindToLeaveEnabled) {
+                                  await cancelTripMission(row.id);
+                                }
                               })();
                             }, 250);
                           }}
@@ -2766,14 +2822,29 @@ export function IntentionDetailSheet({
                           style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
                         >
                           <Text
-                            style={[styles.addrValue, { color: arrivalIsAddress ? theme.colors.onSurfaceVariant : theme.colors.onSurface }]}
+                            style={[
+                              styles.addrValue,
+                              {
+                                color: arrivalIsAddress ? theme.colors.onSurface : theme.colors.onSurfaceVariant,
+                                opacity: arrivalIsAddress ? 1 : 0.72,
+                              },
+                            ]}
                             numberOfLines={2}
                           >
-                            {arrivalDisplay || '—'}
+                            {arrivalIsAddress ? arrivalDisplay : t('intentionDetail.addressPlaceholder')}
                           </Text>
                         </Pressable>
                       )}
                     </View>
+                    {showTripFieldReadiness ? (
+                      showDestinationBlocker ? (
+                        <IconButton icon="alert" size={18} iconColor="#eab308" style={styles.addrIcon} />
+                      ) : (
+                        <View pointerEvents="none">
+                          <IconButton icon="check-circle" size={18} iconColor="#16a34a" style={styles.addrIcon} />
+                        </View>
+                      )
+                    ) : null}
                   </View>
                 </View>
                 </>
@@ -2794,29 +2865,6 @@ export function IntentionDetailSheet({
                   {isTrip ? (
                     <>
                       <View style={styles.section}>
-                        <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
-                          {t('intentionDetail.trip')}
-                        </Text>
-                        <View style={styles.newtonRow}>
-                          <Text style={[styles.switchLabel, { color: theme.colors.onSurfaceVariant }]}>
-                            {isProUser
-                              ? t('intentionDetail.remindToLeave')
-                              : `${t('intentionDetail.remindToLeave')} ${t('intentionDetail.pass2LockedSuffix')}`.trim()}
-                          </Text>
-                          <Switch
-                            value={remindToLeaveEnabled && !tripIsAllDay}
-                            disabled={tripIsAllDay}
-                            onValueChange={() => void onToggleRemindToLeave()}
-                          />
-                        </View>
-                      </View>
-
-                      <Animated.View
-                        style={[
-                          styles.section,
-                          { opacity: sheetPosition === 'full' ? 1 : tripControlsOpacity },
-                        ]}
-                      >
                           <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
                             {t('intentionDetail.labelTransport')}
                           </Text>
@@ -2856,18 +2904,9 @@ export function IntentionDetailSheet({
                             <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
                               {t('intentionDetail.comfortTitle')}
                             </Text>
-                            {showSurveillanceMissing ? (
-                              <IconButton icon="alert" size={18} iconColor="#eab308" style={styles.addrIcon} />
-                            ) : null}
                           </View>
 
-                          {showSurveillanceMissing ? (
-                            <Text style={[styles.comfortLine, { color: theme.colors.onSurfaceVariant }]}>
-                              {t('intentionDetail.surveillanceMissingInfo')}
-                            </Text>
-                          ) : null}
-
-                          {isProUser ? (
+                          {isProUser && elasticComfortLabel ? (
                             <View
                               style={[
                                 styles.comfortDeparturePill,
@@ -2898,7 +2937,7 @@ export function IntentionDetailSheet({
                               </Text>
                             )}
                           </View>
-                        </Animated.View>
+                        </View>
                     </>
                   ) : null}
 
@@ -3350,30 +3389,52 @@ export function IntentionDetailSheet({
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+              {isTrip ? (
+                <View style={styles.footerTripCol}>
+                  <Button
+                    mode="outlined"
+                    onPress={() =>
+                      void openNavigationUniversal({
+                        origin: originText.trim() ? originText.trim() : null,
+                        destination: savedArrivalAddress || destinationLabel || '',
+                        mode: transportMode,
+                      })
+                    }
+                    disabled={!canLaunchNavigation}
+                    style={styles.footerBtn}
+                  >
+                    {t('intentionDetail.launchRoute')}
+                  </Button>
+                  {!canLaunchNavigation ? (
+                    <Text style={[styles.launchRouteHint, { color: theme.colors.onSurfaceVariant }]}>
+                      {t('intentionDetail.launchRouteDisabledHint')}
+                    </Text>
+                  ) : null}
+                  <Button
+                    mode={tripSurveillanceUiState === 'pro_active' ? 'outlined' : 'contained'}
+                    onPress={() => void onPressTripSurveillance()}
+                    disabled={tripSurveillanceUiState === 'all_day'}
+                    style={[
+                      styles.tripSurveillanceBtn,
+                      tripSurveillanceUiState === 'pro_active'
+                        ? { borderColor: '#16a34a', borderWidth: 2 }
+                        : null,
+                      tripSurveillanceUiState === 'pro_incomplete' || tripSurveillanceUiState === 'all_day'
+                        ? { opacity: 0.55 }
+                        : null,
+                    ]}
+                    labelStyle={
+                      tripSurveillanceUiState === 'pro_active'
+                        ? { color: '#16a34a', fontWeight: '800' }
+                        : { fontWeight: '800' }
+                    }
+                    contentStyle={styles.tripSurveillanceBtnContent}
+                  >
+                    {t(tripSurveillanceLabelKey(tripSurveillanceUiState))}
+                  </Button>
+                </View>
+              ) : null}
               <View style={styles.footerRow}>
-                {isTrip ? (
-                  <View style={styles.footerLaunchCol}>
-                    <Button
-                      mode="contained"
-                      onPress={() =>
-                        void openNavigationUniversal({
-                          origin: originText.trim() ? originText.trim() : null,
-                          destination: arrivalDisplay ?? '',
-                          mode: transportMode,
-                        })
-                      }
-                      disabled={!canLaunchNavigation}
-                      style={styles.footerBtn}
-                    >
-                      {t('intentionDetail.launchRoute')}
-                    </Button>
-                    {!canLaunchNavigation ? (
-                      <Text style={[styles.launchRouteHint, { color: theme.colors.onSurfaceVariant }]}>
-                        {t('intentionDetail.launchRouteDisabledHint')}
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : null}
                 {pass2FooterCtaNode}
                 <Button mode="text" onPress={onClose} style={styles.footerCloseBtn} labelStyle={styles.footerCloseLabel}>
                   {t('intentionDetail.close')}
@@ -3725,8 +3786,11 @@ const styles = StyleSheet.create({
   footer: { paddingHorizontal: 16, paddingTop: 10 },
   footerActionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
+  footerTripCol: { width: '100%', gap: 10, marginBottom: 10 },
   footerLaunchCol: { flexShrink: 1, maxWidth: '58%' },
   footerBtn: { borderRadius: 16 },
+  tripSurveillanceBtn: { borderRadius: 16, width: '100%' },
+  tripSurveillanceBtnContent: { paddingVertical: 8 },
   launchRouteHint: { fontSize: 11, marginTop: 4, lineHeight: 14 },
   pass2FooterBtn: {
     minHeight: 44,

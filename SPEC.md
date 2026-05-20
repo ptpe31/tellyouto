@@ -784,20 +784,26 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 **Périmètre** : uniquement les lignes avec `metadata_json.trip` (objet non vide). TASK / HABIT / LIST / PROJECT sans bloc `trip` : **aucun** pied de carte ni changement de layout.
 
-**Source d’état** : `metadata_json.pass2_unlocked` + champs élastiques dans `metadata_json.trip` (lecture via [`tripElasticDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts) / [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts)). **Plus de lecture live `sentinel_trips` depuis la carte Timeline.**
+**Source d’état** : `isProUser` + `remind_to_leave` + champs élastiques dans `metadata_json.trip` (lecture via [`tripElasticDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticDisplay.ts) / [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts) / [`tripTripReadiness.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts)). **Plus de lecture live `sentinel_trips` depuis la carte Timeline.**
 
-| Cas | Condition | UI pied de carte | Action |
-|-----|-----------|------------------|--------|
-| **A** | `pass2_unlocked !== 1` | Bouton épuré bas de carte : `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*) | Ouvre [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) en **`full`** avec `focusArrivalAddressOnOpen` (champ **Arrivée** en édition Places) — [`TimelineScreen.openDetailTripSetup`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) |
-| **All Day** | `isTripAllDay(meta, trip, due_date)` | Badge `timeline.tripAllDay` | Aucun |
-| **B** | PRO + `standard_duration_min` persisté (PROBE1 fait) | Badge : `timeline.elasticDepartureWindow` ; variantes `elasticDepartureApprox` (≈ GPS/fallback), `elasticDepartureShifted` (⚠️) | Aucun |
-| **C** | PRO + `remind_to_leave === 1` + mission active (`isTripMissionActive`) + PROBE1 **non** fait | Badge `timeline.scanTrafficScheduled` / `scanTrafficSoon` (miroir `trip.next_probe_at_ms`) | Aucun |
-| **D** | PRO mais mission inactive ou remind OFF | Bouton setup (*Me prévenir quand partir ?*) | Sheet full TRIP |
-| **—** | FREE avec `pass2_unlocked === 1` | **Aucun** badge créneau (rappel → paywall) | — |
+| Cas | Condition | UI pied de carte | Action au tap |
+|-----|-----------|------------------|---------------|
+| **All Day** | `isTripAllDay(meta, trip, due_date)` | **Aucun** footer | — |
+| **FREE** | `!isProUser` | CTA `intentionDetail.actionSetupAlertLocked` (*Me prévenir quand partir 🔒*) | Footer → **Paywall direct** ; tap corps → **Sheet hub unifiée** (vitrine + bouton `tripSurveillanceStartLocked`) |
+| **B** | PRO + `standard_duration_min` persisté (PROBE1 fait) | Badge : `timeline.elasticDepartureWindow` ; variantes `elasticDepartureApprox` (≈), `elasticDepartureShifted` (⚠️) | Aucun |
+| **C1** | PRO + mission active + PROBE1 pending + `next_probe_at_ms > now + 60 s` | Badge `timeline.scanTrafficScheduled` (heure miroir `trip.next_probe_at_ms`) | Aucun |
+| **C2** | PRO + mission active + PROBE1 pending + `next_probe_at_ms ≤ now + 60 s` | Badge `timeline.scanTrafficInProgress` (« Scan en cours… ») | Aucun |
+| **D** | PRO mais mission inactive ou remind OFF | CTA `intentionDetail.actionSetupAlert` | Sheet **full hub unifiée** (même vue que tap corps) |
+
+**Sheet — hub TRIP unifié** : une seule Bottom Sheet pour tout TRIP ouvert depuis la Timeline (tap corps ou footer PRO setup) : mémo + timing + itinéraire + transport + **Big Button** `tripSurveillanceStart` / `tripSurveillanceActive` (remplace le switch `remind_to_leave`). Le bouton est grisé + toast si champs manquants ; FREE voit `tripSurveillanceStartLocked` → paywall au tap.
+
+**Badge scan — rafraîchissement temporel** : libellé via [`tripProbeScheduleDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripProbeScheduleDisplay.ts) (`resolveProbeScheduleLabel`) ; miroir `trip.next_probe_at_ms` ; bascule C1→C2 quand `next_probe_at_ms ≤ now + 60 s` ; horloge locale [`useProbeScheduleClock`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) (tick 30 s, cleanup au démontage). **Pas de fallback** `Date.now()` comme fausse heure planifiée.
+
+**Robustesse Sentinel (mai 2026)** : reconcile déclenché **uniquement** à la sélection autocomplete (`onSelect`), debounce 500 ms sur [`sentinelReconciler.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelReconciler.ts), mutex activation par `intentionId`, retry SQLite [`withSentinelDbRetry`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelDbRetry.ts) (logs `[TRIP-SENTINEL-RECOVERY]`).
 
 **Règle anti-faux créneau** : aucune fenêtre `[start – end]` n’est calculée ni affichée tant que `standard_duration_min` est absent (pas de `D_std` par défaut en UI).
 
-**Supprimé** : `timeline.elasticDeparturePending` (faux « Départ estimé » avant PROBE1).
+**Supprimé** : `timeline.elasticDeparturePending`, badge Timeline All Day (`timeline.tripAllDay`).
 
 **Supprimé** : badge « Circulation : X min » et badges scan Newton (`trafficScanConfigured`, `trafficLiveMinutes`).
 

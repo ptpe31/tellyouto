@@ -66,6 +66,7 @@ import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
 import { IntentionCard } from '../components/IntentionCard';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
+import type { TripTimelineFooter } from '../utils/tripTimelineCard';
 import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { getBestOrphanCluster } from '../services/clusterEngine';
@@ -411,7 +412,6 @@ export function TimelineScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
-  const [detailFocusArrival, setDetailFocusArrival] = useState(false);
   const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(() => capturePeekPathAHeightPx());
   const [peekCapturePhase, setPeekCapturePhase] = useState<'idle' | 'path_a' | 'path_b'>('idle');
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
@@ -446,23 +446,28 @@ export function TimelineScreen() {
     return t('timeline.roadmap.progressWrite');
   }, [pass3Progress, t]);
 
-  /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante. */
+  /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante (hub TRIP unifié). */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
-    setDetailFocusArrival(false);
     setPeekCapturePhase('idle');
     setDetailRow(r);
     setDetailPosition('full');
     setDetailOpen(true);
   }, []);
 
-  /** TRIP non configuré : sheet full + focus champ arrivée. */
-  const openDetailTripSetup = useCallback((r: TrankilV2TimelineItemRow) => {
-    setDetailFocusArrival(true);
-    setPeekCapturePhase('idle');
-    setDetailRow(r);
-    setDetailPosition('full');
-    setDetailOpen(true);
-  }, []);
+  const handleTripFooterPress = useCallback(
+    (row: TrankilV2TimelineItemRow, footer: TripTimelineFooter) => {
+      if (footer.kind === 'lockedSetup') {
+        if (rootNavigationRef.isReady()) {
+          rootNavigationRef.navigate('ProSubscription');
+        }
+        return;
+      }
+      if (footer.kind === 'setup') {
+        openDetail(row);
+      }
+    },
+    [openDetail],
+  );
 
   /** Met à jour une ligne dans les listes locales + détail si ouvert. */
   const patchRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
@@ -477,7 +482,6 @@ export function TimelineScreen() {
     setDetailOpen(false);
     setDetailRow(null);
     setDetailPosition('full');
-    setDetailFocusArrival(false);
     setDetailPeekHeightPx(capturePeekPathAHeightPx());
     setPeekCapturePhase('idle');
   }, []);
@@ -1378,7 +1382,7 @@ export function TimelineScreen() {
           enabled={showCompleteOrb}
           onToggleComplete={() => void handleToggleRowComplete(row)}
           onPress={() => openDetail(row)}
-          onPressTripSetup={() => openDetailTripSetup(row)}
+          onPressTripFooter={(footer) => handleTripFooterPress(row, footer)}
         />
       );
       return (
@@ -1410,7 +1414,7 @@ export function TimelineScreen() {
       i18n,
       openSavedDailyRoadmap,
       openDetail,
-      openDetailTripSetup,
+      handleTripFooterPress,
       pendingLocalDone,
       reload,
       setIdeaBankCategoryFilter,
@@ -1526,8 +1530,6 @@ export function TimelineScreen() {
         validationMode
         peekCapturePhase={peekCapturePhase}
         captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
-        focusArrivalAddressOnOpen={detailFocusArrival}
-        onFocusArrivalAddressConsumed={() => setDetailFocusArrival(false)}
       />
 
       <TimelineFilterModal

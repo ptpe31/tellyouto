@@ -109,3 +109,11 @@ export function formatDepartureWindowI18n(
 
   return `${start}${departureWindowSeparator(locale)}${end}`;
 }
+
+/** Heure seule pour badge scan (ex. « 14h30 »). */
+export function formatHmLocal(ms: number, locale: string): string {
+  const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return '';
+  const formatted = formatDepartureTimeI18n(d, locale);
+  return formatted ?? '';
+}
