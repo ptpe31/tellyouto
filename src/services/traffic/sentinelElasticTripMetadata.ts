@@ -4,11 +4,8 @@ import {
   ELASTIC_BUFFER_BASE_MIN,
   anchorToDepartureWindow,
   readElasticWindowAnchor,
-  type ElasticDepartureWindow,
   type WindowAnchor,
 } from '../../utils/elasticSlotEngine';
-
-export { readElasticWindowAnchor };
 
 export type TripElasticMetadataPatch = {
   standard_duration_min?: number;
@@ -99,39 +96,6 @@ export function buildContractTripPatch(input: {
     elastic_shifted: input.shifted ?? false,
     probe3_skipped: input.probe3Skipped,
   };
-}
-
-export function elasticWindowToTripPatch(
-  window: ElasticDepartureWindow,
-  opts?: { approximate?: boolean; shifted?: boolean },
-): TripElasticMetadataPatch {
-  return {
-    standard_duration_min: window.dStdMin,
-    elastic_approximate: opts?.approximate ?? false,
-    elastic_shifted: opts?.shifted ?? false,
-    elastic_start_ms: window.startDate.getTime(),
-    elastic_end_ms: window.endDate.getTime(),
-    elastic_buffer_min: window.bufferMin,
-  };
-}
-
-export function computeTripElasticWindowFromMeta(
-  arrivalMs: number,
-  trip: Record<string, unknown> | null | undefined,
-): ElasticDepartureWindow | null {
-  if (!trip) return null;
-  const anchor = readElasticWindowAnchor(trip);
-  if (anchor) {
-    const buffer = Number(trip.elastic_buffer_min);
-    const tIdeal = Number(trip.standard_duration_min);
-    const bufferMin =
-      Number.isFinite(buffer) && buffer > 0 ? buffer : ELASTIC_BUFFER_BASE_MIN;
-    const tIdealMin =
-      Number.isFinite(tIdeal) && tIdeal > 0 ? tIdeal : anchor.durationMin;
-    return anchorToDepartureWindow(anchor, bufferMin, tIdealMin);
-  }
-  if (!hasTripStandardDurationMin(trip)) return null;
-  return null;
 }
 
 export async function syncTripProbeScheduleMetadata(

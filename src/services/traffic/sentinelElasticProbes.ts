@@ -2,15 +2,12 @@ import {
   DEFAULT_ELASTIC_D_STD_MIN,
   ELASTIC_BUFFER_BASE_MIN,
   computePredictiveBufferMin,
+  readElasticWindowAnchor,
   scheduleElasticProbes,
   skipsElasticProbe2,
 } from '../../utils/elasticSlotEngine';
-import { readElasticWindowAnchor } from '../../utils/elasticSlotEngine';
 import { hasTripStandardDurationMin } from './sentinelElasticTripMetadata';
 import type { TripTaskRowV4 } from './TrafficSchedulerV4';
-
-/** Réexport observabilité créneau élastique — voir `src/utils/tripMathLogger.ts`. */
-export { ENABLE_TRIP_MATH_LOGS, logTripMath } from '../../utils/tripMathLogger';
 
 export const PROBE1_GPS_RETRY_MS = 3 * 60 * 1000;
 export const PROBE2_RETRY_MS = 5 * 60 * 1000;
@@ -74,11 +71,6 @@ export function resolvePredictedDurationMin(
   if (scan1 != null && Number.isFinite(scan1) && scan1 > 0) {
     return Math.max(1, Math.round(scan1 / 60));
   }
-  return resolveIdealDurationMin(task, tripMeta);
-}
-
-/** @deprecated Alias — utiliser resolveIdealDurationMin. */
-export function resolveDStdMin(task: TripTaskRowV4, tripMeta: Record<string, unknown> | null): number {
   return resolveIdealDurationMin(task, tripMeta);
 }
 

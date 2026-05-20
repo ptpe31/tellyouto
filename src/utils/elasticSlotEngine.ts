@@ -20,7 +20,7 @@ export const ELASTIC_PROBE3_LEAD_MIN = 15;
 export const ELASTIC_SHORT_TRIP_MAX_MIN = 15;
 export const DEFAULT_ELASTIC_D_STD_MIN = 30;
 
-export type ElasticTransportMode = 'driving' | 'walking' | 'bicycling';
+type ElasticTransportMode = 'driving' | 'walking' | 'bicycling';
 
 export type WindowAnchor = {
   startMs: number;
@@ -35,12 +35,12 @@ export type ElasticDepartureWindow = {
   dStdMin: number;
 };
 
-export type ElasticProbeSchedule = {
+type ElasticProbeSchedule = {
   probe2AtMs: number | null;
   probe3AtMs: number;
 };
 
-export function normalizeElasticTransportMode(raw: string | null | undefined): ElasticTransportMode {
+function normalizeElasticTransportMode(raw: string | null | undefined): ElasticTransportMode {
   const m = String(raw ?? '').trim().toLowerCase();
   if (m === 'walking' || m === 'walk') return 'walking';
   if (m === 'bike' || m === 'bicycling' || m === 'bicycle') return 'bicycling';

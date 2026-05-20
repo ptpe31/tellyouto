@@ -8,6 +8,7 @@ import {
   computePrudenceAlpha,
   computePredictiveBufferMin,
   isWithinTrafficDeadZone,
+  readElasticWindowAnchor,
   shouldSkipProbe3Api,
   skipsElasticProbe2,
   type WindowAnchor,
@@ -20,7 +21,6 @@ import {
   hasTripStandardDurationMin,
   patchTripElasticMetadata,
 } from './sentinelElasticTripMetadata';
-import { readElasticWindowAnchor } from '../../utils/elasticSlotEngine';
 import {
   computeBufferForTask,
   computeDepartInMinutesFromAnchor,
