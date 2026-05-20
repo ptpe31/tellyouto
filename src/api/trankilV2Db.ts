@@ -168,10 +168,17 @@ let bootstrapPromise: Promise<void> | null = null;
 
 let sqliteQueueTail: Promise<unknown> = Promise.resolve();
 let sqliteReentrantDepth = 0;
+/** > 0 lorsqu’un `BEGIN` explicite est ouvert sur la connexion partagée (évite BEGIN imbriqué). */
+let sqliteExplicitTransactionDepth = 0;
 
 async function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> {
   if (sqliteReentrantDepth > 0) {
-    return operation();
+    sqliteReentrantDepth += 1;
+    try {
+      return await operation();
+    } finally {
+      sqliteReentrantDepth -= 1;
+    }
   }
   const next = sqliteQueueTail.then(async () => {
     sqliteReentrantDepth += 1;
@@ -489,21 +496,26 @@ export async function initTrankilV2Schema(): Promise<void> {
        LIMIT 2000`,
     );
     if (toBackfill.length) {
-      await db.execAsync('BEGIN;');
+      sqliteExplicitTransactionDepth += 1;
       try {
-        for (const r of toBackfill) {
-          const parsed = safeParseJsonRecord(r.metadata_json);
-          const raw = parsed.zoom_parent_jalon_uid;
-          const next = typeof raw === 'string' ? raw.trim() : '';
-          if (!next) continue;
-          await db.runAsync(`UPDATE intentions SET zoom_parent_jalon_uid = ? WHERE id = ?`, [next, r.id]);
-        }
-        await db.execAsync('COMMIT;');
-      } catch (e) {
+        await db.execAsync('BEGIN;');
         try {
-          await db.execAsync('ROLLBACK;');
-        } catch {}
-        throw e;
+          for (const r of toBackfill) {
+            const parsed = safeParseJsonRecord(r.metadata_json);
+            const raw = parsed.zoom_parent_jalon_uid;
+            const next = typeof raw === 'string' ? raw.trim() : '';
+            if (!next) continue;
+            await db.runAsync(`UPDATE intentions SET zoom_parent_jalon_uid = ? WHERE id = ?`, [next, r.id]);
+          }
+          await db.execAsync('COMMIT;');
+        } catch (e) {
+          try {
+            await db.execAsync('ROLLBACK;');
+          } catch {}
+          throw e;
+        }
+      } finally {
+        sqliteExplicitTransactionDepth -= 1;
       }
     }
 
@@ -1544,51 +1556,56 @@ export async function updateBillingState(
 ): Promise<void> {
   await initTrankilV2Schema();
   await withTrankilV2Database(async (db) => {
-    await db.execAsync('BEGIN IMMEDIATE;');
+    sqliteExplicitTransactionDepth += 1;
     try {
-      const cur = await db.getFirstAsync<{ plan_type: string }>(
-        `SELECT plan_type FROM user_billing_state WHERE id = 1 LIMIT 1`,
-      );
-      const currentPlan = String(cur?.plan_type ?? 'FREE').toUpperCase();
-      const requestedPlan = patch.plan_type ? String(patch.plan_type).toUpperCase() : currentPlan;
-      const nextPlan =
-        currentPlan === 'PREMIUM' && requestedPlan !== 'PREMIUM' && opts?.force_downgrade !== true
-          ? 'PREMIUM'
-          : requestedPlan === 'PREMIUM'
-            ? 'PREMIUM'
-            : 'FREE';
-      const now = Date.now();
-      const isDirty = opts?.fromSync ? 0 : 1;
-      await db.runAsync(
-        `UPDATE user_billing_state SET
-           plan_type = ?,
-           daily_intentions_limit = COALESCE(?, daily_intentions_limit),
-           current_day_intentions_count = COALESCE(?, current_day_intentions_count),
-           daily_notes_limit = COALESCE(?, daily_notes_limit),
-           current_day_notes_count = COALESCE(?, current_day_notes_count),
-           trip_credits_balance = COALESCE(?, trip_credits_balance),
-           feature_flags_json = COALESCE(?, feature_flags_json),
-           updated_at = ?,
-           is_dirty = ?
-         WHERE id = 1`,
-        [
-          nextPlan,
-          patch.daily_intentions_limit ?? null,
-          patch.current_day_intentions_count ?? null,
-          patch.daily_notes_limit ?? null,
-          patch.current_day_notes_count ?? null,
-          patch.trip_credits_balance ?? null,
-          patch.feature_flags_json ?? null,
-          now,
-          isDirty,
-        ],
-      );
-      await db.execAsync('COMMIT;');
-    } catch (e) {
+      await db.execAsync('BEGIN IMMEDIATE;');
       try {
-        await db.execAsync('ROLLBACK;');
-      } catch {}
-      throw e;
+        const cur = await db.getFirstAsync<{ plan_type: string }>(
+          `SELECT plan_type FROM user_billing_state WHERE id = 1 LIMIT 1`,
+        );
+        const currentPlan = String(cur?.plan_type ?? 'FREE').toUpperCase();
+        const requestedPlan = patch.plan_type ? String(patch.plan_type).toUpperCase() : currentPlan;
+        const nextPlan =
+          currentPlan === 'PREMIUM' && requestedPlan !== 'PREMIUM' && opts?.force_downgrade !== true
+            ? 'PREMIUM'
+            : requestedPlan === 'PREMIUM'
+              ? 'PREMIUM'
+              : 'FREE';
+        const now = Date.now();
+        const isDirty = opts?.fromSync ? 0 : 1;
+        await db.runAsync(
+          `UPDATE user_billing_state SET
+             plan_type = ?,
+             daily_intentions_limit = COALESCE(?, daily_intentions_limit),
+             current_day_intentions_count = COALESCE(?, current_day_intentions_count),
+             daily_notes_limit = COALESCE(?, daily_notes_limit),
+             current_day_notes_count = COALESCE(?, current_day_notes_count),
+             trip_credits_balance = COALESCE(?, trip_credits_balance),
+             feature_flags_json = COALESCE(?, feature_flags_json),
+             updated_at = ?,
+             is_dirty = ?
+           WHERE id = 1`,
+          [
+            nextPlan,
+            patch.daily_intentions_limit ?? null,
+            patch.current_day_intentions_count ?? null,
+            patch.daily_notes_limit ?? null,
+            patch.current_day_notes_count ?? null,
+            patch.trip_credits_balance ?? null,
+            patch.feature_flags_json ?? null,
+            now,
+            isDirty,
+          ],
+        );
+        await db.execAsync('COMMIT;');
+      } catch (e) {
+        try {
+          await db.execAsync('ROLLBACK;');
+        } catch {}
+        throw e;
+      }
+    } finally {
+      sqliteExplicitTransactionDepth -= 1;
     }
   });
 }
@@ -2793,6 +2810,77 @@ function safeParseJsonRecord(input: string | null | undefined): Record<string, u
   return {};
 }
 
+async function applyMetadataJsonPatchOnDb(
+  db: SQLite.SQLiteDatabase,
+  key: string,
+  partialObject: Record<string, unknown>,
+  opts?: { fromSync?: boolean; silent?: boolean },
+): Promise<void> {
+  const row = await db.getFirstAsync<{ metadata_json: string; zoom_parent_jalon_uid: string | null }>(
+    `SELECT metadata_json, zoom_parent_jalon_uid FROM intentions WHERE id = ? LIMIT 1`,
+    [key],
+  );
+  if (!row) return;
+
+  let base: unknown = {};
+  try {
+    base = JSON.parse(row.metadata_json || '{}');
+  } catch {
+    base = {};
+  }
+  const merged = deepMergeObjects(base, partialObject);
+  const rawZoom = (partialObject as Record<string, unknown>).zoom_parent_jalon_uid;
+  const nextZoom =
+    rawZoom === undefined ? row.zoom_parent_jalon_uid : typeof rawZoom === 'string' ? rawZoom.trim() || null : null;
+  const now = Date.now();
+  const isDirty = opts?.fromSync ? 0 : 1;
+  await db.runAsync(
+    `UPDATE intentions SET metadata_json = ?, zoom_parent_jalon_uid = ?, updated_at = ?, is_dirty = ? WHERE id = ?`,
+    [JSON.stringify(merged ?? {}, null, 2), nextZoom, now, isDirty, key],
+  );
+  if (VERBOSE_DEBUG) {
+    const keys = Object.keys(partialObject ?? {}).join(',');
+    console.log('[SQL_TRACE] ✅ patchMetadata', { id: key, isDirty, updated_at: now, keys });
+  }
+}
+
+async function runMetadataPatchInSqliteTransaction(
+  db: SQLite.SQLiteDatabase,
+  key: string,
+  partialObject: Record<string, unknown>,
+  opts?: { fromSync?: boolean; silent?: boolean },
+): Promise<void> {
+  if (sqliteExplicitTransactionDepth > 0) {
+    await db.execAsync('SAVEPOINT trankil_patch_metadata;');
+    try {
+      await applyMetadataJsonPatchOnDb(db, key, partialObject, opts);
+      await db.execAsync('RELEASE SAVEPOINT trankil_patch_metadata;');
+    } catch (e) {
+      try {
+        await db.execAsync('ROLLBACK TO SAVEPOINT trankil_patch_metadata;');
+      } catch {}
+      throw e;
+    }
+    return;
+  }
+
+  sqliteExplicitTransactionDepth += 1;
+  try {
+    await db.execAsync('BEGIN IMMEDIATE;');
+    try {
+      await applyMetadataJsonPatchOnDb(db, key, partialObject, opts);
+      await db.execAsync('COMMIT;');
+    } catch (e) {
+      try {
+        await db.execAsync('ROLLBACK;');
+      } catch {}
+      throw e;
+    }
+  } finally {
+    sqliteExplicitTransactionDepth -= 1;
+  }
+}
+
 /**
  * Merge transactionnel de `metadata_json` pour une intention (deep merge), `BEGIN IMMEDIATE`,
  * puis sync hardware / event `INTENTIONS_CHANGED` sauf `opts.silent`.
@@ -2806,43 +2894,7 @@ export async function patchMetadata(
   const key = String(id || '').trim();
   if (!key) return;
   await withTrankilV2Database(async (db) => {
-    await db.execAsync('BEGIN IMMEDIATE;');
-    try {
-      const row = await db.getFirstAsync<{ metadata_json: string; zoom_parent_jalon_uid: string | null }>(
-        `SELECT metadata_json, zoom_parent_jalon_uid FROM intentions WHERE id = ? LIMIT 1`,
-        [key],
-      );
-      if (!row) {
-        await db.execAsync('ROLLBACK;');
-        return;
-      }
-      let base: unknown = {};
-      try {
-        base = JSON.parse(row.metadata_json || '{}');
-      } catch {
-        base = {};
-      }
-      const merged = deepMergeObjects(base, partialObject);
-      const rawZoom = (partialObject as Record<string, unknown>).zoom_parent_jalon_uid;
-      const nextZoom =
-        rawZoom === undefined ? row.zoom_parent_jalon_uid : typeof rawZoom === 'string' ? rawZoom.trim() || null : null;
-      const now = Date.now();
-      const isDirty = opts?.fromSync ? 0 : 1;
-      await db.runAsync(
-        `UPDATE intentions SET metadata_json = ?, zoom_parent_jalon_uid = ?, updated_at = ?, is_dirty = ? WHERE id = ?`,
-        [JSON.stringify(merged ?? {}, null, 2), nextZoom, now, isDirty, key],
-      );
-      await db.execAsync('COMMIT;');
-      if (VERBOSE_DEBUG) {
-        const keys = Object.keys(partialObject ?? {}).join(',');
-        console.log('[SQL_TRACE] ✅ patchMetadata', { id: key, isDirty, updated_at: now, keys });
-      }
-    } catch (e) {
-      try {
-        await db.execAsync('ROLLBACK;');
-      } catch {}
-      throw e;
-    }
+    await runMetadataPatchInSqliteTransaction(db, key, partialObject, opts);
   });
   if (opts?.silent) return;
   await syncAfterIntentionWrite('patchMetadata');

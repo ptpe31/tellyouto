@@ -38,6 +38,34 @@ type NotificationsModule = NonNullable<ReturnType<typeof getNotifications>>;
 
 let channelsReady = false;
 
+/** Sur Android, associe la notif immédiate au canal suivi (évite le fallback expo HIGH). */
+function androidSurveillanceTrigger(): { channelId: string } | null {
+  if (Platform.OS !== 'android') return null;
+  return { channelId: DEPARTURE_STICKY_CHANNEL_ID };
+}
+
+/** Contenu ongoing : non-dismissible au swipe (`sticky` → `setOngoing` natif). */
+function buildOngoingSurveillanceContent(
+  n: NotificationsModule,
+  content: {
+    title: string;
+    body: string;
+    data: DepartureNotificationPayload;
+  },
+) {
+  return {
+    title: content.title,
+    body: content.body,
+    data: content.data,
+    sticky: true,
+    autoDismiss: false,
+    sound: false,
+    ...(Platform.OS === 'android'
+      ? { priority: n.AndroidNotificationPriority.LOW }
+      : {}),
+  };
+}
+
 function stickyIdentifier(tripTaskId: string): string {
   return `${DEPARTURE_ID_PREFIX}sticky_${tripTaskId}`;
 }
@@ -71,7 +99,7 @@ async function ensureDepartureChannels(n: NotificationsModule): Promise<void> {
   }
   await n.setNotificationChannelAsync(DEPARTURE_STICKY_CHANNEL_ID, {
     name: 'Contrat de départ (suivi)',
-    importance: n.AndroidImportance.MIN,
+    importance: n.AndroidImportance.LOW,
     lockscreenVisibility: n.AndroidNotificationVisibility.PRIVATE,
     vibrationPattern: [0],
     showBadge: false,
@@ -174,11 +202,13 @@ async function scheduleDateNotification(
       body: args.body,
       data: args.payload,
       sound: args.playSound,
+      sticky: false,
+      autoDismiss: true,
       ...(Platform.OS === 'android'
         ? {
             priority: args.playSound
               ? n.AndroidNotificationPriority.HIGH
-              : n.AndroidNotificationPriority.MIN,
+              : n.AndroidNotificationPriority.LOW,
           }
         : args.timeSensitive
           ? { interruptionLevel: 'timeSensitive' as const }
@@ -229,20 +259,12 @@ export async function syncDepartureContractNotifications(input: SyncDepartureInp
 
   await n.scheduleNotificationAsync({
     identifier: stickyId,
-    content: {
+    content: buildOngoingSurveillanceContent(n, {
       title: i18n.t('departureContract.notifTitle', { destination }),
       body: capsule,
       data: { ...payloadBase, kind: 'departure_contract_sticky' },
-      sticky: true,
-      autoDismiss: false,
-      sound: false,
-      ...(Platform.OS === 'android'
-        ? {
-            priority: n.AndroidNotificationPriority.MIN,
-          }
-        : {}),
-    },
-    trigger: null,
+    }),
+    trigger: androidSurveillanceTrigger() ?? null,
   });
 
   await cancelIdentifiers(n, [signalAIdentifier(input.tripTaskId), signalBIdentifier(input.tripTaskId)]);

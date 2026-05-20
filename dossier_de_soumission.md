@@ -9,6 +9,7 @@ Textes prêts à copier-coller pour les formulaires **Apple App Store Connect** 
 ### Apple — `NSLocationAlwaysAndWhenInUseUsageDescription` / justification « Always »
 
 > L’application surveille le trafic en temps réel pour optimiser l’horaire de départ vers vos rendez-vous. La position est utilisée uniquement pendant une mission trajet active (option « Me prévenir quand partir ») afin d’estimer le temps de route, recalibrer la fenêtre de départ de 15 minutes et vous proposer un créneau de départ réaliste. Aucune position n’est vendue ni partagée à des tiers ; les calculs de fenêtre et de ratio de dégradation restent sur l’appareil.
+"Note : Nous utilisons Always car l'application doit pouvoir recalibrer la fenêtre de départ même si l'utilisateur verrouille son téléphone et le met en poche. Si nous utilisions uniquement 'When In Use', la surveillance s'arrêterait dès que l'écran s'éteint, ce qui rendrait le contrat de départ inopérant."
 
 ### Apple — `NSLocationWhenInUseUsageDescription` (complément)
 
@@ -42,7 +43,7 @@ Textes prêts à copier-coller pour les formulaires **Apple App Store Connect** 
 
 | Type | Son | Priorité |
 |------|-----|----------|
-| Mise à jour sticky (probes / recalcul) | Non | Standard / minimale |
+| Mise à jour sticky (probes / recalcul) | Non | LOW ongoing (Android) / standard (iOS) |
 | Signal A — Départ (`startMs`) | Oui | Time-Sensitive (iOS), HIGH (Android) |
 | Signal B — Rappel (`endMs − offset`) | Non (sauf réglage futur) | HIGH visuelle, pas time-sensitive |
 
@@ -52,13 +53,16 @@ Textes prêts à copier-coller pour les formulaires **Apple App Store Connect** 
 
 ### Google Play — « Notifications » / canaux personnalisés
 
-**Canal « Contrat de départ (suivi) »** — importance MIN, sans son :
+**Canal « Contrat de départ (suivi) »** — importance LOW :
 
-> Mise à jour unique de la capsule Unicode `[🟢 20:53 ———◉———— 21:08]` pendant la surveillance. Aucun son pendant les phases de calcul (probes).
+> Notification persistante (Ongoing) indiquant que la surveillance du trafic est active.
+> - **Configuration technique :** `sticky: true`, `autoDismiss: false` (non-dismissible au swipe).
+> - **UX :** Importance `LOW` pour éviter toute interruption sonore ou visuelle (pas de popup). La notification reste visible dans le tiroir utilisateur pour garantir la transparence de l'activité en arrière-plan (exigence Google Play).
+> - **Cycle de vie :** Automatiquement supprimée par l'application lors de l'arrivée à destination, de l'annulation de la mission ou du passage à la navigation active (`clearAllDepartureNotifications`).
 
 **Canal « Contrat de départ (signaux) »** — importance HIGH :
 
-> Alerte de départ critique : un signal sonore unique au début de la fenêtre recommandée. Rappel optionnel avant la fin de fenêtre (sans son par défaut, pour respecter l’UX « Zen »).
+> Alerte de départ critique : un signal sonore unique au début de la fenêtre recommandée. Rappel optionnel avant la fin de fenêtre (selon réglage utilisateur).
 
 ---
 

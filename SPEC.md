@@ -564,11 +564,17 @@ Moteur : [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-tranki
 
 **UX Zen** : silence pendant les sondes (probes) ; une seule notification sticky mise à jour (pas de duplication) ; un seul signal sonore au départ.
 
-| Identifiant | Déclenchement | Son | Priorité |
-|-------------|---------------|-----|----------|
-| `departure_sticky_{tripId}` | Chaque tick Sentinel après PROBE1+ (recalcul ancre) | Non | MIN (Android) / standard (iOS) |
-| `departure_signal_a_{tripId}` | `elastic_anchor_start_ms` | Oui | Time-Sensitive (iOS), HIGH (Android) |
-| `departure_signal_b_{tripId}` | `endMs − safetyReminderOffset` si offset > 0 | Non | HIGH visuelle |
+**Android — ongoing / non-dismissible** (surveillance uniquement) :
+- expo-notifications mappe `sticky: true` → `NotificationCompat.Builder.setOngoing(true)` ; `autoDismiss: false` empêche la fermeture au tap.
+- Trigger immédiat : `{ channelId: 'departure_contract_silent' }` (pas `null`, évite le canal fallback expo).
+- Canal suivi : importance **LOW**, sans son — visible dans le tiroir, pas de heads-up.
+- Signaux A/B : `sticky: false`, `autoDismiss: true` — alertes datées dismissibles au swipe.
+
+| Identifiant | Déclenchement | Son | Priorité | Ongoing (Android) |
+|-------------|---------------|-----|----------|-------------------|
+| `departure_sticky_{tripId}` | Chaque tick Sentinel après PROBE1+ (recalcul ancre) | Non | LOW (Android) / standard (iOS) | Oui (`sticky`) |
+| `departure_signal_a_{tripId}` | `elastic_anchor_start_ms` | Oui | Time-Sensitive (iOS), HIGH (Android) | Non |
+| `departure_signal_b_{tripId}` | `endMs − safetyReminderOffset` si offset > 0 | Non | HIGH visuelle | Non |
 
 **Capsule Unicode** (`formatCapsule`) : `[🟢 20:53 ———◉———— 21:08]` — emoji selon `D` (🟢 / 🟠 / 🔴), bille `◉` sur `(nowMs − startMs) / (endMs − startMs)`, `🔴` si retard (`nowMs > endMs`).
 
