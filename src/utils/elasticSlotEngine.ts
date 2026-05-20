@@ -3,10 +3,15 @@
  * Aucune dépendance SQLite, Sentinel, réseau ou UI.
  */
 
-export const ELASTIC_BUFFER_FLOOR_MIN = 10;
-export const ELASTIC_BUFFER_RATIO = 0.3;
-export const ELASTIC_WALK_BIKE_BUFFER_FLOOR_MIN = 5;
-export const ELASTIC_WALK_BIKE_BUFFER_RATIO = 0.1;
+/** Marge incompressible (préparation + stationnement). */
+export const ELASTIC_BUFFER_BASE_MIN = 15;
+/** Part d'aléa trafic : 10 % du temps de trajet API. */
+export const ELASTIC_BUFFER_VARIANCE_RATIO = 0.1;
+/** Plancher / plafond du buffer total (minutes). */
+export const ELASTIC_BUFFER_CLAMP_MIN = 15;
+export const ELASTIC_BUFFER_CLAMP_MAX_MIN = 25;
+/** @deprecated Utiliser ELASTIC_BUFFER_BASE_MIN — conservé pour compat affichage. */
+export const ELASTIC_BUFFER_FLOOR_MIN = ELASTIC_BUFFER_BASE_MIN;
 export const ELASTIC_PROBE2_LEAD_MIN = 45;
 export const ELASTIC_PROBE3_LEAD_MIN = 15;
 export const ELASTIC_SHORT_TRIP_MAX_MIN = 15;
@@ -53,27 +58,25 @@ export function skipsElasticProbe2(transportMode: string | null | undefined): bo
   return m === 'walking' || m === 'bicycling';
 }
 
-function bufferConfig(mode: ElasticTransportMode): { floor: number; ratio: number } {
-  if (mode === 'walking' || mode === 'bicycling') {
-    return { floor: ELASTIC_WALK_BIKE_BUFFER_FLOOR_MIN, ratio: ELASTIC_WALK_BIKE_BUFFER_RATIO };
-  }
-  return { floor: ELASTIC_BUFFER_FLOOR_MIN, ratio: ELASTIC_BUFFER_RATIO };
-}
-
-/** Buffer = max(floor, ratio × D_std) — auto vs piéton/vélo. */
+/** Smart Buffer : 15 min base + 10 % trajet, borné [15, 25] min. */
 export function computeElasticBufferMin(
-  dStdMin: number,
-  mode: ElasticTransportMode = 'driving',
+  durationMin: number,
+  _mode: ElasticTransportMode = 'driving',
 ): number | null {
-  const dStd = Number(dStdMin);
-  if (!Number.isFinite(dStd) || dStd <= 0) return null;
-  const cfg = bufferConfig(mode);
-  return Math.max(cfg.floor, Math.round(dStd * cfg.ratio * 10) / 10);
+  const duration = Number(durationMin);
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  const baseBuffer = ELASTIC_BUFFER_BASE_MIN;
+  const varianceBuffer = Math.round(duration * ELASTIC_BUFFER_VARIANCE_RATIO);
+  let bufferMin = baseBuffer + Math.max(0, varianceBuffer);
+  bufferMin = Math.max(ELASTIC_BUFFER_CLAMP_MIN, Math.min(ELASTIC_BUFFER_CLAMP_MAX_MIN, bufferMin));
+  return bufferMin;
 }
 
 /**
- * Fenêtre initiale : [ arrivée − (D_std + Buffer) … arrivée − D_std ].
- * Ex. arrivée 19h30, D_std 30, Buffer 10 → [ 18h50 – 19h00 ].
+ * Fenêtre de départ à rebours de l'arrivée cible :
+ * End (limite départ) = arrivée − durationMin − marge incompressible (15 min) ;
+ * Start (relax) = arrivée − durationMin − bufferMin (Smart Buffer total).
+ * Ex. arrivée 18h30, trajet 16 min, buffer 17 → [ 17h57 – 17h59 ].
  */
 export function computeElasticDepartureWindow(
   arrivalTime: Date | string | number,
@@ -85,8 +88,8 @@ export function computeElasticDepartureWindow(
   const bufferMin = computeElasticBufferMin(dStd, mode);
   if (arrivalMs == null || bufferMin == null) return null;
 
+  const endMs = arrivalMs - (dStd + ELASTIC_BUFFER_BASE_MIN) * 60_000;
   const startMs = arrivalMs - (dStd + bufferMin) * 60_000;
-  const endMs = arrivalMs - dStd * 60_000;
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs) return null;
 
   return {
@@ -111,8 +114,8 @@ export function isTrafficAbsorbedByElasticBuffer(
 }
 
 /**
- * Cas B (PROBE2) : décalage du créneau avec D_live et le buffer initial.
- * start = arrivée − (D_live + buffer), end = arrivée − D_live.
+ * Cas B (PROBE2/3) : créneau recalculé avec D_live API et le buffer Smart.
+ * End = arrivée − D_live − marge incompressible ; Start = arrivée − D_live − bufferMin.
  */
 export function computeShiftedElasticWindow(
   arrivalTime: Date | string | number,
@@ -126,8 +129,8 @@ export function computeShiftedElasticWindow(
     return null;
   }
 
+  const endMs = arrivalMs - (dLive + ELASTIC_BUFFER_BASE_MIN) * 60_000;
   const startMs = arrivalMs - (dLive + buffer) * 60_000;
-  const endMs = arrivalMs - dLive * 60_000;
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs) return null;
 
   return {

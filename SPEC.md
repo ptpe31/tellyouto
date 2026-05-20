@@ -448,6 +448,37 @@ T_end'   = 19h30 − 55 min = 18h35
 → Affichage UI : [ 18h25 – 18h35 ]  +  elastic_shifted: true  +  ⚠️
 ```
 
+##### 3bis. Tendance trafic & projection (PROBE2 — modèle flux)
+
+Les trois sondes fournissent les points de mesure nécessaires pour estimer la **vitesse de croissance de l'embouteillage**, sur le modèle des flux LWR (Lighthill-Whitham-Richards) : le trafic se propage comme une onde de choc ; la dérivée première (vitesse) et seconde (accélération) de la durée mesurée permettent d'anticiper l'évolution avant PROBE3.
+
+**Baseline PROBE1** : `D_P1` (durée statique/live initiale) et `T_P1` (`scan1_at_ms`).
+
+**Vitesse de croissance** (min/min) :
+
+```
+Trend = (D_P2 − D_P1) / ((T_P2 − T_P1) / 60 000)
+```
+
+**Projection dynamique** : au lieu d'utiliser uniquement `D_P2`, on extrapole la durée au moment du départ limite (`T_end`) :
+
+```
+Δt_départ = max(0, (T_end − now) / 60 000)     // minutes restantes avant limite départ
+D_proj    = D_P2 + Trend × Δt_départ
+```
+
+**Atténuation (frein)** : éviter une extrapolation linéaire pure qui sur-réagirait aux micro-pics.
+
+```
+damping = 0,6  si Trend > 0   (bouchon qui grossit — ajustement agressif du créneau)
+damping = 0,25 si Trend ≤ 0   (trafic qui se dégage — prudence)
+D_final = D_P2 + (D_proj − D_P2) × damping
+```
+
+Le créneau PROBE2 est recalculé avec `D_final` (et non `D_P2` brut) via `computeShiftedElasticWindow`. Si `Trend > 0`, le créneau **glisse vers le passé** pour compenser l'accélération de la congestion.
+
+Implémentation : [`computeTrafficTrendProjection`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) — logs `[TRIP-MATH] 🧮 [PROBE2]` avec vitesse congestion et projection finale.
+
 ##### 4. Planification des sondes PROBE2 / PROBE3
 
 Les sondes 2 et 3 sont ancrées sur la **borne basse courante** `T_start` (initiale ou décalée) :
@@ -657,7 +688,7 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - `PROJECT` → `pass2.generateSteps` (*Générer les étapes*).
 - **`TASK`**, **`HABIT`** (et catégories hors TRIP/LIST/PROJECT éligibles) → **aucun** CTA Pass 2 dans le footer : la fiche reste en mode note / habitude simple sans génération IA supplémentaire à ce stade.
 
-**TRIP — hiérarchie** : en vue **Zen**, Mission et itinéraire précis masqués tant que `pass2_unlocked !== 1`. Passage à la vue riche après CTA **PRO** « Me prévenir quand partir ? » (`intentionDetail.actionSetupAlert`, `pass2_unlocked: 1`).
+**TRIP — hiérarchie** : en vue **Zen**, Mission et itinéraire précis masqués tant que `pass2_unlocked !== 1`. Passage à la vue riche après CTA **PRO** « Me prévenir quand partir ? » (`intentionDetail.actionSetupAlert`, `pass2_unlocked: 1`) — **sans** activer `remind_to_leave` ni Sentinel : la surveillance démarre **uniquement** via le Big Button « Surveiller le trajet » dans le hub. **`syncSentinelAfterDestinationChange`** lit `remind_to_leave` en **DB** (jamais l’état React) ; sheet s’ouvre avec `remindToLeaveEnabled = false` jusqu’à hydrate DB.
 
 **Exception — capture Talk (Path B, sheet full)** : `gateFullTripBypass` (trajet + `path_b` + full) affiche itinéraire **sans** `pass2_unlocked === 1` ; CTA footer trajet reste visible tant que `pass2_unlocked !== 1`. `pass2RevealAnim` → **1** si `pass2_unlocked === 1` ou bypass.
 
@@ -729,7 +760,7 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 - Important : l’intention étant déjà persistée au Pass 1, aucune action supplémentaire n’est requise.
 
 #### Bouton principal contextuel (Talk — Path B uniquement)
-- Bouton principal peek : libellés alignés footer Timeline (`intentionDetail.actionSetupAlert` pour **TRIP**, `pass2.*` pour LIST/PROJECT) ; masqué si `pass2_unlocked === 1`. Types **note** : `talkDebug.actionAddNote` (ouvre full sans Pass 2). **TRIP** : `pass2_unlocked: 1` + configuration mission / itinéraire (PRO). **LIST / PROJECT** : `onPressPass2` (overlay + enrichissement).
+- Bouton principal peek : libellés alignés footer Timeline (`intentionDetail.actionSetupAlert` pour **TRIP**, `pass2.*` pour LIST/PROJECT) ; masqué si `pass2_unlocked === 1`. Types **note** : `talkDebug.actionAddNote` (ouvre full sans Pass 2). **TRIP** : `pass2_unlocked: 1` + ouverture hub (itinéraire + Big Button) — **pas** d’activation `remind_to_leave` au clic peek. **LIST / PROJECT** : `onPressPass2` (overlay + enrichissement).
 - Bouton secondaire : **Terminer** / fermeture sheet.
 - Observabilité : log dev **`[ACTION-ADVISOR]`** lors du choix du libellé / de la route d’action (audit produit).
 
@@ -801,7 +832,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 **Badge scan — rafraîchissement temporel** : libellé via [`tripProbeScheduleDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripProbeScheduleDisplay.ts) (`resolveProbeScheduleLabel`) ; miroir `trip.next_probe_at_ms` ; bascule C1→C2 quand `next_probe_at_ms ≤ now + 60 s` ; horloge locale [`useProbeScheduleClock`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) (tick 30 s, cleanup au démontage). **Pas de fallback** `Date.now()` comme fausse heure planifiée.
 
-**Robustesse Sentinel (mai 2026)** : reconcile déclenché à la sélection autocomplete (`onSelect`) et au tap Big Button « Surveiller » ; debounce 500 ms sur [`sentinelReconciler.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelReconciler.ts), mutex activation par `intentionId`, retry SQLite [`withSentinelDbRetry`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelDbRetry.ts) (logs `[TRIP-SENTINEL-RECOVERY]`). `syncSentinelAfterDestinationChange` est **no-op** si `remind_to_leave === 0`. Lecture intention Sentinel via `getTrankilV2IntentionById` → `withTrankilV2Database`. Queue SQLite couvre lectures + écritures. **Fix crash Surveiller (mai 2026)** : INSERT `sentinel_trips` dans [`sentinelActivation.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelActivation.ts) — alignement 31 placeholders / 31 args (évite `prepareAsync rejected`) ; reset connexion SQLite sans ré-init schéma (`schemaReady` conservé).
+**Robustesse Sentinel (mai 2026)** : **seul** le tap Big Button « Surveiller » écrit `remind_to_leave = 1` et lance reconcile ; **aucun** `activateSentinelTrip` auto à la capture (`oneTapPersist`). `syncSentinelAfterDestinationChange` (autocomplete / favori) relit **`remind_to_leave` en DB** — no-op si `0`. Sheet : `remindToLeaveEnabled = false` à chaque nouveau `row.id` avant hydrate async. Debounce / mutex / retry : [`sentinelReconciler.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelReconciler.ts).
 
 **Règle anti-faux créneau** : aucune fenêtre `[start – end]` n’est calculée ni affichée tant que `standard_duration_min` est absent (pas de `D_std` par défaut en UI).
 

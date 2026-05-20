@@ -44,7 +44,6 @@ import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import {
-  reconcileSentinelForIntentionId,
   reconcileSentinelForIntentionIdImmediate,
   resetTripMissionAndRelaunchProbe1,
   wakeTripMissionAfterTimedRestore,
@@ -371,19 +370,6 @@ function getTransportMode(
   return normalizeTripTransportMode(raw);
 }
 
-async function syncSentinelAfterDestinationChange(
-  intentionId: string,
-  meta: Record<string, unknown> | null,
-  remindToLeave: boolean,
-): Promise<void> {
-  if (!remindToLeave) return;
-  if (isPass2UnlockedMeta(meta)) {
-    await resetTripMissionAndRelaunchProbe1(intentionId);
-    return;
-  }
-  await reconcileSentinelForIntentionId(intentionId);
-}
-
 function canLaunchTripNavigation(input: {
   trip: Record<string, unknown> | null;
   arrivalLat: number | null;
@@ -596,13 +582,21 @@ export function IntentionDetailSheet({
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [pickerDraft, setPickerDraft] = useState<Date>(new Date());
   const [isAllDay, setIsAllDay] = useState(false);
+  /** Ignore le premier onChange iOS du DateTimePicker (événement fantôme au montage). */
+  const temporalPickerSkipChangeRef = useRef(false);
   const [remindToLeaveEnabled, setRemindToLeaveEnabled] = useState(false);
+  /** Évite le flash « Surveillance active » tant que le fetch SQLite du row.id courant n'a pas répondu. */
+  const [remindToLeaveHydratedForRowId, setRemindToLeaveHydratedForRowId] = useState<string | null>(null);
   const remindToLeaveEnabledRef = useRef(false);
   const tripSurveillanceBusyRef = useRef(false);
   const [tripSurveillanceSubmitting, setTripSurveillanceSubmitting] = useState(false);
   const tripSurveillanceSubmittingRef = useRef(false);
   const tripSheetInitForIdRef = useRef<string | null>(null);
   const tripFavoriteResolvedForIdRef = useRef<string | null>(null);
+  /** Survit au flicker visible (dismiss modale capture ~100 ms). */
+  const sheetVisibilityCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remindFetchRowIdRef = useRef<string | null>(null);
+  const remindHydratedRowIdRef = useRef<string | null>(null);
   const sheetRowRef = useRef(row);
   sheetRowRef.current = row;
 
@@ -887,19 +881,62 @@ export function IntentionDetailSheet({
     }, 4000);
   }, [clearPeekAutoCloseTimer, runDismissSheetSpring]);
 
+  useLayoutEffect(() => {
+    if (!row?.id || !isTrip) return;
+    const id = String(row.id).trim();
+    if (!id || id === 'peek_pending') return;
+    if (remindFetchRowIdRef.current === id) return;
+    remindFetchRowIdRef.current = id;
+    remindHydratedRowIdRef.current = null;
+    setRemindToLeaveEnabled(false);
+    setRemindToLeaveHydratedForRowId(null);
+    tripSurveillanceBusyRef.current = false;
+    tripSurveillanceSubmittingRef.current = false;
+    setTripSurveillanceSubmitting(false);
+  }, [isTrip, row?.id]);
+
   useEffect(() => {
     if (!visible || !row || !isTrip) return;
+    const id = String(row.id).trim();
+    if (!id || id === 'peek_pending') return;
+    if (remindHydratedRowIdRef.current === id) return;
+
     let cancelled = false;
-    const id = row.id;
     void (async () => {
       const full = await getTrankilV2IntentionById(id);
-      if (cancelled) return;
-      setRemindToLeaveEnabled(Boolean(full?.remind_to_leave));
+      if (cancelled || remindFetchRowIdRef.current !== id) return;
+      setRemindToLeaveEnabled(Number(full?.remind_to_leave) === 1);
+      setRemindToLeaveHydratedForRowId(id);
+      remindHydratedRowIdRef.current = id;
     })();
     return () => {
       cancelled = true;
     };
   }, [isTrip, row?.id, visible]);
+
+  useEffect(() => {
+    if (visible) {
+      if (sheetVisibilityCleanupTimerRef.current) {
+        clearTimeout(sheetVisibilityCleanupTimerRef.current);
+        sheetVisibilityCleanupTimerRef.current = null;
+      }
+      return;
+    }
+    if (sheetVisibilityCleanupTimerRef.current) {
+      clearTimeout(sheetVisibilityCleanupTimerRef.current);
+    }
+    sheetVisibilityCleanupTimerRef.current = setTimeout(() => {
+      sheetVisibilityCleanupTimerRef.current = null;
+      tripSheetInitForIdRef.current = null;
+      tripFavoriteResolvedForIdRef.current = null;
+    }, 200);
+    return () => {
+      if (sheetVisibilityCleanupTimerRef.current) {
+        clearTimeout(sheetVisibilityCleanupTimerRef.current);
+        sheetVisibilityCleanupTimerRef.current = null;
+      }
+    };
+  }, [visible]);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -1011,21 +1048,18 @@ export function IntentionDetailSheet({
   const [originEditing, setOriginEditing] = useState(false);
   const [arrivalText, setArrivalText] = useState('');
   const [arrivalEditing, setArrivalEditing] = useState(false);
-  const arrivalSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const originSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [favoriteArrival, setFavoriteArrival] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!visible) {
-      tripSheetInitForIdRef.current = null;
-      tripFavoriteResolvedForIdRef.current = null;
-      return;
-    }
+    if (!visible) return;
     const currentRow = sheetRowRef.current;
     const intentionId = String(currentRow?.id ?? '').trim();
     if (!intentionId || !currentRow) return;
     if (tripSheetInitForIdRef.current === intentionId) return;
     tripSheetInitForIdRef.current = intentionId;
+    tripSurveillanceBusyRef.current = false;
+    tripSurveillanceSubmittingRef.current = false;
+    setTripSurveillanceSubmitting(false);
 
     const rootMeta = safeParseJsonObject(currentRow.metadata_json) ?? {};
     metadataJsonLiveRef.current = currentRow.metadata_json ?? '';
@@ -1049,6 +1083,7 @@ export function IntentionDetailSheet({
     const addressFromMeta = String(str(tMeta, 'location_address') ?? str(rootMeta, 'location_address') ?? '').trim();
     const aliasFromMeta = String(str(tMeta, 'destination_name') ?? '').trim();
     setOriginText(String(str(tMeta, 'origin_address') ?? '').trim());
+    setFavoriteArrival(null);
     setArrivalText(addressFromMeta);
     const originCoords = readValidTripCoords(tMeta, 'origin_lat', 'origin_lng');
     const arrivalCoords = readValidTripCoords(tMeta, 'location_lat', 'location_lng');
@@ -1073,8 +1108,12 @@ export function IntentionDetailSheet({
     const initialDate = parsed?.date ? new Date(parsed.date) : new Date();
     if (!parsed?.hasTime && parsed?.date) initialDate.setHours(now.getHours(), now.getMinutes(), 0, 0);
     setPickerDraft(initialDate);
-    const allDayFlag = Boolean((rootMeta as Record<string, unknown> | null)?.is_all_day);
-    setIsAllDay(allDayFlag || Boolean(parsed && !parsed.hasTime));
+    if (isTrip) {
+      setIsAllDay(isTripAllDay(rootMeta, tMeta, currentRow.due_date ?? null));
+    } else {
+      const allDayFlag = Boolean((rootMeta as Record<string, unknown> | null)?.is_all_day);
+      setIsAllDay(allDayFlag || Boolean(parsed && !parsed.hasTime));
+    }
     setListPayload(parseListScalablePayloadFromMetadataJson(currentRow.metadata_json));
     const nextProjectPayload = parseProjectMilestonesPayloadFromMetadataJson(currentRow.metadata_json);
     setProjectPayload(nextProjectPayload);
@@ -1111,6 +1150,20 @@ export function IntentionDetailSheet({
     }
   }, [isTrip, onPatchRow, patchMetadataIfSheetUnfrozen, visible, row?.id]);
 
+  /** Peek Path B : previewRow a `metadata_json: '{}'`, puis hydrate SQL — resync adresse sans re-init complet. */
+  useEffect(() => {
+    if (!visible || !isTrip) return;
+    const root = safeParseJsonObject(metadataJsonLive ?? row?.metadata_json) ?? {};
+    const tMeta = getTripMeta(root);
+    if (!tMeta) return;
+    const addressFromMeta = String(str(tMeta, 'location_address') ?? str(root, 'location_address') ?? '').trim();
+    if (!addressFromMeta) return;
+    setArrivalText((prev) => (prev.trim() ? prev : addressFromMeta));
+    const coords = readValidTripCoords(tMeta, 'location_lat', 'location_lng');
+    if (coords.lat != null) setArrivalLat((prev) => (prev != null ? prev : coords.lat));
+    if (coords.lng != null) setArrivalLng((prev) => (prev != null ? prev : coords.lng));
+  }, [isTrip, metadataJsonLive, row?.metadata_json, visible]);
+
   const elasticSlotDisplay = useMemo(() => {
     if (!isTrip || !isProUser) return null;
     if (isTripAllDay(meta, trip as Record<string, unknown> | null, row?.due_date ?? null)) return null;
@@ -1139,28 +1192,93 @@ export function IntentionDetailSheet({
     });
   }, [isProUser, meta, row?.due_date, trip, tripIsAllDay]);
 
+  const remindToLeaveEnabledForUi =
+    Boolean(row?.id) && remindToLeaveHydratedForRowId === row?.id ? remindToLeaveEnabled : false;
+
   useEffect(() => {
-    remindToLeaveEnabledRef.current = remindToLeaveEnabled;
-  }, [remindToLeaveEnabled]);
+    remindToLeaveEnabledRef.current = remindToLeaveEnabledForUi;
+  }, [remindToLeaveEnabledForUi]);
 
   const tripSurveillanceUiState = useMemo(
     () =>
       resolveTripSurveillanceUiState({
         isProUser,
         tripIsAllDay,
-        remindToLeaveEnabled,
+        remindToLeaveEnabled: remindToLeaveEnabledForUi,
         canEnableRemindToLeave,
       }),
-    [canEnableRemindToLeave, isProUser, remindToLeaveEnabled, tripIsAllDay],
+    [canEnableRemindToLeave, isProUser, remindToLeaveEnabledForUi, tripIsAllDay],
   );
+
+  const tripSurveillanceBtnVisual = useMemo(() => {
+    const submitting = tripSurveillanceSubmitting;
+    switch (tripSurveillanceUiState) {
+      case 'pro_active':
+        return {
+          mode: 'outlined' as const,
+          buttonColor: undefined,
+          textColor: '#15803d',
+          borderColor: '#16a34a',
+          borderWidth: 2,
+          opacity: 1,
+          disabled: submitting,
+          icon: 'shield-check' as const,
+        };
+      case 'pro_inactive':
+        return {
+          mode: 'contained' as const,
+          buttonColor: theme.colors.primary,
+          textColor: theme.colors.onPrimary,
+          borderColor: undefined,
+          borderWidth: 0,
+          opacity: 1,
+          disabled: submitting,
+          icon: 'radar' as const,
+        };
+      case 'pro_incomplete':
+        return {
+          mode: 'contained' as const,
+          buttonColor: theme.colors.surfaceVariant,
+          textColor: theme.colors.onSurfaceVariant,
+          borderColor: undefined,
+          borderWidth: 0,
+          opacity: 0.72,
+          disabled: true,
+          icon: undefined,
+        };
+      case 'free_locked':
+        return {
+          mode: 'contained' as const,
+          buttonColor: theme.colors.surfaceVariant,
+          textColor: theme.colors.onSurfaceVariant,
+          borderColor: undefined,
+          borderWidth: 0,
+          opacity: 0.85,
+          disabled: submitting,
+          icon: undefined,
+        };
+      case 'all_day':
+      default:
+        return {
+          mode: 'contained' as const,
+          buttonColor: theme.colors.surfaceVariant,
+          textColor: theme.colors.onSurfaceVariant,
+          borderColor: undefined,
+          borderWidth: 0,
+          opacity: 0.55,
+          disabled: true,
+          icon: undefined,
+        };
+    }
+  }, [theme.colors, tripSurveillanceSubmitting, tripSurveillanceUiState]);
 
   const probeScheduleClockActive = useMemo(() => {
     if (tripIsAllDay || elasticSlotDisplay?.windowLabel) return false;
-    if (!remindToLeaveEnabled) return false;
+    if (!remindToLeaveEnabledForUi) return false;
     const tripRecord = trip as Record<string, unknown> | null;
     if (
       !isTripMissionActive({
-        remindToLeave: remindToLeaveEnabled,
+        remindToLeave: remindToLeaveEnabledForUi,
         meta,
         trip: tripRecord,
         dueDate: row?.due_date ?? null,
@@ -1169,7 +1287,7 @@ export function IntentionDetailSheet({
       return false;
     }
     return !hasTripStandardDurationMin(tripRecord);
-  }, [elasticSlotDisplay?.windowLabel, meta, remindToLeaveEnabled, row?.due_date, trip, tripIsAllDay]);
+  }, [elasticSlotDisplay?.windowLabel, meta, remindToLeaveEnabledForUi, row?.due_date, trip, tripIsAllDay]);
 
   const probeScheduleClockTick = useProbeScheduleClock(probeScheduleClockActive);
 
@@ -1188,9 +1306,9 @@ export function IntentionDetailSheet({
       return t('intentionDetail.comfortElasticDeparture', { window: elasticSlotDisplay.windowLabel });
     }
     if (
-      remindToLeaveEnabled &&
+      remindToLeaveEnabledForUi &&
       isTripMissionActive({
-        remindToLeave: remindToLeaveEnabled,
+        remindToLeave: remindToLeaveEnabledForUi,
         meta,
         trip: tripRecord,
         dueDate: row?.due_date ?? null,
@@ -1206,7 +1324,7 @@ export function IntentionDetailSheet({
       });
     }
     return null;
-  }, [elasticSlotDisplay, i18n.language, meta, probeScheduleClockTick, remindToLeaveEnabled, row?.due_date, t, trip, tripIsAllDay]);
+  }, [elasticSlotDisplay, i18n.language, meta, probeScheduleClockTick, remindToLeaveEnabledForUi, row?.due_date, t, trip, tripIsAllDay]);
 
   const tripReadinessBlockers = useMemo(() => {
     if (!showMission || tripIsAllDay || canEnableRemindToLeave) return [];
@@ -1235,8 +1353,6 @@ export function IntentionDetailSheet({
 
   useEffect(
     () => () => {
-      if (arrivalSaveTimer.current) clearTimeout(arrivalSaveTimer.current);
-      if (originSaveTimer.current) clearTimeout(originSaveTimer.current);
       if (sourceSaveTimer.current) clearTimeout(sourceSaveTimer.current);
     },
     [],
@@ -1469,7 +1585,7 @@ export function IntentionDetailSheet({
   const persistPass2Unlocked = useCallback(
     async (options?: { applyOptimistic?: boolean }) => {
       if (!row || row.id === 'peek_pending') return;
-      const root = safeParseJsonObject(row.metadata_json) ?? {};
+      const root = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
       const unlockedJson = JSON.stringify({ ...root, pass2_unlocked: PASS2_UNLOCKED_CONSUMED });
       await patchMetadata(row.id, { pass2_unlocked: PASS2_UNLOCKED_CONSUMED });
       metadataJsonLiveRef.current = unlockedJson;
@@ -1545,6 +1661,9 @@ export function IntentionDetailSheet({
       if (tripSurveillanceSubmittingRef.current) return;
       const fav = await getLocationFavoriteByAlias(alias);
       if (!fav || tripSurveillanceSubmittingRef.current) return;
+      console.log(
+        `[TRIP-FAV-AUTO] 🧠 Favorite resolved for alias "${alias}" -> ${fav.formattedAddress} (${fav.lat}, ${fav.lng})`,
+      );
       setFavoriteArrival(fav.formattedAddress);
       const tripPatch: Record<string, unknown> = {
         location_address: fav.formattedAddress,
@@ -1562,8 +1681,6 @@ export function IntentionDetailSheet({
       const ok = await patchMetadataIfSheetUnfrozen(intentionId, { trip: tripPatch }, { silent: true });
       if (!ok) return;
       applyTripMetadataLocally(tripPatch, { locationAddress: fav.formattedAddress });
-      const liveMeta = safeParseJsonObject(metadataJsonLiveRef.current);
-      await syncSentinelAfterDestinationChange(intentionId, liveMeta, remindToLeaveEnabledRef.current);
     })();
   }, [applyTripMetadataLocally, isTrip, patchMetadataIfSheetUnfrozen, visible, row?.id]);
 
@@ -1868,13 +1985,6 @@ export function IntentionDetailSheet({
       }
       clearPeekAutoCloseTimer();
       await persistPass2Unlocked({ applyOptimistic: true });
-      try {
-        await updateTrankilV2IntentionRemindToLeave(row.id, true);
-      } catch {
-        // ignore
-      }
-      setRemindToLeaveEnabled(true);
-      void reconcileSentinelForIntentionId(row.id);
       openFullSheet();
       return;
     }
@@ -1933,12 +2043,15 @@ export function IntentionDetailSheet({
       return;
     }
 
+    if (tripSurveillanceBusyRef.current || tripSurveillanceSubmittingRef.current) return;
     tripSurveillanceBusyRef.current = true;
     tripSurveillanceSubmittingRef.current = true;
     setTripSurveillanceSubmitting(true);
     try {
       if (tripSurveillanceUiState === 'pro_active') {
         setRemindToLeaveEnabled(false);
+        setRemindToLeaveHydratedForRowId(row.id);
+        remindHydratedRowIdRef.current = row.id;
         await updateTrankilV2IntentionRemindToLeave(row.id, false);
         await cancelTripMission(row.id);
         onPatchRow?.(row.id, { remind_to_leave: 0 });
@@ -1946,6 +2059,8 @@ export function IntentionDetailSheet({
       }
 
       setRemindToLeaveEnabled(true);
+      setRemindToLeaveHydratedForRowId(row.id);
+      remindHydratedRowIdRef.current = row.id;
       await updateTrankilV2IntentionRemindToLeave(row.id, true, { silent: true });
       onPatchRow?.(row.id, { remind_to_leave: 1 });
       await trankilV2SqliteBarrier();
@@ -1986,19 +2101,23 @@ export function IntentionDetailSheet({
     await patchMetadata(row.id, { trip: tripPatch });
     if (remindToLeaveEnabled) {
       await resetTripMissionAndRelaunchProbe1(row.id);
-    } else {
-      await reconcileSentinelForIntentionId(row.id);
     }
   };
 
   const persistDueDateTime = async (d: Date, opts?: { closePicker?: boolean; allDay?: boolean }) => {
     if (!row) return;
-    const effectiveAllDay = opts?.allDay ?? isAllDay;
+    const root = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
+    const liveTrip = getTripMeta(root);
+    const effectiveAllDay =
+      opts?.allDay !== undefined
+        ? opts.allDay
+        : isTrip
+          ? false
+          : isAllDay;
     const ymd = formatYmd(d);
     const nextDue = effectiveAllDay ? ymd : formatLocalIsoNoZ(d);
-    const root = safeParseJsonObject(row.metadata_json) ?? {};
     const nextTimeHm = effectiveAllDay ? null : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-    const tripBase = isTrip && trip ? (trip as Record<string, unknown>) : null;
+    const tripBase = isTrip && liveTrip ? liveTrip : null;
     const nextMeta: Record<string, unknown> = {
       is_all_day: effectiveAllDay ? 1 : 0,
       dueDateTime: effectiveAllDay ? null : nextDue,
@@ -2008,7 +2127,6 @@ export function IntentionDetailSheet({
         tripBase
           ? {
               ...tripBase,
-              ...(effectiveAllDay ? {} : null),
               dueDateTime: effectiveAllDay ? null : nextDue,
               dueDateYmd: ymd,
               dueTimeHm: nextTimeHm,
@@ -2016,9 +2134,13 @@ export function IntentionDetailSheet({
             }
           : root.trip,
     };
-    onPatchRow?.(row.id, { due_date: nextDue });
+    const nextJson = mergeMetadataJsonString(metadataJsonLiveRef.current ?? row.metadata_json, nextMeta);
+    metadataJsonLiveRef.current = nextJson;
+    setMetadataJsonLive(nextJson);
+    onPatchRow?.(row.id, { due_date: nextDue, metadata_json: nextJson });
     if (opts?.closePicker ?? true) setDatePickerOpen(false);
     setPickerDraft(d);
+    if (isTrip) setIsAllDay(effectiveAllDay);
     await patchMetadata(row.id, nextMeta, { silent: true });
     await updateTrankilV2IntentionTemporal(row.id, { due_date: nextDue });
     if (effectiveAllDay) {
@@ -2077,6 +2199,7 @@ export function IntentionDetailSheet({
       return;
     }
     setPickerDraft(base);
+    temporalPickerSkipChangeRef.current = true;
     setDatePickerOpen((v) => !v);
   };
 
@@ -2084,10 +2207,15 @@ export function IntentionDetailSheet({
     const type = String(event?.type ?? '');
     if (type === 'dismissed') {
       setDatePickerOpen(false);
+      temporalPickerSkipChangeRef.current = false;
+      return;
+    }
+    if (temporalPickerSkipChangeRef.current) {
+      temporalPickerSkipChangeRef.current = false;
       return;
     }
     if (!date) return;
-    void persistDueDateTime(date, { closePicker: false });
+    void persistDueDateTime(date, { closePicker: false, allDay: isAllDay });
   };
 
   const showTriangle = false;
@@ -2100,7 +2228,10 @@ export function IntentionDetailSheet({
 
   const ecoBadge = transportMode === 'walking' || transportMode === 'bike';
   const originDisplay = originText.trim() ? originText.trim() : t('intentionDetail.currentPosition');
-  const savedArrivalAddress = arrivalText.trim() || (favoriteArrival ? favoriteArrival.trim() : '');
+  const savedArrivalAddress =
+    arrivalText.trim() ||
+    (favoriteArrival ? favoriteArrival.trim() : '') ||
+    String(str(trip as Record<string, unknown> | null, 'location_address') ?? str(meta, 'location_address') ?? '').trim();
   const arrivalDisplay = savedArrivalAddress || null;
   const arrivalIsAddress = Boolean(savedArrivalAddress);
   const projectCalendarMode = useMemo(() => {
@@ -2788,19 +2919,6 @@ export function IntentionDetailSheet({
                             setOriginText(text);
                             setOriginLat(null);
                             setOriginLng(null);
-                            if (!row) return;
-                            const raw = text.trim();
-                            const root = safeParseJsonObject(row.metadata_json) ?? {};
-                            const tripMeta = getTripMeta(root) ?? {};
-                            if (originSaveTimer.current) clearTimeout(originSaveTimer.current);
-                            originSaveTimer.current = setTimeout(() => {
-                              originSaveTimer.current = null;
-                              void (async () => {
-                                if (tripSurveillanceSubmittingRef.current) return;
-                                const tripPatch = await touchValidateTrip(root, { origin_address: raw });
-                                await patchMetadataIfSheetUnfrozen(row.id, { trip: tripPatch }, { silent: true });
-                              })();
-                            }, 250);
                           }}
                           onSelect={(p) => {
                             setOriginText(p.formattedAddress);
@@ -2808,18 +2926,18 @@ export function IntentionDetailSheet({
                             setOriginLat(p.lat);
                             setOriginLng(p.lng);
                             if (!row) return;
-                            const root = safeParseJsonObject(row.metadata_json) ?? {};
-                            const tripMeta = getTripMeta(root) ?? {};
+                            const root = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
                             void (async () => {
                               if (tripSurveillanceSubmittingRef.current) return;
-                              void tripMeta;
                               const tripPatch = await touchValidateTrip(root, {
                                 origin_address: p.formattedAddress,
                                 origin_place_id: p.placeId,
                                 origin_lat: p.lat,
                                 origin_lng: p.lng,
                               });
-                              await patchMetadataIfSheetUnfrozen(row.id, { trip: tripPatch }, { silent: true });
+                              const ok = await patchMetadataIfSheetUnfrozen(row.id, { trip: tripPatch }, { silent: true });
+                              if (!ok) return;
+                              applyTripMetadataLocally(tripPatch);
                             })();
                           }}
                           disabled={false}
@@ -2852,33 +2970,6 @@ export function IntentionDetailSheet({
                             setArrivalText(text);
                             setArrivalLat(null);
                             setArrivalLng(null);
-                            if (!row) return;
-                            const raw = text.trim();
-                            if (arrivalSaveTimer.current) clearTimeout(arrivalSaveTimer.current);
-                            arrivalSaveTimer.current = setTimeout(() => {
-                              arrivalSaveTimer.current = null;
-                              void (async () => {
-                                if (tripSurveillanceSubmittingRef.current) return;
-                                const root = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
-                                const tripPatch = await touchValidateTrip(root, {
-                                  location_address: raw || null,
-                                  location_place_id: null,
-                                  location_lat: null,
-                                  location_lng: null,
-                                });
-                                await updateTrankilV2IntentionLocationAddress(
-                                  row.id,
-                                  { location_address: raw || null },
-                                  { silent: true },
-                                );
-                                const ok = await patchMetadataIfSheetUnfrozen(row.id, { trip: tripPatch }, { silent: true });
-                                if (!ok) return;
-                                applyTripMetadataLocally(tripPatch, { locationAddress: raw || null });
-                                if (!raw && remindToLeaveEnabled) {
-                                  await cancelTripMission(row.id);
-                                }
-                              })();
-                            }, 250);
                           }}
                           onSelect={(p) => {
                             setArrivalText(p.formattedAddress);
@@ -2923,8 +3014,6 @@ export function IntentionDetailSheet({
                                   // silent — no UI
                                 }
                               }
-                              const liveMeta = safeParseJsonObject(metadataJsonLiveRef.current);
-                              await syncSentinelAfterDestinationChange(row.id, liveMeta, remindToLeaveEnabled);
                             })();
                           }}
                           disabled={false}
@@ -3527,28 +3616,26 @@ export function IntentionDetailSheet({
                     </Text>
                   ) : null}
                   <Button
-                    mode={tripSurveillanceUiState === 'pro_active' ? 'outlined' : 'contained'}
+                    mode={tripSurveillanceBtnVisual.mode}
+                    icon={tripSurveillanceBtnVisual.icon}
                     onPress={() => void onPressTripSurveillance()}
-                    disabled={
-                      tripSurveillanceSubmitting ||
-                      tripSurveillanceUiState === 'all_day'
-                    }
+                    disabled={tripSurveillanceBtnVisual.disabled}
                     loading={tripSurveillanceSubmitting}
+                    buttonColor={tripSurveillanceBtnVisual.buttonColor}
+                    textColor={tripSurveillanceBtnVisual.textColor}
                     style={[
                       styles.tripSurveillanceBtn,
-                      tripSurveillanceUiState === 'pro_active'
-                        ? { borderColor: '#16a34a', borderWidth: 2 }
+                      tripSurveillanceBtnVisual.borderColor
+                        ? {
+                            borderColor: tripSurveillanceBtnVisual.borderColor,
+                            borderWidth: tripSurveillanceBtnVisual.borderWidth,
+                            backgroundColor: 'transparent',
+                          }
                         : null,
-                      tripSurveillanceUiState === 'pro_incomplete' || tripSurveillanceUiState === 'all_day'
-                        ? { opacity: 0.55 }
-                        : null,
+                      { opacity: tripSurveillanceBtnVisual.opacity },
                       tripSurveillanceSubmitting ? { opacity: 0.7 } : null,
                     ]}
-                    labelStyle={
-                      tripSurveillanceUiState === 'pro_active'
-                        ? { color: '#16a34a', fontWeight: '800' }
-                        : { fontWeight: '800' }
-                    }
+                    labelStyle={{ fontWeight: '800', color: tripSurveillanceBtnVisual.textColor }}
                     contentStyle={styles.tripSurveillanceBtnContent}
                   >
                     {t(tripSurveillanceLabelKey(tripSurveillanceUiState))}

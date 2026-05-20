@@ -26,8 +26,6 @@ import type { OneTapUniversalResult } from './oneTapUniversalCapture';
 import { normalizeOneTapContextTag } from './oneTapUniversalCapture';
 import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from './oneTapUniversalReminders';
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
-import { consumeSentinelQuotaOnTripValidation } from './QuotaManager';
-import { activateSentinelTrip } from './traffic/sentinelActivation';
 import { buildProjectMilestonesMetadataPatch, ensureProjectMilestoneUids } from './projectMilestonesModel';
 import { NOTE_FALLBACK_LABEL } from './timelineIntentionVisibility';
 import { logCaptureFlow } from '../utils/captureFlowLog';
@@ -988,28 +986,6 @@ function inferTemporalType(data: Record<string, unknown>): 'TASK' | 'HABIT' {
   return 'TASK';
 }
 
-function parseArrivalMsFromData(data: Record<string, unknown>): number | null {
-  const iso = typeof data.dueDateTime === 'string' ? data.dueDateTime.trim() : '';
-  if (iso) {
-    const dt = new Date(iso);
-    const ms = dt.getTime();
-    if (Number.isFinite(ms) && ms > 0) return ms;
-  }
-  const ymd = typeof data.dueDateYmd === 'string' ? data.dueDateYmd.trim() : '';
-  const hm = typeof data.dueTimeHm === 'string' ? data.dueTimeHm.trim() : '';
-  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
-  const [y, m, d] = ymd.split('-').map((x) => parseInt(x, 10));
-  let hh = 0;
-  let mm = 0;
-  if (hm && /^\d{1,2}:\d{2}$/.test(hm)) {
-    hh = parseInt(hm.slice(0, hm.indexOf(':')), 10) || 0;
-    mm = parseInt(hm.slice(hm.indexOf(':') + 1), 10) || 0;
-  }
-  const dt = new Date(y, m - 1, d, hh, mm, 0, 0);
-  const ms = dt.getTime();
-  return Number.isFinite(ms) && ms > 0 ? ms : null;
-}
-
 function parseIsoToYmdHm(iso: string): { ymd: string; hm: string } | null {
   const dt = new Date(iso);
   const ms = dt.getTime();
@@ -1413,36 +1389,6 @@ export async function persistOneTapDraftVentilated(params: {
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
           if (pr.ok) {
             outcomes.push(pr.outcome);
-            if (pr.outcome.kind === 'persisted_temporal' && pr.outcome.mirrorType === 'TASK') {
-              const taskOutcomeId = pr.outcome.intentionId;
-              const arrivalMs = arrivalIso ? parseArrivalMsFromData(taskDraft.data as Record<string, unknown>) : null;
-              const sentinelReady =
-                addr.length > 0 &&
-                placeId.length > 0 &&
-                Number.isFinite(lat) &&
-                Number.isFinite(lng) &&
-                Number.isFinite(arrivalMs) &&
-                (arrivalMs ?? 0) > 0;
-              if (sentinelReady && arrivalMs) {
-                const quota = await consumeSentinelQuotaOnTripValidation({ isProUser: deps.spectrum.isProUser });
-                await activateSentinelTrip({
-                  tripTaskId: taskOutcomeId,
-                  formattedAddress: addr,
-                  targetArrivalMs: arrivalMs,
-                  lat,
-                  lng,
-                  sentinelMode: quota.mode,
-                  transportMode: typeof (taskDraft.data as any)?.transport_mode === 'string' ? String((taskDraft.data as any).transport_mode) : null,
-                });
-                try {
-                  const m = await import('./traffic/sentinelActivation');
-                  if (typeof (m as any).kickSentinelAfterActivation === 'function') {
-                    await (m as any).kickSentinelAfterActivation(taskOutcomeId);
-                  }
-                } catch {}
-                console.log(`[VENTILATION-WRITE] ✅ TRIP_SENTINEL | ID: ${taskOutcomeId}`);
-              }
-            }
           } else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
@@ -1510,7 +1456,6 @@ export async function persistOneTapDraftVentilated(params: {
   const shouldWriteTemporal = hasTemporalSignals(data);
   const logisticsPotential = Boolean(data.logisticsPotential);
   const shouldWriteTrip = logisticsPotential;
-  let taskOutcomeId: string | null = null;
 
   if (shouldWriteTemporal || shouldWriteTrip) {
     const temporalType = shouldWriteTrip ? 'TASK' : inferTemporalType(data);
@@ -1527,46 +1472,9 @@ export async function persistOneTapDraftVentilated(params: {
     });
     if (r.ok) {
       outcomes.push(r.outcome);
-      if (r.outcome.kind === 'persisted_temporal' && r.outcome.mirrorType === 'TASK') {
-        taskOutcomeId = r.outcome.intentionId;
-      }
     } else {
       firstError = firstError ?? r.error;
       firstCode = firstCode ?? r.code;
-    }
-  }
-
-  if (shouldWriteTrip && taskOutcomeId) {
-    const formattedAddress = String(data.location_address ?? '').trim();
-    const placeId = String(data.location_place_id ?? '').trim();
-    const lat = Number(data.location_lat);
-    const lng = Number(data.location_lng);
-    const arrivalMs = parseArrivalMsFromData(data);
-    const sentinelReady =
-      formattedAddress.length > 0 &&
-      placeId.length > 0 &&
-      Number.isFinite(lat) &&
-      Number.isFinite(lng) &&
-      Number.isFinite(arrivalMs) &&
-      (arrivalMs ?? 0) > 0;
-    if (sentinelReady && arrivalMs) {
-      const quota = await consumeSentinelQuotaOnTripValidation({ isProUser: deps.spectrum.isProUser });
-      await activateSentinelTrip({
-        tripTaskId: taskOutcomeId,
-        formattedAddress,
-        targetArrivalMs: arrivalMs,
-        lat,
-        lng,
-        sentinelMode: quota.mode,
-        transportMode: typeof data.transport_mode === 'string' ? String(data.transport_mode) : null,
-      });
-      try {
-        const m = await import('./traffic/sentinelActivation');
-        if (typeof (m as any).kickSentinelAfterActivation === 'function') {
-          await (m as any).kickSentinelAfterActivation(taskOutcomeId);
-        }
-      } catch {}
-      console.log(`[VENTILATION-WRITE] ✅ TRIP_SENTINEL | ID: ${taskOutcomeId}`);
     }
   }
 

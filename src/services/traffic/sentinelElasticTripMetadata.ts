@@ -4,6 +4,7 @@ import {
   computeElasticBufferMin,
   computeElasticDepartureWindow,
   computeShiftedElasticWindow,
+  ELASTIC_BUFFER_BASE_MIN,
   type ElasticDepartureWindow,
 } from '../../utils/elasticSlotEngine';
 
@@ -109,7 +110,7 @@ export function computeTripElasticWindowFromMeta(
     return {
       startDate: new Date(storedStart),
       endDate: new Date(storedEnd),
-      bufferMin: Number.isFinite(buffer) && buffer > 0 ? buffer : computeElasticBufferMin(dStd) ?? 10,
+      bufferMin: Number.isFinite(buffer) && buffer > 0 ? buffer : computeElasticBufferMin(dStd) ?? ELASTIC_BUFFER_BASE_MIN,
       dStdMin: dStd,
     };
   }

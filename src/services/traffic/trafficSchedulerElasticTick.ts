@@ -1,9 +1,11 @@
 import { getTrankilV2IntentionById } from '../../api/trankilV2Db';
 import {
   computeElasticDepartureWindow,
+  computeShiftedElasticWindow,
   normalizeElasticTransportMode,
   skipsElasticProbe2,
 } from '../../utils/elasticSlotEngine';
+import { logTripMath, resolveTripMathAlias } from '../../utils/tripMathLogger';
 import { isTripAllDay, parseTripArrivalIso } from '../../utils/tripElasticDisplay';
 import { getForegroundOriginSnapshot } from './SentinelLocationService';
 import {
@@ -15,12 +17,17 @@ import {
 import {
   computeBufferForTask,
   computeDepartInMinutes,
+  computeTrafficTrendProjection,
   evaluateProbe2Overflow,
   PROBE1_GPS_RETRY_MS,
   buildProbeFailureRecovery,
+  releaseElasticProbeLock,
   resolveDueElasticProbe,
   resolveDStdMin,
+  resolveProbe1BaselineAtMs,
+  resolveProbe1BaselineDurationSec,
   scheduleNextElasticProbe,
+  tryAcquireElasticProbeLock,
   type ElasticProbeReason,
 } from './sentinelElasticProbes';
 import type { MapsService, TripTaskRowV4 } from './TrafficSchedulerV4';
@@ -128,6 +135,37 @@ async function executeElasticProbe(input: {
   mapsService: MapsService;
 }): Promise<ElasticTickResult> {
   const { task, tripMeta, nowMs, reason, mapsService } = input;
+  const intentionId = String(task.id || '').trim();
+
+  if (!tryAcquireElasticProbeLock(intentionId)) {
+    console.warn(`[TRIP-SENTINEL] ⚠️ Probe already running for ${intentionId}, aborting duplicate.`);
+    const startMs = task.tOptimisteMs ?? nowMs;
+    const endMs = task.tPessimisteMs ?? nowMs;
+    return {
+      patch: {},
+      goNoGo: null,
+      probe3Unavailable: null,
+      trace: baseTrace(task, startMs, endMs, 'SCHEDULED'),
+      traceForce: false,
+      done: false,
+    };
+  }
+
+  try {
+    return await executeElasticProbeBody({ task, tripMeta, nowMs, reason, mapsService });
+  } finally {
+    releaseElasticProbeLock(intentionId);
+  }
+}
+
+async function executeElasticProbeBody(input: {
+  task: TripTaskRowV4;
+  tripMeta: Record<string, unknown> | null;
+  nowMs: number;
+  reason: ElasticProbeReason;
+  mapsService: MapsService;
+}): Promise<ElasticTickResult> {
+  const { task, tripMeta, nowMs, reason, mapsService } = input;
   const patch: Partial<TripTaskRowV4> = {};
   console.log(`[TRIP-SENTINEL] 🔭 ${reason} for ${task.id}`);
 
@@ -200,6 +238,16 @@ async function executeElasticProbe(input: {
       const window = computeElasticDepartureWindow(task.arrivalAtMs, dStdMin, elasticMode);
       if (!window) throw new Error('elastic window failed');
 
+      logTripMath({
+        reason,
+        alias: resolveTripMathAlias(tripMeta, task.destination),
+        targetArrivalMs: task.arrivalAtMs,
+        apiTrajetMin: dStdMin,
+        bufferMin: window.bufferMin,
+        windowStartMs: window.startDate.getTime(),
+        windowEndMs: window.endDate.getTime(),
+      });
+
       await patchTripElasticMetadata(task.id, {
         ...elasticWindowToTripPatch(window, { approximate: false, shifted: false }),
         origin_lat: origin.lat,
@@ -251,17 +299,90 @@ async function executeElasticProbe(input: {
       patch.lastTrafficDuration = trafficSec;
       patch.stateVersion = task.stateVersion + 1;
 
-      let windowStartMs = task.tOptimisteMs ?? task.arrivalAtMs - dStdMin * 60_000;
-      let windowEndMs = task.tPessimisteMs ?? task.arrivalAtMs - dStdMin * 60_000;
+      const previousTrajetMin = Math.max(
+        1,
+        Math.round(resolveProbe1BaselineDurationSec(task, trafficSec) / 60),
+      );
+      const baselineAtMs = resolveProbe1BaselineAtMs(task, nowMs);
+      const prelimWindow = computeShiftedElasticWindow(task.arrivalAtMs, dLiveMin, bufferMin);
+      const windowEndForTrend =
+        prelimWindow?.endDate.getTime() ?? task.tPessimisteMs ?? nowMs;
 
-      if (evaluateProbe2Overflow({ dLiveMin, dStdMin, bufferMin })) {
-        const shiftedPatch = buildShiftedTripPatch(task.arrivalAtMs, dLiveMin, bufferMin, trafficSec);
+      const trend = computeTrafficTrendProjection({
+        baselineDurationSec: resolveProbe1BaselineDurationSec(task, trafficSec),
+        currentDurationSec: trafficSec,
+        baselineAtMs,
+        currentAtMs: nowMs,
+        windowEndMs: windowEndForTrend,
+        nowMs,
+      });
+      const dProjectedMin = trend.finalDurationMin;
+
+      let windowStartMs = task.tOptimisteMs ?? nowMs;
+      let windowEndMs = task.tPessimisteMs ?? nowMs;
+      const liveWindow = computeShiftedElasticWindow(task.arrivalAtMs, dProjectedMin, bufferMin);
+      if (liveWindow) {
+        windowStartMs = liveWindow.startDate.getTime();
+        windowEndMs = liveWindow.endDate.getTime();
+      }
+
+      const trendLogFields = {
+        congestionGrowthRateMinPerMin: trend.growthRateMinPerMin,
+        projectedTrajetMin: trend.finalDurationMin,
+      };
+
+      if (evaluateProbe2Overflow({ dLiveMin: dProjectedMin, dStdMin, bufferMin })) {
+        const shiftedPatch = buildShiftedTripPatch(
+          task.arrivalAtMs,
+          dProjectedMin,
+          bufferMin,
+          trafficSec,
+        );
         if (shiftedPatch) {
-          await patchTripElasticMetadata(task.id, shiftedPatch);
           windowStartMs = shiftedPatch.elastic_start_ms ?? windowStartMs;
           windowEndMs = shiftedPatch.elastic_end_ms ?? windowEndMs;
+          logTripMath({
+            reason: 'PROBE2_TREND',
+            alias: resolveTripMathAlias(tripMeta, task.destination),
+            targetArrivalMs: task.arrivalAtMs,
+            apiTrajetMin: dLiveMin,
+            bufferMin,
+            windowStartMs,
+            windowEndMs,
+            previousTrajetMin,
+            ...trendLogFields,
+          });
+          await patchTripElasticMetadata(task.id, shiftedPatch);
           console.log(`[TRIP-SENTINEL] ⚠️ Cas B shift for ${task.id}`);
         }
+      } else if (liveWindow) {
+        await patchTripElasticMetadata(task.id, {
+          ...elasticWindowToTripPatch(liveWindow, { approximate: false, shifted: false }),
+          last_traffic_duration: trafficSec,
+        });
+        logTripMath({
+          reason: 'PROBE2_TREND',
+          alias: resolveTripMathAlias(tripMeta, task.destination),
+          targetArrivalMs: task.arrivalAtMs,
+          apiTrajetMin: dLiveMin,
+          bufferMin,
+          windowStartMs,
+          windowEndMs,
+          previousTrajetMin,
+          ...trendLogFields,
+        });
+      } else {
+        logTripMath({
+          reason: 'PROBE2_TREND',
+          alias: resolveTripMathAlias(tripMeta, task.destination),
+          targetArrivalMs: task.arrivalAtMs,
+          apiTrajetMin: dLiveMin,
+          bufferMin,
+          windowStartMs,
+          windowEndMs,
+          previousTrajetMin,
+          ...trendLogFields,
+        });
       }
 
       patch.tOptimisteMs = windowStartMs;
@@ -316,12 +437,39 @@ async function executeElasticProbe(input: {
           ? 'leave_now'
           : 'smooth';
 
+      const liveWindow = computeShiftedElasticWindow(task.arrivalAtMs, dLiveMin, bufferMin);
+      const startMs = liveWindow?.startDate.getTime() ?? task.tOptimisteMs ?? nowMs;
+      const endMs = liveWindow?.endDate.getTime() ?? task.tPessimisteMs ?? nowMs;
+      const previousTrajetMin = Math.max(
+        1,
+        Math.round(
+          Number(task.scan2DurationSec ?? task.scan1DurationSec ?? dStdMin * 60) / 60,
+        ),
+      );
+
+      logTripMath({
+        reason: 'PROBE3_GONOGO',
+        alias: resolveTripMathAlias(tripMeta, task.destination),
+        targetArrivalMs: task.arrivalAtMs,
+        apiTrajetMin: dLiveMin,
+        bufferMin,
+        windowStartMs: startMs,
+        windowEndMs: endMs,
+        previousTrajetMin,
+      });
+
+      patch.tOptimisteMs = startMs;
+      patch.tPessimisteMs = endMs;
+      patch.displayedTOptimisteMs = startMs;
+      patch.displayedTPessimisteMs = endMs;
+
       await patchTripElasticMetadata(task.id, {
+        ...(liveWindow
+          ? elasticWindowToTripPatch(liveWindow, { approximate: false, shifted: false })
+          : {}),
         last_traffic_duration: trafficSec,
       });
 
-      const startMs = task.tOptimisteMs ?? nowMs;
-      const endMs = task.tPessimisteMs ?? nowMs;
       return {
         patch,
         goNoGo: { variant, departInMin: variant === 'smooth' ? Math.max(1, departInMin) : 0 },
