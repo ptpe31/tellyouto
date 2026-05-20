@@ -1,7 +1,7 @@
 import {
   DEFAULT_ELASTIC_D_STD_MIN,
   ELASTIC_BUFFER_BASE_MIN,
-  computePredictiveBufferMin,
+  contractRelaxBufferMin,
   readElasticWindowAnchor,
   scheduleElasticProbes,
   skipsElasticProbe2,
@@ -110,17 +110,12 @@ export function resolveTrafficDeltaMin(
 }
 
 export function computeBufferForTask(
-  task: TripTaskRowV4,
+  _task: TripTaskRowV4,
   tripMeta: Record<string, unknown> | null,
 ): number {
   const stored = tripMeta ? Number(tripMeta.elastic_buffer_min) : NaN;
   if (Number.isFinite(stored) && stored > 0) return stored;
-  const alpha = tripMeta ? Number(tripMeta.elastic_prudence_alpha) : NaN;
-  if (Number.isFinite(alpha) && alpha > 0) {
-    const ideal = resolveIdealDurationMin(task, tripMeta);
-    return computePredictiveBufferMin(ideal, alpha);
-  }
-  return ELASTIC_BUFFER_BASE_MIN;
+  return contractRelaxBufferMin();
 }
 
 export function computeDepartInMinutesFromAnchor(anchorEndMs: number, nowMs: number): number {

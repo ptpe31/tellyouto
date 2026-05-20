@@ -54,6 +54,8 @@ export type TripTaskRowV4 = {
 export type TrafficSample = {
   trafficDurationSec: number;
   staticDurationSec?: number;
+  /** Distance route (mètres) — fallback T_ideal à 50 km/h. */
+  distanceM?: number;
   fromCache?: boolean;
   cacheKey?: string;
   latencyMs?: number;

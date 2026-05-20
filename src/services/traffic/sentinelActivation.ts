@@ -1,6 +1,5 @@
 import { withTrankilV2Database } from '../../api/trankilV2Db';
 import {
-  computeBaseSmartBufferMin,
   computeProposedWindowAnchor,
   DEFAULT_ELASTIC_D_STD_MIN,
   scheduleElasticProbes,
@@ -95,12 +94,10 @@ export async function activateSentinelTrip(input: {
 }> {
   const nowMs = Date.now();
   const dStdMin = Math.max(1, Number(input.standardDurationMin ?? DEFAULT_ELASTIC_D_STD_MIN) || DEFAULT_ELASTIC_D_STD_MIN);
-  const bufferBase = computeBaseSmartBufferMin(dStdMin) ?? 15;
   const proposed = computeProposedWindowAnchor({
     arrivalMs: input.targetArrivalMs,
     tUsedMin: dStdMin,
-    alpha: 1,
-    bufferMin: bufferBase,
+    ratioD: 1,
   });
   const windowStartMs = proposed?.startMs ?? input.targetArrivalMs - dStdMin * 60_000;
   const windowEndMs = proposed?.endMs ?? input.targetArrivalMs;

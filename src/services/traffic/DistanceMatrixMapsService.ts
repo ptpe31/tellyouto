@@ -115,6 +115,7 @@ export class DistanceMatrixMapsService implements MapsService {
       const durationTrafficValue = Number(
         (el?.duration_in_traffic as { value?: number } | undefined)?.value,
       );
+      const distanceM = Number((el?.distance as { value?: number } | undefined)?.value);
       const trafficDurationSec = Number.isFinite(durationTrafficValue)
         ? Math.max(0, durationTrafficValue)
         : Number.isFinite(durationValue)
@@ -125,6 +126,7 @@ export class DistanceMatrixMapsService implements MapsService {
       const sample: TrafficSample = {
         trafficDurationSec,
         staticDurationSec: Number.isFinite(durationValue) ? Math.max(0, durationValue) : undefined,
+        distanceM: Number.isFinite(distanceM) && distanceM > 0 ? distanceM : undefined,
         fromCache: false,
         cacheKey: key,
         latencyMs,

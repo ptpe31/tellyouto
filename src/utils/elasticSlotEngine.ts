@@ -3,13 +3,10 @@
  * Aucune dépendance SQLite, Sentinel, réseau ou UI.
  */
 
-/** Marge incompressible (préparation + stationnement). */
+/** Marge incompressible (relax) = Start_Relax = Deadline − 15 min. */
 export const ELASTIC_BUFFER_BASE_MIN = 15;
-/** Part d'aléa trafic : 10 % du temps de trajet API. */
-export const ELASTIC_BUFFER_VARIANCE_RATIO = 0.1;
-export const ELASTIC_BUFFER_CLAMP_MIN = 15;
-export const ELASTIC_BUFFER_CLAMP_MAX_MIN = 25;
-export const ELASTIC_BUFFER_PREDICTIVE_CAP_MIN = 30;
+/** Vitesse de référence pour T_ideal fallback (distance / 50 km/h). */
+export const ELASTIC_REFERENCE_SPEED_KMH = 50;
 /** @deprecated Alias affichage — utiliser ELASTIC_BUFFER_BASE_MIN. */
 export const ELASTIC_BUFFER_FLOOR_MIN = ELASTIC_BUFFER_BASE_MIN;
 
@@ -54,32 +51,40 @@ export function skipsElasticProbe2(transportMode: string | null | undefined): bo
   return m === 'walking' || m === 'bicycling';
 }
 
-/** Smart Buffer de base : 15 min + 10 % trajet, borné [15, 25]. */
-export function computeBaseSmartBufferMin(dIdealMin: number): number | null {
-  const duration = Number(dIdealMin);
-  if (!Number.isFinite(duration) || duration <= 0) return null;
-  const varianceBuffer = Math.round(duration * ELASTIC_BUFFER_VARIANCE_RATIO);
-  let bufferMin = ELASTIC_BUFFER_BASE_MIN + Math.max(0, varianceBuffer);
-  bufferMin = Math.max(ELASTIC_BUFFER_CLAMP_MIN, Math.min(ELASTIC_BUFFER_CLAMP_MAX_MIN, bufferMin));
-  return bufferMin;
-}
-
 export function computeDegradationRatio(tPredMin: number, tIdealMin: number): number {
-  return tPredMin / Math.max(tIdealMin, 1);
+  const pred = Number(tPredMin);
+  const ideal = Math.max(1, Number(tIdealMin));
+  if (!Number.isFinite(pred) || pred <= 0) return 1;
+  return pred / ideal;
 }
 
-export function computePrudenceAlpha(ratio: number): number {
-  if (ratio < 1.05) return 1.0;
-  if (ratio < 1.25) return 1.1;
-  if (ratio < 1.5) return 1.2;
-  return 1.35;
+/** T_ideal (min) à partir de la distance : distance_km / 50 km/h. */
+export function computeIdealDurationMinFromDistanceM(distanceM: number): number {
+  const meters = Number(distanceM);
+  if (!Number.isFinite(meters) || meters <= 0) return 1;
+  const hours = meters / 1000 / ELASTIC_REFERENCE_SPEED_KMH;
+  return Math.max(1, Math.round(hours * 60));
 }
 
-/** Buffer du contrat : Smart Buffer × α, plafonné à 30 min. */
-export function computePredictiveBufferMin(dIdealMin: number, alpha: number): number {
-  const base = computeBaseSmartBufferMin(dIdealMin) ?? ELASTIC_BUFFER_BASE_MIN;
-  const a = Number.isFinite(alpha) && alpha > 0 ? alpha : 1;
-  return Math.min(Math.round(base * a), ELASTIC_BUFFER_PREDICTIVE_CAP_MIN);
+/**
+ * T_ideal stable : durée statique API (sans trafic), sinon distance / 50 km/h.
+ */
+export function resolveIdealDurationMinFromSample(input: {
+  staticDurationSec: number;
+  distanceM?: number | null;
+}): number {
+  const staticSec = Math.max(0, Number(input.staticDurationSec) || 0);
+  if (staticSec > 0) return Math.max(1, Math.round(staticSec / 60));
+  const distanceM = input.distanceM;
+  if (distanceM != null && Number.isFinite(distanceM) && distanceM > 0) {
+    return computeIdealDurationMinFromDistanceM(distanceM);
+  }
+  return 1;
+}
+
+/** Largeur fixe du créneau relax (Start = Deadline − 15 min). */
+export function contractRelaxBufferMin(): number {
+  return ELASTIC_BUFFER_BASE_MIN;
 }
 
 export function computeProbe1DepartureTimeUnix(input: {
@@ -101,34 +106,32 @@ export function computeProbe1DepartureTimeUnix(input: {
 export function computeProbe1CalculatedDepartMs(input: {
   arrivalMs: number;
   tIdealMin: number;
-  bufferBaseMin: number;
+  bufferBaseMin?: number;
 }): number {
-  return input.arrivalMs - (input.tIdealMin + input.bufferBaseMin) * 60_000;
+  const buffer = input.bufferBaseMin ?? ELASTIC_BUFFER_BASE_MIN;
+  return input.arrivalMs - (input.tIdealMin + buffer) * 60_000;
 }
 
 /**
- * Contrat de Départ :
- *   endMs   = arrivée − (tUsed × α) − marge incompressible (15 min)
- *   startMs = arrivée − (tUsed × α) − bufferMin
+ * Contrat de Départ (marge adaptative) :
+ *   D = T_pred / T_ideal
+ *   Deadline (endMs) = arrivée − (T_used × D) × 60_000
+ *   Start_Relax (startMs) = Deadline − 15 min
  */
 export function computeProposedWindowAnchor(input: {
   arrivalMs: number;
   tUsedMin: number;
-  alpha: number;
-  bufferMin: number;
+  ratioD: number;
 }): WindowAnchor | null {
   const arrivalMs = Number(input.arrivalMs);
   const tUsed = Number(input.tUsedMin);
-  const alpha = Number(input.alpha);
-  const bufferMin = Number(input.bufferMin);
+  const ratioD = Number(input.ratioD);
   if (!Number.isFinite(arrivalMs) || !Number.isFinite(tUsed) || tUsed <= 0) return null;
-  if (!Number.isFinite(alpha) || alpha <= 0 || !Number.isFinite(bufferMin) || bufferMin < 0) {
-    return null;
-  }
+  if (!Number.isFinite(ratioD) || ratioD <= 0) return null;
 
-  const contractDriveMin = tUsed * alpha;
-  const endMs = arrivalMs - (contractDriveMin + ELASTIC_BUFFER_BASE_MIN) * 60_000;
-  const startMs = arrivalMs - (contractDriveMin + bufferMin) * 60_000;
+  const contractDriveMin = tUsed * ratioD;
+  const endMs = arrivalMs - contractDriveMin * 60_000;
+  const startMs = endMs - ELASTIC_BUFFER_BASE_MIN * 60_000;
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs) return null;
 
   return {
@@ -136,6 +139,20 @@ export function computeProposedWindowAnchor(input: {
     endMs,
     durationMin: Math.max(1, Math.round(tUsed)),
   };
+}
+
+/** Ratio D pour shifts PROBE2/3 : ne jamais assouplir sous le D calibré PROBE1. */
+export function resolveContractRatioD(input: {
+  storedRatioD: number | null;
+  tLiveMin: number;
+  tIdealMin: number;
+}): number {
+  const stored = input.storedRatioD;
+  const liveD = computeDegradationRatio(input.tLiveMin, input.tIdealMin);
+  if (stored != null && Number.isFinite(stored) && stored > 0) {
+    return Math.max(stored, liveD);
+  }
+  return liveD;
 }
 
 export function applyPessimisticAnchor(

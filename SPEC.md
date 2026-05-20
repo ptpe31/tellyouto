@@ -357,7 +357,7 @@ Conditions minimales « surveillable » :
 
 #### Formules mathématiques — Créneau élastique (Contrat de Départ)
 
-Stratégie **Pessimiste Prédictif** : ancrage unidirectionnel, ratio de dégradation du trafic, hystérésis UI 5 min, PROBE3 conditionnel.
+Stratégie **Pessimiste Prédictif auto-calibré** : marge de risque adaptative via ratio `D` (plus de paliers α fixes), ancrage unidirectionnel, hystérésis UI 5 min, PROBE3 conditionnel.
 
 Implémentation : [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), orchestration [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts).
 
@@ -368,9 +368,8 @@ Implémentation : [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev
 | `T_arr` | ms | Heure d’arrivée cible (`arrivalDue` / `dueDateTime`) |
 | `T_ideal` | min | Durée **statique** (`duration`, sans trafic) — `standard_duration_min` |
 | `T_pred` | min | Durée **prédictive** (`duration_in_traffic` à `departure_time` PROBE1) — `elastic_predicted_duration_min` |
-| `D` | ratio | Ratio de dégradation `T_pred / T_ideal` — `elastic_degradation_ratio` |
-| `α` | coeff. | Coefficient de prudence (figé PROBE1) — `elastic_prudence_alpha` |
-| `Buffer` | min | Smart Buffer × α, plafonné 30 min — `elastic_buffer_min` (figé PROBE1) |
+| `D` | ratio | **Multiplicateur de sécurité** `T_pred / T_ideal` — `elastic_degradation_ratio` (ancre de confiance PROBE1) |
+| `Relax` | min | Largeur fixe du créneau = **15 min** (`elastic_buffer_min`, `Start = Deadline − Relax`) |
 | `T_start` | ms | Borne basse ancrée (`elastic_anchor_start_ms`) |
 | `T_end` | ms | **Deadline** ancrée (`elastic_anchor_end_ms`) — ne recule que vers le passé |
 | `Δ` | min | `D_mesuré − baseline` (baseline = `elastic_anchor_duration_min`) |
@@ -378,11 +377,11 @@ Implémentation : [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev
 **Constantes**
 
 ```
-INCOMPRESSIBLE   = 15 min     (marge préparation + stationnement — ELASTIC_BUFFER_BASE_MIN)
-BUFFER_VARIANCE  = 10 %       (part variable du Smart Buffer, bornée [15, 25] avant × α)
-BUFFER_CAP       = 30 min     (plafond après × α)
+RELAX_WIDTH      = 15 min     (Start_Relax = Deadline − 15 min — incompressible)
+REF_SPEED        = 50 km/h     (fallback T_ideal si pas de duration statique API)
 DEAD_ZONE        = 5 min       (hystérésis — pas de patch UI si |Δ| ≤ 5)
 PROBE3_SKIP_DEP  = 10 min     (skip API si stable + proche deadline)
+PROBE1_DEP_LEAD  = 2 min       (departure_time API ≥ now + 2 min)
 PROBE2_LEAD      = 45 min
 PROBE3_LEAD      = 15 min
 SHORT_TRIP_MAX   = 15 min     (pas de PROBE2 si durée < 15)
@@ -391,43 +390,52 @@ DEFAULT_T_IDEAL  = 30 min     (fallback avant PROBE1)
 
 **Modes** : `auto` → `driving` ; `walking` / `bike` → `walking` / `bicycling`. **PROBE2 ignoré** pour piéton et vélo (PROBE1 + PROBE3 uniquement).
 
-##### 1. Ratio de dégradation & prudence (PROBE1)
+##### 1. T_ideal & ratio D (PROBE1 — auto-calibration)
 
-**Appel Distance Matrix PROBE1** : `departure_time` = Unix(`T_arr − (T_ideal_est + Buffer_base)`), où `Buffer_base` = Smart Buffer à α=1.
+**T_ideal** (référence stable, sans trafic) :
+```
+T_ideal = round(duration_statique_API / 60)     // prioritaire
+       ou round((distance_m / 1000) / 50 × 60)  // fallback 50 km/h
+```
+
+**Appel Distance Matrix PROBE1** :
+```
+departure_time = max(now + 2 min, T_arr − (T_ideal + Relax))
+```
+(Garde anti « voyage dans le temps » si l’arrivée est proche.)
 
 ```
 D = T_pred / max(T_ideal, 1)
-
-α(D) :
-  D < 1,05  → 1,0
-  D < 1,25  → 1,1
-  D < 1,50  → 1,2
-  sinon     → 1,35
-
-Buffer = min(round(SmartBuffer(T_ideal) × α), 30)
-SmartBuffer(T_ideal) = clamp(15 + round(10 % × T_ideal), 15, 25)
 ```
 
-Persisté : `elastic_degradation_ratio`, `elastic_prudence_alpha`, `elastic_predicted_duration_min`, `standard_duration_min` (= `T_ideal`).
+`D` est le **multiplicateur de sécurité** : plus le trafic est dégradé vs l’idéal, plus la deadline recule.
 
-##### 2. Contrat de départ (fenêtre & ancre)
+Persisté : `elastic_degradation_ratio` (= `D`), `elastic_predicted_duration_min`, `standard_duration_min` (= `T_ideal`). Champ legacy `elastic_prudence_alpha` = copie de `D` (lecture rétrocompat).
 
-```
-T_end   = T_arr − (T_used × α + INCOMPRESSIBLE) × 60 000
-T_start = T_arr − (T_used × α + Buffer) × 60 000
-```
-
-À PROBE1 : `T_used = T_pred`. Les ancres sont initialisées puis stockées dans `elastic_anchor_*`.
-
-**Ancrage pessimiste** (PROBE2/3) :
+##### 2. Contrat de départ — Deadline ancre de confiance
 
 ```
+Deadline (T_end) = T_arr − (T_used × D) × 60 000
+Start_Relax (T_start) = Deadline − Relax × 60 000    (= Deadline − 15 min)
+```
+
+À **PROBE1** : `T_used = T_pred`, `D` mesuré à l’instant → la deadline affichée intègre déjà le risque trafic constaté.
+
+**PROBE2 / PROBE3** (shifts) :
+```
+D_shift = max(D_PROBE1_stocké, T_live / T_ideal)
+Deadline_proposée = T_arr − (T_live × D_shift) × 60 000
+Start_proposé = Deadline_proposée − 15 min
+```
+
+**Ancrage pessimiste** (monotone décroissant) :
+
+```
+T_end'   = min(T_end_ancre,   T_end_proposé)    // ne avance jamais vers le futur
 T_start' = min(T_start_ancre, T_start_proposé)
-T_end'   = min(T_end_ancre,   T_end_proposé)
-duration_ancre' = max(duration_ancre, D_mesuré)
 ```
 
-Le créneau **ne s’améliore jamais** visuellement quand le trafic se dégage ; il ne **recule** (vers le passé) que si le trafic empire au-delà de la zone morte.
+Le créneau **ne s’améliore jamais** visuellement quand le trafic se dégage ; il ne **recule** que si le trafic empire au-delà de la zone morte.
 
 ##### 3. Hystérésis UI (PROBE2 / PROBE3)
 
@@ -438,7 +446,7 @@ Le créneau **ne s’améliore jamais** visuellement quand le trafic se dégage 
 |Δ| > 5 min   →  recalcul ancre + UI_UPDATE: true si ancre modifiée
 ```
 
-Logs `[TRIP-MATH]` : `[Ratio_D]`, `[Alpha]`, `[UI_UPDATE: boolean]` à chaque étape.
+Logs `[TRIP-MATH]` : `[Ratio_D]`, `[UI_UPDATE: boolean]`, `[PROBE3_SKIPPED]` à chaque étape.
 
 ##### 4. PROBE3 conditionnel (skip API)
 
@@ -508,15 +516,15 @@ PROBE1 est toujours immédiat (`now`) à l’activation ou après reset destinat
 **Sondes API (max 2–3 appels Distance Matrix)** — dispatcher [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts) :
 | Sonde | Rôle |
 |-------|------|
-| **PROBE1** | `departure_time` prédictif ; calcule `D`, `α`, Buffer, ancres ; `standard_duration_min` + `elastic_predicted_duration_min` |
-| **PROBE2** | Trafic live (now) ; hystérésis 5 min ; ancrage pessimiste si `Δ > 5` |
+| **PROBE1** | `departure_time` prédictif (≥ now+2 min) ; `T_ideal` + `T_pred` → `D` ; deadline ancre `T_arr − T_pred×D` |
+| **PROBE2** | Trafic live ; `D_shift = max(D₁, D_live)` ; hystérésis 5 min ; ancrage si `Δ > 5` |
 | **PROBE3** | Go/No-Go ; skip API si stable + `< 10 min` avant deadline ; sinon mesure live |
 
 **Planification** : zéro polling. Un `setTimeout` par TRIP sur `sentinel_trips.next_real_scan_at_ms` ([`TrafficSchedulerV4`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts)). Background OS ([`SentinelBackgroundService`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/SentinelBackgroundService.ts)) : tick **uniquement** si sonde échue.
 
 **Métadonnées trip** (`metadata_json.trip`) :
 - Affichage : `elastic_start_ms`, `elastic_end_ms`, `elastic_buffer_min`, `elastic_shifted`, `elastic_approximate`
-- Contrat : `elastic_degradation_ratio`, `elastic_prudence_alpha`, `elastic_predicted_duration_min`, `elastic_anchor_start_ms`, `elastic_anchor_end_ms`, `elastic_anchor_duration_min`, `probe3_skipped`
+- Contrat : `elastic_degradation_ratio` (D), `elastic_predicted_duration_min`, `elastic_anchor_*`, `probe3_skipped` ; `elastic_prudence_alpha` = miroir de D (legacy)
 - Technique : `standard_duration_min`, `origin_lat/lng`, `last_traffic_duration`, `next_probe_at_ms`, `next_probe_reason`
 
 **Cache Distance Matrix** : clé inclut un bucket `departure_time` (5 min) pour ne pas servir le trafic « now » sur une requête prédictive PROBE1.

@@ -1,8 +1,8 @@
 import { getTrankilV2IntentionById, patchMetadata } from '../../api/trankilV2Db';
 import { withSentinelDbRetry } from './sentinelDbRetry';
 import {
-  ELASTIC_BUFFER_BASE_MIN,
   anchorToDepartureWindow,
+  contractRelaxBufferMin,
   readElasticWindowAnchor,
   type WindowAnchor,
 } from '../../utils/elasticSlotEngine';
@@ -71,27 +71,26 @@ export function tripMetadataNeedsGpsCatchup(trip: Record<string, unknown> | null
 
 export function buildContractTripPatch(input: {
   anchor: WindowAnchor;
-  bufferMin: number;
   tIdealMin: number;
   tPredMin: number;
   ratioD: number;
-  alpha: number;
   approximate?: boolean;
   shifted?: boolean;
   probe3Skipped?: boolean;
 }): TripElasticMetadataPatch {
-  const window = anchorToDepartureWindow(input.anchor, input.bufferMin, input.tIdealMin);
+  const bufferMin = contractRelaxBufferMin();
+  const window = anchorToDepartureWindow(input.anchor, bufferMin, input.tIdealMin);
   return {
     standard_duration_min: input.tIdealMin,
     elastic_predicted_duration_min: input.tPredMin,
     elastic_degradation_ratio: input.ratioD,
-    elastic_prudence_alpha: input.alpha,
+    elastic_prudence_alpha: input.ratioD,
     elastic_anchor_start_ms: input.anchor.startMs,
     elastic_anchor_end_ms: input.anchor.endMs,
     elastic_anchor_duration_min: input.anchor.durationMin,
     elastic_start_ms: window.startDate.getTime(),
     elastic_end_ms: window.endDate.getTime(),
-    elastic_buffer_min: input.bufferMin,
+    elastic_buffer_min: bufferMin,
     elastic_approximate: input.approximate ?? false,
     elastic_shifted: input.shifted ?? false,
     probe3_skipped: input.probe3Skipped,

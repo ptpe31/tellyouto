@@ -4,7 +4,7 @@
  */
 
 import {
-  computeBaseSmartBufferMin,
+  contractRelaxBufferMin,
   DEFAULT_ELASTIC_D_STD_MIN,
   ELASTIC_BUFFER_FLOOR_MIN,
   elasticWindowFromStoredMs,
@@ -78,7 +78,7 @@ function resolveStoredElasticWindow(trip: Record<string, unknown>): ElasticDepar
   const bufferMin =
     Number.isFinite(bufferRaw) && bufferRaw > 0
       ? bufferRaw
-      : computeBaseSmartBufferMin(parsedStd) ?? ELASTIC_BUFFER_FLOOR_MIN;
+      : contractRelaxBufferMin() ?? ELASTIC_BUFFER_FLOOR_MIN;
 
   return elasticWindowFromStoredMs(startMs, endMs, parsedStd, bufferMin);
 }

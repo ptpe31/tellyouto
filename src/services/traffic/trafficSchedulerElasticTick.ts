@@ -1,15 +1,15 @@
 import { getTrankilV2IntentionById } from '../../api/trankilV2Db';
 import {
   applyPessimisticAnchor,
-  computeBaseSmartBufferMin,
   computeDegradationRatio,
   computeProbe1CalculatedDepartMs,
   computeProbe1DepartureTimeUnix,
   computeProposedWindowAnchor,
-  computePrudenceAlpha,
-  computePredictiveBufferMin,
+  contractRelaxBufferMin,
   isWithinTrafficDeadZone,
   readElasticWindowAnchor,
+  resolveContractRatioD,
+  resolveIdealDurationMinFromSample,
   shouldSkipProbe3Api,
   skipsElasticProbe2,
   type WindowAnchor,
@@ -113,11 +113,6 @@ function applyDisplayedContractPatch(
   }
 }
 
-function readStoredAlpha(tripMeta: Record<string, unknown> | null): number {
-  const alpha = tripMeta ? Number(tripMeta.elastic_prudence_alpha) : NaN;
-  return Number.isFinite(alpha) && alpha > 0 ? alpha : 1;
-}
-
 function readStoredRatioD(tripMeta: Record<string, unknown> | null): number | null {
   const ratio = tripMeta ? Number(tripMeta.elastic_degradation_ratio) : NaN;
   return Number.isFinite(ratio) && ratio > 0 ? ratio : null;
@@ -162,7 +157,7 @@ async function fetchTrafficWithAccounting(
   patch: Partial<TripTaskRowV4>,
   mapsService: MapsService,
   fetchOpts?: FetchTrafficSampleOptions,
-): Promise<{ trafficSec: number; staticSec: number }> {
+): Promise<{ trafficSec: number; staticSec: number; distanceM?: number }> {
   const sample = await mapsService.fetchTrafficSample(
     {
       ...task,
@@ -179,7 +174,9 @@ async function fetchTrafficWithAccounting(
     0,
     Number(sample.staticDurationSec ?? sample.trafficDurationSec) || 0,
   );
-  return { trafficSec, staticSec };
+  const distanceM =
+    sample.distanceM != null && Number.isFinite(sample.distanceM) ? sample.distanceM : undefined;
+  return { trafficSec, staticSec, distanceM };
 }
 
 async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<ElasticTickResult> {
@@ -203,7 +200,7 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
 
   try {
     const estimateIdeal = resolveIdealDurationMin(task, tripMeta);
-    const bufferBase = computeBaseSmartBufferMin(estimateIdeal) ?? 15;
+    const bufferBase = contractRelaxBufferMin();
     const calculatedDepartMs = computeProbe1CalculatedDepartMs({
       arrivalMs: task.arrivalAtMs,
       tIdealMin: estimateIdeal,
@@ -226,32 +223,31 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
     patch.status = 'ACTIVE';
     patch.modeSafety = false;
 
-    const { trafficSec, staticSec } = await fetchTrafficWithAccounting(task, patch, mapsService, {
-      departureTimeUnix,
-    });
+    const { trafficSec, staticSec, distanceM } = await fetchTrafficWithAccounting(
+      task,
+      patch,
+      mapsService,
+      { departureTimeUnix },
+    );
 
-    const tIdealMin = Math.max(1, Math.round(staticSec / 60));
+    const tIdealMin = resolveIdealDurationMinFromSample({ staticDurationSec: staticSec, distanceM });
     const tPredMin = Math.max(1, Math.round(trafficSec / 60));
     const ratioD = computeDegradationRatio(tPredMin, tIdealMin);
-    const alpha = computePrudenceAlpha(ratioD);
-    const bufferMin = computePredictiveBufferMin(tIdealMin, alpha);
+    const bufferMin = contractRelaxBufferMin();
 
     const proposed = computeProposedWindowAnchor({
       arrivalMs: task.arrivalAtMs,
       tUsedMin: tPredMin,
-      alpha,
-      bufferMin,
+      ratioD,
     });
     if (!proposed) throw new Error('contract anchor failed');
 
     const { anchor } = applyPessimisticAnchor(null, proposed);
     const metaPatch = buildContractTripPatch({
       anchor,
-      bufferMin,
       tIdealMin,
       tPredMin,
       ratioD,
-      alpha,
       approximate: false,
       shifted: false,
     });
@@ -265,7 +261,6 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
       windowStartMs: anchor.startMs,
       windowEndMs: anchor.endMs,
       ratioD,
-      alpha,
       uiUpdate: true,
     });
 
@@ -333,10 +328,13 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
 
     const { trafficSec } = await fetchTrafficWithAccounting(task, patch, mapsService);
     const dLiveMin = Math.max(1, Math.round(trafficSec / 60));
-    const alpha = readStoredAlpha(tripMeta);
     const bufferMin = computeBufferForTask(task, tripMeta);
-    const ratioD = readStoredRatioD(tripMeta);
     const tIdealMin = resolveIdealDurationMin(task, tripMeta);
+    const ratioD = resolveContractRatioD({
+      storedRatioD: readStoredRatioD(tripMeta),
+      tLiveMin: dLiveMin,
+      tIdealMin,
+    });
     const { deltaMin, baselineMin } = resolveTrafficDeltaMin(dLiveMin, tripMeta);
     const uiUpdate = !isWithinTrafficDeadZone(deltaMin);
 
@@ -352,8 +350,7 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
       const proposed = computeProposedWindowAnchor({
         arrivalMs: task.arrivalAtMs,
         tUsedMin: dLiveMin,
-        alpha,
-        bufferMin,
+        ratioD,
       });
       if (proposed) {
         const merged = applyPessimisticAnchor(previousAnchor, proposed);
@@ -361,11 +358,9 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
         shifted = shifted || (previousAnchor != null && merged.changed);
         const metaPatch = buildContractTripPatch({
           anchor,
-          bufferMin,
           tIdealMin,
           tPredMin: resolvePredictedDurationMin(task, tripMeta),
-          ratioD: ratioD ?? computeDegradationRatio(dLiveMin, tIdealMin),
-          alpha,
+          ratioD,
           shifted,
         });
         await patchTripElasticMetadata(task.id, {
@@ -389,8 +384,7 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
       windowStartMs: anchor.startMs,
       windowEndMs: anchor.endMs,
       previousTrajetMin: baselineMin,
-      ratioD: ratioD ?? undefined,
-      alpha,
+      ratioD,
       uiUpdate,
     });
 
@@ -496,10 +490,13 @@ async function finalizeProbe3FromMeasurement(input: {
   const fallbackSec = Number(task.scan2DurationSec ?? task.scan1DurationSec ?? 0);
   const measureSec = trafficSec > 0 ? trafficSec : fallbackSec;
   const dLiveMin = Math.max(1, Math.round(measureSec / 60));
-  const alpha = readStoredAlpha(tripMeta);
   const bufferMin = computeBufferForTask(task, tripMeta);
-  const ratioD = readStoredRatioD(tripMeta);
   const tIdealMin = resolveIdealDurationMin(task, tripMeta);
+  const ratioD = resolveContractRatioD({
+    storedRatioD: readStoredRatioD(tripMeta),
+    tLiveMin: dLiveMin,
+    tIdealMin,
+  });
   const { deltaMin, baselineMin } = resolveTrafficDeltaMin(dLiveMin, tripMeta);
   const uiUpdate = !probe3Skipped && !isWithinTrafficDeadZone(deltaMin);
 
@@ -514,8 +511,7 @@ async function finalizeProbe3FromMeasurement(input: {
     const proposed = computeProposedWindowAnchor({
       arrivalMs: task.arrivalAtMs,
       tUsedMin: dLiveMin,
-      alpha,
-      bufferMin,
+      ratioD,
     });
     if (proposed) {
       const merged = applyPessimisticAnchor(previousAnchor, proposed);
@@ -536,8 +532,7 @@ async function finalizeProbe3FromMeasurement(input: {
     windowStartMs: anchor.startMs,
     windowEndMs: anchor.endMs,
     previousTrajetMin: baselineMin,
-    ratioD: ratioD ?? undefined,
-    alpha,
+    ratioD,
     uiUpdate: uiUpdate || probe3Skipped,
     probe3Skipped,
   });
@@ -554,11 +549,9 @@ async function finalizeProbe3FromMeasurement(input: {
   await patchTripElasticMetadata(task.id, {
     ...buildContractTripPatch({
       anchor,
-      bufferMin,
       tIdealMin,
       tPredMin: resolvePredictedDurationMin(task, tripMeta),
-      ratioD: ratioD ?? computeDegradationRatio(dLiveMin, tIdealMin),
-      alpha,
+      ratioD,
       probe3Skipped,
     }),
     last_traffic_duration: patch.lastTrafficDuration ?? trafficSec,
