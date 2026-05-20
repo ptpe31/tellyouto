@@ -19,6 +19,8 @@ export const ELASTIC_PROBE2_LEAD_MIN = 45;
 export const ELASTIC_PROBE3_LEAD_MIN = 15;
 export const ELASTIC_SHORT_TRIP_MAX_MIN = 15;
 export const DEFAULT_ELASTIC_D_STD_MIN = 30;
+/** Marge minimale entre now et departure_time PROBE1 (évite requête DM dans le passé). */
+export const PROBE1_DEPARTURE_MIN_LEAD_MS = 120_000;
 
 type ElasticTransportMode = 'driving' | 'walking' | 'bicycling';
 
@@ -84,10 +86,24 @@ export function computeProbe1DepartureTimeUnix(input: {
   arrivalMs: number;
   tIdealMin: number;
   bufferBaseMin: number;
+  nowMs: number;
 }): number {
-  const departMs =
+  const calculatedDepartMs =
     input.arrivalMs - (input.tIdealMin + input.bufferBaseMin) * 60_000;
-  return Math.floor(departMs / 1000);
+  const safeDepartMs = Math.max(
+    Number(input.nowMs) + PROBE1_DEPARTURE_MIN_LEAD_MS,
+    calculatedDepartMs,
+  );
+  return Math.floor(safeDepartMs / 1000);
+}
+
+/** Horodatage de départ estimé avant garde temporelle (pour logs / diagnostic). */
+export function computeProbe1CalculatedDepartMs(input: {
+  arrivalMs: number;
+  tIdealMin: number;
+  bufferBaseMin: number;
+}): number {
+  return input.arrivalMs - (input.tIdealMin + input.bufferBaseMin) * 60_000;
 }
 
 /**

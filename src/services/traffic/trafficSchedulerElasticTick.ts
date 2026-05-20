@@ -3,6 +3,7 @@ import {
   applyPessimisticAnchor,
   computeBaseSmartBufferMin,
   computeDegradationRatio,
+  computeProbe1CalculatedDepartMs,
   computeProbe1DepartureTimeUnix,
   computeProposedWindowAnchor,
   computePrudenceAlpha,
@@ -203,10 +204,21 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
   try {
     const estimateIdeal = resolveIdealDurationMin(task, tripMeta);
     const bufferBase = computeBaseSmartBufferMin(estimateIdeal) ?? 15;
+    const calculatedDepartMs = computeProbe1CalculatedDepartMs({
+      arrivalMs: task.arrivalAtMs,
+      tIdealMin: estimateIdeal,
+      bufferBaseMin: bufferBase,
+    });
+    if (calculatedDepartMs < nowMs) {
+      console.warn(
+        `[TRIP-SENTINEL] ⚠️ PROBE1 departure_time in the past — clamping to now+2min | id=${task.id} | calculated=${new Date(calculatedDepartMs).toISOString()} | now=${new Date(nowMs).toISOString()}`,
+      );
+    }
     const departureTimeUnix = computeProbe1DepartureTimeUnix({
       arrivalMs: task.arrivalAtMs,
       tIdealMin: estimateIdeal,
       bufferBaseMin: bufferBase,
+      nowMs,
     });
 
     patch.lastRealScanAtMs = nowMs;
