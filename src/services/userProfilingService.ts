@@ -1,9 +1,6 @@
-import * as SQLite from 'expo-sqlite';
-
-import { initTrankilV2Schema } from '../api/trankilV2Db';
+import { initTrankilV2Schema, withTrankilV2Database } from '../api/trankilV2Db';
 import i18n from '../locales';
 
-const TRANKIL_V2_DB_NAME = 'talkndone.db';
 const LOOKBACK_DAYS = 14;
 const LOOKBACK_MS = LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
 
@@ -107,15 +104,6 @@ const KINDNESS_FALLBACKS: Record<number, KindnessBones> = {
   },
 };
 
-let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
-
-async function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (!dbPromise) {
-    dbPromise = SQLite.openDatabaseAsync(TRANKIL_V2_DB_NAME);
-  }
-  return dbPromise;
-}
-
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   if (value <= 0) return 0;
@@ -130,25 +118,28 @@ function round4(value: number): number {
 
 export async function calculateUserVAE(nowMs: number = Date.now()): Promise<UserVAE> {
   await initTrankilV2Schema();
-  const db = await getDb();
   const startMs = nowMs - LOOKBACK_MS;
 
-  const intentionStats = await db.getFirstAsync<AggregatedIntentionStats>(
-    `SELECT
-       COUNT(*) AS volume,
-       SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) AS done_count,
-       SUM(CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END) AS archived_count
-     FROM intentions
-     WHERE created_at >= ?`,
-    [startMs],
+  const intentionStats = await withTrankilV2Database(async (db) =>
+    db.getFirstAsync<AggregatedIntentionStats>(
+      `SELECT
+         COUNT(*) AS volume,
+         SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) AS done_count,
+         SUM(CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END) AS archived_count
+       FROM intentions
+       WHERE created_at >= ?`,
+      [startMs],
+    ),
   );
 
-  const activityDays = await db.getFirstAsync<AggregatedActivityDays>(
-    `SELECT
-       COUNT(DISTINCT day_key) AS active_days
-     FROM user_activity_logs
-     WHERE created_at >= ?`,
-    [startMs],
+  const activityDays = await withTrankilV2Database(async (db) =>
+    db.getFirstAsync<AggregatedActivityDays>(
+      `SELECT
+         COUNT(DISTINCT day_key) AS active_days
+       FROM user_activity_logs
+       WHERE created_at >= ?`,
+      [startMs],
+    ),
   );
 
   const volume = Number(intentionStats?.volume ?? 0);
@@ -181,15 +172,16 @@ export async function canShowStats(nowMs: number = Date.now()): Promise<boolean>
 
 export async function listActiveDayKeys(daysCount: number = LOOKBACK_DAYS, nowMs: number = Date.now()): Promise<string[]> {
   await initTrankilV2Schema();
-  const db = await getDb();
   const safeDays = Number.isFinite(daysCount) ? Math.max(1, Math.round(daysCount)) : LOOKBACK_DAYS;
   const startMs = nowMs - safeDays * 24 * 60 * 60 * 1000;
-  const rows = await db.getAllAsync<ActivityDayRow>(
-    `SELECT DISTINCT day_key
-     FROM user_activity_logs
-     WHERE created_at >= ?
-     ORDER BY day_key ASC`,
-    [startMs],
+  const rows = await withTrankilV2Database(async (db) =>
+    db.getAllAsync<ActivityDayRow>(
+      `SELECT DISTINCT day_key
+       FROM user_activity_logs
+       WHERE created_at >= ?
+       ORDER BY day_key ASC`,
+      [startMs],
+    ),
   );
   return rows.map((row) => String(row.day_key || '').trim()).filter(Boolean);
 }
@@ -202,14 +194,15 @@ export async function getDailyActivityCountsSeries(
   const keys = buildTrendDayKeys(daysCount, nowMs);
   if (keys.length === 0) return [];
   await initTrankilV2Schema();
-  const db = await getDb();
   const startKey = keys[0];
-  const rows = await db.getAllAsync<{ day_key: string; cnt: number }>(
-    `SELECT day_key, COUNT(*) AS cnt
-     FROM user_activity_logs
-     WHERE day_key >= ?
-     GROUP BY day_key`,
-    [startKey],
+  const rows = await withTrankilV2Database(async (db) =>
+    db.getAllAsync<{ day_key: string; cnt: number }>(
+      `SELECT day_key, COUNT(*) AS cnt
+       FROM user_activity_logs
+       WHERE day_key >= ?
+       GROUP BY day_key`,
+      [startKey],
+    ),
   );
   const map = new Map<string, number>();
   for (const row of rows) {

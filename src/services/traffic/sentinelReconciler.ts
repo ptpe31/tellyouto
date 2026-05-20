@@ -1,6 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { getTrankilV2IntentionById } from '../../api/trankilV2Db';
+import {
+  getTrankilV2IntentionById,
+  trankilV2SqliteBarrier,
+  waitForTrankilV2SqliteIdle,
+} from '../../api/trankilV2Db';
 import { consumeSentinelQuotaOnTripValidation } from '../QuotaManager';
 import { USER_SPECTRUM_STORAGE_KEY } from '../../context/UserSpectrumContext';
 import { normalizeTripTransportMode } from '../../utils/tripTransportMode';
@@ -10,7 +14,7 @@ import {
   readTripOriginCoords,
   tripMetadataNeedsGpsCatchup,
 } from './sentinelElasticTripMetadata';
-import { activateSentinelTrip, ensureSentinelTripsSchema, kickSentinelAfterActivation } from './sentinelActivation';
+import { activateSentinelTrip, kickSentinelAfterActivation, syncSentinelTripProbeScheduleAfterActivation } from './sentinelActivation';
 import { cancelTripMission, clearTripElasticProbeMetadata, suspendTripMissionForAllDay } from './sentinelTripMission';
 
 const RECONCILE_DEBOUNCE_MS = 500;
@@ -74,6 +78,8 @@ async function reconcileSentinelForIntentionIdInner(intentionId: string): Promis
   }
 
   const run = (async () => {
+    await waitForTrankilV2SqliteIdle();
+
     const row = await getTrankilV2IntentionById(id);
     if (!row) return;
 
@@ -98,8 +104,6 @@ async function reconcileSentinelForIntentionIdInner(intentionId: string): Promis
       null;
     const transportModeRaw = row.transport_mode == null ? null : String(row.transport_mode || '').trim() || null;
     const transportMode = transportModeRaw ? normalizeTripTransportMode(transportModeRaw) : null;
-
-    await ensureSentinelTripsSchema();
 
     if (isTripAllDay(meta, trip, row.due_date ?? null)) {
       await suspendTripMissionForAllDay(id);
@@ -129,7 +133,7 @@ async function reconcileSentinelForIntentionIdInner(intentionId: string): Promis
       `[TRIP-SENTINEL] 📡 Reconciling elastic task for ID: ${id} | GPS catch-up: ${needsGpsCatchup ? 'yes' : 'no'} | D_std: ${hasStandardDuration ? standardDurationMin : 'pending'}`,
     );
 
-    await activateSentinelTrip({
+    const activation = await activateSentinelTrip({
       tripTaskId: id,
       formattedAddress: destination,
       targetArrivalMs: arrivalMs,
@@ -143,7 +147,18 @@ async function reconcileSentinelForIntentionIdInner(intentionId: string): Promis
       needsGpsCatchup,
     });
 
+    await trankilV2SqliteBarrier();
+
     await kickSentinelAfterActivation(id);
+
+    await trankilV2SqliteBarrier();
+
+    await syncSentinelTripProbeScheduleAfterActivation({
+      tripTaskId: id,
+      nextProbeAtMs: activation.nextProbeAtMs,
+      nextProbeReason: activation.nextProbeReason,
+      vigilanceStatus: activation.vigilanceStatus,
+    });
   })();
 
   missionActivations.set(id, run);
@@ -152,6 +167,14 @@ async function reconcileSentinelForIntentionIdInner(intentionId: string): Promis
   } finally {
     missionActivations.delete(id);
   }
+}
+
+/** Reconcile immédiat — sans debounce ni setTimeout (Big Button / barrière UI). */
+export async function reconcileSentinelForIntentionIdImmediate(intentionId: string): Promise<void> {
+  const id = String(intentionId || '').trim();
+  if (!id) return;
+  await waitForSentinelMissionActivation(id);
+  await reconcileSentinelForIntentionIdInner(id);
 }
 
 export function reconcileSentinelForIntentionId(intentionId: string): Promise<void> {
@@ -178,7 +201,8 @@ export async function resetTripMissionAndRelaunchProbe1(intentionId: string): Pr
   await waitForSentinelMissionActivation(id);
   await cancelTripMission(id);
   await clearTripElasticProbeMetadata(id);
-  await reconcileSentinelForIntentionId(id);
+  await trankilV2SqliteBarrier();
+  await reconcileSentinelForIntentionIdImmediate(id);
 }
 
 /** Réveil après retour à un horaire précis — relance PROBE1 si remind ON et metadata élastique vide. */
@@ -204,5 +228,6 @@ export async function wakeTripMissionAfterTimedRestore(intentionId: string): Pro
     return;
   }
 
-  await reconcileSentinelForIntentionId(id);
+  await trankilV2SqliteBarrier();
+  await reconcileSentinelForIntentionIdImmediate(id);
 }

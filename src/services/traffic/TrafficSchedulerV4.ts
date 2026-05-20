@@ -3,6 +3,7 @@ import { VERBOSE_DEBUG } from '../../config/verboseDebug';
 import { SentinelNotificationManager } from './TrafficNotificationService';
 import type { ElasticProbeReason } from './sentinelElasticProbes';
 import { loadTripMetaForIntention, syncTripProbeScheduleMetadata } from './sentinelElasticTripMetadata';
+import { ensureSentinelTripsSchema } from './sentinelActivation';
 import { runElasticSchedulerTick } from './trafficSchedulerElasticTick';
 
 export type TrafficTaskStatus = 'ACTIVE' | 'PAUSED' | 'DONE' | 'ERROR';
@@ -110,12 +111,6 @@ function computeFingerprint(task: TripTaskRowV4): string {
   const dLng = task.destLng == null ? 'na' : String(Math.round(task.destLng * 10_000) / 10_000);
   const mode = String(task.transportMode || 'driving');
   return `${dLat},${dLng}|${Math.round(task.arrivalAtMs)}|${mode}`;
-}
-
-async function tryAddColumn(db: { execAsync: (sql: string) => Promise<void> }, sql: string) {
-  try {
-    await db.execAsync(sql);
-  } catch {}
 }
 
 export class TrafficSchedulerV4 {
@@ -253,57 +248,7 @@ export class TrafficSchedulerV4 {
   }
 
   private async ensureSchema(): Promise<void> {
-    await withTrankilV2Database(async (db) => {
-      await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS sentinel_trips (
-          id TEXT PRIMARY KEY NOT NULL,
-          destination TEXT NOT NULL,
-          arrival_at_ms INTEGER NOT NULL,
-          status TEXT NOT NULL,
-          sentinel_mode TEXT NOT NULL DEFAULT 'SENTINEL',
-          target_duration_sec INTEGER NOT NULL DEFAULT 0,
-          last_traffic_duration INTEGER NOT NULL DEFAULT 0,
-          internal_scan_count INTEGER NOT NULL DEFAULT 0,
-          next_check_at INTEGER,
-          gate_prompted_at INTEGER,
-          last_error_at INTEGER,
-          t_optimiste_ms INTEGER,
-          t_pessimiste_ms INTEGER,
-          vigilance_status TEXT,
-          updated_at INTEGER NOT NULL DEFAULT 0,
-          is_dirty INTEGER NOT NULL DEFAULT 0 CHECK (is_dirty IN (0, 1)),
-          server_version INTEGER NOT NULL DEFAULT 0
-        );
-      `);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN fingerprint TEXT;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan_count INTEGER NOT NULL DEFAULT 0;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN flow_calibrated INTEGER NOT NULL DEFAULT 0;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN v_flow_sec_per_min REAL NOT NULL DEFAULT 10;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN last_real_scan_at_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan1_at_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan1_duration_sec REAL;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan2_at_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN scan2_duration_sec REAL;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN base_t_optimiste_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN base_t_pessimiste_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN internal_t_pessimiste_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN displayed_t_optimiste_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN displayed_t_pessimiste_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN last_ui_update_at_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN mode_safety INTEGER NOT NULL DEFAULT 0;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN next_real_scan_at_ms INTEGER;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN next_real_scan_reason TEXT;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN api_calls_total INTEGER NOT NULL DEFAULT 0;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN api_calls_avoided_cache INTEGER NOT NULL DEFAULT 0;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN api_calls_avoided_extrapolation INTEGER NOT NULL DEFAULT 0;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN origin_lat REAL;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN origin_lng REAL;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN dest_lat REAL;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN dest_lng REAL;`);
-      await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN transport_mode TEXT;`);
-      await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_sentinel_trips_status ON sentinel_trips (status);`);
-    });
+    await ensureSentinelTripsSchema();
   }
 
   private async listActiveTasks(): Promise<TripTaskRowV4[]> {

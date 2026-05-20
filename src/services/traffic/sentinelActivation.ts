@@ -15,7 +15,10 @@ async function tryAddColumn(db: { execAsync: (sql: string) => Promise<void> }, s
   } catch {}
 }
 
+let sentinelTripsSchemaReady = false;
+
 export async function ensureSentinelTripsSchema(): Promise<void> {
+  if (sentinelTripsSchemaReady) return;
   await withTrankilV2Database(async (db) => {
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS sentinel_trips (
@@ -70,6 +73,7 @@ export async function ensureSentinelTripsSchema(): Promise<void> {
     await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN dest_lng REAL;`);
     await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN transport_mode TEXT;`);
   });
+  sentinelTripsSchemaReady = true;
 }
 
 export async function activateSentinelTrip(input: {
@@ -84,7 +88,11 @@ export async function activateSentinelTrip(input: {
   transportMode?: string | null;
   standardDurationMin?: number;
   needsGpsCatchup?: boolean;
-}): Promise<void> {
+}): Promise<{
+  nextProbeAtMs: number | null;
+  nextProbeReason: string | null;
+  vigilanceStatus: string;
+}> {
   const nowMs = Date.now();
   const dStdMin = Math.max(1, Number(input.standardDurationMin ?? DEFAULT_ELASTIC_D_STD_MIN) || DEFAULT_ELASTIC_D_STD_MIN);
   const elasticMode = normalizeElasticTransportMode(input.transportMode);
@@ -115,7 +123,6 @@ export async function activateSentinelTrip(input: {
   const sentinelMode = input.sentinelMode ?? 'SENTINEL';
   const vigilanceStatus = nowMs >= input.targetArrivalMs ? 'FINISHED' : 'VIGILANCE_BLUE';
 
-  await ensureSentinelTripsSchema();
   await withTrankilV2Database(async (db) => {
     const lat = typeof input.lat === 'number' && Number.isFinite(input.lat) ? input.lat : null;
     const lng = typeof input.lng === 'number' && Number.isFinite(input.lng) ? input.lng : null;
@@ -131,8 +138,7 @@ export async function activateSentinelTrip(input: {
           )}|${mode || 'driving'}`
         : `na,na|${Math.round(input.targetArrivalMs)}|${mode || 'driving'}`;
     const durationSec = Math.round(dStdMin * 60);
-    await db.runAsync(
-      `INSERT OR REPLACE INTO sentinel_trips (
+    const insertSql = `INSERT OR REPLACE INTO sentinel_trips (
         id, destination, arrival_at_ms, status, sentinel_mode, target_duration_sec, last_traffic_duration,
         internal_scan_count, next_check_at, gate_prompted_at, last_error_at,
         t_optimiste_ms, t_pessimiste_ms, vigilance_status,
@@ -148,16 +154,16 @@ export async function activateSentinelTrip(input: {
         ?, ?, ?, ?, ?, ?, ?,
         ?, NULL, NULL, NULL,
         ?, ?, ?, ?,
-        ?, 1, 0,
+        1, 0,
         ?, ?, ?, ?, ?,
         NULL, ?, ?, NULL, NULL,
         ?, ?, NULL,
         ?, ?, ?,
-        0, ?, ?, ?,
+        0, ?, ?,
         0, 0, 0,
         ?, ?, ?, ?, ?
-      )`,
-      [
+      )`;
+    const insertArgs = [
         input.tripTaskId,
         input.formattedAddress.trim(),
         input.targetArrivalMs,
@@ -189,17 +195,41 @@ export async function activateSentinelTrip(input: {
         lat,
         lng,
         mode,
-      ],
-    );
+      ];
+    const placeholderCount = (insertSql.match(/\?/g) ?? []).length;
+    if (placeholderCount !== insertArgs.length) {
+      console.error(
+        `[TRIP-SENTINEL] ❌ INSERT sentinel_trips placeholder mismatch: ${placeholderCount} vs ${insertArgs.length} args | id=${input.tripTaskId}`,
+      );
+      throw new Error(`sentinel_trips_insert_placeholder_mismatch:${placeholderCount}:${insertArgs.length}`);
+    }
+    await db.runAsync(insertSql, insertArgs);
   });
 
   if (input.needsGpsCatchup) {
     console.log(`[TRIP-SENTINEL] 📍 GPS catch-up scheduled on PROBE1 for ${input.tripTaskId}`);
   }
-
-  if (vigilanceStatus !== 'FINISHED') {
-    await syncTripProbeScheduleMetadata(input.tripTaskId, nextProbeAtMs, nextProbeReason);
+  if (nextProbeReason === 'PROBE1_CONFIG') {
+    console.log(
+      `[TRIP-SENTINEL] 🔭 PROBE1_CONFIG | id=${input.tripTaskId} | dStdMin=${dStdMin} | nextAt=${nextProbeAtMs}`,
+    );
   }
+
+  return {
+    nextProbeAtMs: vigilanceStatus === 'FINISHED' ? null : nextProbeAtMs,
+    nextProbeReason: vigilanceStatus === 'FINISHED' ? null : nextProbeReason,
+    vigilanceStatus,
+  };
+}
+
+export async function syncSentinelTripProbeScheduleAfterActivation(input: {
+  tripTaskId: string;
+  nextProbeAtMs: number | null;
+  nextProbeReason: string | null;
+  vigilanceStatus: string;
+}): Promise<void> {
+  if (input.vigilanceStatus === 'FINISHED') return;
+  await syncTripProbeScheduleMetadata(input.tripTaskId, input.nextProbeAtMs, input.nextProbeReason);
 }
 
 export async function kickSentinelAfterActivation(tripTaskId: string): Promise<void> {
@@ -207,5 +237,7 @@ export async function kickSentinelAfterActivation(tripTaskId: string): Promise<v
     const scheduler = await startSentinelRuntime();
     await scheduler.refreshTask(tripTaskId);
     await scheduler.tickNow(tripTaskId);
-  } catch {}
+  } catch (err) {
+    console.warn(`[TRIP-SENTINEL] kickSentinelAfterActivation failed for ${tripTaskId}:`, err);
+  }
 }

@@ -308,8 +308,7 @@ Fichier : `src/services/CaptureProcessingService.ts`
 - **PRO non configuré** : footer CTA setup **ou** tap corps → **même Sheet hub unifiée** (mémo + logistique + Big Button).
 - **Sheet TRIP** : plus de switch — Big Button [`tripSurveillanceButton.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripSurveillanceButton.ts) (`tripSurveillanceStart` / `tripSurveillanceActive` / locked) ; toast si champs manquants ; origine GPS non bloquante ; garde anti double-tap ; `applyTripMetadataLocally` après `onSelect` Places (sync optimiste Big Button).
 - **Readiness coords** : [`tripTripReadiness.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts) — `readValidTripCoords` rejette `null`/`0` ; pas de préremplissage favori silencieux à l’ouverture sheet.
-- **Télémétrie badge (temp.)** : [`useTripBadgeStateTelemetry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useTripBadgeStateTelemetry.ts) — logs `[TRIP-BADGE-STATE]` ; retrait via flag `TRIP_BADGE_STATE_TELEMETRY`.
-- **Fix SQLite race PROBE1** : queue `runSerializedSqlite` étendue à `getFirstAsync` / `getAllAsync` ; `getTrankilV2IntentionById` via `withTrankilV2Database` (évite crash `prepareAsync rejected` au GPS catch-up Sentinel).
+- **Fix crash Surveiller** : INSERT `sentinel_trips` — 31 placeholders / 31 args ; reset connexion SQLite sans ré-init schéma ; queue `getFirstAsync` / `getAllAsync` ; `getTrankilV2IntentionById` via `withTrankilV2Database`.
 - **Anti-faux créneau** : pas de fenêtre UI sans `standard_duration_min`.
 - TASK / HABIT / LIST / PROJECT : layout inchangé (hauteur 105).
 

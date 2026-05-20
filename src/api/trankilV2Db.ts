@@ -160,6 +160,7 @@ const DB_NAME = 'talkndone.db';
 const DISABLE_TRANKIL_V2_PRAGMAS = true;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+let currentDb: SQLite.SQLiteDatabase | null = null;
 let pragmasApplied = false;
 let schemaInitPromise: Promise<void> | null = null;
 let schemaReady = false;
@@ -188,10 +189,28 @@ async function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 function resetTrankilV2RuntimeState(): void {
+  const stale = currentDb;
+  currentDb = null;
   dbPromise = null;
   pragmasApplied = false;
-  schemaInitPromise = null;
-  schemaReady = false;
+  // Ne pas réinitialiser schemaReady / schemaInitPromise : le schéma est sur disque,
+  // un re-init complet pendant le retry provoque des DDL concurrents et prepareAsync reject.
+  if (stale) {
+    void stale.closeAsync().catch(() => {});
+  }
+}
+
+/** Attend la fin de la file SQLite (lectures + écritures). */
+export function waitForTrankilV2SqliteIdle(): Promise<void> {
+  return sqliteQueueTail.then(() => undefined);
+}
+
+/** Barrière temporelle après écriture UI — laisse SQLite libérer ses locks natifs. */
+export const SQLITE_UI_BARRIER_MS = 500;
+
+export async function trankilV2SqliteBarrier(ms: number = SQLITE_UI_BARRIER_MS): Promise<void> {
+  await waitForTrankilV2SqliteIdle();
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 function isNativePrepareAsyncRejected(err: unknown): boolean {
@@ -294,6 +313,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
         }
         anyDb.__trankilV2Serialized = true;
       }
+      currentDb = db;
       return db;
     });
   }
@@ -323,8 +343,9 @@ export async function withTrankilV2Database<T>(
       if (!isNativePrepareAsyncRejected(e)) throw e;
       console.log('[DATABASE] ♻️ Reset connexion SQLite (NativeDatabase.prepareAsync rejected)');
       resetTrankilV2RuntimeState();
+      await new Promise<void>((resolve) => setTimeout(resolve, 150));
       const next = await getDb();
-      return fn(next);
+      return await fn(next);
     }
   });
 }
@@ -2334,6 +2355,7 @@ export async function updateTrankilV2IntentionTemporal(
 export async function updateTrankilV2IntentionRemindToLeave(
   id: string,
   remindToLeave: boolean,
+  opts?: { silent?: boolean },
 ): Promise<void> {
   await initTrankilV2Schema();
   const now = Date.now();
@@ -2348,6 +2370,7 @@ export async function updateTrankilV2IntentionRemindToLeave(
       [v, now, id],
     );
   });
+  if (opts?.silent) return;
   await syncAfterIntentionWrite('updateTrankilV2IntentionRemindToLeave');
   notifyIntentionsChanged({ id, reason: 'user_edit' });
 }

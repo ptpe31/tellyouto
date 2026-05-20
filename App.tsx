@@ -84,6 +84,8 @@ export default function App() {
     void (async () => {
       try {
         await bootstrapTrankilV2Database();
+        const { ensureSentinelTripsSchema } = await import('./src/services/traffic/sentinelActivation');
+        await ensureSentinelTripsSchema();
       } catch {}
       if (disposed) return;
       clearTimeout(fallbackTimer);
