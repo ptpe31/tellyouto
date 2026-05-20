@@ -49,6 +49,7 @@ import {
   resetTripMissionAndRelaunchProbe1,
   wakeTripMissionAfterTimedRestore,
 } from '../services/traffic/sentinelReconciler';
+import { clearAllDepartureNotifications } from '../services/NotificationService';
 import { cancelTripMission, suspendTripMissionForAllDay } from '../services/traffic/sentinelTripMission';
 import { showAppToast } from '../services/appToast';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
@@ -2313,12 +2314,14 @@ export function IntentionDetailSheet({
   const arrivalIsAddress = Boolean(savedArrivalAddress);
 
   const launchTripNavigation = useCallback(() => {
+    const intentionId = row?.id;
+    if (intentionId) void clearAllDepartureNotifications(intentionId);
     void openNavigationUniversal({
       origin: originText.trim() ? originText.trim() : null,
       destination: savedArrivalAddress || destinationLabel || '',
       mode: transportMode,
     });
-  }, [destinationLabel, originText, savedArrivalAddress, transportMode]);
+  }, [destinationLabel, originText, row?.id, savedArrivalAddress, transportMode]);
 
   const projectCalendarMode = useMemo(() => {
     if (!isProject || !projectPayload) return false;

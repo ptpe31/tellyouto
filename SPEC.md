@@ -558,6 +558,33 @@ Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/De
 
 **Dégradation gracieuse** : échec API PROBE2 → ancre / UI inchangées + retry 5 min ; échec PROBE3 → push `sentinel.probe3Unavailable` ; PROBE3 skip → finalisation silencieuse sans API.
 
+##### 9. Notifications — Contrat de Départ (`NotificationService.ts`)
+
+Moteur : [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/NotificationService.ts), capsule texte [`formatDepartureCapsule.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/formatDepartureCapsule.ts), conformité stores [`dossier_de_soumission.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/dossier_de_soumission.md).
+
+**UX Zen** : silence pendant les sondes (probes) ; une seule notification sticky mise à jour (pas de duplication) ; un seul signal sonore au départ.
+
+| Identifiant | Déclenchement | Son | Priorité |
+|-------------|---------------|-----|----------|
+| `departure_sticky_{tripId}` | Chaque tick Sentinel après PROBE1+ (recalcul ancre) | Non | MIN (Android) / standard (iOS) |
+| `departure_signal_a_{tripId}` | `elastic_anchor_start_ms` | Oui | Time-Sensitive (iOS), HIGH (Android) |
+| `departure_signal_b_{tripId}` | `endMs − safetyReminderOffset` si offset > 0 | Non | HIGH visuelle |
+
+**Capsule Unicode** (`formatCapsule`) : `[🟢 20:53 ———◉———— 21:08]` — emoji selon `D` (🟢 / 🟠 / 🔴), bille `◉` sur `(nowMs − startMs) / (endMs − startMs)`, `🔴` si retard (`nowMs > endMs`).
+
+**Réglage utilisateur** : préférence locale `departure_safety_reminder_offset_min` (minutes avant fin de fenêtre ; défaut **5** ; **0** = Signal B désactivé). Lecture via `loadDepartureUserSettings()`.
+
+**Auto-nettoyage** (`clearAllDepartureNotifications`) :
+- Lancement GPS : [`tripNavigation.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripNavigation.ts) (`intentionId`), [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx), [`IntentionCard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx).
+- Action notif Sentinel « Lancer l'itinéraire » : [`TrafficNotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficNotificationService.ts).
+- Fin de mission / annulation : [`TrafficSchedulerV4`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts) (`done`, `cancelTask`, `refreshTask` hors ACTIVE).
+
+**Sync** : `syncDepartureContractForIntention` appelé depuis `TrafficSchedulerV4.runTick` si `remind_to_leave === 1` et métadonnées `elastic_anchor_*` présentes.
+
+**Handler global** ([`notifications.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/notifications.ts)) : `shouldPlaySound` uniquement pour `kind === 'departure_signal_a'`.
+
+**Coexistence** : `SentinelNotificationManager` (sticky Newton / Go-NoGo probe3) reste distinct ; les mises à jour Contrat de Départ n’émettent pas de son pendant les probes.
+
 Règle UI :
 - Si non surveillable : indicateur « infos manquantes » (triangle jaune).
 - Si surveillable + PRO : pill créneau élastique sous le switch rappel.

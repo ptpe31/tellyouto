@@ -202,6 +202,7 @@ export function IntentionCard({
         trip,
         destination,
         transportMode: row.transport_mode,
+        intentionId: row.id,
       });
     },
     [meta, row.display_title, row.transport_mode, trip],

@@ -71,6 +71,11 @@
     "vigilanceRedTitle": "TOP DÉPART CRITIQUE",
     "vigilanceRedBody": "Départ critique pour {{destination}}."
   },
+  "departureContract": {
+    "notifTitle": "Contrat de départ — {{destination}}",
+    "signalBTitle": "Rappel de départ",
+    "signalBBody": "{{capsule}} — Partez dans environ {{minutes}} min pour {{destination}}."
+  },
   "intentionDetail": {
     "source": "Source",
     "checklist": "Checklist",

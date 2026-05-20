@@ -39,9 +39,10 @@ if (mod) {
       const kind = notification.request.content.data?.kind;
       const isRailAlarm = kind === 'rail_alarm';
       const isDebugAgentDirect = kind === 'debug_agent_direct';
+      const isDepartureSignalA = kind === 'departure_signal_a';
       return {
         shouldShowAlert: true,
-        shouldPlaySound: isRailAlarm || isDebugAgentDirect,
+        shouldPlaySound: isRailAlarm || isDebugAgentDirect || isDepartureSignalA,
         shouldSetBadge: false,
         shouldShowBanner: true,
         shouldShowList: true,

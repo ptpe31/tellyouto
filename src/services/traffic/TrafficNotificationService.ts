@@ -1,5 +1,6 @@
 import { Linking, Platform } from 'react-native';
 
+import { clearAllDepartureNotifications } from '../NotificationService';
 import { getNotifications } from '../notifications';
 import i18n from '../../locales/i18n';
 
@@ -104,6 +105,7 @@ function ensureResponseListener(): void {
     const lat = typeof data.lat === 'number' ? data.lat : NaN;
     const lng = typeof data.lng === 'number' ? data.lng : NaN;
     const coords = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
+    void clearAllDepartureNotifications(data.tripTaskId);
     void openUniversalNavigation(destination, coords);
   });
 }

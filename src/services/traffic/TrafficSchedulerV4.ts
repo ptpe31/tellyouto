@@ -1,5 +1,6 @@
 import { withTrankilV2Database, insertUserActivityLog } from '../../api/trankilV2Db';
 import { VERBOSE_DEBUG } from '../../config/verboseDebug';
+import { clearAllDepartureNotifications, syncDepartureContractForIntention } from '../NotificationService';
 import { SentinelNotificationManager } from './TrafficNotificationService';
 import type { ElasticProbeReason } from './sentinelElasticProbes';
 import { loadTripMetaForIntention, syncTripProbeScheduleMetadata } from './sentinelElasticTripMetadata';
@@ -159,11 +160,26 @@ export class TrafficSchedulerV4 {
     }
     this.clearTimer(taskId);
     await this.notificationManager.cancel(taskId);
+    await clearAllDepartureNotifications(taskId);
   }
 
   async cancelTask(taskId: string): Promise<void> {
     this.clearTimer(taskId);
     await this.notificationManager.cancel(taskId);
+    await clearAllDepartureNotifications(taskId);
+  }
+
+  private async syncDepartureNotifications(taskId: string, destination: string): Promise<void> {
+    const tripMeta = await loadTripMetaForIntention(taskId);
+    const trip =
+      tripMeta && typeof tripMeta === 'object' && !Array.isArray(tripMeta)
+        ? (tripMeta as Record<string, unknown>)
+        : null;
+    await syncDepartureContractForIntention(taskId, {
+      destination,
+      trip,
+      nowMs: Date.now(),
+    });
   }
 
   private async runTick(taskId: string): Promise<void> {
@@ -208,9 +224,12 @@ export class TrafficSchedulerV4 {
     await this.trace(task, result.trace, wallNowMs, result.traceForce);
     if (result.done) {
       await this.notificationManager.cancel(taskId);
+      await clearAllDepartureNotifications(taskId);
       this.clearTimer(taskId);
       return;
     }
+
+    await this.syncDepartureNotifications(taskId, task.destination);
 
     const refreshed = await this.getTaskById(taskId);
     if (refreshed && refreshed.status === 'ACTIVE') await this.planNext(refreshed);

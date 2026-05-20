@@ -1,5 +1,6 @@
 import { ActionSheetIOS, Linking, Platform } from 'react-native';
 
+import { clearAllDepartureNotifications } from '../services/NotificationService';
 import { normalizeTripTransportMode, type TripTransportMode } from './tripTransportMode';
 
 function buildGoogleMapsDirectionsUrlWithOrigin(params: {
@@ -58,9 +59,14 @@ export async function openTripNavigationUniversal(params: {
   origin?: string | null;
   destination: string;
   mode: TripTransportMode;
+  /** Id intention / tâche Sentinel — annule les signaux de départ planifiés. */
+  intentionId?: string;
 }): Promise<void> {
   const destination = String(params.destination ?? '').trim();
   if (!destination) return;
+  if (params.intentionId) {
+    await clearAllDepartureNotifications(params.intentionId);
+  }
   const origin = String(params.origin ?? '').trim() || null;
 
   if (Platform.OS === 'android') {
@@ -122,13 +128,17 @@ export async function openTripNavigationFromRecords(input: {
   trip: Record<string, unknown> | null;
   destination: string;
   transportMode?: string | null;
+  intentionId?: string;
 }): Promise<void> {
   const destination = String(input.destination ?? '').trim();
   if (!destination) return;
+  if (input.intentionId) {
+    await clearAllDepartureNotifications(input.intentionId);
+  }
   const trip = input.trip ?? {};
   const origin = String(trip.origin_address ?? '').trim() || null;
   const mode = normalizeTripTransportMode(
     String(trip.transportMode ?? input.transportMode ?? 'auto'),
   );
-  await openTripNavigationUniversal({ origin, destination, mode });
+  await openTripNavigationUniversal({ origin, destination, mode, intentionId: input.intentionId });
 }
