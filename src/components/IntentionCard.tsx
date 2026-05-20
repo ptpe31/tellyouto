@@ -1,7 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
-import { IconButton } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
@@ -11,15 +10,21 @@ import { generateSmartTitle } from '../services/smartTitle';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
 import { formatCreationSubtitle } from '../utils/timeFormat';
+import { ElasticDepartureCapsule } from './ElasticDepartureCapsule';
+import { TripNeumorphicOrb, TRIP_ORB_SIZE } from './TripNeumorphicOrb';
 import { hasTripStandardDurationMin, isTripAllDay } from '../utils/tripElasticDisplay';
+import {
+  resolveTripNavigationDestination,
+  resolveTripTimelineCapsuleBundle,
+} from '../utils/tripElasticCapsuleModel';
 import {
   getTripMetaFromRoot,
   resolveTripTimelineFooter,
   type TripTimelineFooter,
 } from '../utils/tripTimelineCard';
+import { openTripNavigationFromRecords } from '../utils/tripNavigation';
 import { isTripMissionActive } from '../utils/tripTripReadiness';
 import { normalizeTripTransportMode } from '../utils/tripTransportMode';
-import { neumorphicRaised } from '../theme/neumorphism';
 
 type Props = {
   row: TrankilV2TimelineItemRow;
@@ -173,6 +178,35 @@ export function IntentionCard({
     });
   }, [i18n.language, isProUser, isTripCard, meta, probeClockTick, row.due_date, row.remind_to_leave, t, trip]);
 
+  const tripCapsuleModel = useMemo(() => {
+    if (!isTripCard || !trip) return null;
+    return resolveTripTimelineCapsuleBundle({
+      meta,
+      trip,
+      dueDate: row.due_date,
+      locale: i18n.language,
+      remindToLeave: Boolean(row.remind_to_leave),
+      isProUser,
+    });
+  }, [i18n.language, isProUser, isTripCard, meta, row.due_date, row.remind_to_leave, trip]);
+
+  const tripCapsuleClockActive = Boolean(tripCapsuleModel);
+  const tripCapsuleNowMs = useProbeScheduleClock(tripCapsuleClockActive);
+
+  const onPressTripCapsuleNavigation = useCallback(
+    (e?: { stopPropagation?: () => void }) => {
+      e?.stopPropagation?.();
+      if (!trip) return;
+      const destination = resolveTripNavigationDestination(trip, meta, row.display_title);
+      void openTripNavigationFromRecords({
+        trip,
+        destination,
+        transportMode: row.transport_mode,
+      });
+    },
+    [meta, row.display_title, row.transport_mode, trip],
+  );
+
   const titleText = useMemo(() => {
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
     const direct = String(row.display_title || '').trim();
@@ -251,7 +285,8 @@ export function IntentionCard({
     return null;
   }
 
-  const showTripFooter = Boolean(tripFooter?.kind);
+  const showTripCapsule = Boolean(tripCapsuleModel);
+  const showTripFooter = Boolean(tripFooter?.kind) && !showTripCapsule;
   const footerIsCta = tripFooter?.kind === 'setup' || tripFooter?.kind === 'lockedSetup';
   const footerLabel = tripFooter ? tripFooterLabel(tripFooter, t) : '';
 
@@ -263,26 +298,19 @@ export function IntentionCard({
       style={[
         styles.card,
         { backgroundColor: theme.colors.surface },
-        showTripFooter ? styles.cardTrip : null,
+        showTripFooter || showTripCapsule ? styles.cardTrip : null,
       ]}
     >
       <View style={styles.row}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('timeline.a11yTaskComplete')}
-          disabled={!enabled}
+        <TripNeumorphicOrb
+          theme={theme}
+          size="card"
+          icon={circleIcon}
+          iconColor={iconColor}
           onPress={enabled ? onToggleComplete : undefined}
-          hitSlop={8}
-          style={({ pressed }) => [
-            neumorphicRaised(theme),
-            styles.circle,
-            { opacity: !enabled ? 0.45 : pressed ? 0.9 : 1 },
-          ]}
-        >
-          <View pointerEvents="none">
-            <IconButton icon={circleIcon} size={22} iconColor={iconColor} style={styles.circleIcon} />
-          </View>
-        </Pressable>
+          disabled={!enabled}
+          accessibilityLabel={t('timeline.a11yTaskComplete')}
+        />
 
         <View style={styles.textCol}>
           <View style={styles.titleRow}>
@@ -305,6 +333,23 @@ export function IntentionCard({
           ) : null}
         </View>
       </View>
+
+      {showTripCapsule && tripCapsuleModel ? (
+        <View style={styles.tripCapsuleWrap}>
+          <ElasticDepartureCapsule
+            startMs={tripCapsuleModel.startMs}
+            endMs={tripCapsuleModel.endMs}
+            nowMs={tripCapsuleNowMs}
+            ratioD={tripCapsuleModel.ratioD}
+            onPress={() => onPressTripCapsuleNavigation()}
+            navigationLabel={t('intentionDetail.launchRoute')}
+            variant="compact"
+            lateVariant="graphite"
+            theme={theme}
+            style={styles.tripCapsule}
+          />
+        </View>
+      ) : null}
 
       {showTripFooter && tripFooter && footerLabel ? (
         <View style={styles.tripFooterWrap}>
@@ -372,7 +417,7 @@ function hasTemporalResidue(raw: string): boolean {
   return false;
 }
 
-const CIRCLE_SIZE = 54;
+const CIRCLE_SIZE = TRIP_ORB_SIZE.card;
 
 const styles = StyleSheet.create({
   card: {
@@ -389,14 +434,20 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: CIRCLE_SIZE },
-  circle: { width: CIRCLE_SIZE, height: CIRCLE_SIZE, borderRadius: CIRCLE_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
-  circleIcon: { margin: 0 },
   textCol: { flex: 1, minWidth: 0 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   subtitle: { marginTop: 4, fontSize: 13, fontWeight: '700', opacity: 0.88 },
   pendingChip: { marginTop: 4, fontSize: 12, fontWeight: '800' },
   subtitleRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+  tripCapsuleWrap: {
+    marginTop: 8,
+    width: '100%',
+    alignSelf: 'stretch',
+  },
+  tripCapsule: {
+    width: '100%',
+  },
   tripFooterWrap: {
     marginTop: 8,
     paddingTop: 2,

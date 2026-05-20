@@ -529,6 +529,27 @@ PROBE1 est toujours immédiat (`now`) à l’activation ou après reset destinat
 
 **Cache Distance Matrix** : clé inclut un bucket `departure_time` (5 min) pour ne pas servir le trafic « now » sur une requête prédictive PROBE1.
 
+##### 8. UI — Capsule Contrat de Départ
+
+Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx), résolutions partagées [`tripElasticCapsuleModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), navigation [`tripNavigation.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripNavigation.ts).
+
+**Contrat props** : `startMs`, `endMs`, `nowMs`, `ratioD`, `onPress`, `variant`, `lateVariant`, `theme`.
+
+**Affichage actif** (`nowMs <= endMs`) :
+- Capsule 100 % cliquable (action GPS) avec piste « pill-shaped », labels `HH:mm` aux extrémités, mur vertical deadline à droite.
+- Couleur système iOS selon `D` : vert `#34C759` si `< 1.1`, orange `#FF9500` si `< 1.3`, rouge `#FF3B30` sinon.
+- Bille animée `react-native-reanimated` sur `(nowMs - startMs) / (endMs - startMs)` ; son centre est aligné sur l’axe Y de la piste.
+- Heure basse (`startMs`) quasi invisible quand elle est déjà passée, pour garder l’attention sur la deadline.
+- Icône GPS via [`TripNeumorphicOrb.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TripNeumorphicOrb.tsx), taille `compact` (26 px), réutilisable.
+
+**Affichage en retard** (`nowMs > endMs`) :
+- En sheet : bouton d’action « Navigation » orange/rouge selon trafic.
+- En Timeline (`variant="compact"`, `lateVariant="graphite"`) : uniquement l’orbe GPS graphite `#1C1C1E`, aligné sur le même slot X que l’icône GPS verte.
+
+**Intégrations** :
+- [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) : capsule pleine largeur sous les adresses TRIP ; refresh `metadata_json` depuis SQLite (patchs Sentinel souvent silencieux) + polling 30 s si surveillance active.
+- [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) : remplace le badge texte Timeline quand la mission surveillée est active et qu’une fenêtre élastique est disponible ; sinon conserve CTA setup / scan pending / locked.
+
 **Annulation / reset mission** ([`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts)) :
 - `cancelTripMission(id)` : clear timers + annule PROBE2/3 planifiées — appelé si suppression TRIP, désactivation `remind_to_leave`, ou destination invalide.
 - `suspendTripMissionForAllDay(id)` : All Day → cancel + clear metadata + `remind_to_leave = 0`.

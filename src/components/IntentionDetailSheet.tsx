@@ -42,6 +42,7 @@ import {
 } from '../api/trankilV2Db';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
+import { ElasticDepartureCapsule } from './ElasticDepartureCapsule';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import {
   reconcileSentinelForIntentionIdImmediate,
@@ -1272,6 +1273,47 @@ export function IntentionDetailSheet({
     }
   }, [theme.colors, tripSurveillanceSubmitting, tripSurveillanceUiState]);
 
+  const elasticDepartureCapsuleModel = useMemo(() => {
+    if (!isTrip || !isProUser || tripIsAllDay) return null;
+    const window = elasticSlotDisplay?.window;
+    if (!window) return null;
+
+    const tripRecord = trip as Record<string, unknown> | null;
+    const anchorStart = Number(
+      tripRecord?.elastic_anchor_start_ms ??
+        tripRecord?.displayedTOptimisteMs ??
+        tripRecord?.displayed_t_optimiste_ms,
+    );
+    const anchorEnd = Number(
+      tripRecord?.elastic_anchor_end_ms ??
+        tripRecord?.displayedTPessimisteMs ??
+        tripRecord?.displayed_t_pessimiste_ms,
+    );
+    const startMs =
+      Number.isFinite(anchorStart) && anchorStart > 0 ? anchorStart : window.startDate.getTime();
+    const endMs = Number.isFinite(anchorEnd) && anchorEnd > 0 ? anchorEnd : window.endDate.getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) return null;
+
+    const ratioRaw = Number(tripRecord?.elastic_degradation_ratio);
+    const ratioD = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
+
+    return { startMs, endMs, ratioD };
+  }, [elasticSlotDisplay, isProUser, isTrip, trip, tripIsAllDay]);
+
+  const elasticDepartureTextFallback = useMemo(() => {
+    if (!elasticSlotDisplay?.windowLabel) return null;
+    if (elasticSlotDisplay.shifted) {
+      return t('intentionDetail.comfortElasticDepartureShifted', { window: elasticSlotDisplay.windowLabel });
+    }
+    if (elasticSlotDisplay.approximate) {
+      return t('intentionDetail.comfortElasticDepartureApprox', { window: elasticSlotDisplay.windowLabel });
+    }
+    return t('intentionDetail.comfortElasticDeparture', { window: elasticSlotDisplay.windowLabel });
+  }, [elasticSlotDisplay, t]);
+
+  const elasticCapsuleClockActive = Boolean(elasticDepartureCapsuleModel);
+  const elasticCapsuleNowMs = useProbeScheduleClock(elasticCapsuleClockActive);
+
   const probeScheduleClockActive = useMemo(() => {
     if (tripIsAllDay || elasticSlotDisplay?.windowLabel) return false;
     if (!remindToLeaveEnabledForUi) return false;
@@ -1297,13 +1339,7 @@ export function IntentionDetailSheet({
     }
     const tripRecord = trip as Record<string, unknown> | null;
     if (elasticSlotDisplay?.windowLabel) {
-      if (elasticSlotDisplay.shifted) {
-        return t('intentionDetail.comfortElasticDepartureShifted', { window: elasticSlotDisplay.windowLabel });
-      }
-      if (elasticSlotDisplay.approximate) {
-        return t('intentionDetail.comfortElasticDepartureApprox', { window: elasticSlotDisplay.windowLabel });
-      }
-      return t('intentionDetail.comfortElasticDeparture', { window: elasticSlotDisplay.windowLabel });
+      return elasticDepartureTextFallback;
     }
     if (
       remindToLeaveEnabledForUi &&
@@ -1324,7 +1360,48 @@ export function IntentionDetailSheet({
       });
     }
     return null;
-  }, [elasticSlotDisplay, i18n.language, meta, probeScheduleClockTick, remindToLeaveEnabledForUi, row?.due_date, t, trip, tripIsAllDay]);
+  }, [
+    elasticDepartureTextFallback,
+    elasticSlotDisplay?.windowLabel,
+    i18n.language,
+    meta,
+    probeScheduleClockTick,
+    remindToLeaveEnabledForUi,
+    row?.due_date,
+    t,
+    trip,
+    tripIsAllDay,
+  ]);
+
+  /** Recharge metadata_json depuis SQLite (les patchs Sentinel sont souvent `silent`). */
+  useEffect(() => {
+    if (!visible || !isTrip || !row?.id) return;
+    const id = String(row.id).trim();
+    if (!id || id === 'peek_pending') return;
+
+    let cancelled = false;
+    const refresh = async () => {
+      const fresh = await getTrankilV2IntentionById(id);
+      if (cancelled || !fresh?.metadata_json) return;
+      const next = fresh.metadata_json;
+      if (next === metadataJsonLiveRef.current) return;
+      metadataJsonLiveRef.current = next;
+      setMetadataJsonLive(next);
+      onPatchRow?.(id, { metadata_json: next });
+    };
+
+    void refresh();
+    const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
+      void refresh();
+    });
+    const pollMs = remindToLeaveEnabledForUi ? 30_000 : 0;
+    const pollId = pollMs > 0 ? setInterval(() => void refresh(), pollMs) : null;
+    return () => {
+      cancelled = true;
+      sub.remove();
+      if (pollId != null) clearInterval(pollId);
+    };
+  }, [isTrip, onPatchRow, remindToLeaveEnabledForUi, row?.id, visible]);
 
   const tripReadinessBlockers = useMemo(() => {
     if (!showMission || tripIsAllDay || canEnableRemindToLeave) return [];
@@ -2234,6 +2311,15 @@ export function IntentionDetailSheet({
     String(str(trip as Record<string, unknown> | null, 'location_address') ?? str(meta, 'location_address') ?? '').trim();
   const arrivalDisplay = savedArrivalAddress || null;
   const arrivalIsAddress = Boolean(savedArrivalAddress);
+
+  const launchTripNavigation = useCallback(() => {
+    void openNavigationUniversal({
+      origin: originText.trim() ? originText.trim() : null,
+      destination: savedArrivalAddress || destinationLabel || '',
+      mode: transportMode,
+    });
+  }, [destinationLabel, originText, savedArrivalAddress, transportMode]);
+
   const projectCalendarMode = useMemo(() => {
     if (!isProject || !projectPayload) return false;
     if (projectStartDraftYmd) return true;
@@ -3052,6 +3138,46 @@ export function IntentionDetailSheet({
                     ) : null}
                   </View>
                 </View>
+
+                  <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+
+                  <View style={styles.newtonRow}>
+                    <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                      {t('intentionDetail.comfortTitle')}
+                    </Text>
+                  </View>
+
+                  {isProUser && elasticDepartureCapsuleModel ? (
+                    <ElasticDepartureCapsule
+                      startMs={elasticDepartureCapsuleModel.startMs}
+                      endMs={elasticDepartureCapsuleModel.endMs}
+                      nowMs={elasticCapsuleNowMs}
+                      ratioD={elasticDepartureCapsuleModel.ratioD}
+                      onPress={launchTripNavigation}
+                      navigationLabel={t('intentionDetail.launchRoute')}
+                      theme={theme}
+                      style={[
+                        styles.comfortDepartureCapsule,
+                        !canLaunchNavigation ? styles.comfortDepartureCapsuleDisabled : null,
+                      ]}
+                    />
+                  ) : isProUser && elasticComfortLabel ? (
+                    <View
+                      style={[
+                        styles.comfortDeparturePill,
+                        {
+                          backgroundColor: theme.colors.secondaryContainer,
+                          opacity: tripIsAllDay ? 0.92 : 1,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[styles.comfortDeparturePillText, { color: theme.colors.onSecondaryContainer }]}
+                      >
+                        {elasticComfortLabel}
+                      </Text>
+                    </View>
+                  ) : null}
                 </>
               ) : null}
             </View>
@@ -3102,32 +3228,6 @@ export function IntentionDetailSheet({
                               );
                             })}
                           </View>
-
-                          <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
-
-                          <View style={styles.newtonRow}>
-                            <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
-                              {t('intentionDetail.comfortTitle')}
-                            </Text>
-                          </View>
-
-                          {isProUser && elasticComfortLabel ? (
-                            <View
-                              style={[
-                                styles.comfortDeparturePill,
-                                {
-                                  backgroundColor: theme.colors.secondaryContainer,
-                                  opacity: tripIsAllDay ? 0.92 : elasticSlotDisplay?.approximate ? 0.78 : 1,
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={[styles.comfortDeparturePillText, { color: theme.colors.onSecondaryContainer }]}
-                              >
-                                {elasticComfortLabel}
-                              </Text>
-                            </View>
-                          ) : null}
 
                           <View style={styles.impactSlot}>
                             {ecoBadge ? (
@@ -3598,13 +3698,7 @@ export function IntentionDetailSheet({
                 <View style={styles.footerTripCol}>
                   <Button
                     mode="outlined"
-                    onPress={() =>
-                      void openNavigationUniversal({
-                        origin: originText.trim() ? originText.trim() : null,
-                        destination: savedArrivalAddress || destinationLabel || '',
-                        mode: transportMode,
-                      })
-                    }
+                    onPress={launchTripNavigation}
                     disabled={!canLaunchNavigation}
                     style={styles.footerBtn}
                   >
@@ -3976,6 +4070,14 @@ const styles = StyleSheet.create({
   co2Text: { fontSize: 12, fontWeight: '700' },
   impactSlot: { height: 32, justifyContent: 'center' },
   comfortLine: { fontSize: 12, fontWeight: '700' },
+  comfortDepartureCapsule: {
+    alignSelf: 'stretch',
+    width: '100%',
+    marginTop: 4,
+  },
+  comfortDepartureCapsuleDisabled: {
+    opacity: 0.55,
+  },
   comfortDeparturePill: {
     alignSelf: 'flex-start',
     marginTop: 4,
