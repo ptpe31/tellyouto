@@ -1,38 +1,51 @@
 import { getTrankilV2IntentionById } from '../../api/trankilV2Db';
 import {
-  computeElasticDepartureWindow,
-  computeShiftedElasticWindow,
-  normalizeElasticTransportMode,
+  applyPessimisticAnchor,
+  computeBaseSmartBufferMin,
+  computeDegradationRatio,
+  computeProbe1DepartureTimeUnix,
+  computeProposedWindowAnchor,
+  computePrudenceAlpha,
+  computePredictiveBufferMin,
+  isWithinTrafficDeadZone,
+  shouldSkipProbe3Api,
   skipsElasticProbe2,
+  type WindowAnchor,
 } from '../../utils/elasticSlotEngine';
 import { logTripMath, resolveTripMathAlias } from '../../utils/tripMathLogger';
 import { isTripAllDay, parseTripArrivalIso } from '../../utils/tripElasticDisplay';
 import { getForegroundOriginSnapshot } from './SentinelLocationService';
 import {
-  buildShiftedTripPatch,
-  elasticWindowToTripPatch,
+  buildContractTripPatch,
   hasTripStandardDurationMin,
   patchTripElasticMetadata,
 } from './sentinelElasticTripMetadata';
+import { readElasticWindowAnchor } from '../../utils/elasticSlotEngine';
 import {
   computeBufferForTask,
-  computeDepartInMinutes,
-  computeTrafficTrendProjection,
-  evaluateProbe2Overflow,
+  computeDepartInMinutesFromAnchor,
   PROBE1_GPS_RETRY_MS,
   buildProbeFailureRecovery,
   releaseElasticProbeLock,
+  normalizeProbeReason,
   resolveDueElasticProbe,
-  resolveDStdMin,
-  resolveProbe1BaselineAtMs,
-  resolveProbe1BaselineDurationSec,
+  resolveIdealDurationMin,
+  resolvePredictedDurationMin,
+  resolveTrafficDeltaMin,
   scheduleNextElasticProbe,
   tryAcquireElasticProbeLock,
   type ElasticProbeReason,
 } from './sentinelElasticProbes';
-import type { MapsService, TripTaskRowV4 } from './TrafficSchedulerV4';
+import type { FetchTrafficSampleOptions, MapsService, TripTaskRowV4 } from './TrafficSchedulerV4';
 
 type FlowMode = 'REAL' | 'SCHEDULED';
+
+type ProbeExecutionContext = {
+  task: TripTaskRowV4;
+  tripMeta: Record<string, unknown> | null;
+  nowMs: number;
+  mapsService: MapsService;
+};
 
 export type ElasticTickResult = {
   patch: Partial<TripTaskRowV4>;
@@ -62,7 +75,12 @@ function computeFingerprint(task: TripTaskRowV4): string {
   return `${dLat},${dLng}|${Math.round(task.arrivalAtMs)}|${mode}`;
 }
 
-function baseTrace(task: TripTaskRowV4, startMs: number, endMs: number, flowMode: FlowMode): ElasticTickResult['trace'] {
+function baseTrace(
+  task: TripTaskRowV4,
+  startMs: number,
+  endMs: number,
+  flowMode: FlowMode,
+): ElasticTickResult['trace'] {
   return {
     displayedStartMs: startMs,
     displayedEndMs: endMs,
@@ -78,19 +96,30 @@ function baseTrace(task: TripTaskRowV4, startMs: number, endMs: number, flowMode
   };
 }
 
-function applyElasticWindowPatch(
+function applyDisplayedContractPatch(
   patch: Partial<TripTaskRowV4>,
-  window: NonNullable<ReturnType<typeof computeElasticDepartureWindow>>,
+  anchor: WindowAnchor,
+  uiUpdate: boolean,
 ): void {
-  const startMs = window.startDate.getTime();
-  const endMs = window.endDate.getTime();
-  patch.tOptimisteMs = startMs;
-  patch.tPessimisteMs = endMs;
-  patch.baseTOptimisteMs = startMs;
-  patch.baseTPessimisteMs = endMs;
-  patch.displayedTOptimisteMs = startMs;
-  patch.displayedTPessimisteMs = endMs;
-  patch.lastUiUpdateAtMs = Date.now();
+  patch.tOptimisteMs = anchor.startMs;
+  patch.tPessimisteMs = anchor.endMs;
+  patch.baseTOptimisteMs = anchor.startMs;
+  patch.baseTPessimisteMs = anchor.endMs;
+  if (uiUpdate) {
+    patch.displayedTOptimisteMs = anchor.startMs;
+    patch.displayedTPessimisteMs = anchor.endMs;
+    patch.lastUiUpdateAtMs = Date.now();
+  }
+}
+
+function readStoredAlpha(tripMeta: Record<string, unknown> | null): number {
+  const alpha = tripMeta ? Number(tripMeta.elastic_prudence_alpha) : NaN;
+  return Number.isFinite(alpha) && alpha > 0 ? alpha : 1;
+}
+
+function readStoredRatioD(tripMeta: Record<string, unknown> | null): number | null {
+  const ratio = tripMeta ? Number(tripMeta.elastic_degradation_ratio) : NaN;
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : null;
 }
 
 async function resolveOriginCoords(
@@ -127,6 +156,431 @@ async function resolveOriginCoords(
   }
 }
 
+async function fetchTrafficWithAccounting(
+  task: TripTaskRowV4,
+  patch: Partial<TripTaskRowV4>,
+  mapsService: MapsService,
+  fetchOpts?: FetchTrafficSampleOptions,
+): Promise<{ trafficSec: number; staticSec: number }> {
+  const sample = await mapsService.fetchTrafficSample(
+    {
+      ...task,
+      originLat: patch.originLat ?? task.originLat,
+      originLng: patch.originLng ?? task.originLng,
+    },
+    fetchOpts,
+  );
+  const fromCache = sample.fromCache === true;
+  patch.apiCallsAvoidedCache = task.apiCallsAvoidedCache + (fromCache ? 1 : 0);
+  patch.apiCallsTotal = task.apiCallsTotal + (fromCache ? 0 : 1);
+  const trafficSec = Math.max(0, Number(sample.trafficDurationSec) || 0);
+  const staticSec = Math.max(
+    0,
+    Number(sample.staticDurationSec ?? sample.trafficDurationSec) || 0,
+  );
+  return { trafficSec, staticSec };
+}
+
+async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<ElasticTickResult> {
+  const { task, tripMeta, nowMs, mapsService } = ctx;
+  const patch: Partial<TripTaskRowV4> = {};
+  const reason: ElasticProbeReason =
+    normalizeProbeReason(task.nextRealScanReason) === 'PROBE1_RETRY'
+      ? 'PROBE1_RETRY'
+      : 'PROBE1_CONFIG';
+
+  const origin = await resolveOriginCoords(task, tripMeta, reason);
+  if (!origin) {
+    return probe1GpsFailure(task, patch, nowMs);
+  }
+  patch.originLat = origin.lat;
+  patch.originLng = origin.lng;
+
+  if (!hasValidDestination(task)) {
+    return probe1DestFailure(task, patch, nowMs);
+  }
+
+  try {
+    const estimateIdeal = resolveIdealDurationMin(task, tripMeta);
+    const bufferBase = computeBaseSmartBufferMin(estimateIdeal) ?? 15;
+    const departureTimeUnix = computeProbe1DepartureTimeUnix({
+      arrivalMs: task.arrivalAtMs,
+      tIdealMin: estimateIdeal,
+      bufferBaseMin: bufferBase,
+    });
+
+    patch.lastRealScanAtMs = nowMs;
+    patch.lastErrorAt = null;
+    patch.status = 'ACTIVE';
+    patch.modeSafety = false;
+
+    const { trafficSec, staticSec } = await fetchTrafficWithAccounting(task, patch, mapsService, {
+      departureTimeUnix,
+    });
+
+    const tIdealMin = Math.max(1, Math.round(staticSec / 60));
+    const tPredMin = Math.max(1, Math.round(trafficSec / 60));
+    const ratioD = computeDegradationRatio(tPredMin, tIdealMin);
+    const alpha = computePrudenceAlpha(ratioD);
+    const bufferMin = computePredictiveBufferMin(tIdealMin, alpha);
+
+    const proposed = computeProposedWindowAnchor({
+      arrivalMs: task.arrivalAtMs,
+      tUsedMin: tPredMin,
+      alpha,
+      bufferMin,
+    });
+    if (!proposed) throw new Error('contract anchor failed');
+
+    const { anchor } = applyPessimisticAnchor(null, proposed);
+    const metaPatch = buildContractTripPatch({
+      anchor,
+      bufferMin,
+      tIdealMin,
+      tPredMin,
+      ratioD,
+      alpha,
+      approximate: false,
+      shifted: false,
+    });
+
+    logTripMath({
+      reason,
+      alias: resolveTripMathAlias(tripMeta, task.destination),
+      targetArrivalMs: task.arrivalAtMs,
+      apiTrajetMin: tPredMin,
+      bufferMin,
+      windowStartMs: anchor.startMs,
+      windowEndMs: anchor.endMs,
+      ratioD,
+      alpha,
+      uiUpdate: true,
+    });
+
+    await patchTripElasticMetadata(task.id, {
+      ...metaPatch,
+      origin_lat: origin.lat,
+      origin_lng: origin.lng,
+      last_traffic_duration: trafficSec,
+    });
+
+    patch.scanCount = 1;
+    patch.scan1AtMs = nowMs;
+    patch.scan1DurationSec = staticSec;
+    patch.lastTrafficDuration = trafficSec;
+    applyDisplayedContractPatch(patch, anchor, true);
+    patch.vigilanceStatus = 'VIGILANCE_BLUE';
+    patch.stateVersion = task.stateVersion + 1;
+
+    const next = scheduleNextElasticProbe({
+      task: { ...task, ...patch, scanCount: 1, scan1DurationSec: staticSec },
+      tripMeta: { ...(tripMeta ?? {}), ...metaPatch },
+      scanCount: 1,
+      nowMs,
+    });
+    patch.nextRealScanAtMs = next.nextRealScanAtMs;
+    patch.nextRealScanReason = next.nextRealScanReason;
+
+    return {
+      patch,
+      goNoGo: null,
+      probe3Unavailable: null,
+      trace: baseTrace(task, anchor.startMs, anchor.endMs, 'REAL'),
+      traceForce: true,
+      done: false,
+    };
+  } catch (err) {
+    return probeFailure(task, patch, nowMs, reason, err);
+  }
+}
+
+async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<ElasticTickResult> {
+  const { task, tripMeta, nowMs, mapsService } = ctx;
+  const patch: Partial<TripTaskRowV4> = {};
+  const reason: ElasticProbeReason = 'PROBE2_TREND';
+
+  if (skipsElasticProbe2(task.transportMode)) {
+    throw new Error('PROBE2 skipped for non-driving mode');
+  }
+
+  const origin = await resolveOriginCoords(task, tripMeta, reason);
+  if (!origin) {
+    return probeFailure(task, patch, nowMs, reason, new Error('origin missing'));
+  }
+  patch.originLat = origin.lat;
+  patch.originLng = origin.lng;
+  if (!hasValidDestination(task)) {
+    return probeFailure(task, patch, nowMs, reason, new Error('destination missing'));
+  }
+
+  try {
+    patch.lastRealScanAtMs = nowMs;
+    patch.lastErrorAt = null;
+    patch.status = 'ACTIVE';
+    patch.modeSafety = false;
+
+    const { trafficSec } = await fetchTrafficWithAccounting(task, patch, mapsService);
+    const dLiveMin = Math.max(1, Math.round(trafficSec / 60));
+    const alpha = readStoredAlpha(tripMeta);
+    const bufferMin = computeBufferForTask(task, tripMeta);
+    const ratioD = readStoredRatioD(tripMeta);
+    const tIdealMin = resolveIdealDurationMin(task, tripMeta);
+    const { deltaMin, baselineMin } = resolveTrafficDeltaMin(dLiveMin, tripMeta);
+    const uiUpdate = !isWithinTrafficDeadZone(deltaMin);
+
+    const previousAnchor = readElasticWindowAnchor(tripMeta);
+    let anchor = previousAnchor ?? {
+      startMs: task.tOptimisteMs ?? nowMs,
+      endMs: task.tPessimisteMs ?? nowMs,
+      durationMin: baselineMin,
+    };
+
+    let shifted = tripMeta?.elastic_shifted === true;
+    if (uiUpdate) {
+      const proposed = computeProposedWindowAnchor({
+        arrivalMs: task.arrivalAtMs,
+        tUsedMin: dLiveMin,
+        alpha,
+        bufferMin,
+      });
+      if (proposed) {
+        const merged = applyPessimisticAnchor(previousAnchor, proposed);
+        anchor = merged.anchor;
+        shifted = shifted || (previousAnchor != null && merged.changed);
+        const metaPatch = buildContractTripPatch({
+          anchor,
+          bufferMin,
+          tIdealMin,
+          tPredMin: resolvePredictedDurationMin(task, tripMeta),
+          ratioD: ratioD ?? computeDegradationRatio(dLiveMin, tIdealMin),
+          alpha,
+          shifted,
+        });
+        await patchTripElasticMetadata(task.id, {
+          ...metaPatch,
+          last_traffic_duration: trafficSec,
+        });
+        if (shifted) {
+          console.log(`[TRIP-SENTINEL] ⚠️ Contrat reculé for ${task.id}`);
+        }
+      }
+    } else {
+      await patchTripElasticMetadata(task.id, { last_traffic_duration: trafficSec });
+    }
+
+    logTripMath({
+      reason,
+      alias: resolveTripMathAlias(tripMeta, task.destination),
+      targetArrivalMs: task.arrivalAtMs,
+      apiTrajetMin: dLiveMin,
+      bufferMin,
+      windowStartMs: anchor.startMs,
+      windowEndMs: anchor.endMs,
+      previousTrajetMin: baselineMin,
+      ratioD: ratioD ?? undefined,
+      alpha,
+      uiUpdate,
+    });
+
+    patch.scanCount = 2;
+    patch.scan2AtMs = nowMs;
+    patch.scan2DurationSec = trafficSec;
+    patch.lastTrafficDuration = trafficSec;
+    patch.stateVersion = task.stateVersion + 1;
+    applyDisplayedContractPatch(patch, anchor, uiUpdate);
+    patch.vigilanceStatus = 'VIGILANCE_ORANGE';
+
+    const next = scheduleNextElasticProbe({
+      task: { ...task, ...patch, scanCount: 2 },
+      tripMeta: {
+        ...(tripMeta ?? {}),
+        elastic_anchor_start_ms: anchor.startMs,
+        elastic_start_ms: anchor.startMs,
+      },
+      scanCount: 2,
+      nowMs,
+    });
+    patch.nextRealScanAtMs = next.nextRealScanAtMs;
+    patch.nextRealScanReason = next.nextRealScanReason;
+
+    return {
+      patch,
+      goNoGo: null,
+      probe3Unavailable: null,
+      trace: baseTrace(task, anchor.startMs, anchor.endMs, 'REAL'),
+      traceForce: true,
+      done: false,
+    };
+  } catch (err) {
+    return probeFailure(task, patch, nowMs, reason, err);
+  }
+}
+
+async function executeProbe3Contract(ctx: ProbeExecutionContext): Promise<ElasticTickResult> {
+  const { task, tripMeta, nowMs, mapsService } = ctx;
+  const patch: Partial<TripTaskRowV4> = {};
+  const reason: ElasticProbeReason = 'PROBE3_GONOGO';
+
+  const origin = await resolveOriginCoords(task, tripMeta, reason);
+  if (!origin) {
+    return probeFailure(task, patch, nowMs, reason, new Error('origin missing'), true);
+  }
+  patch.originLat = origin.lat;
+  patch.originLng = origin.lng;
+  if (!hasValidDestination(task)) {
+    return probeFailure(task, patch, nowMs, reason, new Error('destination missing'), true);
+  }
+
+  try {
+    patch.lastRealScanAtMs = nowMs;
+    patch.lastErrorAt = null;
+
+    const { trafficSec } = await fetchTrafficWithAccounting(task, patch, mapsService);
+    return finalizeProbe3FromMeasurement({
+      task,
+      tripMeta,
+      patch,
+      nowMs,
+      trafficSec,
+      probe3Skipped: false,
+      flowMode: 'REAL',
+    });
+  } catch (err) {
+    return probeFailure(task, patch, nowMs, reason, err, true);
+  }
+}
+
+async function finalizeProbe3Silent(ctx: ProbeExecutionContext): Promise<ElasticTickResult> {
+  const { task, tripMeta, nowMs } = ctx;
+  const patch: Partial<TripTaskRowV4> = {};
+  patch.apiCallsAvoidedExtrapolation = task.apiCallsAvoidedExtrapolation + 1;
+
+  const trafficSec = Math.max(
+    0,
+    Number(task.scan2DurationSec ?? task.scan1DurationSec ?? task.lastTrafficDuration) || 0,
+  );
+
+  return finalizeProbe3FromMeasurement({
+    task,
+    tripMeta,
+    patch,
+    nowMs,
+    trafficSec,
+    probe3Skipped: true,
+    flowMode: 'SCHEDULED',
+  });
+}
+
+async function finalizeProbe3FromMeasurement(input: {
+  task: TripTaskRowV4;
+  tripMeta: Record<string, unknown> | null;
+  patch: Partial<TripTaskRowV4>;
+  nowMs: number;
+  trafficSec: number;
+  probe3Skipped: boolean;
+  flowMode: FlowMode;
+}): Promise<ElasticTickResult> {
+  const { task, tripMeta, patch, nowMs, trafficSec, probe3Skipped, flowMode } = input;
+  const fallbackSec = Number(task.scan2DurationSec ?? task.scan1DurationSec ?? 0);
+  const measureSec = trafficSec > 0 ? trafficSec : fallbackSec;
+  const dLiveMin = Math.max(1, Math.round(measureSec / 60));
+  const alpha = readStoredAlpha(tripMeta);
+  const bufferMin = computeBufferForTask(task, tripMeta);
+  const ratioD = readStoredRatioD(tripMeta);
+  const tIdealMin = resolveIdealDurationMin(task, tripMeta);
+  const { deltaMin, baselineMin } = resolveTrafficDeltaMin(dLiveMin, tripMeta);
+  const uiUpdate = !probe3Skipped && !isWithinTrafficDeadZone(deltaMin);
+
+  const previousAnchor = readElasticWindowAnchor(tripMeta);
+  let anchor = previousAnchor ?? {
+    startMs: task.tOptimisteMs ?? nowMs,
+    endMs: task.tPessimisteMs ?? nowMs,
+    durationMin: baselineMin,
+  };
+
+  if (uiUpdate) {
+    const proposed = computeProposedWindowAnchor({
+      arrivalMs: task.arrivalAtMs,
+      tUsedMin: dLiveMin,
+      alpha,
+      bufferMin,
+    });
+    if (proposed) {
+      const merged = applyPessimisticAnchor(previousAnchor, proposed);
+      anchor = merged.anchor;
+    }
+  }
+
+  const departInMin = computeDepartInMinutesFromAnchor(anchor.endMs, nowMs);
+  const variant: 'smooth' | 'leave_now' =
+    departInMin < 10 || departInMin <= 5 ? 'leave_now' : 'smooth';
+
+  logTripMath({
+    reason: 'PROBE3_GONOGO',
+    alias: resolveTripMathAlias(tripMeta, task.destination),
+    targetArrivalMs: task.arrivalAtMs,
+    apiTrajetMin: dLiveMin,
+    bufferMin,
+    windowStartMs: anchor.startMs,
+    windowEndMs: anchor.endMs,
+    previousTrajetMin: baselineMin,
+    ratioD: ratioD ?? undefined,
+    alpha,
+    uiUpdate: uiUpdate || probe3Skipped,
+    probe3Skipped,
+  });
+
+  patch.scanCount = 3;
+  patch.lastTrafficDuration = trafficSec > 0 ? trafficSec : task.lastTrafficDuration;
+  patch.status = 'DONE';
+  patch.vigilanceStatus = 'FINISHED';
+  patch.nextRealScanAtMs = null;
+  patch.nextRealScanReason = null;
+  patch.stateVersion = task.stateVersion + 1;
+  applyDisplayedContractPatch(patch, anchor, true);
+
+  await patchTripElasticMetadata(task.id, {
+    ...buildContractTripPatch({
+      anchor,
+      bufferMin,
+      tIdealMin,
+      tPredMin: resolvePredictedDurationMin(task, tripMeta),
+      ratioD: ratioD ?? computeDegradationRatio(dLiveMin, tIdealMin),
+      alpha,
+      probe3Skipped,
+    }),
+    last_traffic_duration: patch.lastTrafficDuration ?? trafficSec,
+  });
+
+  return {
+    patch,
+    goNoGo: {
+      variant,
+      departInMin: variant === 'smooth' ? Math.max(1, departInMin) : 0,
+    },
+    probe3Unavailable: null,
+    trace: baseTrace(task, anchor.startMs, anchor.endMs, flowMode),
+    traceForce: true,
+    done: true,
+  };
+}
+
+function shouldSkipProbe3ForTask(
+  task: TripTaskRowV4,
+  tripMeta: Record<string, unknown> | null,
+  nowMs: number,
+): boolean {
+  const anchor = readElasticWindowAnchor(tripMeta);
+  if (!anchor) return false;
+  const dLiveMin = Math.max(
+    1,
+    Math.round(Number(task.scan2DurationSec ?? task.scan1DurationSec ?? 0) / 60) || 1,
+  );
+  const { deltaMin } = resolveTrafficDeltaMin(dLiveMin, tripMeta);
+  const timeToDepartureMin = computeDepartInMinutesFromAnchor(anchor.endMs, nowMs);
+  return shouldSkipProbe3Api({ deltaMin, timeToDepartureMin });
+}
+
 async function executeElasticProbe(input: {
   task: TripTaskRowV4;
   tripMeta: Record<string, unknown> | null;
@@ -151,350 +605,124 @@ async function executeElasticProbe(input: {
     };
   }
 
+  const ctx: ProbeExecutionContext = { task, tripMeta, nowMs, mapsService };
   try {
-    return await executeElasticProbeBody({ task, tripMeta, nowMs, reason, mapsService });
+    console.log(`[TRIP-SENTINEL] 🔭 ${reason} for ${task.id}`);
+    switch (reason) {
+      case 'PROBE1_CONFIG':
+      case 'PROBE1_RETRY':
+        return executeProbe1Contract(ctx);
+      case 'PROBE2_TREND':
+        return executeProbe2Contract(ctx);
+      case 'PROBE3_GONOGO':
+        return executeProbe3Contract(ctx);
+      default:
+        throw new Error(`Unknown probe reason: ${reason}`);
+    }
   } finally {
     releaseElasticProbeLock(intentionId);
   }
 }
 
-async function executeElasticProbeBody(input: {
+function hasValidDestination(task: TripTaskRowV4): boolean {
+  return (
+    task.destLat != null &&
+    task.destLng != null &&
+    Number.isFinite(task.destLat) &&
+    Number.isFinite(task.destLng)
+  );
+}
+
+function probe1GpsFailure(
+  task: TripTaskRowV4,
+  patch: Partial<TripTaskRowV4>,
+  nowMs: number,
+): ElasticTickResult {
+  patch.lastErrorAt = nowMs;
+  patch.status = 'ACTIVE';
+  patch.modeSafety = false;
+  patch.nextRealScanAtMs = nowMs + PROBE1_GPS_RETRY_MS;
+  patch.nextRealScanReason = 'PROBE1_RETRY';
+  patch.stateVersion = task.stateVersion + 1;
+  const startMs = task.tOptimisteMs ?? nowMs;
+  const endMs = task.tPessimisteMs ?? nowMs;
+  return {
+    patch,
+    goNoGo: null,
+    probe3Unavailable: null,
+    trace: baseTrace(task, startMs, endMs, 'SCHEDULED'),
+    traceForce: true,
+    done: false,
+  };
+}
+
+function probe1DestFailure(
+  task: TripTaskRowV4,
+  patch: Partial<TripTaskRowV4>,
+  nowMs: number,
+): ElasticTickResult {
+  patch.lastErrorAt = nowMs;
+  patch.status = 'ACTIVE';
+  patch.nextRealScanAtMs = nowMs + PROBE1_GPS_RETRY_MS;
+  patch.nextRealScanReason = 'PROBE1_RETRY';
+  return {
+    patch,
+    goNoGo: null,
+    probe3Unavailable: null,
+    trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'REAL'),
+    traceForce: true,
+    done: false,
+  };
+}
+
+function probeFailure(
+  task: TripTaskRowV4,
+  patch: Partial<TripTaskRowV4>,
+  nowMs: number,
+  reason: ElasticProbeReason,
+  err: unknown,
+  probe3 = false,
+): ElasticTickResult {
+  console.error(`[TRIP-ERROR] Probe failed for ID: ${task.id}`, err);
+  Object.assign(patch, buildProbeFailureRecovery({ task, reason, nowMs }));
+  return {
+    patch,
+    goNoGo: null,
+    probe3Unavailable: probe3 ? { destination: task.destination } : null,
+    trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'REAL'),
+    traceForce: true,
+    done: false,
+  };
+}
+
+function handleIdleState(input: {
   task: TripTaskRowV4;
   tripMeta: Record<string, unknown> | null;
   nowMs: number;
-  reason: ElasticProbeReason;
-  mapsService: MapsService;
-}): Promise<ElasticTickResult> {
-  const { task, tripMeta, nowMs, reason, mapsService } = input;
+}): ElasticTickResult {
+  const { task, tripMeta, nowMs } = input;
   const patch: Partial<TripTaskRowV4> = {};
-  console.log(`[TRIP-SENTINEL] 🔭 ${reason} for ${task.id}`);
+  const scanCount = Math.max(0, Math.round(task.scanCount));
+  const next = scheduleNextElasticProbe({ task, tripMeta, scanCount, nowMs });
+  patch.nextRealScanAtMs = next.nextRealScanAtMs;
+  patch.nextRealScanReason = next.nextRealScanReason;
+  patch.vigilanceStatus = 'VIGILANCE_BLUE';
 
-  const origin = await resolveOriginCoords(task, tripMeta, reason);
-  if (!origin) {
-    patch.lastErrorAt = nowMs;
-    patch.status = 'ACTIVE';
-    patch.modeSafety = false;
-    patch.nextRealScanAtMs = nowMs + PROBE1_GPS_RETRY_MS;
-    patch.nextRealScanReason = 'PROBE1_RETRY';
-    patch.stateVersion = task.stateVersion + 1;
-    const startMs = task.tOptimisteMs ?? nowMs;
-    const endMs = task.tPessimisteMs ?? nowMs;
-    return {
-      patch,
-      goNoGo: null,
-      probe3Unavailable: null,
-      trace: baseTrace(task, startMs, endMs, 'SCHEDULED'),
-      traceForce: true,
-      done: false,
-    };
+  if (!hasTripStandardDurationMin(tripMeta) && scanCount === 0 && task.sentinelMode === 'STATIC') {
+    patch.nextRealScanAtMs = null;
+    patch.nextRealScanReason = null;
   }
 
-  patch.originLat = origin.lat;
-  patch.originLng = origin.lng;
-
-  if (
-    task.destLat == null ||
-    task.destLng == null ||
-    !Number.isFinite(task.destLat) ||
-    !Number.isFinite(task.destLng)
-  ) {
-    patch.lastErrorAt = nowMs;
-    patch.status = 'ACTIVE';
-    patch.nextRealScanAtMs = nowMs + PROBE1_GPS_RETRY_MS;
-    patch.nextRealScanReason = 'PROBE1_RETRY';
-    return {
-      patch,
-      goNoGo: null,
-      probe3Unavailable: null,
-      trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'REAL'),
-      traceForce: true,
-      done: false,
-    };
-  }
-
-  try {
-    const sample = await mapsService.fetchTrafficSample({
-      ...task,
-      originLat: origin.lat,
-      originLng: origin.lng,
-    });
-    const fromCache = sample.fromCache === true;
-    patch.apiCallsAvoidedCache = task.apiCallsAvoidedCache + (fromCache ? 1 : 0);
-    patch.apiCallsTotal = task.apiCallsTotal + (fromCache ? 0 : 1);
-    patch.lastRealScanAtMs = nowMs;
-    patch.lastErrorAt = null;
-    patch.status = 'ACTIVE';
-    patch.modeSafety = false;
-
-    const trafficSec = Math.max(0, Number(sample.trafficDurationSec) || 0);
-    const staticSec = Math.max(
-      0,
-      Number(sample.staticDurationSec ?? sample.trafficDurationSec) || 0,
-    );
-
-    if (reason === 'PROBE1_CONFIG' || reason === 'PROBE1_RETRY') {
-      const dStdMin = Math.max(1, Math.round(staticSec / 60));
-      const elasticMode = normalizeElasticTransportMode(task.transportMode);
-      const window = computeElasticDepartureWindow(task.arrivalAtMs, dStdMin, elasticMode);
-      if (!window) throw new Error('elastic window failed');
-
-      logTripMath({
-        reason,
-        alias: resolveTripMathAlias(tripMeta, task.destination),
-        targetArrivalMs: task.arrivalAtMs,
-        apiTrajetMin: dStdMin,
-        bufferMin: window.bufferMin,
-        windowStartMs: window.startDate.getTime(),
-        windowEndMs: window.endDate.getTime(),
-      });
-
-      await patchTripElasticMetadata(task.id, {
-        ...elasticWindowToTripPatch(window, { approximate: false, shifted: false }),
-        origin_lat: origin.lat,
-        origin_lng: origin.lng,
-        last_traffic_duration: staticSec,
-      });
-
-      patch.scanCount = 1;
-      patch.scan1AtMs = nowMs;
-      patch.scan1DurationSec = staticSec;
-      patch.lastTrafficDuration = staticSec;
-      applyElasticWindowPatch(patch, window);
-      patch.vigilanceStatus = 'VIGILANCE_BLUE';
-      patch.stateVersion = task.stateVersion + 1;
-
-      const next = scheduleNextElasticProbe({
-        task: { ...task, ...patch, scanCount: 1, scan1DurationSec: staticSec },
-        tripMeta: {
-          ...(tripMeta ?? {}),
-          standard_duration_min: dStdMin,
-          elastic_start_ms: window.startDate.getTime(),
-        },
-        scanCount: 1,
-        nowMs,
-      });
-      patch.nextRealScanAtMs = next.nextRealScanAtMs;
-      patch.nextRealScanReason = next.nextRealScanReason;
-
-      return {
-        patch,
-        goNoGo: null,
-      probe3Unavailable: null,
-        trace: baseTrace(task, window.startDate.getTime(), window.endDate.getTime(), 'REAL'),
-        traceForce: true,
-        done: false,
-      };
-    }
-
-    if (reason === 'PROBE2_TREND') {
-      if (skipsElasticProbe2(task.transportMode)) {
-        throw new Error('PROBE2 skipped for non-driving mode');
-      }
-      const dStdMin = resolveDStdMin(task, tripMeta);
-      const bufferMin = computeBufferForTask(task, tripMeta);
-      const dLiveMin = Math.max(1, Math.round(trafficSec / 60));
-      patch.scanCount = 2;
-      patch.scan2AtMs = nowMs;
-      patch.scan2DurationSec = trafficSec;
-      patch.lastTrafficDuration = trafficSec;
-      patch.stateVersion = task.stateVersion + 1;
-
-      const previousTrajetMin = Math.max(
-        1,
-        Math.round(resolveProbe1BaselineDurationSec(task, trafficSec) / 60),
-      );
-      const baselineAtMs = resolveProbe1BaselineAtMs(task, nowMs);
-      const prelimWindow = computeShiftedElasticWindow(task.arrivalAtMs, dLiveMin, bufferMin);
-      const windowEndForTrend =
-        prelimWindow?.endDate.getTime() ?? task.tPessimisteMs ?? nowMs;
-
-      const trend = computeTrafficTrendProjection({
-        baselineDurationSec: resolveProbe1BaselineDurationSec(task, trafficSec),
-        currentDurationSec: trafficSec,
-        baselineAtMs,
-        currentAtMs: nowMs,
-        windowEndMs: windowEndForTrend,
-        nowMs,
-      });
-      const dProjectedMin = trend.finalDurationMin;
-
-      let windowStartMs = task.tOptimisteMs ?? nowMs;
-      let windowEndMs = task.tPessimisteMs ?? nowMs;
-      const liveWindow = computeShiftedElasticWindow(task.arrivalAtMs, dProjectedMin, bufferMin);
-      if (liveWindow) {
-        windowStartMs = liveWindow.startDate.getTime();
-        windowEndMs = liveWindow.endDate.getTime();
-      }
-
-      const trendLogFields = {
-        congestionGrowthRateMinPerMin: trend.growthRateMinPerMin,
-        projectedTrajetMin: trend.finalDurationMin,
-      };
-
-      if (evaluateProbe2Overflow({ dLiveMin: dProjectedMin, dStdMin, bufferMin })) {
-        const shiftedPatch = buildShiftedTripPatch(
-          task.arrivalAtMs,
-          dProjectedMin,
-          bufferMin,
-          trafficSec,
-        );
-        if (shiftedPatch) {
-          windowStartMs = shiftedPatch.elastic_start_ms ?? windowStartMs;
-          windowEndMs = shiftedPatch.elastic_end_ms ?? windowEndMs;
-          logTripMath({
-            reason: 'PROBE2_TREND',
-            alias: resolveTripMathAlias(tripMeta, task.destination),
-            targetArrivalMs: task.arrivalAtMs,
-            apiTrajetMin: dLiveMin,
-            bufferMin,
-            windowStartMs,
-            windowEndMs,
-            previousTrajetMin,
-            ...trendLogFields,
-          });
-          await patchTripElasticMetadata(task.id, shiftedPatch);
-          console.log(`[TRIP-SENTINEL] ⚠️ Cas B shift for ${task.id}`);
-        }
-      } else if (liveWindow) {
-        await patchTripElasticMetadata(task.id, {
-          ...elasticWindowToTripPatch(liveWindow, { approximate: false, shifted: false }),
-          last_traffic_duration: trafficSec,
-        });
-        logTripMath({
-          reason: 'PROBE2_TREND',
-          alias: resolveTripMathAlias(tripMeta, task.destination),
-          targetArrivalMs: task.arrivalAtMs,
-          apiTrajetMin: dLiveMin,
-          bufferMin,
-          windowStartMs,
-          windowEndMs,
-          previousTrajetMin,
-          ...trendLogFields,
-        });
-      } else {
-        logTripMath({
-          reason: 'PROBE2_TREND',
-          alias: resolveTripMathAlias(tripMeta, task.destination),
-          targetArrivalMs: task.arrivalAtMs,
-          apiTrajetMin: dLiveMin,
-          bufferMin,
-          windowStartMs,
-          windowEndMs,
-          previousTrajetMin,
-          ...trendLogFields,
-        });
-      }
-
-      patch.tOptimisteMs = windowStartMs;
-      patch.tPessimisteMs = windowEndMs;
-      patch.displayedTOptimisteMs = windowStartMs;
-      patch.displayedTPessimisteMs = windowEndMs;
-      patch.vigilanceStatus = 'VIGILANCE_ORANGE';
-
-      const next = scheduleNextElasticProbe({
-        task: { ...task, ...patch, scanCount: 2 },
-        tripMeta: {
-          ...(tripMeta ?? {}),
-          elastic_start_ms: windowStartMs,
-          standard_duration_min: dStdMin,
-        },
-        scanCount: 2,
-        nowMs,
-      });
-      patch.nextRealScanAtMs = next.nextRealScanAtMs;
-      patch.nextRealScanReason = next.nextRealScanReason;
-
-      return {
-        patch,
-        goNoGo: null,
-      probe3Unavailable: null,
-        trace: baseTrace(task, windowStartMs, windowEndMs, 'REAL'),
-        traceForce: true,
-        done: false,
-      };
-    }
-
-    if (reason === 'PROBE3_GONOGO') {
-      patch.scanCount = 3;
-      patch.lastTrafficDuration = trafficSec;
-      patch.status = 'DONE';
-      patch.vigilanceStatus = 'FINISHED';
-      patch.nextRealScanAtMs = null;
-      patch.nextRealScanReason = null;
-      patch.stateVersion = task.stateVersion + 1;
-
-      const departInMin = computeDepartInMinutes(task.arrivalAtMs, trafficSec, nowMs);
-      const dStdMin = resolveDStdMin(task, tripMeta);
-      const bufferMin = computeBufferForTask(task, tripMeta);
-      const dLiveMin = Math.max(1, Math.round(trafficSec / 60));
-      const variant: 'smooth' | 'leave_now' = evaluateProbe2Overflow({
-        dLiveMin,
-        dStdMin,
-        bufferMin,
-      })
-        ? 'leave_now'
-        : departInMin <= 5
-          ? 'leave_now'
-          : 'smooth';
-
-      const liveWindow = computeShiftedElasticWindow(task.arrivalAtMs, dLiveMin, bufferMin);
-      const startMs = liveWindow?.startDate.getTime() ?? task.tOptimisteMs ?? nowMs;
-      const endMs = liveWindow?.endDate.getTime() ?? task.tPessimisteMs ?? nowMs;
-      const previousTrajetMin = Math.max(
-        1,
-        Math.round(
-          Number(task.scan2DurationSec ?? task.scan1DurationSec ?? dStdMin * 60) / 60,
-        ),
-      );
-
-      logTripMath({
-        reason: 'PROBE3_GONOGO',
-        alias: resolveTripMathAlias(tripMeta, task.destination),
-        targetArrivalMs: task.arrivalAtMs,
-        apiTrajetMin: dLiveMin,
-        bufferMin,
-        windowStartMs: startMs,
-        windowEndMs: endMs,
-        previousTrajetMin,
-      });
-
-      patch.tOptimisteMs = startMs;
-      patch.tPessimisteMs = endMs;
-      patch.displayedTOptimisteMs = startMs;
-      patch.displayedTPessimisteMs = endMs;
-
-      await patchTripElasticMetadata(task.id, {
-        ...(liveWindow
-          ? elasticWindowToTripPatch(liveWindow, { approximate: false, shifted: false })
-          : {}),
-        last_traffic_duration: trafficSec,
-      });
-
-      return {
-        patch,
-        goNoGo: { variant, departInMin: variant === 'smooth' ? Math.max(1, departInMin) : 0 },
-        probe3Unavailable: null,
-        trace: baseTrace(task, startMs, endMs, 'REAL'),
-        traceForce: true,
-        done: true,
-      };
-    }
-
-    throw new Error(`Unknown probe reason: ${reason}`);
-  } catch (err) {
-    console.error(`[TRIP-ERROR] Probe failed for ID: ${task.id}`, err);
-    Object.assign(patch, buildProbeFailureRecovery({ task, reason, nowMs }));
-    const probe3Unavailable =
-      reason === 'PROBE3_GONOGO' ? { destination: task.destination } : null;
-    return {
-      patch,
-      goNoGo: null,
-      probe3Unavailable,
-      trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'REAL'),
-      traceForce: true,
-      done: false,
-    };
-  }
+  const startMs = task.displayedTOptimisteMs ?? task.tOptimisteMs ?? nowMs;
+  const endMs = task.displayedTPessimisteMs ?? task.tPessimisteMs ?? nowMs;
+  return {
+    patch,
+    goNoGo: null,
+    probe3Unavailable: null,
+    trace: baseTrace(task, startMs, endMs, 'SCHEDULED'),
+    traceForce: false,
+    done: false,
+  };
 }
 
 export async function runElasticSchedulerTick(input: {
@@ -518,6 +746,7 @@ export async function runElasticSchedulerTick(input: {
     }
   }
   const dueDate = row?.due_date ?? null;
+
   if (isTripAllDay(metaRoot, tripMeta, dueDate)) {
     patch.status = 'PAUSED';
     patch.nextRealScanAtMs = null;
@@ -557,12 +786,7 @@ export async function runElasticSchedulerTick(input: {
       patch,
       goNoGo: null,
       probe3Unavailable: null,
-      trace: baseTrace(
-        task,
-        task.tOptimisteMs ?? nowMs,
-        task.tPessimisteMs ?? nowMs,
-        'SCHEDULED',
-      ),
+      trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'SCHEDULED'),
       traceForce: true,
       done: true,
     };
@@ -591,27 +815,13 @@ export async function runElasticSchedulerTick(input: {
   const willRealScan =
     probeReason != null && task.sentinelMode === 'SENTINEL' && disableRealScans !== true;
 
+  if (willRealScan && probeReason === 'PROBE3_GONOGO' && shouldSkipProbe3ForTask(task, tripMeta, nowMs)) {
+    return finalizeProbe3Silent({ task, tripMeta, nowMs, mapsService });
+  }
+
   if (willRealScan && probeReason) {
     return executeElasticProbe({ task, tripMeta, nowMs, reason: probeReason, mapsService });
   }
 
-  const scanCount = Math.max(0, Math.round(task.scanCount));
-  const next = scheduleNextElasticProbe({ task, tripMeta, scanCount, nowMs });
-  patch.nextRealScanAtMs = next.nextRealScanAtMs;
-  patch.nextRealScanReason = next.nextRealScanReason;
-  patch.vigilanceStatus = 'VIGILANCE_BLUE';
-
-  if (!hasTripStandardDurationMin(tripMeta) && scanCount === 0 && task.sentinelMode === 'STATIC') {
-    patch.nextRealScanAtMs = null;
-    patch.nextRealScanReason = null;
-  }
-
-  return {
-    patch,
-    goNoGo: null,
-    probe3Unavailable: null,
-    trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'SCHEDULED'),
-    traceForce: false,
-    done: false,
-  };
+  return handleIdleState({ task, tripMeta, nowMs });
 }

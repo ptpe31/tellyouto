@@ -59,8 +59,15 @@ export type TrafficSample = {
   latencyMs?: number;
 };
 
+export type FetchTrafficSampleOptions = {
+  departureTimeUnix?: number;
+};
+
 export type MapsService = {
-  fetchTrafficSample(task: TripTaskRowV4): Promise<TrafficSample>;
+  fetchTrafficSample(
+    task: TripTaskRowV4,
+    opts?: FetchTrafficSampleOptions,
+  ): Promise<TrafficSample>;
 };
 
 type TickResult = {

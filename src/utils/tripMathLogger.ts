@@ -8,22 +8,19 @@ export type TripMathLogInput = {
   reason: TripMathProbeReason;
   alias: string;
   targetArrivalMs: number;
-  /** Durée trajet API courante (minutes). */
   apiTrajetMin: number;
-  /** Marge de sécurité appliquée (minutes). */
   bufferMin: number;
   windowStartMs: number;
   windowEndMs: number;
-  /** Durée trajet du scan précédent (minutes) — PROBE2/3 uniquement. */
   previousTrajetMin?: number | null;
-  /** Vitesse de croissance embouteillage (min/min) — PROBE2 uniquement. */
-  congestionGrowthRateMinPerMin?: number | null;
-  /** Durée projetée après tendance (minutes) — PROBE2 uniquement. */
-  projectedTrajetMin?: number | null;
+  ratioD?: number | null;
+  alpha?: number | null;
+  uiUpdate?: boolean;
+  probe3Skipped?: boolean;
 };
 
 function fmtHm(ms: number): string {
-  if (!Number.isFinite(ms)) return '--:--';
+  if (!Number.isFinite(Number(ms))) return '--:--';
   const d = new Date(ms);
   const h = String(d.getHours()).padStart(2, '0');
   const m = String(d.getMinutes()).padStart(2, '0');
@@ -36,10 +33,21 @@ function formatDelta(previousMin: number, currentMin: number): string {
   return delta > 0 ? `+${delta}m` : `${delta}m`;
 }
 
-function formatGrowthRate(rateMinPerMin: number): string {
-  const rounded = Math.round(rateMinPerMin * 10) / 10;
-  if (rounded === 0) return '±0m/min';
-  return rounded > 0 ? `+${rounded}m/min` : `${rounded}m/min`;
+function formatContractSuffix(input: TripMathLogInput): string {
+  const parts: string[] = [];
+  if (input.ratioD != null && Number.isFinite(input.ratioD)) {
+    parts.push(`[Ratio_D: ${Math.round(input.ratioD * 100) / 100}]`);
+  }
+  if (input.alpha != null && Number.isFinite(input.alpha)) {
+    parts.push(`[Alpha: ${input.alpha}]`);
+  }
+  if (input.uiUpdate != null) {
+    parts.push(`[UI_UPDATE: ${input.uiUpdate}]`);
+  }
+  if (input.probe3Skipped === true) {
+    parts.push('[PROBE3_SKIPPED: true]');
+  }
+  return parts.length > 0 ? ` | ${parts.join(' ')}` : '';
 }
 
 export function resolveTripMathAlias(
@@ -51,6 +59,12 @@ export function resolveTripMathAlias(
   return alias || fb || '—';
 }
 
+function probeStageLabel(reason: TripMathProbeReason): string {
+  if (reason === 'PROBE1_CONFIG' || reason === 'PROBE1_RETRY') return 'PROBE1';
+  if (reason === 'PROBE2_TREND') return 'PROBE2';
+  return 'PROBE3';
+}
+
 /** Log observationnel du créneau élastique — aucun effet métier. */
 export function logTripMath(input: TripMathLogInput): void {
   if (!ENABLE_TRIP_MATH_LOGS) return;
@@ -58,39 +72,30 @@ export function logTripMath(input: TripMathLogInput): void {
   const alias = input.alias || '—';
   const slot = `${fmtHm(input.windowStartMs)} - ${fmtHm(input.windowEndMs)}`;
   const arrival = fmtHm(input.targetArrivalMs);
-
-  if (input.reason === 'PROBE1_CONFIG' || input.reason === 'PROBE1_RETRY') {
-    const retryTag = input.reason === 'PROBE1_RETRY' ? ' (retry)' : '';
-    console.log(
-      `[TRIP-MATH] 🧮 [PROBE1] Calcul pour "${alias}"${retryTag} | Arrivée: ${arrival} | Trajet API: ${input.apiTrajetMin}m | Marge: +${input.bufferMin}m | Créneau Départ: ${slot}`,
-    );
-    return;
-  }
+  const stage = probeStageLabel(input.reason);
+  const contractSuffix = formatContractSuffix(input);
 
   const delta =
     input.previousTrajetMin != null && Number.isFinite(input.previousTrajetMin)
       ? ` (${formatDelta(input.previousTrajetMin, input.apiTrajetMin)})`
       : '';
 
-  if (input.reason === 'PROBE2_TREND') {
-    const hasTrend =
-      input.congestionGrowthRateMinPerMin != null &&
-      Number.isFinite(input.congestionGrowthRateMinPerMin) &&
-      input.projectedTrajetMin != null &&
-      Number.isFinite(input.projectedTrajetMin);
-    if (hasTrend) {
-      console.log(
-        `[TRIP-MATH] 🧮 [PROBE2] Ajustement "${alias}" | Trajet: ${input.apiTrajetMin}m${delta} | Vitesse Congestion: ${formatGrowthRate(input.congestionGrowthRateMinPerMin!)} | Projection finale: ${input.projectedTrajetMin}m | Nouveau Créneau: ${slot}`,
-      );
-      return;
-    }
+  if (input.reason === 'PROBE1_CONFIG' || input.reason === 'PROBE1_RETRY') {
+    const retryTag = input.reason === 'PROBE1_RETRY' ? ' (retry)' : '';
     console.log(
-      `[TRIP-MATH] 🧮 [PROBE2] Ajustement "${alias}" | Trajet API: ${input.apiTrajetMin}m${delta} | Nouveau Créneau: ${slot}`,
+      `[TRIP-MATH] 🧮 [${stage}] Contrat pour "${alias}"${retryTag} | Arrivée: ${arrival} | Trajet: ${input.apiTrajetMin}m | Marge: +${input.bufferMin}m | Créneau: ${slot}${contractSuffix}`,
+    );
+    return;
+  }
+
+  if (input.reason === 'PROBE2_TREND') {
+    console.log(
+      `[TRIP-MATH] 🧮 [${stage}] Ajustement "${alias}" | Trajet: ${input.apiTrajetMin}m${delta} | Créneau: ${slot}${contractSuffix}`,
     );
     return;
   }
 
   console.log(
-    `[TRIP-MATH] 🧮 [PROBE3] Final "${alias}" | Arrivée: ${arrival} | Trajet API: ${input.apiTrajetMin}m${delta} | Créneau Départ: ${slot}`,
+    `[TRIP-MATH] 🧮 [${stage}] Final "${alias}" | Arrivée: ${arrival} | Trajet: ${input.apiTrajetMin}m${delta} | Créneau: ${slot}${contractSuffix}`,
   );
 }

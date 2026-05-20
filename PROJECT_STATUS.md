@@ -9,7 +9,7 @@
 - Offline-first (**urbanisation SPEC v34 : 100 % terminée**) : en cas d’échec réseau/IA, la capture (texte/audio) est **mise en file** via `offline_audio_queue` + insertion d’une NOTE `is_pending_ai=1` (métadonnées `persistence_label` / `tag` = `NOTE_FALLBACK` + `source: offline_audio_queue`), puis rejouée ultérieurement. **NetInfo** : « en ligne » si `isConnected === true` **et** `isInternetReachable !== false` (`isNetInfoConsideredOnline`) ; log `[OFFLINE-STABILITY] netinfo_online_null_reachable` si tentative en ligne avec reachability `null`. **En ligne**, une coupure **pendant** Path B / persistance d’un chunk peut déclencher un **enqueue auto** (heuristique réseau/serveur, logs `[OFFLINE-STABILITY]`) sans Alert obligatoire. **Parité peek** : `INTENTION_PEEK_SNAPSHOT` (Path A) est émis **avant** `NetInfo` et la file, pour le même feedback visuel hors ligne qu’en ligne.
 - **Feuille de Route (Pass 3)** : depuis la Timeline, icône imprimante → sas SQL (retards + orphelines) → synthèse Gemini HTML (RC `prompt_pass3_synth_v1`) → `daily_summaries` + WebView / PDF ; overlay progression réutilise `useAIProgressInertia` + `AIUniversalProgressOverlay` ; lien sous le groupe « Aujourd’hui ».
 - **Cluster tactique (Tirelire)** : [`getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) sur `TimelineScreen` (seuil d’affichage `count >= 2`, contexte ALL + TODO) ; carte neumorphique + ouverture [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtrée par `category_id` ; log `[CLUSTER-ENGINE]`. **Projets orphelins** : bouton `cluster.planProjectStart` → `project.start_date` + replan jalons (`replanProjectMilestonesFromStartDate`) + `due_date` pour sortir du cluster.
-- **TRIP — Créneau élastique (mai 2026)** : un switch PRO `remind_to_leave` remplace Newton ; moteur PROBE1/2/3 ([`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts)) ; zéro polling (timers `next_real_scan_at_ms` uniquement) ; annulation mission [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts).
+- **TRIP — Contrat de Départ (mai 2026)** : stratégie **Pessimiste Prédictif** (ratio `D`, coefficient `α`, ancres unidirectionnelles, hystérésis 5 min, PROBE3 skip si stable + `< 10 min`) ; switch PRO `remind_to_leave` ; dispatcher PROBE1/2/3 ([`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts)) ; zéro polling ; [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts).
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents ; sur **TalkDebug**, l’**overlay de progression** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) + événements `CAPTURE_PIPELINE_PROGRESS`) couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline). **Correction STT optionnelle** : crayon → barre validation **Poubelle / Check** au-dessus du clavier (`translateY` + listeners clavier) → `transcript` final vers Gemini ; logs `transcript_manual_edit` / `[MIC] ✏️`.
 
 ---
@@ -101,20 +101,23 @@ Repères dans `src/services/*` :
 
 **Logs boot** : `[GEMINI-RC]`, `[GEMINI-BOOT]`.
 
-#### Sentinel / Trafic — Créneau élastique (TRIP PRO)
+#### Sentinel / Trafic — Contrat de Départ (TRIP PRO)
 
 Fichiers clés sous `src/services/traffic/` :
 
 | Fichier | Rôle |
 |---------|------|
-| [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts) | Formule buffer (auto vs piéton/vélo) + fenêtre + planification PROBE2/3 |
+| [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts) | Moteur pur : `D`, `α`, Smart Buffer, `computeProposedWindowAnchor`, `applyPessimisticAnchor`, zone morte 5 min, skip PROBE3 |
+| [`DistanceMatrixMapsService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/DistanceMatrixMapsService.ts) | `fetchTrafficSample(task, { departureTimeUnix? })` + cache par bucket départ |
+| [`sentinelElasticTripMetadata.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticTripMetadata.ts) | `buildContractTripPatch`, champs `elastic_anchor_*`, `elastic_degradation_ratio`, `probe3_skipped` |
 | [`tripTripReadiness.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts) | Blocages mission (`destination`, `arrival_time`) |
 | [`tripProbeScheduleDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripProbeScheduleDisplay.ts) | Badge scan C1/C2 : `scanTrafficScheduled` / `scanTrafficInProgress` |
 | [`useProbeScheduleClock.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) | Tick 30 s pour bascule badge futur → en cours |
 | [`tripSurveillanceButton.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripSurveillanceButton.ts) | États Big Button Sheet (`Surveiller le trajet` / active / locked) |
 | [`sentinelDbRetry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelDbRetry.ts) | Retry sync metadata SQLite + recovery kick |
-| [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) | Résolution sondes, retry échec API |
-| [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts) | Exécution PROBE1/2/3 (Distance Matrix) |
+| [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) | Planification sondes, `resolveTrafficDeltaMin`, retry échec API |
+| [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts) | Dispatcher : `executeProbe1Contract` / `executeProbe2Contract` / `executeProbe3Contract` / `finalizeProbe3Silent` |
+| [`tripMathLogger.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripMathLogger.ts) | Logs `[TRIP-MATH]` avec `[Ratio_D]`, `[Alpha]`, `[UI_UPDATE]` |
 | [`TrafficSchedulerV4.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts) | 1 `setTimeout`/TRIP sur `next_real_scan_at_ms` |
 | [`SentinelBackgroundService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/SentinelBackgroundService.ts) | Filet OS : tick **si sonde due** (pas de polling global) |
 | [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts) | `cancelTripMission`, `clearTripElasticProbeMetadata`, **`suspendTripMissionForAllDay`** |
@@ -310,6 +313,7 @@ Fichier : `src/services/CaptureProcessingService.ts`
 - **Readiness coords** : [`tripTripReadiness.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts) — `readValidTripCoords` rejette `null`/`0` ; pas de préremplissage favori silencieux à l’ouverture sheet.
 - **Fix crash Surveiller** : INSERT `sentinel_trips` — 31 placeholders / 31 args ; reset connexion SQLite sans ré-init schéma ; queue `getFirstAsync` / `getAllAsync` ; `getTrankilV2IntentionById` via `withTrankilV2Database`.
 - **Anti-faux créneau** : pas de fenêtre UI sans `standard_duration_min`.
+- **Contrat de Départ (mai 2026)** : remplace Cas A/B + tendance LWR ; PROBE1 prédictif (`departure_time`) ; ancrage `min()` ; hystérésis `|Δ| ≤ 5` ; PROBE3 skip ; logs `[TRIP-MATH]` enrichis. Voir SPEC § formules élastiques.
 - TASK / HABIT / LIST / PROJECT : layout inchangé (hauteur 105).
 
 ### 3.2 Orchestration UI capture
@@ -399,7 +403,7 @@ SPEC : après dictée, peek relatif au viewport, transition à la persistance Pa
 - `IntentionDetailSheet` : entrée complète (opacity + translate) **uniquement** à `visible` false→true ; passage Path A→B = **spring** sur `peekTranslateY` sans ré-entrée (évite flash) ; props `peekCapturePhase`, `captureSheetMaxHeightRatio` (0.95 en flux capture), validation UI **Path B** ; hauteurs peek = ratios viewport (`capturePeekPathAHeightPx` / `capturePeekPathBHeightPx`, sans plancher px) ; full sheet = `windowHeight × ratio` (0,86 / 0,92 si source étendue, ou 0,95 capture), sans plancher 240 px ; auto-fermeture 4 s en Path B ; timer annulé par pan / full / focus `TextInput` ; slot 1 neumorphique + pastel par `category_id`.
 - **Verrou Pass 2** : `pass2_unlocked` (**`1`** = CTA consommé). **`metadataJsonLive`** alimente `meta` pour `showPass2FooterCta` (footer + Path B). CTA masqué si `isPass2UnlockedMeta(meta)` ; types **TRIP | LIST | PROJECT** ; TRIP → **`intentionDetail.actionSetupAlert`** ; LIST/PROJECT → **`pass2.*`**. **`TalkDebugScreen`** : `patchPeekDetailRow` via `onPatchRow`. **PRO** : overlay + hydratation locale ; réouverture → vue détaillée sans CTA. **FREE** : 🔒 + `ProSubscription`. **Trajet** : `gateFullTripBypass` ; CTA si `!== 1`.
 - **Path B — bouton principal (Talk)** : TRIP → `actionSetupAlert` ; LIST/PROJECT → `pass2.generateList` / `pass2.generateSteps` ; masqué après génération ; log **`[ACTION-ADVISOR]`**.
-- **TRIP — créneau élastique & guidage** : pill fenêtre ; **All Day** → mode passif (`allDayNoDepartureSlot`, switch remind disabled/OFF) ; `suspendTripMissionForAllDay` / `wakeTripMissionAfterTimedRestore`.
+- **TRIP — Contrat de Départ & guidage** : pill fenêtre ancrée ; **All Day** → mode passif (`allDayNoDepartureSlot`, switch remind disabled/OFF) ; `suspendTripMissionForAllDay` / `wakeTripMissionAfterTimedRestore`.
 - **TRIP — carte Timeline** : badges élastiques PRO uniquement ; CTA setup si `pass2_unlocked !== 1`.
 - **TRIP — transport** : 3 icônes sheet ; legacy `transit`→`auto` ; plus de switch Newton.
 - **Gating monétisation Pass 2 (SPEC §6)** — `useUserSpectrum().spectrum.isProUser` dans `IntentionDetailSheet` : FREE sans écriture `pass2_unlocked: 1` ; PRO persiste `1` + enrichissement optionnel LIST/PROJECT.
@@ -442,6 +446,6 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 9. `src/components/AIUniversalProgressOverlay.tsx` (overlay plein écran Pass 1 Talk / Pass 3 synthèse)
 10. `src/components/dailyRoadmap/*` (sas Pass 3, modal WebView / PDF)
 11. `src/services/dailyRoadmapPass3.ts` (payload + instruction Pass 3)
-12. `src/utils/elasticSlotEngine.ts` + `src/services/traffic/sentinelElasticProbes.ts` (TRIP créneau élastique)
+12. `src/utils/elasticSlotEngine.ts` + `src/services/traffic/trafficSchedulerElasticTick.ts` (TRIP Contrat de Départ)
 13. `src/services/traffic/sentinelTripMission.ts` (cancel / reset mission)
 

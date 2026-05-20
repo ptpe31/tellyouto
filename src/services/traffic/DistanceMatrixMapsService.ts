@@ -6,15 +6,24 @@ type CacheEntry = {
   fetchedAtMs: number;
 };
 
+export type FetchTrafficSampleOptions = {
+  departureTimeUnix?: number;
+};
+
 function buildCacheKey(input: {
   originLat: number;
   originLng: number;
   destLat: number;
   destLng: number;
   mode: string;
+  departureTimeUnix?: number;
 }): string {
   const r = (x: number) => Math.round(x * 10_000) / 10_000;
-  return `${r(input.originLat)},${r(input.originLng)}|${r(input.destLat)},${r(input.destLng)}|${input.mode}`;
+  const depart =
+    input.departureTimeUnix != null && Number.isFinite(input.departureTimeUnix)
+      ? `|d${Math.floor(input.departureTimeUnix / 300) * 300}`
+      : '|now';
+  return `${r(input.originLat)},${r(input.originLng)}|${r(input.destLat)},${r(input.destLng)}|${input.mode}${depart}`;
 }
 
 function getApiKey(): string {
@@ -37,7 +46,10 @@ export class DistanceMatrixMapsService implements MapsService {
 
   constructor(private readonly getNowMs: () => number = () => Date.now()) {}
 
-  async fetchTrafficSample(task: TripTaskRowV4): Promise<TrafficSample> {
+  async fetchTrafficSample(
+    task: TripTaskRowV4,
+    opts?: FetchTrafficSampleOptions,
+  ): Promise<TrafficSample> {
     const originLat = Number(task.originLat);
     const originLng = Number(task.originLng);
     const destLat = Number(task.destLat);
@@ -52,8 +64,22 @@ export class DistanceMatrixMapsService implements MapsService {
       throw new Error('DistanceMatrixMapsService: missing coords');
     }
     const mode = normalizeMode(transportMode);
-    const key = buildCacheKey({ originLat, originLng, destLat, destLng, mode });
     const nowMs = this.getNowMs();
+    const departureTimeUnix =
+      opts?.departureTimeUnix != null && Number.isFinite(opts.departureTimeUnix)
+        ? Math.floor(opts.departureTimeUnix)
+        : Math.floor(nowMs / 1000);
+
+    const key = buildCacheKey({
+      originLat,
+      originLng,
+      destLat,
+      destLng,
+      mode,
+      departureTimeUnix:
+        opts?.departureTimeUnix != null ? departureTimeUnix : undefined,
+    });
+
     const cached = this.cache.get(key);
     if (cached && nowMs - cached.fetchedAtMs <= this.ttlMs) {
       return { ...cached.sample, fromCache: true, cacheKey: key };
@@ -63,7 +89,7 @@ export class DistanceMatrixMapsService implements MapsService {
     if (!apiKey) throw new Error('DistanceMatrixMapsService: missing api key');
 
     console.log(
-      `[API-CALL] 💸 GOOGLE DISTANCE MATRIX | Origins: ${originLat},${originLng} | Dest: ${destLat},${destLng} | Mode: ${mode}`,
+      `[API-CALL] 💸 GOOGLE DISTANCE MATRIX | Origins: ${originLat},${originLng} | Dest: ${destLat},${destLng} | Mode: ${mode} | Departure: ${departureTimeUnix}`,
     );
 
     const url =
@@ -71,7 +97,7 @@ export class DistanceMatrixMapsService implements MapsService {
       `?origins=${encodeURIComponent(`${originLat},${originLng}`)}` +
       `&destinations=${encodeURIComponent(`${destLat},${destLng}`)}` +
       `&mode=${encodeURIComponent(mode)}` +
-      `&departure_time=${encodeURIComponent(String(Math.floor(nowMs / 1000)))}` +
+      `&departure_time=${encodeURIComponent(String(departureTimeUnix))}` +
       `&key=${encodeURIComponent(apiKey)}`;
 
     const controller = new AbortController();

@@ -355,131 +355,110 @@ Conditions minimales « surveillable » :
 
 **FREE** : activation du rappel → redirection paywall `ProSubscription` (pas de créneau ni sondes).
 
-#### Formules mathématiques — Créneau élastique
+#### Formules mathématiques — Créneau élastique (Contrat de Départ)
 
-Implémentation de référence : [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts).
+Stratégie **Pessimiste Prédictif** : ancrage unidirectionnel, ratio de dégradation du trafic, hystérésis UI 5 min, PROBE3 conditionnel.
+
+Implémentation : [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), orchestration [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts).
 
 **Notation**
 
 | Symbole | Unité | Définition |
 |---------|-------|------------|
-| `T_arr` | ms (timestamp) | Heure d’arrivée cible (`arrivalDue` / `dueDateTime`) |
-| `D_std` | min | Durée **statique** du trajet (sans trafic), mesurée à PROBE1 via Distance Matrix (`standard_duration_min`) |
-| `D_live` | min | Durée **live** avec trafic, mesurée à PROBE2 ou PROBE3 |
-| `Buffer` | min | Marge élastique absorbant les micro-variations de trafic |
-| `T_start` | ms | Borne **basse** du créneau (= partir au plus tôt) |
-| `T_end` | ms | Borne **haute** du créneau (= partir au plus tard) |
-| `now` | ms | Horodatage courant |
+| `T_arr` | ms | Heure d’arrivée cible (`arrivalDue` / `dueDateTime`) |
+| `T_ideal` | min | Durée **statique** (`duration`, sans trafic) — `standard_duration_min` |
+| `T_pred` | min | Durée **prédictive** (`duration_in_traffic` à `departure_time` PROBE1) — `elastic_predicted_duration_min` |
+| `D` | ratio | Ratio de dégradation `T_pred / T_ideal` — `elastic_degradation_ratio` |
+| `α` | coeff. | Coefficient de prudence (figé PROBE1) — `elastic_prudence_alpha` |
+| `Buffer` | min | Smart Buffer × α, plafonné 30 min — `elastic_buffer_min` (figé PROBE1) |
+| `T_start` | ms | Borne basse ancrée (`elastic_anchor_start_ms`) |
+| `T_end` | ms | **Deadline** ancrée (`elastic_anchor_end_ms`) — ne recule que vers le passé |
+| `Δ` | min | `D_mesuré − baseline` (baseline = `elastic_anchor_duration_min`) |
 
-**Constantes produit**
-
-```
-BUFFER_FLOOR     = 10 min        (auto / driving)
-BUFFER_RATIO     = 0,30          (30 % — auto)
-WALK_BIKE_FLOOR  = 5 min         (walking / bicycling)
-WALK_BIKE_RATIO  = 0,10          (10 % — walking / bicycling)
-PROBE2_LEAD      = 45 min      (avant T_start — auto uniquement)
-PROBE3_LEAD      = 15 min      (avant T_start)
-SHORT_TRIP_MAX   = 15 min      (pas de PROBE2 si D_std < 15)
-DEFAULT_D_STD    = 30 min      (fallback PROBE1 sans GPS / avant 1er scan)
-```
-
-**Modes** : `auto` → `driving` ; `walking` / `bike` → `walking` / `bicycling`. **PROBE2 est ignoré** pour piéton et vélo (seulement PROBE1 + PROBE3).
-
-##### 1. Buffer élastique
-
-**Auto (driving)** :
-```
-Buffer = max(BUFFER_FLOOR, round(D_std × BUFFER_RATIO, 1 décimale))
-       = max(10, 0,30 × D_std)
-```
-
-**Piéton / vélo** :
-```
-Buffer = max(WALK_BIKE_FLOOR, round(D_std × WALK_BIKE_RATIO, 1 décimale))
-       = max(5, 0,10 × D_std)
-```
-
-Exemples :
-- `D_std = 20` → `Buffer = max(10, 6) = 10 min`
-- `D_std = 30` → `Buffer = max(10, 9) = 10 min`
-- `D_std = 45` → `Buffer = max(10, 13,5) = 13,5 min`
-
-##### 2. Fenêtre initiale (après PROBE1 — Cas nominal)
+**Constantes**
 
 ```
-T_start = T_arr − (D_std + Buffer) × 60 000
-T_end   = T_arr − D_std × 60 000
+INCOMPRESSIBLE   = 15 min     (marge préparation + stationnement — ELASTIC_BUFFER_BASE_MIN)
+BUFFER_VARIANCE  = 10 %       (part variable du Smart Buffer, bornée [15, 25] avant × α)
+BUFFER_CAP       = 30 min     (plafond après × α)
+DEAD_ZONE        = 5 min       (hystérésis — pas de patch UI si |Δ| ≤ 5)
+PROBE3_SKIP_DEP  = 10 min     (skip API si stable + proche deadline)
+PROBE2_LEAD      = 45 min
+PROBE3_LEAD      = 15 min
+SHORT_TRIP_MAX   = 15 min     (pas de PROBE2 si durée < 15)
+DEFAULT_T_IDEAL  = 30 min     (fallback avant PROBE1)
 ```
 
-Contrainte : `T_start ≤ T_end` (sinon fenêtre invalide).
+**Modes** : `auto` → `driving` ; `walking` / `bike` → `walking` / `bicycling`. **PROBE2 ignoré** pour piéton et vélo (PROBE1 + PROBE3 uniquement).
 
-**Exemple canonique** : `T_arr = 19h30`, `D_std = 30`, `Buffer = 10`
+##### 1. Ratio de dégradation & prudence (PROBE1)
 
-```
-T_start = 19h30 − 40 min = 18h50
-T_end   = 19h30 − 30 min = 19h00
-→ Affichage UI : [ 18h50 – 19h00 ]
-```
-
-Largeur du créneau affiché : `Buffer` (= 10 min dans cet exemple).
-
-##### 3. Cas A vs Cas B (PROBE2 — absorption du trafic)
-
-À PROBE2, on compare le trafic live à la capacité d’absorption :
+**Appel Distance Matrix PROBE1** : `departure_time` = Unix(`T_arr − (T_ideal_est + Buffer_base)`), où `Buffer_base` = Smart Buffer à α=1.
 
 ```
-absorbé  ⟺  D_live ≤ D_std + Buffer
+D = T_pred / max(T_ideal, 1)
+
+α(D) :
+  D < 1,05  → 1,0
+  D < 1,25  → 1,1
+  D < 1,50  → 1,2
+  sinon     → 1,35
+
+Buffer = min(round(SmartBuffer(T_ideal) × α), 30)
+SmartBuffer(T_ideal) = clamp(15 + round(10 % × T_ideal), 15, 25)
 ```
 
-- **Cas A** (`absorbé = true`) : le créneau **initial** est conservé (`T_start`, `T_end` inchangés). Pas de flag `elastic_shifted`.
-- **Cas B** (`absorbé = false`) : le trafic déborde → **recalcul** avec `D_live` et le **Buffer initial** (figé à PROBE1, non recalculé) :
+Persisté : `elastic_degradation_ratio`, `elastic_prudence_alpha`, `elastic_predicted_duration_min`, `standard_duration_min` (= `T_ideal`).
+
+##### 2. Contrat de départ (fenêtre & ancre)
 
 ```
-T_start' = T_arr − (D_live + Buffer) × 60 000
-T_end'   = T_arr − D_live × 60 000
+T_end   = T_arr − (T_used × α + INCOMPRESSIBLE) × 60 000
+T_start = T_arr − (T_used × α + Buffer) × 60 000
 ```
 
-**Exemple Cas B** : même trajet (`T_arr = 19h30`, `Buffer = 10`), mais `D_live = 55 min` à PROBE2 :
+À PROBE1 : `T_used = T_pred`. Les ancres sont initialisées puis stockées dans `elastic_anchor_*`.
+
+**Ancrage pessimiste** (PROBE2/3) :
 
 ```
-T_start' = 19h30 − 65 min = 18h25
-T_end'   = 19h30 − 55 min = 18h35
-→ Affichage UI : [ 18h25 – 18h35 ]  +  elastic_shifted: true  +  ⚠️
+T_start' = min(T_start_ancre, T_start_proposé)
+T_end'   = min(T_end_ancre,   T_end_proposé)
+duration_ancre' = max(duration_ancre, D_mesuré)
 ```
 
-##### 3bis. Tendance trafic & projection (PROBE2 — modèle flux)
+Le créneau **ne s’améliore jamais** visuellement quand le trafic se dégage ; il ne **recule** (vers le passé) que si le trafic empire au-delà de la zone morte.
 
-Les trois sondes fournissent les points de mesure nécessaires pour estimer la **vitesse de croissance de l'embouteillage**, sur le modèle des flux LWR (Lighthill-Whitham-Richards) : le trafic se propage comme une onde de choc ; la dérivée première (vitesse) et seconde (accélération) de la durée mesurée permettent d'anticiper l'évolution avant PROBE3.
-
-**Baseline PROBE1** : `D_P1` (durée statique/live initiale) et `T_P1` (`scan1_at_ms`).
-
-**Vitesse de croissance** (min/min) :
+##### 3. Hystérésis UI (PROBE2 / PROBE3)
 
 ```
-Trend = (D_P2 − D_P1) / ((T_P2 − T_P1) / 60 000)
+Δ = D_live − elastic_anchor_duration_min
+
+|Δ| ≤ 5 min  →  UI_UPDATE: false  (scan + metadata techniques OK, pas de patch displayed*)
+|Δ| > 5 min   →  recalcul ancre + UI_UPDATE: true si ancre modifiée
 ```
 
-**Projection dynamique** : au lieu d'utiliser uniquement `D_P2`, on extrapole la durée au moment du départ limite (`T_end`) :
+Logs `[TRIP-MATH]` : `[Ratio_D]`, `[Alpha]`, `[UI_UPDATE: boolean]` à chaque étape.
+
+##### 4. PROBE3 conditionnel (skip API)
 
 ```
-Δt_départ = max(0, (T_end − now) / 60 000)     // minutes restantes avant limite départ
-D_proj    = D_P2 + Trend × Δt_départ
+skip PROBE3  ⟺  |Δ| ≤ 5  ET  timeToDeparture(T_end) < 10 min
 ```
 
-**Atténuation (frein)** : éviter une extrapolation linéaire pure qui sur-réagirait aux micro-pics.
+Si skip : `probe3_skipped: true`, `status = DONE`, Go/No-Go depuis dernière mesure PROBE2, `apiCallsAvoidedExtrapolation++`, pas d’appel Distance Matrix.
+
+Sinon : PROBE3 live + même règles d’ancrage / hystérésis.
+
+**Go/No-Go** :
 
 ```
-damping = 0,6  si Trend > 0   (bouchon qui grossit — ajustement agressif du créneau)
-damping = 0,25 si Trend ≤ 0   (trafic qui se dégage — prudence)
-D_final = D_P2 + (D_proj − D_P2) × damping
+Δ_depart = max(0, round((T_end − now) / 60 000))
+leave_now  si  Δ_depart < 10 min
+smooth     sinon
 ```
 
-Le créneau PROBE2 est recalculé avec `D_final` (et non `D_P2` brut) via `computeShiftedElasticWindow`. Si `Trend > 0`, le créneau **glisse vers le passé** pour compenser l'accélération de la congestion.
-
-Implémentation : [`computeTrafficTrendProjection`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) — logs `[TRIP-MATH] 🧮 [PROBE2]` avec vitesse congestion et projection finale.
-
-##### 4. Planification des sondes PROBE2 / PROBE3
+##### 5. Planification des sondes PROBE2 / PROBE3
 
 Les sondes 2 et 3 sont ancrées sur la **borne basse courante** `T_start` (initiale ou décalée) :
 
@@ -495,22 +474,6 @@ Règles d’éligibilité PROBE2 :
 Garde-fou temporel : `T_probe3 = max(now, T_start − 15 min)`.
 
 PROBE1 est toujours immédiat (`now`) à l’activation ou après reset destination.
-
-##### 5. Décision Go / No-Go (PROBE3)
-
-À PROBE3, on mesure une dernière fois `D_live` et on calcule le délai avant départ optimal :
-
-```
-T_depart = T_arr − D_live × 60 000
-Δ_depart = max(0, round((T_depart − now) / 60 000))   // minutes restantes
-```
-
-Variante push :
-```
-leave_now  si  D_live > D_std + Buffer     (Cas B persistant)
-          ou  Δ_depart ≤ 5 min
-smooth     sinon  →  push « partez dans Δ_depart minutes »
-```
 
 ##### 6. Fallbacks numériques
 
@@ -542,16 +505,21 @@ smooth     sinon  →  push « partez dans Δ_depart minutes »
 
 **Garde-fous** : `sentinelReconciler` et `trafficSchedulerElasticTick` vérifient `isTripAllDay` avant toute activation ou exécution de sonde.
 
-**Sondes API (max 2–3 appels Distance Matrix)** — [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) :
+**Sondes API (max 2–3 appels Distance Matrix)** — dispatcher [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts) :
 | Sonde | Rôle |
 |-------|------|
-| **PROBE1** | Calcule `D_std` (`standard_duration_min`), fenêtre initiale ; GPS origine différé si absent (fallback 30 min + `≈`, retry 3 min) |
-| **PROBE2** | Mesure trafic live ; shift créneau si débordement |
-| **PROBE3** | Go/No-Go → push locale (`sentinel.probe3*`) ; mission `DONE` |
+| **PROBE1** | `departure_time` prédictif ; calcule `D`, `α`, Buffer, ancres ; `standard_duration_min` + `elastic_predicted_duration_min` |
+| **PROBE2** | Trafic live (now) ; hystérésis 5 min ; ancrage pessimiste si `Δ > 5` |
+| **PROBE3** | Go/No-Go ; skip API si stable + `< 10 min` avant deadline ; sinon mesure live |
 
 **Planification** : zéro polling. Un `setTimeout` par TRIP sur `sentinel_trips.next_real_scan_at_ms` ([`TrafficSchedulerV4`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts)). Background OS ([`SentinelBackgroundService`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/SentinelBackgroundService.ts)) : tick **uniquement** si sonde échue.
 
-**Métadonnées trip** (`metadata_json.trip`) : `standard_duration_min`, `elastic_start_ms`, `elastic_end_ms`, `elastic_buffer_min`, `elastic_approximate`, `elastic_shifted`, `origin_lat/lng`, `last_traffic_duration`.
+**Métadonnées trip** (`metadata_json.trip`) :
+- Affichage : `elastic_start_ms`, `elastic_end_ms`, `elastic_buffer_min`, `elastic_shifted`, `elastic_approximate`
+- Contrat : `elastic_degradation_ratio`, `elastic_prudence_alpha`, `elastic_predicted_duration_min`, `elastic_anchor_start_ms`, `elastic_anchor_end_ms`, `elastic_anchor_duration_min`, `probe3_skipped`
+- Technique : `standard_duration_min`, `origin_lat/lng`, `last_traffic_duration`, `next_probe_at_ms`, `next_probe_reason`
+
+**Cache Distance Matrix** : clé inclut un bucket `departure_time` (5 min) pour ne pas servir le trafic « now » sur une requête prédictive PROBE1.
 
 **Annulation / reset mission** ([`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts)) :
 - `cancelTripMission(id)` : clear timers + annule PROBE2/3 planifiées — appelé si suppression TRIP, désactivation `remind_to_leave`, ou destination invalide.
@@ -559,7 +527,7 @@ smooth     sinon  →  push « partez dans Δ_depart minutes »
 - `resetTripMissionAndRelaunchProbe1(id)` : changement destination avec `pass2_unlocked === 1` → cancel + clear + PROBE1.
 - `wakeTripMissionAfterTimedRestore(id)` : retour horaire + remind ON → PROBE1 si metadata vide.
 
-**Dégradation gracieuse** : échec API PROBE2 → créneau inchangé (pas de shift) + retry ; échec PROBE3 → push `sentinel.probe3Unavailable` (*Estimation indisponible, vérifiez le trafic manuellement*).
+**Dégradation gracieuse** : échec API PROBE2 → ancre / UI inchangées + retry 5 min ; échec PROBE3 → push `sentinel.probe3Unavailable` ; PROBE3 skip → finalisation silencieuse sans API.
 
 Règle UI :
 - Si non surveillable : indicateur « infos manquantes » (triangle jaune).

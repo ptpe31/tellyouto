@@ -4,13 +4,13 @@
  */
 
 import {
-  computeElasticBufferMin,
-  computeElasticDepartureWindow,
+  computeBaseSmartBufferMin,
   DEFAULT_ELASTIC_D_STD_MIN,
   ELASTIC_BUFFER_FLOOR_MIN,
   elasticWindowFromStoredMs,
   type ElasticDepartureWindow,
 } from './elasticSlotEngine';
+import { readElasticWindowAnchor } from './elasticSlotEngine';
 import { formatDepartureWindowI18n } from './tripTimeHelpers';
 
 function str(obj: Record<string, unknown> | null, key: string): string | null {
@@ -67,15 +67,18 @@ export type ElasticSlotDisplay = {
 };
 
 function resolveStoredElasticWindow(trip: Record<string, unknown>): ElasticDepartureWindow | null {
-  const startMs = Number(trip.elastic_start_ms);
-  const endMs = Number(trip.elastic_end_ms);
+  const anchor = readElasticWindowAnchor(trip);
+  const startMs = anchor?.startMs ?? Number(trip.elastic_start_ms);
+  const endMs = anchor?.endMs ?? Number(trip.elastic_end_ms);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
 
   const dStdMin = Number(trip.standard_duration_min);
   const parsedStd = Number.isFinite(dStdMin) && dStdMin > 0 ? dStdMin : DEFAULT_ELASTIC_D_STD_MIN;
   const bufferRaw = Number(trip.elastic_buffer_min);
   const bufferMin =
-    Number.isFinite(bufferRaw) && bufferRaw > 0 ? bufferRaw : computeElasticBufferMin(parsedStd) ?? ELASTIC_BUFFER_FLOOR_MIN;
+    Number.isFinite(bufferRaw) && bufferRaw > 0
+      ? bufferRaw
+      : computeBaseSmartBufferMin(parsedStd) ?? ELASTIC_BUFFER_FLOOR_MIN;
 
   return elasticWindowFromStoredMs(startMs, endMs, parsedStd, bufferMin);
 }
@@ -126,9 +129,7 @@ export function resolveElasticSlotDisplay(input: {
   if (!std) return { ...empty, approximate: false, shifted: false };
 
   const { minutes: dStdMin, approximate } = std;
-  const arrivalIso = parseTripArrivalIso(meta, trip, dueDate);
-  const computed = !stored && arrivalIso ? computeElasticDepartureWindow(arrivalIso, dStdMin) : null;
-  const window = stored ?? computed;
+  const window = stored;
 
   return {
     window,

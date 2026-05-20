@@ -1,8 +1,8 @@
 import { withTrankilV2Database } from '../../api/trankilV2Db';
 import {
-  computeElasticDepartureWindow,
+  computeBaseSmartBufferMin,
+  computeProposedWindowAnchor,
   DEFAULT_ELASTIC_D_STD_MIN,
-  normalizeElasticTransportMode,
   scheduleElasticProbes,
   skipsElasticProbe2,
 } from '../../utils/elasticSlotEngine';
@@ -95,10 +95,15 @@ export async function activateSentinelTrip(input: {
 }> {
   const nowMs = Date.now();
   const dStdMin = Math.max(1, Number(input.standardDurationMin ?? DEFAULT_ELASTIC_D_STD_MIN) || DEFAULT_ELASTIC_D_STD_MIN);
-  const elasticMode = normalizeElasticTransportMode(input.transportMode);
-  const window = computeElasticDepartureWindow(input.targetArrivalMs, dStdMin, elasticMode);
-  const windowStartMs = window?.startDate.getTime() ?? input.targetArrivalMs - dStdMin * 60_000;
-  const windowEndMs = window?.endDate.getTime() ?? input.targetArrivalMs;
+  const bufferBase = computeBaseSmartBufferMin(dStdMin) ?? 15;
+  const proposed = computeProposedWindowAnchor({
+    arrivalMs: input.targetArrivalMs,
+    tUsedMin: dStdMin,
+    alpha: 1,
+    bufferMin: bufferBase,
+  });
+  const windowStartMs = proposed?.startMs ?? input.targetArrivalMs - dStdMin * 60_000;
+  const windowEndMs = proposed?.endMs ?? input.targetArrivalMs;
   const hasProbe1Done = input.standardDurationMin != null && Number.isFinite(Number(input.standardDurationMin));
   const scanCount = hasProbe1Done ? 1 : 0;
   const probes = scheduleElasticProbes({
