@@ -280,10 +280,18 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
       }
       const anyDb = db as any;
       if (!anyDb.__trankilV2Serialized) {
-        const rawRunAsync = db.runAsync.bind(db);
-        const rawExecAsync = db.execAsync.bind(db);
-        anyDb.runAsync = (...args: any[]) => runSerializedSqlite(() => (rawRunAsync as any)(...args));
-        anyDb.execAsync = (...args: any[]) => runSerializedSqlite(() => (rawExecAsync as any)(...args));
+        const wrap =
+          <T extends (...args: any[]) => Promise<any>>(raw: T) =>
+          (...args: Parameters<T>) =>
+            runSerializedSqlite(() => raw(...args));
+        anyDb.runAsync = wrap(db.runAsync.bind(db));
+        anyDb.execAsync = wrap(db.execAsync.bind(db));
+        if (typeof db.getFirstAsync === 'function') {
+          anyDb.getFirstAsync = wrap(db.getFirstAsync.bind(db));
+        }
+        if (typeof db.getAllAsync === 'function') {
+          anyDb.getAllAsync = wrap(db.getAllAsync.bind(db));
+        }
         anyDb.__trankilV2Serialized = true;
       }
       return db;
@@ -2600,11 +2608,12 @@ export async function deleteTrankilV2IntentionById(id: string): Promise<void> {
 
 export async function getTrankilV2IntentionById(id: string): Promise<TrankilV2IntentionRow | null> {
   await initTrankilV2Schema();
-  const db = await getDb();
-  return (
-    (await db.getFirstAsync<TrankilV2IntentionRow>(`SELECT * FROM intentions WHERE id = ? LIMIT 1`, [id])) ??
-    null
-  );
+  return withTrankilV2Database(async (db) => {
+    return (
+      (await db.getFirstAsync<TrankilV2IntentionRow>(`SELECT * FROM intentions WHERE id = ? LIMIT 1`, [id])) ??
+      null
+    );
+  });
 }
 
 export async function countZoomChildrenForProjectMilestone(params: {

@@ -304,9 +304,12 @@ Fichier : `src/services/CaptureProcessingService.ts`
 - **FREE** : footer CTA verrouillé → paywall direct ; tap corps → **hub TRIP unifié** (vitrine + `tripSurveillanceStartLocked`).
 - **PRO + PROBE1 fait** : badge fenêtre élastique (`Window` / `Approx` ≈ / `Shifted` ⚠️).
 - **PRO + mission active + PROBE1 pending** : badge scan à 3 états — `timeline.scanTrafficScheduled` (heure miroir `trip.next_probe_at_ms`), `timeline.scanTrafficInProgress` (≤ 60 s avant l’heure ou heure passée), puis fenêtre élastique après PROBE1 ; horloge locale [`useProbeScheduleClock`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) (tick 30 s, cleanup au démontage).
-- **Reconcile Sentinel** : déclenché **uniquement** à la sélection autocomplete (`onSelect`), pas à chaque frappe ; debounce 500 ms ; mutex activation par `intentionId` ; retry SQLite [`withSentinelDbRetry`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelDbRetry.ts) (logs `[TRIP-SENTINEL-RECOVERY]`).
+- **Reconcile Sentinel** : déclenché à la sélection autocomplete (`onSelect`) et au tap Big Button ; debounce 500 ms ; mutex activation par `intentionId` ; retry SQLite [`withSentinelDbRetry`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelDbRetry.ts) (logs `[TRIP-SENTINEL-RECOVERY]`). `syncSentinelAfterDestinationChange` no-op si `remind_to_leave === 0`.
 - **PRO non configuré** : footer CTA setup **ou** tap corps → **même Sheet hub unifiée** (mémo + logistique + Big Button).
-- **Sheet TRIP** : plus de switch — Big Button [`tripSurveillanceButton.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripSurveillanceButton.ts) (`tripSurveillanceStart` / `tripSurveillanceActive` / locked) ; toast si champs manquants ; origine GPS non bloquante.
+- **Sheet TRIP** : plus de switch — Big Button [`tripSurveillanceButton.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripSurveillanceButton.ts) (`tripSurveillanceStart` / `tripSurveillanceActive` / locked) ; toast si champs manquants ; origine GPS non bloquante ; garde anti double-tap ; `applyTripMetadataLocally` après `onSelect` Places (sync optimiste Big Button).
+- **Readiness coords** : [`tripTripReadiness.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts) — `readValidTripCoords` rejette `null`/`0` ; pas de préremplissage favori silencieux à l’ouverture sheet.
+- **Télémétrie badge (temp.)** : [`useTripBadgeStateTelemetry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useTripBadgeStateTelemetry.ts) — logs `[TRIP-BADGE-STATE]` ; retrait via flag `TRIP_BADGE_STATE_TELEMETRY`.
+- **Fix SQLite race PROBE1** : queue `runSerializedSqlite` étendue à `getFirstAsync` / `getAllAsync` ; `getTrankilV2IntentionById` via `withTrankilV2Database` (évite crash `prepareAsync rejected` au GPS catch-up Sentinel).
 - **Anti-faux créneau** : pas de fenêtre UI sans `standard_duration_min`.
 - TASK / HABIT / LIST / PROJECT : layout inchangé (hauteur 105).
 
@@ -331,6 +334,8 @@ Fichier : `src/services/CaptureProcessingService.ts`
   - `initTrankilV2Schema()` : création tables + indexes + backfills ; migration **`context_tag`** via `ALTER TABLE` (données existantes conservées).
   - `insertTrankilV2Intention` : `category_id` forcé non-null (`normalizeIntentionCategoryId`) ; colonne **`context_tag`**.
   - `withTrankilV2Database(fn)` : exécuteur sérialisé + auto-reopen si `NativeDatabase.prepareAsync` rejette.
+  - Queue SQLite : `runAsync`, `execAsync`, **`getFirstAsync`**, **`getAllAsync`** (patch au bind `getDb()`) — lectures + écritures sérialisées pour éviter race UI/Sentinel.
+  - `getTrankilV2IntentionById` : lecture via `withTrankilV2Database` (point d’entrée Sentinel).
   - `patchMetadata(id, partial, opts?)` : merge transactionnel `metadata_json` (contrat SPEC).
 
 ### 3.4 Offline queue & background

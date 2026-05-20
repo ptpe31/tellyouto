@@ -48,7 +48,12 @@ import { isPass2UnlockedMeta } from '../utils/tripTimelineCard';
 import { isTripAllDay, hasTripStandardDurationMin, resolveElasticSlotDisplay } from '../utils/tripElasticDisplay';
 import { resolveProbeScheduleLabel } from '../utils/tripProbeScheduleDisplay';
 import { resolveTripSurveillanceUiState, tripSurveillanceLabelKey } from '../utils/tripSurveillanceButton';
-import { getTripReadinessBlockers, isTripMissionActive, isTripReadyForScan } from '../utils/tripTripReadiness';
+import {
+  getTripReadinessBlockers,
+  isTripMissionActive,
+  isTripReadyForScan,
+  readValidTripCoords,
+} from '../utils/tripTripReadiness';
 import { getLocationFavoriteByAlias, upsertLocationFavorite } from '../services/traffic/locationFavorites';
 import {
   buildListMetadataPatch,
@@ -361,7 +366,9 @@ function getTransportMode(
 async function syncSentinelAfterDestinationChange(
   intentionId: string,
   meta: Record<string, unknown> | null,
+  remindToLeave: boolean,
 ): Promise<void> {
+  if (!remindToLeave) return;
   if (isPass2UnlockedMeta(meta)) {
     await resetTripMissionAndRelaunchProbe1(intentionId);
     return;
@@ -582,6 +589,7 @@ export function IntentionDetailSheet({
   const [pickerDraft, setPickerDraft] = useState<Date>(new Date());
   const [isAllDay, setIsAllDay] = useState(false);
   const [remindToLeaveEnabled, setRemindToLeaveEnabled] = useState(false);
+  const tripSurveillanceBusyRef = useRef(false);
   const [originLat, setOriginLat] = useState<number | null>(null);
   const [originLng, setOriginLng] = useState<number | null>(null);
   const [arrivalLat, setArrivalLat] = useState<number | null>(null);
@@ -996,19 +1004,15 @@ export function IntentionDetailSheet({
     const nextArrivalText = addressFromMeta;
     setOriginText(String(str(tMeta, 'origin_address') ?? '').trim());
     setArrivalText(nextArrivalText);
-    const oLat = Number((tMeta as any)?.origin_lat);
-    const oLng = Number((tMeta as any)?.origin_lng);
-    setOriginLat(Number.isFinite(oLat) ? oLat : null);
-    setOriginLng(Number.isFinite(oLng) ? oLng : null);
-    const aLat = Number((tMeta as any)?.location_lat);
-    const aLng = Number((tMeta as any)?.location_lng);
-    const nextArrivalLat = Number.isFinite(aLat) ? aLat : null;
-    const nextArrivalLng = Number.isFinite(aLng) ? aLng : null;
-    setArrivalLat(nextArrivalLat);
-    setArrivalLng(nextArrivalLng);
+    const originCoords = readValidTripCoords(tMeta, 'origin_lat', 'origin_lng');
+    const arrivalCoords = readValidTripCoords(tMeta, 'location_lat', 'location_lng');
+    setOriginLat(originCoords.lat);
+    setOriginLng(originCoords.lng);
+    setArrivalLat(arrivalCoords.lat);
+    setArrivalLng(arrivalCoords.lng);
     if (tMeta && row?.id) {
       console.log(
-        `[TRIP-INIT] 🗺️ Opening Sheet ID: ${row.id} | Alias: ${aliasFromMeta || '—'} | HasAddress: ${Boolean(addressFromMeta)} | HasCoords: ${nextArrivalLat != null && nextArrivalLng != null}`,
+        `[TRIP-INIT] 🗺️ Opening Sheet ID: ${row.id} | Alias: ${aliasFromMeta || '—'} | HasAddress: ${Boolean(addressFromMeta)} | HasCoords: ${arrivalCoords.lat != null && arrivalCoords.lng != null}`,
       );
     }
     setOriginEditing(false);
@@ -1245,33 +1249,6 @@ export function IntentionDetailSheet({
     };
   }, [isGenerating, skeletonPulse, visible]);
 
-  useEffect(() => {
-    if (!visible || !isTrip) return;
-    const alias = String(str(trip, 'destination_name') ?? '').trim();
-    if (!alias) return;
-    void (async () => {
-      const fav = await getLocationFavoriteByAlias(alias);
-      if (!fav) return;
-      setFavoriteArrival(fav.formattedAddress);
-      if (arrivalText) return;
-      if (!row) return;
-      const root = safeParseJsonObject(row.metadata_json) ?? {};
-      const tripMeta = getTripMeta(root) ?? {};
-      const tripPatch: Record<string, unknown> = {
-        location_address: fav.formattedAddress,
-        location_place_id: `favorite:${fav.alias}`,
-        location_lat: fav.lat,
-        location_lng: fav.lng,
-        location_source: 'favorite',
-      };
-      if (!tripMeta.validatedAtMs) tripPatch.validatedAtMs = Date.now();
-      setArrivalText(fav.formattedAddress);
-      await updateTrankilV2IntentionLocationAddress(row.id, { location_address: fav.formattedAddress }, { silent: true });
-      await patchMetadata(row.id, { trip: tripPatch });
-      await syncSentinelAfterDestinationChange(row.id, meta);
-    })();
-  }, [arrivalText, isTrip, meta, row, trip, visible]);
-
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -1474,6 +1451,56 @@ export function IntentionDetailSheet({
     },
     [onPatchRow, row],
   );
+
+  /** Sync optimiste metadata trip après patch SQLite (Big Button + triangles). */
+  const applyTripMetadataLocally = useCallback(
+    (tripPatch: Record<string, unknown>, options?: { locationAddress?: string | null }) => {
+      if (!row) return;
+      const currentRoot = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
+      const currentTrip = getTripMeta(currentRoot) ?? {};
+      const mergedTrip = { ...currentTrip, ...tripPatch };
+      const metaPatch: Record<string, unknown> = { trip: mergedTrip };
+      if (options && 'locationAddress' in options) {
+        metaPatch.location_address = options.locationAddress ?? null;
+      }
+      const nextJson = mergeMetadataJsonString(metadataJsonLiveRef.current ?? row.metadata_json, metaPatch);
+      metadataJsonLiveRef.current = nextJson;
+      setMetadataJsonLive(nextJson);
+      onPatchRow?.(row.id, { metadata_json: nextJson });
+    },
+    [onPatchRow, row],
+  );
+
+  useEffect(() => {
+    if (!visible || !isTrip) return;
+    const alias = String(str(trip, 'destination_name') ?? '').trim();
+    if (!alias) return;
+    void (async () => {
+      const fav = await getLocationFavoriteByAlias(alias);
+      if (!fav) return;
+      setFavoriteArrival(fav.formattedAddress);
+      if (arrivalText) return;
+      if (!row) return;
+      const root = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
+      const tripMeta = getTripMeta(root) ?? {};
+      const tripPatch: Record<string, unknown> = {
+        location_address: fav.formattedAddress,
+        location_place_id: `favorite:${fav.alias}`,
+        location_lat: fav.lat,
+        location_lng: fav.lng,
+        location_source: 'favorite',
+      };
+      if (!tripMeta.validatedAtMs) tripPatch.validatedAtMs = Date.now();
+      setArrivalText(fav.formattedAddress);
+      setArrivalLat(fav.lat);
+      setArrivalLng(fav.lng);
+      await updateTrankilV2IntentionLocationAddress(row.id, { location_address: fav.formattedAddress }, { silent: true });
+      await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+      applyTripMetadataLocally(tripPatch, { locationAddress: fav.formattedAddress });
+      const liveMeta = safeParseJsonObject(metadataJsonLiveRef.current);
+      await syncSentinelAfterDestinationChange(row.id, liveMeta, remindToLeaveEnabled);
+    })();
+  }, [applyTripMetadataLocally, arrivalText, isTrip, remindToLeaveEnabled, row, trip, visible]);
 
   const runPass2GeminiEnrichment = useCallback(async () => {
     if (!row) return;
@@ -1827,7 +1854,7 @@ export function IntentionDetailSheet({
   ]);
 
   const onPressTripSurveillance = async () => {
-    if (!row || tripIsAllDay) return;
+    if (!row || tripIsAllDay || tripSurveillanceBusyRef.current) return;
 
     if (tripSurveillanceUiState === 'free_locked') {
       redirectToProSubscription();
@@ -1841,18 +1868,23 @@ export function IntentionDetailSheet({
       return;
     }
 
-    if (tripSurveillanceUiState === 'pro_active') {
-      setRemindToLeaveEnabled(false);
-      await updateTrankilV2IntentionRemindToLeave(row.id, false);
-      await cancelTripMission(row.id);
-      onPatchRow?.(row.id, { remind_to_leave: 0 });
-      return;
-    }
+    tripSurveillanceBusyRef.current = true;
+    try {
+      if (tripSurveillanceUiState === 'pro_active') {
+        setRemindToLeaveEnabled(false);
+        await updateTrankilV2IntentionRemindToLeave(row.id, false);
+        await cancelTripMission(row.id);
+        onPatchRow?.(row.id, { remind_to_leave: 0 });
+        return;
+      }
 
-    setRemindToLeaveEnabled(true);
-    await updateTrankilV2IntentionRemindToLeave(row.id, true);
-    onPatchRow?.(row.id, { remind_to_leave: 1 });
-    await reconcileSentinelForIntentionId(row.id);
+      setRemindToLeaveEnabled(true);
+      await updateTrankilV2IntentionRemindToLeave(row.id, true);
+      onPatchRow?.(row.id, { remind_to_leave: 1 });
+      await reconcileSentinelForIntentionId(row.id);
+    } finally {
+      tripSurveillanceBusyRef.current = false;
+    }
   };
 
   const onToggleChecklistItem = async (uid: string) => {
@@ -2745,11 +2777,11 @@ export function IntentionDetailSheet({
                             setArrivalLng(null);
                             if (!row) return;
                             const raw = text.trim();
-                            const root = safeParseJsonObject(row.metadata_json) ?? {};
                             if (arrivalSaveTimer.current) clearTimeout(arrivalSaveTimer.current);
                             arrivalSaveTimer.current = setTimeout(() => {
                               arrivalSaveTimer.current = null;
                               void (async () => {
+                                const root = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
                                 const tripPatch = await touchValidateTrip(root, {
                                   location_address: raw || null,
                                   location_place_id: null,
@@ -2762,6 +2794,7 @@ export function IntentionDetailSheet({
                                   { silent: true },
                                 );
                                 await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+                                applyTripMetadataLocally(tripPatch, { locationAddress: raw || null });
                                 if (!raw && remindToLeaveEnabled) {
                                   await cancelTripMission(row.id);
                                 }
@@ -2774,7 +2807,7 @@ export function IntentionDetailSheet({
                             setArrivalLat(p.lat);
                             setArrivalLng(p.lng);
                             if (!row) return;
-                            const root = safeParseJsonObject(row.metadata_json) ?? {};
+                            const root = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
                             const tripMeta = getTripMeta(root) ?? {};
                             void (async () => {
                               const tripPatch = await touchValidateTrip(root, {
@@ -2786,6 +2819,7 @@ export function IntentionDetailSheet({
                               });
                               await updateTrankilV2IntentionLocationAddress(row.id, { location_address: p.formattedAddress }, { silent: true });
                               await patchMetadata(row.id, { trip: tripPatch }, { silent: true });
+                              applyTripMetadataLocally(tripPatch, { locationAddress: p.formattedAddress });
                               const alias = String(str(tripMeta, 'destination_name') ?? '').trim();
                               if (alias) {
                                 try {
@@ -2808,7 +2842,8 @@ export function IntentionDetailSheet({
                                   // silent — no UI
                                 }
                               }
-                              await syncSentinelAfterDestinationChange(row.id, root);
+                              const liveMeta = safeParseJsonObject(metadataJsonLiveRef.current);
+                              await syncSentinelAfterDestinationChange(row.id, liveMeta, remindToLeaveEnabled);
                             })();
                           }}
                           disabled={false}

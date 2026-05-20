@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import type { TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
+import { useTripBadgeStateTelemetry } from '../hooks/useTripBadgeStateTelemetry';
 import { generateSmartTitle } from '../services/smartTitle';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
@@ -172,6 +173,27 @@ export function IntentionCard({
       nowMs: probeClockTick,
     });
   }, [i18n.language, isProUser, isTripCard, meta, probeClockTick, row.due_date, row.remind_to_leave, t, trip]);
+
+  const tripBadgeAlias = useMemo(() => {
+    const alias = str(trip, 'destination_name');
+    if (alias) return alias;
+    const title = String(row.display_title ?? '').trim();
+    return title || row.id;
+  }, [row.display_title, row.id, trip]);
+
+  const nextProbeAtMs = useMemo(() => {
+    const n = Number(trip?.next_probe_at_ms);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [trip]);
+
+  useTripBadgeStateTelemetry({
+    enabled: isTripCard,
+    intentionId: row.id,
+    tripAlias: tripBadgeAlias,
+    footer: tripFooter,
+    nextProbeAtMs,
+    nowMs: probeClockTick,
+  });
 
   const titleText = useMemo(() => {
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
