@@ -1,8 +1,8 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
-import React, { useEffect, useState } from 'react';
-import { LogBox, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState, LogBox, View, type AppStateStatus } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTheme } from 'react-native-paper';
@@ -34,6 +34,7 @@ import { rootNavigationRef } from './src/navigation/rootNavigationRef';
 import { recordAppInteraction } from './src/services/AvailabilityTimer';
 import { configureCaptureBackgroundTask } from './src/services/CaptureProcessingService';
 import { initializeGeminiEngine } from './src/services/initializeGeminiEngine';
+import { scheduleGeminiForegroundRemoteConfigRefresh } from './src/services/geminiRemoteModelSteering';
 import { requestBackgroundExecutionPermissions } from './src/services/PermissionService';
 import { navigationThemeFromPaper } from './src/theme/paperTheme';
 
@@ -60,10 +61,20 @@ function AppNavigation() {
  */
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
   useEffect(() => {
     void initializeGeminiEngine();
     void configureCaptureBackgroundTask();
     void requestBackgroundExecutionPermissions();
+
+    const appStateSub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      const prev = appStateRef.current;
+      if (prev.match(/inactive|background/) && nextState === 'active') {
+        scheduleGeminiForegroundRemoteConfigRefresh();
+      }
+      appStateRef.current = nextState;
+    });
 
     let disposed = false;
     const fallbackTimer = setTimeout(() => {
@@ -85,6 +96,7 @@ export default function App() {
     return () => {
       disposed = true;
       clearTimeout(fallbackTimer);
+      appStateSub.remove();
     };
   }, []);
 

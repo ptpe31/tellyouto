@@ -20,7 +20,8 @@
 
 - `index.ts` : charge i18n (`./src/locales/i18n`) puis enregistre `App`.
 - `App.tsx` :
-  - bootstrap services : `initializeGeminiEngine()`, `configureCaptureBackgroundTask()`, `requestBackgroundExecutionPermissions()`
+  - bootstrap services : `initializeGeminiEngine()` (steering RC Gemini), `configureCaptureBackgroundTask()`, `requestBackgroundExecutionPermissions()`
+  - **Foreground RC** : `AppState` → `scheduleGeminiForegroundRemoteConfigRefresh()` (refresh silencieux modèle Gemini)
   - bootstrap DB : `bootstrapTrankilV2Database()` (avec fallback timer 1.2s pour ne pas bloquer l’UI)
   - injecte des Providers (ordre important car ils fournissent thème, i18n, profil, etc.)
   - monte `NavigationContainer` (avec deep linking + `rootNavigationRef`).
@@ -76,11 +77,29 @@ Repères dans `src/services/*` :
 
 #### IA Gemini
 
-- `initializeGeminiEngine.ts` : initialise la shortlist de modèles.
-- `geminiRemoteModelSteering.ts` : shortlist, cache, validations.
-- `geminiSemanticLab.ts` : appels Gemini (stream/non‑stream), métriques tokens/latence/cost, fallback modèles ; **Pass 3** `geminiPass3DailyRoadmapHtml` (Feuille de Route HTML).
-- `dailyRoadmapPass3.ts` : construction du JSON Pass 3, composition system instruction (RC + suffixe), orchestration appel + persistance rapport.
-- `geminiResponseGuards.ts` : parsing/guards.
+| Fichier | Rôle |
+|---------|------|
+| [`firebaseRemoteConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) | Singleton RC (`fetchAndActivate`, clés Pass 3 / Sentinel / fallbacks) — **`active_gemini_model` hors defaultConfig** |
+| [`initializeGeminiEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/initializeGeminiEngine.ts) | Boot steering + shortlist compilée si pas de `gemini_model_fallbacks` RC |
+| [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | Résolution modèle : Debug override → RC réseau → `rc_model_cache` → session fallback → défaut ; blacklist 404/503 ; foreground refresh |
+| [`geminiModelCatalog.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelCatalog.ts) | Shortlist compilée ; défaut `gemini-3.1-flash-lite` |
+| [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | Appels proxy (SSE), verrou steering 2 s, retry candidats, exclusion session |
+| [`GeminiExpert.js`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js) | Idem verrou + self-healing pour flux Expert / atomize |
+| [`dailyRoadmapPass3.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/dailyRoadmapPass3.ts) | Pass 3 Feuille de route HTML |
+| [`geminiResponseGuards.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiResponseGuards.ts) | Parsing / guards |
+
+**Remote Config (console Firebase)**
+
+- `active_gemini_model` — modèle principal (sans rebuild app)
+- `gemini_model_fallbacks` — CSV candidats de secours (optionnel)
+- `prompt_pass3_synth_v1` — template Pass 3
+
+**AsyncStorage**
+
+- `debug_override_model` (24 h, prioritaire Debug)
+- `rc_model_cache` (90 j, dernière valeur RC réseau OK)
+
+**Logs boot** : `[GEMINI-RC]`, `[GEMINI-BOOT]`.
 
 #### Sentinel / Trafic — Créneau élastique (TRIP PRO)
 
@@ -88,7 +107,9 @@ Fichiers clés sous `src/services/traffic/` :
 
 | Fichier | Rôle |
 |---------|------|
-| [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts) | Formule buffer + fenêtre + planification PROBE2/3 |
+| [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts) | Formule buffer (auto vs piéton/vélo) + fenêtre + planification PROBE2/3 |
+| [`tripTripReadiness.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts) | Blocages mission (`destination`, `arrival_time`) |
+| [`tripProbeScheduleDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripProbeScheduleDisplay.ts) | Libellé « Scan circulation prévu à HH:mm » |
 | [`sentinelElasticProbes.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticProbes.ts) | Résolution sondes, retry échec API |
 | [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts) | Exécution PROBE1/2/3 (Distance Matrix) |
 | [`TrafficSchedulerV4.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts) | 1 `setTimeout`/TRIP sur `next_real_scan_at_ms` |
@@ -275,11 +296,13 @@ Fichier : `src/services/CaptureProcessingService.ts`
 
 ### 3.1c Timeline — carte TRIP (`IntentionCard`)
 
-- [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) : pied de carte **uniquement** si `metadata_json.trip` ; logique [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts) (`resolveTripTimelineFooter`) — lecture **metadata only** (plus de fetch `sentinel_trips`).
+- [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) : pied de carte **uniquement** si `metadata_json.trip` ; logique [`tripTimelineCard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTimelineCard.ts) (`resolveTripTimelineFooter`) — lecture **metadata only** + `remind_to_leave` (SQL Timeline).
 - **Cas A** (`pass2_unlocked !== 1`) : bouton `intentionDetail.actionSetupAlert` → sheet full + focus arrivée.
-- **Cas B** (PRO + fenêtre élastique) : badge `timeline.elasticDepartureWindow` / `Approx` / `Shifted`.
-- **All Day** (`isTripAllDay`) : badge `timeline.tripAllDay` — pas de créneau.
-- **Cas C** (PRO, PROBE1 pending) : `timeline.elasticDeparturePending`.
+- **All Day** : badge `timeline.tripAllDay`.
+- **Cas B** (PRO + PROBE1 fait) : badge fenêtre élastique (`Window` / `Approx` ≈ / `Shifted` ⚠️).
+- **Cas C** (`remind_to_leave === 1` + mission active + PROBE1 pending) : badge `timeline.scanTrafficScheduled` (miroir `trip.next_probe_at_ms`).
+- **Cas D** (PRO sans mission active) : bouton setup.
+- **Anti-faux créneau** : pas de fenêtre UI sans `standard_duration_min`.
 - FREE avec pass2 : pas de badge créneau.
 - TASK / HABIT / LIST / PROJECT : layout inchangé (hauteur 105).
 

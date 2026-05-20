@@ -28,12 +28,44 @@ Le pipeline OneTap est “dual‑path” :
 Ce repo ne contient pas de “campagne de benchmark” formalisée (dataset, scorecards, notebooks, CI eval) ni de tests nommés “hallucination”.
 
 Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
-- Probe “health check” multi‑modèles : l’écran Debug sonde une shortlist de modèles (ordre = candidats actuels) avec un prompt minimal `ok`, et retient le premier modèle répondant en HTTP 200. Voir [geminiModelHealthCheck.ts:L12-L53](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelHealthCheck.ts#L12-L53).
-- Shortlist + fallback de candidats côté client : la liste de candidats provient de [geminiRemoteModelSteering.ts:L34-L52](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts#L34-L52) et [geminiRemoteModelSteering.ts:L239-L255](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts#L239-L255). Si la shortlist est vide, le fallback hardcodé retombe sur `gemini-1.5-flash`.
-- Script de smoke test proxy : un script Node appelle le proxy avec `modelId: 'gemini-1.5-flash'` et consomme le flux SSE. Voir [testGeminiProxyStream.mjs:L1-L66](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/scripts/testGeminiProxyStream.mjs#L1-L66).
-- Observabilité par requête : le client journalise pour chaque appel (et fallback éventuel) le modèle utilisé et la latence. Voir [geminiSemanticLab.ts:L33-L60](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts#L33-L60) et [geminiSemanticLab.ts:L228-L316](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/geminiSemanticLab.ts#L228-L316).
+- Probe “health check” multi‑modèles : l’écran Debug sonde une shortlist de modèles (ordre = candidats actuels) avec un prompt minimal `ok`, et retient le premier modèle répondant en HTTP 200. Voir [geminiModelHealthCheck.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelHealthCheck.ts).
+- **Pilotage modèle Gemini (Remote Config + self-healing session)** — voir § **0.b)** ci-dessous.
+- Script de smoke test proxy : `modelId: 'gemini-3.1-flash-lite'`. Voir [testGeminiProxyStream.mjs](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/scripts/testGeminiProxyStream.mjs).
+- Observabilité par requête : modèle + latence par appel. Voir [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts).
 
 “Test hallucinations” (réel) : il n’existe pas de routine dédiée. La protection implémentée est structurelle : parsing strict / tolérance limitée + refus implicite via fallback (voir Douane) quand la sortie ne respecte pas le contrat de forme.
+
+#### 0.b) Steering modèle Gemini (Remote Config)
+
+**Objectif** : changer le modèle IA en production **sans rebuild** (sauf modification du défaut compilé), avec résilience hors-ligne et auto-cicatrisation en session.
+
+**Singleton RC** : [firebaseRemoteConfig.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) — init unique (`minimumFetchIntervalMillis`, `defaultConfig`). **`active_gemini_model` est absent du `defaultConfig`** pour éviter qu’un fetch échoué soit confondu avec une valeur RC valide.
+
+**Clés Firebase Remote Config**
+
+| Clé | Rôle |
+|-----|------|
+| `active_gemini_model` | Modèle principal (toute chaîne valide, sans shortlist) |
+| `gemini_model_fallbacks` | CSV optionnel remplaçant la shortlist compilée (ex. `gemini-pro-latest,gemini-3.1-flash-lite`) |
+| `prompt_pass3_synth_v1` | Template system Pass 3 (Feuille de route) |
+
+**Chaîne de résolution (boot)**
+
+1. Override Debug (`debug_override_model`, AsyncStorage, TTL 24 h) — prioritaire
+2. RC réseau (`fetchAndActivate` **OK** + `active_gemini_model` non vide) → persisté dans `rc_model_cache`
+3. Cache RC local (`rc_model_cache`, TTL 90 j) si fetch RC échoué ou clé vide
+4. Session fallback (mémoire vive uniquement, après 503/404)
+5. Défaut compilé : `gemini-3.1-flash-lite` ([geminiModelCatalog.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelCatalog.ts))
+
+**Verrou avant appel réseau** : `awaitGeminiSteeringBeforeNetworkCall()` ([geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts), [GeminiExpert.js](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js)) attend `ensureGeminiRemoteModelInitialized()` avec **timeout 2 s** → fast-path Debug / cache RC / défaut sans bloquer One-Tap.
+
+**Self-healing session** : sur HTTP **404** ou **503** (ou 400 « model not found »), `excludeGeminiModelForSession(modelId)` alimente `sessionBannedModels` ; les captures suivantes ignorent ce modèle (`getGeminiCandidateModelIds`). Le fallback réussi reste **en mémoire** (`setGeminiSessionFallbackModelId`) — **jamais** écrit dans `rc_model_cache`.
+
+**Foreground refresh** : [App.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx) écoute `AppState` (`background|inactive` → `active`) et lance `scheduleGeminiForegroundRemoteConfigRefresh()` (silencieux, non bloquant). Met à jour cache RC et modèle actif sauf override Debug ou modèle banni en session.
+
+**Bootstrap** : `initializeGeminiEngine()` au cold start ([App.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx)) ; shortlist compilée appliquée seulement si `gemini_model_fallbacks` absent du RC.
+
+**Proxy serveur** : fallback `modelId` = `gemini-3.1-flash-lite` si body absent ([functions/src/index.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts)).
 
 #### 1) Dual-Path (synchronisation des flux)
 
@@ -342,19 +374,30 @@ Implémentation de référence : [`elasticSlotEngine.ts`](file:///Users/lala/Dev
 **Constantes produit**
 
 ```
-BUFFER_FLOOR     = 10 min
-BUFFER_RATIO     = 0,30        (30 %)
-PROBE2_LEAD      = 45 min      (avant T_start)
+BUFFER_FLOOR     = 10 min        (auto / driving)
+BUFFER_RATIO     = 0,30          (30 % — auto)
+WALK_BIKE_FLOOR  = 5 min         (walking / bicycling)
+WALK_BIKE_RATIO  = 0,10          (10 % — walking / bicycling)
+PROBE2_LEAD      = 45 min      (avant T_start — auto uniquement)
 PROBE3_LEAD      = 15 min      (avant T_start)
 SHORT_TRIP_MAX   = 15 min      (pas de PROBE2 si D_std < 15)
 DEFAULT_D_STD    = 30 min      (fallback PROBE1 sans GPS / avant 1er scan)
 ```
 
+**Modes** : `auto` → `driving` ; `walking` / `bike` → `walking` / `bicycling`. **PROBE2 est ignoré** pour piéton et vélo (seulement PROBE1 + PROBE3).
+
 ##### 1. Buffer élastique
 
+**Auto (driving)** :
 ```
 Buffer = max(BUFFER_FLOOR, round(D_std × BUFFER_RATIO, 1 décimale))
        = max(10, 0,30 × D_std)
+```
+
+**Piéton / vélo** :
+```
+Buffer = max(WALK_BIKE_FLOOR, round(D_std × WALK_BIKE_RATIO, 1 décimale))
+       = max(5, 0,10 × D_std)
 ```
 
 Exemples :
@@ -746,9 +789,15 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 | Cas | Condition | UI pied de carte | Action |
 |-----|-----------|------------------|--------|
 | **A** | `pass2_unlocked !== 1` | Bouton épuré bas de carte : `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*) | Ouvre [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) en **`full`** avec `focusArrivalAddressOnOpen` (champ **Arrivée** en édition Places) — [`TimelineScreen.openDetailTripSetup`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) |
-| **B** | `pass2_unlocked === 1` **et** PRO (`isProUser`) **et** fenêtre élastique connue | Badge discret : `timeline.elasticDepartureWindow` (*Départ estimé : {{window}}*) ; variantes `elasticDepartureApprox` (≈), `elasticDepartureShifted` (⚠️) | Aucun (tap carte → fiche habituelle) |
-| **C** | `pass2_unlocked === 1`, PRO, mission active mais PROBE1 en attente | `timeline.elasticDeparturePending` | Aucun |
+| **All Day** | `isTripAllDay(meta, trip, due_date)` | Badge `timeline.tripAllDay` | Aucun |
+| **B** | PRO + `standard_duration_min` persisté (PROBE1 fait) | Badge : `timeline.elasticDepartureWindow` ; variantes `elasticDepartureApprox` (≈ GPS/fallback), `elasticDepartureShifted` (⚠️) | Aucun |
+| **C** | PRO + `remind_to_leave === 1` + mission active (`isTripMissionActive`) + PROBE1 **non** fait | Badge `timeline.scanTrafficScheduled` / `scanTrafficSoon` (miroir `trip.next_probe_at_ms`) | Aucun |
+| **D** | PRO mais mission inactive ou remind OFF | Bouton setup (*Me prévenir quand partir ?*) | Sheet full TRIP |
 | **—** | FREE avec `pass2_unlocked === 1` | **Aucun** badge créneau (rappel → paywall) | — |
+
+**Règle anti-faux créneau** : aucune fenêtre `[start – end]` n’est calculée ni affichée tant que `standard_duration_min` est absent (pas de `D_std` par défaut en UI).
+
+**Supprimé** : `timeline.elasticDeparturePending` (faux « Départ estimé » avant PROBE1).
 
 **Supprimé** : badge « Circulation : X min » et badges scan Newton (`trafficScanConfigured`, `trafficLiveMinutes`).
 
@@ -770,7 +819,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - intentions **échues non terminées** : `due_date` strictement avant le jour local courant, statut actif ≠ `done`, lignes racine éligibles Timeline (hors archivées / masquages techniques alignés sur le repository),
   - intentions **orphelines** : `due_date` NULL ou chaîne vide.
 - **Actions par ligne** : **Valider** (incluse dans le JSON envoyé au modèle), **Reporter** (`due_date` → aujourd’hui via `updateTrankilV2IntentionTemporal`), **Supprimer** (`archiveIntention`).
-- **Prompt** : Remote Config Firebase **`prompt_pass3_synth_v1`**, chargé comme les gabarits Pass 1/2 via [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) (`fetchPass3DailyRoadmapPromptTemplate`) ; le **system instruction** final = template RC + suffixe produit (focus journée, logistique Newton / TRIP, Coup de Boost sur `orphan_intentions` les plus anciennes via `age_days`, groupements thématiques, HTML inline sans `<html>`/`<body>`, langue des titres avec repli sur `context.lang` si multilingue).
+- **Prompt** : Remote Config Firebase **`prompt_pass3_synth_v1`**, chargé via le singleton [firebaseRemoteConfig.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) (`fetchPass3DailyRoadmapPromptTemplate`, réexporté par [geminiRemoteModelSteering.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts)) ; le **system instruction** final = template RC + suffixe produit (focus journée, logistique Newton / TRIP, Coup de Boost sur `orphan_intentions` les plus anciennes via `age_days`, groupements thématiques, HTML inline sans `<html>`/`<body>`, langue des titres avec repli sur `context.lang` si multilingue).
 - **Payload** : JSON compact `{ context: { date, lang }, today_intentions: [...], orphan_intentions: [...] }` construit par [`dailyRoadmapPass3.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/dailyRoadmapPass3.ts).
 - **Appel modèle** : [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) — opération **`pass3.daily_roadmap_html`**.
 - **Progression** : [`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) après validation du sas (phases i18n `timeline.roadmap.*` ; paliers type capture P1≈60 %, P2≈90 %, sprint final).
@@ -1815,10 +1864,12 @@ Variables d’environnement principales (Expo public) :
 
 ### IA (Gemini, via proxy)
 - **Stratégie long terme** : instructions système + charge utile minimale + pré‑warming + Context Caching Vertex lorsque disponible — voir **« ARCHITECTURE IA (Latence) »** plus haut dans ce document.
-- Modèles : Gemini (flash/pro) routés côté client (fallback) mais appelés uniquement via proxy
+- **Steering modèle** : Remote Config (`active_gemini_model`, `gemini_model_fallbacks`) + caches AsyncStorage + blacklist session — voir § **0.b) Steering modèle Gemini (RC)**.
+- Modèles : routés côté client (`getGeminiCandidateModelIds`) mais appelés uniquement via proxy ; défaut compilé `gemini-3.1-flash-lite`.
 - Client n’embarque pas de clé Gemini : la clé (`GEMINI_API_KEY`) reste côté serveur (Secret Manager)
 - Objectif : extraction structurée low‑latency en streaming (SSE)
-- Headers client : l’app envoie `Authorization: Bearer <Firebase ID token>` et accepte SSE/JSON : [geminiSemanticLab.ts:L248-L269](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts#L248-L269).
-- Refresh token : si `401/403`, l’app force un refresh du token puis retente une fois : [geminiSemanticLab.ts:L258-L270](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts#L258-L270).
-- Fallback modèles : une requête est tentée sur une liste ordonnée de candidats (`getGeminiCandidateModelIds()`), en avançant sur les erreurs HTTP non‑OK : [geminiSemanticLab.ts:L235-L282](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts#L235-L282).
-- Échec complet : si tous les candidats échouent, l’appel lève une erreur (propagée au `try/catch` UI qui déclenche le offline queue) : [geminiSemanticLab.ts:L302-L316](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts#L302-L316).
+- Headers client : l’app envoie `Authorization: Bearer <Firebase ID token>` et accepte SSE/JSON ([geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts)).
+- Refresh token : si `401/403`, l’app force un refresh du token puis retente une fois.
+- **Verrou steering** : tout appel passe par `awaitGeminiSteeringBeforeNetworkCall()` (timeout 2 s).
+- **Fallback modèles** : liste ordonnée (`getGeminiCandidateModelIds`) ; sur 404/503 → `excludeGeminiModelForSession` puis candidat suivant ; succès fallback → session mémoire uniquement.
+- Échec complet : si tous les candidats échouent, l’appel lève une erreur (propagée au `try/catch` UI qui déclenche le offline queue).

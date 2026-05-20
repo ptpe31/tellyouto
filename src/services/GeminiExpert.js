@@ -1,7 +1,10 @@
 import {
+  awaitGeminiSteeringBeforeNetworkCall,
+  excludeGeminiModelForSession,
   getActiveGeminiModelId,
   getGeminiCandidateModelIds,
-  persistValidatedGeminiModelId,
+  setGeminiSessionFallbackModelId,
+  shouldExcludeGeminiModelForSession,
 } from './geminiRemoteModelSteering';
 
 import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
@@ -41,19 +44,6 @@ function extractTextFromGenerateResponse(data) {
     .map((p) => (typeof p?.text === 'string' ? p.text : ''))
     .join('')
     .trim();
-}
-
-function isModelNotSupported(status, bodyText) {
-  if (status === 404) return true;
-  if (status !== 400) return false;
-  const t = String(bodyText || '').toLowerCase();
-  if (!t) return false;
-  return (
-    (t.includes('model') && t.includes('not found')) ||
-    t.includes('not supported') ||
-    t.includes('unsupported') ||
-    t.includes('unknown model')
-  );
 }
 
 async function getFirebaseIdToken() {
@@ -127,6 +117,7 @@ async function readProxySse(res) {
 }
 
 async function generateContentWithFallback(prompt, generationConfig) {
+  await awaitGeminiSteeringBeforeNetworkCall();
   const candidates = getGeminiCandidateModelIds();
   const token = await getFirebaseIdToken();
   const effectiveGenerationConfig = withLightGenerationConfig(generationConfig);
@@ -158,17 +149,19 @@ async function generateContentWithFallback(prompt, generationConfig) {
     return { res, text, modelId };
   };
 
-  const usedModels = [];
   let last = null;
-  for (const modelId of candidates) {
-    usedModels.push(modelId);
+  for (let i = 0; i < candidates.length; i += 1) {
+    const modelId = candidates[i];
     const attempt = await doFetch(modelId);
     last = attempt;
     if (attempt.res.ok) {
-      void persistValidatedGeminiModelId(attempt.modelId);
+      if (i > 0) {
+        setGeminiSessionFallbackModelId(attempt.modelId);
+      }
       return { model: attempt.modelId, rawText: String(attempt.text || '').trim() };
     }
-    if (isModelNotSupported(attempt.res.status, attempt.text)) {
+    if (shouldExcludeGeminiModelForSession(attempt.res.status, attempt.text)) {
+      excludeGeminiModelForSession(attempt.modelId);
       continue;
     }
     throw new Error(`Gemini HTTP ${attempt.res.status}: ${attempt.text.slice(0, 800)}`);

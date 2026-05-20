@@ -18,7 +18,7 @@ export type GeminiListedModel = {
 };
 
 export const GEMINI_MODEL_SHORTLIST = [
-  'gemini-flash-latest',
+  'gemini-3.1-flash-lite',
   'gemini-pro-latest',
 ] as const;
 
@@ -50,7 +50,6 @@ function isFlashModelId(id: string): boolean {
 }
 
 export function isBannedGeminiModelId(id: string): boolean {
-  if (/\blite\b/i.test(id)) return true;
   return /-(\d{3})(?:\b|$)/.test(id);
 }
 

@@ -1,35 +1,49 @@
 /**
- * **Remote steering** du modèle Gemini utilisé par toutes les routes REST (`:generateContent` / `:streamGenerateContent`).
+ * **Remote steering** du modèle Gemini utilisé par toutes les routes REST.
  *
- * ## Chaîne de résolution (démarrage / refresh RC)
- * 1. **Remote Config** — clé `active_gemini_model`, lue après `fetchAndActivate`. Toujours **prioritaire** : le cache
- *    mémoire reprend la valeur RC (ou {@link GEMINI_SAFE_DEFAULT_MODEL_ID} si la clé est vide / invalide).
- * 2. **Vidage du secours** — dès que le RC est lu avec succès (fetch + lecture param), le stockage
- *    {@link GEMINI_FALLBACK_STORAGE_KEY} est **effacé** : plus d’override silencieux au boot depuis AsyncStorage.
- * 3. **Firebase absent ou exception RC** — cache = {@link GEMINI_SAFE_DEFAULT_MODEL_ID}, puis tentative
- *    {@link tryRecoverFromListModels} si clé API présente (sans relire AsyncStorage en secours silencieux).
+ * ## Chaîne de résolution
+ * 1. **Override Debug** (`debug_override_model`, 24h)
+ * 2. **Firebase RC réseau** (`active_gemini_model` après `fetchAndActivate` OK)
+ * 3. **Cache RC local** (`rc_model_cache`, AsyncStorage)
+ * 4. **Session fallback** (mémoire vive — self-heal 503/404, jamais persisté)
+ * 5. **Défaut compilé** (`GEMINI_SAFE_DEFAULT_MODEL_ID`)
  *
- * ## Self-healing (après échec **appel modèle** 404 / 503)
- * Les appelants déclenchent {@link recoverGeminiModelViaListModels} → `listModels` → modèle préféré → persistance
- * 24h + mise à jour du cache **en mémoire** pour la session. Au prochain **refresh RC réussi**, le secours disque est
- * vidé et la valeur RC reprend la main.
- *
- * **Override manuel Debug** — {@link applyGeminiLocalModelOverride} écrit encore le secours 24h + cache ; un refresh RC
- * réussi le **remplace** par la valeur RC et vide le disque (comportement aligné sur « RC prioritaire »).
- *
- * Le **modèle effectif** pour une requête est {@link getActiveGeminiModelId} (RC au boot, puis self-heal en session si besoin).
- *
- * @see {@link forceRefreshGeminiRemoteConfig} — écran Debug : forcer un nouveau fetch RC.
- * @see {@link applyGeminiLocalModelOverride} — check santé IA : appliquer un gagnant local 24h.
  * @module geminiRemoteModelSteering
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
+  fetchAndActivateRemoteConfig,
+  getRemoteConfigStringValue,
+  RC_KEY_ACTIVE_GEMINI_MODEL,
+  RC_KEY_GEMINI_MODEL_FALLBACKS,
+} from './firebaseRemoteConfig';
+import {
   GEMINI_MODEL_SHORTLIST,
   isBannedGeminiModelId,
 } from './geminiModelCatalog';
+
+/** Cache local de la dernière valeur RC réseau (secours hors-ligne). */
+export const GEMINI_RC_CACHE_STORAGE_KEY = 'rc_model_cache';
+/** Override manuel Debug / check santé IA (prioritaire, TTL 24h). */
+export const GEMINI_DEBUG_OVERRIDE_STORAGE_KEY = 'debug_override_model';
+
+/** Clés legacy — migration transparente au premier read. */
+const LEGACY_RC_CACHE_STORAGE_KEY = 'validated_model_id';
+const LEGACY_DEBUG_OVERRIDE_STORAGE_KEY = 'gemini_debug_model_override';
+
+const GEMINI_RC_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const GEMINI_DEBUG_OVERRIDE_TTL_MS = 24 * 60 * 60 * 1000;
+const STEERING_INIT_TIMEOUT_MS = 2000;
+
+export type GeminiModelResolutionSource =
+  | 'debug_override'
+  | 'rc_network'
+  | 'rc_cache'
+  | 'session_fallback'
+  | 'hardcoded_default'
+  | 'steering_timeout';
 
 function getConfiguredShortlist(): string[] {
   const env = sanitizeRemoteModelId(process.env.EXPO_PUBLIC_GEMINI_MODEL?.trim() ?? '');
@@ -44,26 +58,24 @@ function getConfiguredShortlist(): string[] {
     seen.add(clean);
     uniq.push(clean);
   }
-  return uniq.length ? uniq : ['gemini-1.5-flash'];
+  return uniq.length ? uniq : ['gemini-3.1-flash-lite'];
 }
 
-export const GEMINI_SAFE_DEFAULT_MODEL_ID = getConfiguredShortlist()[0] ?? 'gemini-1.5-flash';
+export const GEMINI_SAFE_DEFAULT_MODEL_ID = getConfiguredShortlist()[0] ?? 'gemini-3.1-flash-lite';
 const GEMINI_FALLBACK_LIST_MODELS = getConfiguredShortlist();
 
 let cachedActiveGeminiModelId: string = GEMINI_SAFE_DEFAULT_MODEL_ID;
+let sessionFallbackModelId: string | null = null;
 let lastRemoteConfigResolvedModelId: string | null = null;
+let lastResolutionSource: GeminiModelResolutionSource = 'hardcoded_default';
 let steeringInitPromise: Promise<void> | null = null;
+let steeringResolutionDone = false;
 let fallbackCursor = 0;
-const sessionExcludedModelIds = new Set<string>();
+/** Blacklist session — modèles 404/503 exclus jusqu'au cold start. */
+const sessionBannedModels = new Set<string>();
 let sessionCandidateModelIds: string[] | null = null;
-
-/** Secours local après self-heal (24h). */
-const GEMINI_FALLBACK_STORAGE_KEY = 'validated_model_id';
-const GEMINI_FALLBACK_TTL_MS = 24 * 60 * 60 * 1000;
-const RECOVER_COOLDOWN_MS = 90_000;
-let recoverInFlight: Promise<string | null> | null = null;
-let lastRecoverAttemptAtMs = 0;
-let lastRecoverSucceededAtMs = 0;
+let rcDynamicFallbackModelIds: string[] | null = null;
+let foregroundRefreshInFlight: Promise<void> | null = null;
 
 function sanitizeRemoteModelId(raw: string): string | null {
   const s = raw.trim().replace(/^models\//, '');
@@ -72,24 +84,33 @@ function sanitizeRemoteModelId(raw: string): string | null {
   return s;
 }
 
-async function persistFallbackModelFor24h(modelId: string): Promise<void> {
+type PersistedModelEntry = {
+  modelId?: unknown;
+  expiresAtMs?: unknown;
+};
+
+async function writePersistedModelEntry(
+  storageKey: string,
+  modelId: string,
+  ttlMs: number,
+): Promise<void> {
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) return;
   await AsyncStorage.setItem(
-    GEMINI_FALLBACK_STORAGE_KEY,
-    JSON.stringify({ modelId: clean, expiresAtMs: Date.now() + GEMINI_FALLBACK_TTL_MS }),
+    storageKey,
+    JSON.stringify({ modelId: clean, expiresAtMs: Date.now() + ttlMs }),
   );
 }
 
-async function readPersistedFallbackModel(): Promise<string | null> {
+async function readPersistedModelEntry(storageKey: string): Promise<string | null> {
   try {
-    const raw = await AsyncStorage.getItem(GEMINI_FALLBACK_STORAGE_KEY);
+    const raw = await AsyncStorage.getItem(storageKey);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { modelId?: unknown; expiresAtMs?: unknown };
+    const parsed = JSON.parse(raw) as PersistedModelEntry;
     const modelId = sanitizeRemoteModelId(String(parsed.modelId ?? '').trim());
     const expiresAtMs = Number(parsed.expiresAtMs ?? 0);
     if (!modelId || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-      await clearPersistedFallbackModel();
+      await AsyncStorage.removeItem(storageKey);
       return null;
     }
     return modelId;
@@ -98,36 +119,158 @@ async function readPersistedFallbackModel(): Promise<string | null> {
   }
 }
 
-/** Efface le secours disque (appelé dès qu’un refresh RC a réussi — RC reprend la priorité). */
-async function clearPersistedFallbackModel(): Promise<void> {
+async function readPersistedModelEntryWithMigration(
+  storageKey: string,
+  legacyKey: string,
+): Promise<string | null> {
+  const current = await readPersistedModelEntry(storageKey);
+  if (current) return current;
+
+  const legacy = await readPersistedModelEntry(legacyKey);
+  if (!legacy) return null;
+
+  const ttlMs = storageKey === GEMINI_RC_CACHE_STORAGE_KEY
+    ? GEMINI_RC_CACHE_TTL_MS
+    : GEMINI_DEBUG_OVERRIDE_TTL_MS;
+  await writePersistedModelEntry(storageKey, legacy, ttlMs);
   try {
-    await AsyncStorage.removeItem(GEMINI_FALLBACK_STORAGE_KEY);
+    await AsyncStorage.removeItem(legacyKey);
+  } catch {
+    /* best effort */
+  }
+  return legacy;
+}
+
+async function persistRcModelToCache(modelId: string): Promise<void> {
+  await writePersistedModelEntry(GEMINI_RC_CACHE_STORAGE_KEY, modelId, GEMINI_RC_CACHE_TTL_MS);
+}
+
+async function readPersistedRcModel(): Promise<string | null> {
+  return readPersistedModelEntryWithMigration(
+    GEMINI_RC_CACHE_STORAGE_KEY,
+    LEGACY_RC_CACHE_STORAGE_KEY,
+  );
+}
+
+async function persistDebugModelOverride(modelId: string): Promise<void> {
+  await writePersistedModelEntry(
+    GEMINI_DEBUG_OVERRIDE_STORAGE_KEY,
+    modelId,
+    GEMINI_DEBUG_OVERRIDE_TTL_MS,
+  );
+}
+
+async function readDebugModelOverride(): Promise<string | null> {
+  return readPersistedModelEntryWithMigration(
+    GEMINI_DEBUG_OVERRIDE_STORAGE_KEY,
+    LEGACY_DEBUG_OVERRIDE_STORAGE_KEY,
+  );
+}
+
+async function clearPersistedRcModel(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(GEMINI_RC_CACHE_STORAGE_KEY);
+    await AsyncStorage.removeItem(LEGACY_RC_CACHE_STORAGE_KEY);
   } catch {
     /* best effort */
   }
 }
 
-function getFallbackListModelsExcluding(excluded: string[]): string[] {
-  const ex = new Set(excluded.map((m) => sanitizeRemoteModelId(m) || '').filter(Boolean));
-  return GEMINI_FALLBACK_LIST_MODELS.filter((m) => !ex.has(m));
+async function clearDebugModelOverride(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(GEMINI_DEBUG_OVERRIDE_STORAGE_KEY);
+    await AsyncStorage.removeItem(LEGACY_DEBUG_OVERRIDE_STORAGE_KEY);
+  } catch {
+    /* best effort */
+  }
 }
 
-async function rotateFallbackModel(used: string[]): Promise<string | null> {
+function parseCsvModelIds(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(',')) {
+    const clean = sanitizeRemoteModelId(part);
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    out.push(clean);
+  }
+  return out;
+}
+
+function getEffectiveFallbackBaseModelIds(): string[] {
+  return rcDynamicFallbackModelIds ?? GEMINI_FALLBACK_LIST_MODELS;
+}
+
+function applyCompiledFallbackCandidates(): void {
+  const active = getActiveGeminiModelId();
+  const base = GEMINI_FALLBACK_LIST_MODELS.filter((id) => id !== active);
+  setGeminiSessionCandidateModelIds([active, ...base]);
+}
+
+async function loadFallbackModelsFromRemoteConfig(): Promise<void> {
+  const raw = await getRemoteConfigStringValue(RC_KEY_GEMINI_MODEL_FALLBACKS);
+  const parsed = parseCsvModelIds(raw);
+  if (parsed.length) {
+    rcDynamicFallbackModelIds = parsed;
+    const active = getActiveGeminiModelId();
+    setGeminiSessionCandidateModelIds([active, ...parsed.filter((id) => id !== active)]);
+    return;
+  }
+  rcDynamicFallbackModelIds = null;
+}
+
+function getFallbackListModelsExcluding(excluded: string[]): string[] {
+  const ex = new Set(excluded.map((m) => sanitizeRemoteModelId(m) || '').filter(Boolean));
+  return getEffectiveFallbackBaseModelIds().filter((m) => !ex.has(m) && !sessionBannedModels.has(m));
+}
+
+function rotateFallbackModel(used: string[]): string | null {
   const candidates = getFallbackListModelsExcluding(used);
   if (!candidates.length) return null;
   const pick = candidates[fallbackCursor % candidates.length];
   fallbackCursor += 1;
-  await persistFallbackModelFor24h(pick);
-  cachedActiveGeminiModelId = pick;
+  setGeminiSessionFallbackModelId(pick);
   return pick;
 }
 
-/**
- * **Self-healing** après HTTP **404** ou **503** sur `:generateContent` / stream : interroge `listModels`,
- * sélectionne un modèle préféré, enregistre le secours 24h et met à jour le cache.
- *
- * @returns L’id du modèle choisi, ou `null` si pas de clé API ou échec réseau.
- */
+function applyResolvedModel(
+  modelId: string,
+  rcModelId: string | null,
+  source: GeminiModelResolutionSource,
+): void {
+  cachedActiveGeminiModelId = modelId;
+  lastRemoteConfigResolvedModelId = rcModelId;
+  lastResolutionSource = source;
+  if (source === 'rc_network') {
+    sessionFallbackModelId = null;
+  }
+}
+
+async function resolveSteeringWithoutNetwork(): Promise<void> {
+  if (steeringResolutionDone) return;
+
+  const debugModel = await readDebugModelOverride();
+  if (debugModel) {
+    applyResolvedModel(debugModel, null, 'debug_override');
+    steeringResolutionDone = true;
+    console.log(`[GEMINI-RC] 🔧 Override Debug (fast-path) : ${debugModel}`);
+    return;
+  }
+
+  const cachedRc = await readPersistedRcModel();
+  if (cachedRc) {
+    applyResolvedModel(cachedRc, null, 'rc_cache');
+    steeringResolutionDone = true;
+    console.log(`[GEMINI-RC] 📦 Cache RC (fast-path) : ${cachedRc}`);
+    return;
+  }
+
+  applyResolvedModel(GEMINI_SAFE_DEFAULT_MODEL_ID, null, 'steering_timeout');
+  steeringResolutionDone = true;
+  console.log(`[GEMINI-RC] ⏱️ Timeout steering → défaut : ${GEMINI_SAFE_DEFAULT_MODEL_ID}`);
+}
+
 export async function recoverGeminiModelViaListModels(): Promise<string | null> {
   return recoverGeminiModelViaListModelsExcluding([]);
 }
@@ -138,28 +281,69 @@ export async function recoverGeminiModelViaListModelsExcluding(
   return rotateFallbackModel(excludedModelIds);
 }
 
-/** Modèle effectif pour les appels REST Gemini (mis à jour après `ensureGeminiRemoteModelInitialized`). */
+/** Modèle effectif pour les appels REST (session fallback > résolution boot). */
 export function getActiveGeminiModelId(): string {
-  return cachedActiveGeminiModelId;
+  return sessionFallbackModelId ?? cachedActiveGeminiModelId;
+}
+
+export function getGeminiModelResolutionSource(): GeminiModelResolutionSource {
+  if (sessionFallbackModelId) return 'session_fallback';
+  return lastResolutionSource;
 }
 
 export function setGeminiActiveModelForSession(modelId: string): void {
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) return;
   cachedActiveGeminiModelId = clean;
+  sessionFallbackModelId = null;
   lastRemoteConfigResolvedModelId = clean;
 }
 
+/** Fallback session uniquement (mémoire) — ne touche jamais `rc_model_cache`. */
+export function setGeminiSessionFallbackModelId(modelId: string): void {
+  const clean = sanitizeRemoteModelId(modelId);
+  if (!clean) return;
+  sessionFallbackModelId = clean;
+  lastResolutionSource = 'session_fallback';
+}
+
+/** Exclut un modèle défaillant (404/503) pour le reste de la session. */
 export function excludeGeminiModelForSession(modelId: string): void {
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) return;
-  sessionExcludedModelIds.add(clean);
+  sessionBannedModels.add(clean);
+  if (__DEV__) {
+    console.log(`[GEMINI-RC] 🚫 Modèle exclu (session) : ${clean}`);
+  }
 }
 
 export function isGeminiModelExcludedForSession(modelId: string): boolean {
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) return false;
-  return sessionExcludedModelIds.has(clean);
+  return sessionBannedModels.has(clean);
+}
+
+export function getSessionBannedGeminiModelIds(): string[] {
+  return [...sessionBannedModels];
+}
+
+/** `true` si `gemini_model_fallbacks` a été lu depuis RC lors du dernier fetch OK. */
+export function hasRemoteConfigFallbackModelsLoaded(): boolean {
+  return rcDynamicFallbackModelIds != null && rcDynamicFallbackModelIds.length > 0;
+}
+
+/** Retourne `true` pour 404, 503 ou 400 « model not found / unsupported ». */
+export function shouldExcludeGeminiModelForSession(status: number, bodyText: string): boolean {
+  if (status === 404 || status === 503) return true;
+  if (status !== 400) return false;
+  const t = String(bodyText || '').toLowerCase();
+  if (!t) return false;
+  return (
+    (t.includes('model') && t.includes('not found')) ||
+    t.includes('not supported') ||
+    t.includes('unsupported') ||
+    t.includes('unknown model')
+  );
 }
 
 export function setGeminiSessionCandidateModelIds(modelIds: string[]): void {
@@ -168,7 +352,6 @@ export function setGeminiSessionCandidateModelIds(modelIds: string[]): void {
   for (const raw of modelIds) {
     const clean = sanitizeRemoteModelId(raw);
     if (!clean) continue;
-    if (isBannedGeminiModelId(clean)) continue;
     if (seen.has(clean)) continue;
     seen.add(clean);
     out.push(clean);
@@ -176,135 +359,214 @@ export function setGeminiSessionCandidateModelIds(modelIds: string[]): void {
   sessionCandidateModelIds = out.length ? out : null;
 }
 
-/** Modèle issu du dernier fetch RC (sans tenir compte du secours local 24h). */
 export function getLastRemoteConfigResolvedModelId(): string | null {
   return lastRemoteConfigResolvedModelId;
 }
 
-/**
- * Force un nouveau fetch RC (ignore la promesse d’init partagée une fois).
- */
+export async function hasActiveDebugGeminiModelOverride(): Promise<boolean> {
+  return (await readDebugModelOverride()) != null;
+}
+
 export async function forceRefreshGeminiRemoteConfig(): Promise<void> {
   steeringInitPromise = null;
+  steeringResolutionDone = false;
+  sessionFallbackModelId = null;
   const p = refreshGeminiModelFromRemoteConfig();
   steeringInitPromise = p;
   await p;
 }
 
-/**
- * Applique un modèle choisi manuellement (ex. **check santé IA** sur l’écran Debug) : persistance
- * {@link GEMINI_FALLBACK_STORAGE_KEY} + mise à jour du cache mémoire pour la session en cours.
- * Un **refresh RC réussi** (`forceRefreshGeminiRemoteConfig` / init) réapplique la valeur RC et **vide** ce secours.
- *
- * @throws Si l’id ne passe pas {@link sanitizeRemoteModelId}.
- */
 export async function applyGeminiLocalModelOverride(modelId: string): Promise<void> {
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) return;
+  sessionFallbackModelId = null;
   cachedActiveGeminiModelId = clean;
-  await persistFallbackModelFor24h(clean);
+  lastResolutionSource = 'debug_override';
+  await persistDebugModelOverride(clean);
+}
+
+async function applyRemoteConfigModelsAfterFetch(fetchOk: boolean): Promise<string | null> {
+  if (fetchOk) {
+    await loadFallbackModelsFromRemoteConfig();
+  }
+
+  let rcModel: string | null = null;
+  if (fetchOk) {
+    const raw = await getRemoteConfigStringValue(RC_KEY_ACTIVE_GEMINI_MODEL);
+    rcModel = raw ? sanitizeRemoteModelId(raw) : null;
+    if (rcModel) {
+      lastRemoteConfigResolvedModelId = rcModel;
+      await persistRcModelToCache(rcModel);
+    }
+  }
+  return rcModel;
 }
 
 /**
- * Pipeline principal : authent anonyme si besoin, `fetchAndActivate` RC, lecture `active_gemini_model`,
- * mise à jour de {@link lastRemoteConfigResolvedModelId} et du cache, puis **vidage** du secours AsyncStorage
- * ({@link clearPersistedFallbackModel}) pour que la valeur RC reste prioritaire au prochain cold start.
- *
- * En cas d’exception RC : défaut + {@link tryRecoverFromListModels} si clé API (sans relire le secours disque).
- *
- * @remarks Intervalle minimal entre fetch RC : 60s en `__DEV__`, 4h en production (paramètre SDK client).
+ * Refresh silencieux au retour foreground — non bloquant, préserve blacklist / fallback session.
  */
-export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
-  const persisted = await readPersistedFallbackModel();
-  if (persisted) {
-    cachedActiveGeminiModelId = persisted;
-    lastRemoteConfigResolvedModelId = persisted;
+export async function refreshGeminiModelOnAppForeground(): Promise<void> {
+  const debugModel = await readDebugModelOverride();
+  const fetchOk = await fetchAndActivateRemoteConfig();
+  const rcModel = await applyRemoteConfigModelsAfterFetch(fetchOk);
+
+  if (!fetchOk) return;
+
+  if (debugModel) {
+    if (__DEV__ && rcModel) {
+      console.log(`[GEMINI-RC] 🔄 Foreground RC (debug override, cache MAJ : ${rcModel})`);
+    }
     return;
   }
-  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-  lastRemoteConfigResolvedModelId = cachedActiveGeminiModelId;
+
+  if (rcModel && !sessionBannedModels.has(rcModel)) {
+    cachedActiveGeminiModelId = rcModel;
+    lastResolutionSource = 'rc_network';
+    if (sessionFallbackModelId && sessionFallbackModelId !== rcModel) {
+      sessionFallbackModelId = null;
+    }
+    if (__DEV__) {
+      console.log(`[GEMINI-RC] 🔄 Foreground RC appliqué : ${rcModel}`);
+    }
+    return;
+  }
+
+  if (__DEV__ && rcModel) {
+    console.log(`[GEMINI-RC] 🔄 Foreground RC (cache MAJ, modèle banni en session : ${rcModel})`);
+  }
 }
 
-/**
- * Initialise une seule fois le steering (promesse partagée). Les appels suivants retournent la même promesse
- * jusqu’à ce que {@link forceRefreshGeminiRemoteConfig} réinitialise le singleton.
- */
+/** Lance un refresh RC foreground fire-and-forget (AppState → active). */
+export function scheduleGeminiForegroundRemoteConfigRefresh(): void {
+  if (foregroundRefreshInFlight) return;
+  foregroundRefreshInFlight = refreshGeminiModelOnAppForeground()
+    .catch(() => {
+      /* silencieux */
+    })
+    .finally(() => {
+      foregroundRefreshInFlight = null;
+    });
+}
+
+export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
+  steeringResolutionDone = false;
+  sessionFallbackModelId = null;
+
+  const debugModel = await readDebugModelOverride();
+  const fetchOk = await fetchAndActivateRemoteConfig();
+  const rcModel = await applyRemoteConfigModelsAfterFetch(fetchOk);
+
+  if (fetchOk && !sessionCandidateModelIds) {
+    applyCompiledFallbackCandidates();
+  }
+
+  if (debugModel) {
+    applyResolvedModel(debugModel, rcModel, 'debug_override');
+    steeringResolutionDone = true;
+    console.log(
+      `[GEMINI-RC] 🔧 Override Debug : ${debugModel}` +
+        (rcModel ? ` (RC réseau : ${rcModel}, non appliqué)` : fetchOk ? ' (RC vide / invalide)' : ' (RC fetch échoué)'),
+    );
+    return;
+  }
+
+  if (fetchOk && rcModel) {
+    applyResolvedModel(rcModel, rcModel, 'rc_network');
+    steeringResolutionDone = true;
+    console.log(`[GEMINI-RC] ✅ Modèle Remote Config (réseau) : ${rcModel}`);
+    return;
+  }
+
+  const cachedRc = await readPersistedRcModel();
+  if (cachedRc) {
+    applyResolvedModel(cachedRc, null, 'rc_cache');
+    steeringResolutionDone = true;
+    console.log(
+      `[GEMINI-RC] 📦 Cache RC hors-ligne : ${cachedRc}` +
+        (fetchOk ? ' (RC réseau vide / invalide)' : ' (fetch RC échoué)'),
+    );
+    return;
+  }
+
+  applyResolvedModel(GEMINI_SAFE_DEFAULT_MODEL_ID, null, 'hardcoded_default');
+  steeringResolutionDone = true;
+  console.log(`[GEMINI-RC] ⚙️ Défaut compilé : ${GEMINI_SAFE_DEFAULT_MODEL_ID}`);
+}
+
 export function ensureGeminiRemoteModelInitialized(): Promise<void> {
   if (!steeringInitPromise) {
-    steeringInitPromise = refreshGeminiModelFromRemoteConfig();
+    steeringInitPromise = refreshGeminiModelFromRemoteConfig().finally(() => {
+      steeringResolutionDone = true;
+    });
   }
   return steeringInitPromise;
 }
 
+/**
+ * Verrou avant tout appel Gemini : attend la résolution RC (max {@link STEERING_INIT_TIMEOUT_MS}).
+ * Si timeout, résolution hors-ligne (Debug > cache RC > défaut) sans bloquer One-Tap.
+ */
+export async function awaitGeminiSteeringBeforeNetworkCall(): Promise<void> {
+  const initPromise = ensureGeminiRemoteModelInitialized();
+  let timedOut = false;
+
+  await Promise.race([
+    initPromise,
+    new Promise<void>((resolve) => {
+      setTimeout(() => {
+        timedOut = true;
+        resolve();
+      }, STEERING_INIT_TIMEOUT_MS);
+    }),
+  ]);
+
+  if (timedOut && !steeringResolutionDone) {
+    await resolveSteeringWithoutNetwork();
+  }
+}
+
 export function getGeminiCandidateModelIds(): string[] {
-  const base = sessionCandidateModelIds ?? GEMINI_FALLBACK_LIST_MODELS;
-  const active = getActiveGeminiModelId();
-  const raw = [active, ...base.filter((id) => id !== active)];
+  const preferredActive = getActiveGeminiModelId();
+  const active = sessionBannedModels.has(preferredActive) ? '' : preferredActive;
+  const base = sessionCandidateModelIds ?? getEffectiveFallbackBaseModelIds();
+  const raw = active
+    ? [active, ...base.filter((id) => id !== active)]
+    : [...base];
   const out: string[] = [];
   const seen = new Set<string>();
   for (const id of raw) {
     const clean = sanitizeRemoteModelId(id) ?? '';
     if (!clean) continue;
-    if (isBannedGeminiModelId(clean)) continue;
-    if (sessionExcludedModelIds.has(clean)) continue;
+    if (sessionBannedModels.has(clean)) continue;
     if (seen.has(clean)) continue;
+    if (clean !== active && isBannedGeminiModelId(clean)) continue;
     seen.add(clean);
     out.push(clean);
   }
-  return out;
+  if (out.length) return out;
+
+  const defaultId = sanitizeRemoteModelId(GEMINI_SAFE_DEFAULT_MODEL_ID);
+  if (defaultId && !sessionBannedModels.has(defaultId)) return [defaultId];
+  return preferredActive ? [preferredActive] : [GEMINI_SAFE_DEFAULT_MODEL_ID];
 }
 
-export async function persistValidatedGeminiModelId(modelId: string): Promise<void> {
-  const clean = sanitizeRemoteModelId(modelId);
-  if (!clean) return;
-  cachedActiveGeminiModelId = clean;
-  lastRemoteConfigResolvedModelId = clean;
-  await persistFallbackModelFor24h(clean);
+/** @deprecated Self-heal session-only — n'écrit plus dans le cache RC. */
+export function persistValidatedGeminiModelId(modelId: string): void {
+  setGeminiSessionFallbackModelId(modelId);
 }
 
 export async function clearGeminiValidatedModelCache(): Promise<void> {
-  await clearPersistedFallbackModel();
+  await clearPersistedRcModel();
+  await clearDebugModelOverride();
+  sessionFallbackModelId = null;
   cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-  lastRemoteConfigResolvedModelId = cachedActiveGeminiModelId;
+  lastRemoteConfigResolvedModelId = null;
+  lastResolutionSource = 'hardcoded_default';
+  steeringInitPromise = null;
+  steeringResolutionDone = false;
 }
 
-const PASS3_PROMPT_RC_KEY = 'prompt_pass3_synth_v1';
-
-/** Secours local si Remote Config indisponible ou clé vide. */
-export const PASS3_PROMPT_FALLBACK_TEMPLATE = `Tu es l'architecte de synthèse d'une application mobile de planning. Transforme ce JSON d'intentions en une feuille de route HTML épurée.
-
-Focus du jour (phrase courte).
-
-Itinéraire Newton (TRIPs groupés).
-
-Coup de Boost (orphelines les plus anciennes via age_days).
-
-Groupements thématiques (ADMIN, MAISON, SHOPPING ou autre).
-Réponds strictement dans la langue des intentions. HTML inline uniquement.`;
-
-/**
- * Prompt système Pass 3 (Feuille de route) — **Remote Config** `prompt_pass3_synth_v1`, même chaîne que les autres
- * paramètres RC (fetch + `getValue`), avec repli {@link PASS3_PROMPT_FALLBACK_TEMPLATE}.
- */
-export async function fetchPass3DailyRoadmapPromptTemplate(): Promise<string> {
-  const { getFirebaseApp } = await import('../api/firebase');
-  const app = getFirebaseApp();
-  if (!app) return PASS3_PROMPT_FALLBACK_TEMPLATE;
-  try {
-    const { getRemoteConfig, getValue, fetchAndActivate } = await import('firebase/remote-config');
-    const rc = getRemoteConfig(app);
-    rc.settings.minimumFetchIntervalMillis = __DEV__ ? 0 : 6 * 60 * 60 * 1000;
-    rc.defaultConfig = {
-      [PASS3_PROMPT_RC_KEY]: PASS3_PROMPT_FALLBACK_TEMPLATE,
-    };
-    try {
-      await fetchAndActivate(rc);
-    } catch {
-      /* ignore */
-    }
-    const raw = getValue(rc, PASS3_PROMPT_RC_KEY).asString().trim();
-    return raw.length > 0 ? raw : PASS3_PROMPT_FALLBACK_TEMPLATE;
-  } catch {
-    return PASS3_PROMPT_FALLBACK_TEMPLATE;
-  }
-}
+export {
+  fetchPass3DailyRoadmapPromptTemplate,
+  PASS3_PROMPT_FALLBACK_TEMPLATE,
+} from './firebaseRemoteConfig';

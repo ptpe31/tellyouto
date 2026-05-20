@@ -28,7 +28,10 @@ import { showAppToast } from '../services/appToast';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import {
   applyGeminiLocalModelOverride,
+  clearGeminiValidatedModelCache,
   ensureGeminiRemoteModelInitialized,
+  GEMINI_DEBUG_OVERRIDE_STORAGE_KEY,
+  GEMINI_RC_CACHE_STORAGE_KEY,
   forceRefreshGeminiRemoteConfig,
   getActiveGeminiModelId,
   getLastRemoteConfigResolvedModelId,
@@ -79,22 +82,27 @@ export function DebugScreen() {
     setLocalModelDisplay(getActiveGeminiModelId());
   }, []);
 
-  /** Lit le modèle « validé » persisté AsyncStorage (TTL) pour affichage debug. */
+  /** Lit le cache RC ou l'override Debug persisté (AsyncStorage) pour affichage debug. */
   const refreshValidatedModelDisplay = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem('validated_model_id');
-      if (!raw) {
-        setValidatedModelDisplay('None');
+      const readEntry = async (key: string): Promise<string | null> => {
+        const raw = await AsyncStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { modelId?: unknown; expiresAtMs?: unknown };
+        const modelId = typeof parsed.modelId === 'string' ? parsed.modelId.trim() : '';
+        const expiresAtMs = Number(parsed.expiresAtMs ?? 0);
+        if (!modelId || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) return null;
+        return modelId;
+      };
+
+      const debugModel = await readEntry(GEMINI_DEBUG_OVERRIDE_STORAGE_KEY);
+      if (debugModel) {
+        setValidatedModelDisplay(`${debugModel} (debug override)`);
         return;
       }
-      const parsed = JSON.parse(raw) as { modelId?: unknown; expiresAtMs?: unknown };
-      const modelId = typeof parsed.modelId === 'string' ? parsed.modelId.trim() : '';
-      const expiresAtMs = Number(parsed.expiresAtMs ?? 0);
-      if (!modelId || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-        setValidatedModelDisplay('None');
-        return;
-      }
-      setValidatedModelDisplay(modelId);
+
+      const rcCache = await readEntry(GEMINI_RC_CACHE_STORAGE_KEY);
+      setValidatedModelDisplay(rcCache ?? 'None');
     } catch {
       setValidatedModelDisplay('None');
     }
@@ -259,7 +267,7 @@ export function DebugScreen() {
   const onResetIaCache = useCallback(async () => {
     setIaCacheBusy(true);
     try {
-      await AsyncStorage.removeItem('validated_model_id');
+      await clearGeminiValidatedModelCache();
       await ensureGeminiRemoteModelInitialized();
       syncModelLabels();
       await refreshValidatedModelDisplay();

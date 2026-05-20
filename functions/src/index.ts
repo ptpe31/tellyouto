@@ -83,7 +83,7 @@ export const geminiProxyStream = onRequest(
     }
 
     const body = (req.body || {}) as GeminiProxyBody;
-    const modelId = String(body.modelId || 'gemini-1.5-flash');
+    const modelId = String(body.modelId || 'gemini-3.1-flash-lite');
     const request = coerceRequest(body);
     const systemInstruction = normalizeSystemInstruction(body.systemInstruction);
 

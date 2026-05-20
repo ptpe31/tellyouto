@@ -1,7 +1,13 @@
 import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
-import { getGeminiCandidateModelIds } from './geminiRemoteModelSteering';
+import {
+  awaitGeminiSteeringBeforeNetworkCall,
+  excludeGeminiModelForSession,
+  getGeminiCandidateModelIds,
+  setGeminiSessionFallbackModelId,
+  shouldExcludeGeminiModelForSession,
+} from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
 
 const GLOG = '\n  | ';
@@ -30,6 +36,7 @@ function estimateGeminiCostUsd(modelId: string, tokensPrompt: number | null, tok
   const completion = Math.max(0, Number(tokensCompletion ?? 0) || 0);
   const total = Math.max(0, Number(tokensTotal ?? 0) || 0);
   const pricing: Record<string, { promptPer1k: number; completionPer1k: number; totalPer1k?: number }> = {
+    'gemini-3.1-flash-lite': { promptPer1k: 0.000075, completionPer1k: 0.0003 },
     'gemini-1.5-flash': { promptPer1k: 0.000075, completionPer1k: 0.0003 },
     'gemini-flash-latest': { promptPer1k: 0.000075, completionPer1k: 0.0003 },
     'gemini-1.5-pro': { promptPer1k: 0, completionPer1k: 0, totalPer1k: 0 },
@@ -325,6 +332,10 @@ async function callGeminiProxyStream(params: {
   onAccumulatedText?: (full: string) => void;
   options?: PostGeminiHttpOptions;
 }): Promise<{ text: string; meta: GeminiHttpSettledMeta }> {
+  if (!params.modelOverride) {
+    await awaitGeminiSteeringBeforeNetworkCall();
+  }
+
   const candidates = params.modelOverride
     ? [params.modelOverride]
     : getGeminiCandidateModelIds();
@@ -379,6 +390,9 @@ async function callGeminiProxyStream(params: {
     if (!res.ok) {
       const bodyText = await readAllTextFromResponse(res);
       lastError = new Error(`${res.status}:${bodyText.slice(0, 200)}`);
+      if (shouldExcludeGeminiModelForSession(res.status, bodyText)) {
+        excludeGeminiModelForSession(modelId);
+      }
       continue;
     }
 
@@ -402,6 +416,9 @@ async function callGeminiProxyStream(params: {
       };
       params.options?.onHttpSuccessMeta?.(meta);
       if (!params.options?.pathBLog) logGeminiApiCallSuccess(meta);
+      if (i > 0 && !params.modelOverride) {
+        setGeminiSessionFallbackModelId(modelId);
+      }
       return { text: out.text, meta };
     } catch (e) {
       lastError = e;

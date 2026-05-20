@@ -15,7 +15,7 @@ const res = await fetch(url, {
     Authorization: `Bearer ${token}`,
   },
   body: JSON.stringify({
-    modelId: 'gemini-1.5-flash',
+    modelId: 'gemini-3.1-flash-lite',
     request: {
       contents: [{ role: 'user', parts: [{ text: 'Dis bonjour en 5 mots.' }] }],
       generationConfig: { maxOutputTokens: 64 },
