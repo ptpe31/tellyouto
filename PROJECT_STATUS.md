@@ -11,7 +11,7 @@
 - **Cluster tactique (Tirelire)** : [`getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) sur `TimelineScreen` (seuil d’affichage `count >= 2`, contexte ALL + TODO) ; carte neumorphique + ouverture [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtrée par `category_id` ; log `[CLUSTER-ENGINE]`. **Projets orphelins** : bouton `cluster.planProjectStart` → `project.start_date` + replan jalons (`replanProjectMilestonesFromStartDate`) + `due_date` pour sortir du cluster.
 - **TRIP — Contrat de Départ (mai 2026)** : **marge adaptative** `Deadline = T_arr − (T_pred × D)` ; `T_ideal` statique API ou distance/50 km/h ; relax fixe 15 min ; ancres `min()` ; hystérésis 5 min ; PROBE3 skip ; `departure_time ≥ now+2min` ; dispatcher PROBE1/2/3 ([`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts)) ; zéro polling ; UI **ElasticDepartureCapsule** sheet + Timeline compacte ; **notifications locales** [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/NotificationService.ts) (sticky silencieuse + Signal A sonore time-sensitive + Signal B rappel sans son) ; [`dossier_de_soumission.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/dossier_de_soumission.md) ; [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts).
 - **Pass 1 — Few-Shot JSON universel (mai 2026)** : prompt unique `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(..., now)` — sortie `{"intents":[...]}`, ancrage `NOW:` en heure locale, 4 exemples dynamiques (FR/EN/LIST/TRIP), parsing **JSON-first** avec repli Bullet-Pipe uniquement si aucun `{` ; modèle piloté par RC **`gemini_pass1_model_id`** (défaut `gemini-3.1-flash-lite`).
-- **Pass 2 — steering dédié** : enrichissement LIST/PROJECT via **`gemini_pass2_model_id`** (défaut `gemini-1.5-pro`) dans `geminiEnrichGenericList` ; découplé du modèle global `active_gemini_model`.
+- **Pass 2 / Pass 3 — steering raisonnement** : **`gemini_pass2_model_id`** (défaut `gemini-1.5-pro`) — enrichissement LIST/PROJECT, Pass 3 Feuille de route, GeminiExpert, lab ; warmup proxy cible **Pass 1** uniquement.
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents ; sur **TalkDebug**, l’**overlay de progression** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) + événements `CAPTURE_PIPELINE_PROGRESS`) couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline). **Correction STT optionnelle** : crayon → barre validation **Poubelle / Check** au-dessus du clavier (`translateY` + listeners clavier) → `transcript` final vers Gemini ; logs `transcript_manual_edit` / `[MIC] ✏️`.
 
 ---
@@ -81,9 +81,9 @@ Repères dans `src/services/*` :
 
 | Fichier | Rôle |
 |---------|------|
-| [`firebaseRemoteConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) | Singleton RC (`fetchAndActivate`, clés Pass 3 / Sentinel / fallbacks) — **`active_gemini_model` hors defaultConfig** |
-| [`initializeGeminiEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/initializeGeminiEngine.ts) | Boot steering + shortlist compilée si pas de `gemini_model_fallbacks` RC |
-| [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | Résolution modèle : Debug override → RC réseau → `rc_model_cache` → session fallback → défaut ; **`getActivePass1ModelId()`** / **`getActivePass2ModelId()`** (RC dédiées) ; blacklist 404/503 ; foreground refresh |
+| [`firebaseRemoteConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) | Singleton RC (`fetchAndActivate`, clés Pass 1/2 / Pass 3 / Sentinel / fallbacks) |
+| [`initializeGeminiEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/initializeGeminiEngine.ts) | Boot steering + shortlist Pass 2 si pas de `gemini_model_fallbacks` RC |
+| [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | **`getActivePass1ModelId()`** / **`getActivePass2ModelId()`** ; override Debug Pass 2 ; blacklist 404/503 ; foreground refresh |
 | [`geminiModelCatalog.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelCatalog.ts) | Shortlist compilée ; défaut `gemini-3.1-flash-lite` |
 | [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | Appels proxy (SSE), verrou steering 2 s, retry candidats, exclusion session |
 | [`GeminiExpert.js`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js) | Idem verrou + self-healing pour flux Expert / atomize |
@@ -92,16 +92,14 @@ Repères dans `src/services/*` :
 
 **Remote Config (console Firebase)**
 
-- `active_gemini_model` — modèle principal (Pass 3, warmup, flux génériques — sans rebuild app)
-- `gemini_model_fallbacks` — CSV candidats de secours (optionnel)
-- `gemini_pass1_model_id` — modèle Pass 1 extraction One-Tap (défaut compilé `gemini-3.1-flash-lite`)
-- `gemini_pass2_model_id` — modèle Pass 2 enrichissement LIST/PROJECT (défaut compilé `gemini-1.5-pro`)
+- `gemini_pass1_model_id` — extraction One-Tap + warmup proxy (défaut `gemini-3.1-flash-lite`)
+- `gemini_pass2_model_id` — raisonnement Pass 2 / Pass 3 / Expert / lab (défaut `gemini-1.5-pro`)
+- `gemini_model_fallbacks` — CSV candidats de secours Pass 2 (optionnel)
 - `prompt_pass3_synth_v1` — template Pass 3
 
 **AsyncStorage**
 
-- `debug_override_model` (24 h, prioritaire Debug)
-- `rc_model_cache` (90 j, dernière valeur RC réseau OK)
+- `debug_override_model` (24 h, override Pass 2 prioritaire en Debug)
 
 **Logs boot** : `[GEMINI-RC]`, `[GEMINI-BOOT]`.
 

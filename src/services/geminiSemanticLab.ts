@@ -4,6 +4,7 @@ import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
 import {
   awaitGeminiSteeringBeforeNetworkCall,
   excludeGeminiModelForSession,
+  getActivePass1ModelId,
   getActivePass2ModelId,
   getGeminiCandidateModelIds,
   setGeminiSessionFallbackModelId,
@@ -832,12 +833,13 @@ Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
 
 Le corps utilisateur fournira uniquement Reference Time (ISO) et Transcript (dictée).`;
 
-/** Pré-chauffe auth + TLS + proxy Gemini (léger) dès activation micro — SPEC ARCHITECTURE IA. */
+/** Pré-chauffe auth + TLS + proxy Gemini (Pass 1 — première requête utilisateur). */
 export async function warmGeminiProxySession(): Promise<void> {
   const iso = new Date().toISOString();
   await callGeminiProxyStream({
     systemInstruction:
       'You are a warmup handshake. Reply with exactly the two letters OK and a newline, nothing else. No punctuation.',
+    modelOverride: getActivePass1ModelId(),
     request: {
       contents: [{ role: 'user', parts: [{ text: `Reference Time: ${iso}\nTranscript: __proxy_warmup__` }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 16 },
@@ -980,6 +982,7 @@ export async function geminiPass3DailyRoadmapHtml(args: {
   if (!userText) throw new Error('Gemini: Pass3 userJson vide');
   const { text } = await callGeminiProxyStream({
     systemInstruction: systemInstruction.length > 0 ? systemInstruction : undefined,
+    modelOverride: getActivePass2ModelId(),
     request: {
       contents: [{ parts: [{ text: userText }] }],
       generationConfig: { temperature: 0.35, maxOutputTokens: 8192 },

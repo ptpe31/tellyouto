@@ -1,12 +1,13 @@
 /**
  * **Remote steering** du modèle Gemini utilisé par toutes les routes REST.
  *
- * ## Chaîne de résolution
- * 1. **Override Debug** (`debug_override_model`, 24h)
- * 2. **Firebase RC réseau** (`active_gemini_model` après `fetchAndActivate` OK)
- * 3. **Cache RC local** (`rc_model_cache`, AsyncStorage)
- * 4. **Session fallback** (mémoire vive — self-heal 503/404, jamais persisté)
- * 5. **Défaut compilé** (`GEMINI_SAFE_DEFAULT_MODEL_ID`)
+ * ## Chaîne de résolution (Pass 2 / raisonnement)
+ * 1. **Override Debug** (`debug_override_model`, 24h) → Pass 2
+ * 2. **Firebase RC** (`gemini_pass2_model_id` après `fetchAndActivate`)
+ * 3. **Session fallback** (mémoire vive — self-heal 503/404, jamais persisté)
+ * 4. **Défaut compilé** (`GEMINI_PASS2_DEFAULT_MODEL_ID`)
+ *
+ * Pass 1 : RC `gemini_pass1_model_id` → défaut compilé (`GEMINI_PASS1_DEFAULT_MODEL_ID`).
  *
  * @module geminiRemoteModelSteering
  */
@@ -18,7 +19,6 @@ import {
   getRemoteConfigStringValue,
   DEFAULT_GEMINI_PASS1_MODEL_ID,
   DEFAULT_GEMINI_PASS2_MODEL_ID,
-  RC_KEY_ACTIVE_GEMINI_MODEL,
   RC_KEY_GEMINI_MODEL_FALLBACKS,
   RC_KEY_GEMINI_PASS1_MODEL_ID,
   RC_KEY_GEMINI_PASS2_MODEL_ID,
@@ -28,7 +28,7 @@ import {
   isBannedGeminiModelId,
 } from './geminiModelCatalog';
 
-/** Cache local de la dernière valeur RC réseau (secours hors-ligne). */
+/** Clé legacy `rc_model_cache` — effacée au reset Debug (plus de persistance modèle RC). */
 export const GEMINI_RC_CACHE_STORAGE_KEY = 'rc_model_cache';
 /** Override manuel Debug / check santé IA (prioritaire, TTL 24h). */
 export const GEMINI_DEBUG_OVERRIDE_STORAGE_KEY = 'debug_override_model';
@@ -70,11 +70,10 @@ export const GEMINI_PASS1_DEFAULT_MODEL_ID = DEFAULT_GEMINI_PASS1_MODEL_ID;
 export const GEMINI_PASS2_DEFAULT_MODEL_ID = DEFAULT_GEMINI_PASS2_MODEL_ID;
 const GEMINI_FALLBACK_LIST_MODELS = getConfiguredShortlist();
 
-let cachedActiveGeminiModelId: string = GEMINI_SAFE_DEFAULT_MODEL_ID;
 let cachedPass1ModelId: string = GEMINI_PASS1_DEFAULT_MODEL_ID;
 let cachedPass2ModelId: string = GEMINI_PASS2_DEFAULT_MODEL_ID;
-let sessionFallbackModelId: string | null = null;
-let lastRemoteConfigResolvedModelId: string | null = null;
+/** Fallback session Pass 2 uniquement (mémoire) — self-heal 404/503. */
+let sessionPass2FallbackModelId: string | null = null;
 let lastResolutionSource: GeminiModelResolutionSource = 'hardcoded_default';
 let steeringInitPromise: Promise<void> | null = null;
 let steeringResolutionDone = false;
@@ -211,7 +210,7 @@ function getEffectiveFallbackBaseModelIds(): string[] {
 }
 
 function applyCompiledFallbackCandidates(): void {
-  const active = getActiveGeminiModelId();
+  const active = getActivePass2ModelId();
   const base = GEMINI_FALLBACK_LIST_MODELS.filter((id) => id !== active);
   setGeminiSessionCandidateModelIds([active, ...base]);
 }
@@ -221,7 +220,7 @@ async function loadFallbackModelsFromRemoteConfig(): Promise<void> {
   const parsed = parseCsvModelIds(raw);
   if (parsed.length) {
     rcDynamicFallbackModelIds = parsed;
-    const active = getActiveGeminiModelId();
+    const active = getActivePass2ModelId();
     setGeminiSessionCandidateModelIds([active, ...parsed.filter((id) => id !== active)]);
     return;
   }
@@ -242,16 +241,11 @@ function rotateFallbackModel(used: string[]): string | null {
   return pick;
 }
 
-function applyResolvedModel(
-  modelId: string,
-  rcModelId: string | null,
-  source: GeminiModelResolutionSource,
-): void {
-  cachedActiveGeminiModelId = modelId;
-  lastRemoteConfigResolvedModelId = rcModelId;
+function applyPass2DebugOverride(modelId: string, source: GeminiModelResolutionSource): void {
+  cachedPass2ModelId = modelId;
   lastResolutionSource = source;
   if (source === 'rc_network') {
-    sessionFallbackModelId = null;
+    sessionPass2FallbackModelId = null;
   }
 }
 
@@ -260,23 +254,17 @@ async function resolveSteeringWithoutNetwork(): Promise<void> {
 
   const debugModel = await readDebugModelOverride();
   if (debugModel) {
-    applyResolvedModel(debugModel, null, 'debug_override');
+    applyPass2DebugOverride(debugModel, 'debug_override');
     steeringResolutionDone = true;
-    console.log(`[GEMINI-RC] 🔧 Override Debug (fast-path) : ${debugModel}`);
+    console.log(`[GEMINI-RC] 🔧 Override Debug Pass2 (fast-path) : ${debugModel}`);
     return;
   }
 
-  const cachedRc = await readPersistedRcModel();
-  if (cachedRc) {
-    applyResolvedModel(cachedRc, null, 'rc_cache');
-    steeringResolutionDone = true;
-    console.log(`[GEMINI-RC] 📦 Cache RC (fast-path) : ${cachedRc}`);
-    return;
-  }
-
-  applyResolvedModel(GEMINI_SAFE_DEFAULT_MODEL_ID, null, 'steering_timeout');
   steeringResolutionDone = true;
-  console.log(`[GEMINI-RC] ⏱️ Timeout steering → défaut : ${GEMINI_SAFE_DEFAULT_MODEL_ID}`);
+  lastResolutionSource = 'steering_timeout';
+  console.log(
+    `[GEMINI-RC] ⏱️ Timeout steering → Pass1: ${cachedPass1ModelId} | Pass2: ${cachedPass2ModelId}`,
+  );
 }
 
 export async function recoverGeminiModelViaListModels(): Promise<string | null> {
@@ -289,11 +277,6 @@ export async function recoverGeminiModelViaListModelsExcluding(
   return rotateFallbackModel(excludedModelIds);
 }
 
-/** Modèle effectif pour les appels REST (session fallback > résolution boot). */
-export function getActiveGeminiModelId(): string {
-  return sessionFallbackModelId ?? cachedActiveGeminiModelId;
-}
-
 /** Modèle Pass 1 (extraction / capture One-Tap) — piloté par RC `gemini_pass1_model_id`. */
 export function getActivePass1ModelId(): string {
   const clean = sanitizeRemoteModelId(cachedPass1ModelId);
@@ -301,31 +284,24 @@ export function getActivePass1ModelId(): string {
   return GEMINI_PASS1_DEFAULT_MODEL_ID;
 }
 
-/** Modèle Pass 2 (enrichissement LIST / PROJECT) — piloté par RC `gemini_pass2_model_id`. */
+/** Modèle Pass 2 (enrichissement, Pass 3, Expert) — RC `gemini_pass2_model_id` + fallback session. */
 export function getActivePass2ModelId(): string {
-  const clean = sanitizeRemoteModelId(cachedPass2ModelId);
+  const preferred = sessionPass2FallbackModelId ?? cachedPass2ModelId;
+  const clean = sanitizeRemoteModelId(preferred);
   if (clean && !sessionBannedModels.has(clean)) return clean;
   return GEMINI_PASS2_DEFAULT_MODEL_ID;
 }
 
 export function getGeminiModelResolutionSource(): GeminiModelResolutionSource {
-  if (sessionFallbackModelId) return 'session_fallback';
+  if (sessionPass2FallbackModelId) return 'session_fallback';
   return lastResolutionSource;
 }
 
-export function setGeminiActiveModelForSession(modelId: string): void {
-  const clean = sanitizeRemoteModelId(modelId);
-  if (!clean) return;
-  cachedActiveGeminiModelId = clean;
-  sessionFallbackModelId = null;
-  lastRemoteConfigResolvedModelId = clean;
-}
-
-/** Fallback session uniquement (mémoire) — ne touche jamais `rc_model_cache`. */
+/** Fallback session Pass 2 uniquement (mémoire) — ne touche jamais AsyncStorage. */
 export function setGeminiSessionFallbackModelId(modelId: string): void {
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) return;
-  sessionFallbackModelId = clean;
+  sessionPass2FallbackModelId = clean;
   lastResolutionSource = 'session_fallback';
 }
 
@@ -381,8 +357,12 @@ export function setGeminiSessionCandidateModelIds(modelIds: string[]): void {
   sessionCandidateModelIds = out.length ? out : null;
 }
 
-export function getLastRemoteConfigResolvedModelId(): string | null {
-  return lastRemoteConfigResolvedModelId;
+export function getResolvedPass1ModelFromRemoteConfig(): string {
+  return cachedPass1ModelId;
+}
+
+export function getResolvedPass2ModelFromRemoteConfig(): string {
+  return cachedPass2ModelId;
 }
 
 export async function hasActiveDebugGeminiModelOverride(): Promise<boolean> {
@@ -392,7 +372,7 @@ export async function hasActiveDebugGeminiModelOverride(): Promise<boolean> {
 export async function forceRefreshGeminiRemoteConfig(): Promise<void> {
   steeringInitPromise = null;
   steeringResolutionDone = false;
-  sessionFallbackModelId = null;
+  sessionPass2FallbackModelId = null;
   const p = refreshGeminiModelFromRemoteConfig();
   steeringInitPromise = p;
   await p;
@@ -401,8 +381,8 @@ export async function forceRefreshGeminiRemoteConfig(): Promise<void> {
 export async function applyGeminiLocalModelOverride(modelId: string): Promise<void> {
   const clean = sanitizeRemoteModelId(modelId);
   if (!clean) return;
-  sessionFallbackModelId = null;
-  cachedActiveGeminiModelId = clean;
+  sessionPass2FallbackModelId = null;
+  cachedPass2ModelId = clean;
   lastResolutionSource = 'debug_override';
   await persistDebugModelOverride(clean);
 }
@@ -421,22 +401,11 @@ async function loadPassModelsFromRemoteConfig(): Promise<void> {
   }
 }
 
-async function applyRemoteConfigModelsAfterFetch(fetchOk: boolean): Promise<string | null> {
+async function applyRemoteConfigModelsAfterFetch(fetchOk: boolean): Promise<void> {
   await loadPassModelsFromRemoteConfig();
   if (fetchOk) {
     await loadFallbackModelsFromRemoteConfig();
   }
-
-  let rcModel: string | null = null;
-  if (fetchOk) {
-    const raw = await getRemoteConfigStringValue(RC_KEY_ACTIVE_GEMINI_MODEL);
-    rcModel = raw ? sanitizeRemoteModelId(raw) : null;
-    if (rcModel) {
-      lastRemoteConfigResolvedModelId = rcModel;
-      await persistRcModelToCache(rcModel);
-    }
-  }
-  return rcModel;
 }
 
 /**
@@ -445,31 +414,23 @@ async function applyRemoteConfigModelsAfterFetch(fetchOk: boolean): Promise<stri
 export async function refreshGeminiModelOnAppForeground(): Promise<void> {
   const debugModel = await readDebugModelOverride();
   const fetchOk = await fetchAndActivateRemoteConfig();
-  const rcModel = await applyRemoteConfigModelsAfterFetch(fetchOk);
+  await applyRemoteConfigModelsAfterFetch(fetchOk);
 
   if (!fetchOk) return;
 
   if (debugModel) {
-    if (__DEV__ && rcModel) {
-      console.log(`[GEMINI-RC] 🔄 Foreground RC (debug override, cache MAJ : ${rcModel})`);
-    }
-    return;
-  }
-
-  if (rcModel && !sessionBannedModels.has(rcModel)) {
-    cachedActiveGeminiModelId = rcModel;
-    lastResolutionSource = 'rc_network';
-    if (sessionFallbackModelId && sessionFallbackModelId !== rcModel) {
-      sessionFallbackModelId = null;
-    }
     if (__DEV__) {
-      console.log(`[GEMINI-RC] 🔄 Foreground RC appliqué : ${rcModel}`);
+      console.log(
+        `[GEMINI-RC] 🔄 Foreground RC (debug override Pass2, RC Pass1=${cachedPass1ModelId} Pass2=${cachedPass2ModelId})`,
+      );
     }
     return;
   }
 
-  if (__DEV__ && rcModel) {
-    console.log(`[GEMINI-RC] 🔄 Foreground RC (cache MAJ, modèle banni en session : ${rcModel})`);
+  sessionPass2FallbackModelId = null;
+  lastResolutionSource = 'rc_network';
+  if (__DEV__) {
+    console.log(`[GEMINI-RC] 🔄 Foreground RC Pass1=${cachedPass1ModelId} Pass2=${cachedPass2ModelId}`);
   }
 }
 
@@ -487,47 +448,37 @@ export function scheduleGeminiForegroundRemoteConfigRefresh(): void {
 
 export async function refreshGeminiModelFromRemoteConfig(): Promise<void> {
   steeringResolutionDone = false;
-  sessionFallbackModelId = null;
+  sessionPass2FallbackModelId = null;
 
   const debugModel = await readDebugModelOverride();
   const fetchOk = await fetchAndActivateRemoteConfig();
-  const rcModel = await applyRemoteConfigModelsAfterFetch(fetchOk);
+  await applyRemoteConfigModelsAfterFetch(fetchOk);
 
   if (fetchOk && !sessionCandidateModelIds) {
     applyCompiledFallbackCandidates();
   }
 
   if (debugModel) {
-    applyResolvedModel(debugModel, rcModel, 'debug_override');
+    applyPass2DebugOverride(debugModel, 'debug_override');
     steeringResolutionDone = true;
     console.log(
-      `[GEMINI-RC] 🔧 Override Debug : ${debugModel}` +
-        (rcModel ? ` (RC réseau : ${rcModel}, non appliqué)` : fetchOk ? ' (RC vide / invalide)' : ' (RC fetch échoué)'),
+      `[GEMINI-RC] 🔧 Override Debug Pass2 : ${debugModel}` +
+        (fetchOk
+          ? ` (RC Pass1=${cachedPass1ModelId} Pass2=${cachedPass2ModelId}, Pass2 RC non appliqué)`
+          : ' (RC fetch échoué)'),
     );
     return;
   }
 
-  if (fetchOk && rcModel) {
-    applyResolvedModel(rcModel, rcModel, 'rc_network');
-    steeringResolutionDone = true;
-    console.log(`[GEMINI-RC] ✅ Modèle Remote Config (réseau) : ${rcModel}`);
-    return;
+  if (fetchOk) {
+    lastResolutionSource = 'rc_network';
   }
 
-  const cachedRc = await readPersistedRcModel();
-  if (cachedRc) {
-    applyResolvedModel(cachedRc, null, 'rc_cache');
-    steeringResolutionDone = true;
-    console.log(
-      `[GEMINI-RC] 📦 Cache RC hors-ligne : ${cachedRc}` +
-        (fetchOk ? ' (RC réseau vide / invalide)' : ' (fetch RC échoué)'),
-    );
-    return;
-  }
-
-  applyResolvedModel(GEMINI_SAFE_DEFAULT_MODEL_ID, null, 'hardcoded_default');
   steeringResolutionDone = true;
-  console.log(`[GEMINI-RC] ⚙️ Défaut compilé : ${GEMINI_SAFE_DEFAULT_MODEL_ID}`);
+  console.log(
+    `[GEMINI-RC] ✅ Pass1: ${cachedPass1ModelId} | Pass2: ${cachedPass2ModelId}` +
+      (fetchOk ? '' : ' (fetch RC échoué — défauts compilés)'),
+  );
 }
 
 export function ensureGeminiRemoteModelInitialized(): Promise<void> {
@@ -563,7 +514,7 @@ export async function awaitGeminiSteeringBeforeNetworkCall(): Promise<void> {
 }
 
 export function getGeminiCandidateModelIds(): string[] {
-  const preferredActive = getActiveGeminiModelId();
+  const preferredActive = getActivePass2ModelId();
   const active = sessionBannedModels.has(preferredActive) ? '' : preferredActive;
   const base = sessionCandidateModelIds ?? getEffectiveFallbackBaseModelIds();
   const raw = active
@@ -582,9 +533,9 @@ export function getGeminiCandidateModelIds(): string[] {
   }
   if (out.length) return out;
 
-  const defaultId = sanitizeRemoteModelId(GEMINI_SAFE_DEFAULT_MODEL_ID);
+  const defaultId = sanitizeRemoteModelId(GEMINI_PASS2_DEFAULT_MODEL_ID);
   if (defaultId && !sessionBannedModels.has(defaultId)) return [defaultId];
-  return preferredActive ? [preferredActive] : [GEMINI_SAFE_DEFAULT_MODEL_ID];
+  return preferredActive ? [preferredActive] : [GEMINI_PASS2_DEFAULT_MODEL_ID];
 }
 
 /** @deprecated Self-heal session-only — n'écrit plus dans le cache RC. */
@@ -595,9 +546,9 @@ export function persistValidatedGeminiModelId(modelId: string): void {
 export async function clearGeminiValidatedModelCache(): Promise<void> {
   await clearPersistedRcModel();
   await clearDebugModelOverride();
-  sessionFallbackModelId = null;
-  cachedActiveGeminiModelId = GEMINI_SAFE_DEFAULT_MODEL_ID;
-  lastRemoteConfigResolvedModelId = null;
+  sessionPass2FallbackModelId = null;
+  cachedPass1ModelId = GEMINI_PASS1_DEFAULT_MODEL_ID;
+  cachedPass2ModelId = GEMINI_PASS2_DEFAULT_MODEL_ID;
   lastResolutionSource = 'hardcoded_default';
   steeringInitPromise = null;
   steeringResolutionDone = false;

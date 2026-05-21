@@ -31,10 +31,11 @@ import {
   clearGeminiValidatedModelCache,
   ensureGeminiRemoteModelInitialized,
   GEMINI_DEBUG_OVERRIDE_STORAGE_KEY,
-  GEMINI_RC_CACHE_STORAGE_KEY,
   forceRefreshGeminiRemoteConfig,
-  getActiveGeminiModelId,
-  getLastRemoteConfigResolvedModelId,
+  getActivePass1ModelId,
+  getActivePass2ModelId,
+  getResolvedPass1ModelFromRemoteConfig,
+  getResolvedPass2ModelFromRemoteConfig,
 } from '../services/geminiRemoteModelSteering';
 import { runGeminiModelHealthCheck } from '../services/geminiModelHealthCheck';
 import { TrafficScheduler, type TrafficMonitoringSnapshot } from '../services/traffic/TrafficScheduler';
@@ -63,8 +64,10 @@ export function DebugScreen() {
     'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [rcModelDisplay, setRcModelDisplay] = useState<string | null>(null);
-  const [localModelDisplay, setLocalModelDisplay] = useState(() => getActiveGeminiModelId());
+  const [rcPass1Display, setRcPass1Display] = useState<string | null>(null);
+  const [rcPass2Display, setRcPass2Display] = useState<string | null>(null);
+  const [localPass1Display, setLocalPass1Display] = useState(() => getActivePass1ModelId());
+  const [localPass2Display, setLocalPass2Display] = useState(() => getActivePass2ModelId());
   const [validatedModelDisplay, setValidatedModelDisplay] = useState<string>('None');
   const [iaCacheBusy, setIaCacheBusy] = useState(false);
   const [talkCaptureLog, setTalkCaptureLog] = useState<TalkCaptureDebugPayload | null>(null);
@@ -76,10 +79,12 @@ export function DebugScreen() {
   const criticalAlertShownRef = useRef(false);
   const simulatedArrivalAtMsRef = useRef<number>(0);
 
-  /** Met à jour les libellés modèle RC vs override local (`geminiRemoteModelSteering`). */
+  /** Met à jour les libellés modèles RC vs effectifs Pass1/Pass2. */
   const syncModelLabels = useCallback(() => {
-    setRcModelDisplay(getLastRemoteConfigResolvedModelId());
-    setLocalModelDisplay(getActiveGeminiModelId());
+    setRcPass1Display(getResolvedPass1ModelFromRemoteConfig());
+    setRcPass2Display(getResolvedPass2ModelFromRemoteConfig());
+    setLocalPass1Display(getActivePass1ModelId());
+    setLocalPass2Display(getActivePass2ModelId());
   }, []);
 
   /** Lit le cache RC ou l'override Debug persisté (AsyncStorage) pour affichage debug. */
@@ -97,12 +102,11 @@ export function DebugScreen() {
 
       const debugModel = await readEntry(GEMINI_DEBUG_OVERRIDE_STORAGE_KEY);
       if (debugModel) {
-        setValidatedModelDisplay(`${debugModel} (debug override)`);
+        setValidatedModelDisplay(`${debugModel} (debug override Pass2)`);
         return;
       }
 
-      const rcCache = await readEntry(GEMINI_RC_CACHE_STORAGE_KEY);
-      setValidatedModelDisplay(rcCache ?? 'None');
+      setValidatedModelDisplay('None');
     } catch {
       setValidatedModelDisplay('None');
     }
@@ -242,16 +246,18 @@ export function DebugScreen() {
     setBusy('iaHealth');
     try {
       const result = await runGeminiModelHealthCheck();
-      await applyGeminiLocalModelOverride(result.winnerId);
+      await applyGeminiLocalModelOverride(result.pass2WinnerId);
       syncModelLabels();
       await refreshValidatedModelDisplay();
       Alert.alert(
         t('debug.iaHealthTitle'),
         t('debug.iaHealthBody', {
-          winner: result.winnerId,
-          tested: result.testedCount,
-          skipped: result.skippedCount,
-          total: result.candidateCount,
+          pass1: result.pass1Id,
+          pass1Ok: result.pass1Ok ? 'OK' : 'KO',
+          pass2: result.pass2WinnerId,
+          tested: result.pass2TestedCount,
+          skipped: result.pass2SkippedCount,
+          total: result.pass2CandidateCount,
         }),
       );
     } catch (e) {
@@ -287,7 +293,7 @@ export function DebugScreen() {
       await askGeminiExpert('test');
       syncModelLabels();
       await refreshValidatedModelDisplay();
-      Alert.alert('IA', `OK: ${getActiveGeminiModelId()}`);
+      Alert.alert('IA', `OK Pass2: ${getActivePass2ModelId()}`);
     } catch (e) {
       Alert.alert('IA', e instanceof Error ? e.message : String(e));
     } finally {
@@ -377,12 +383,16 @@ export function DebugScreen() {
     [setProUser],
   );
 
-  const rcLabel =
-    rcModelDisplay === null
+  const rcPass1Label =
+    rcPass1Display === null
       ? t('debug.rcModelUnavailable')
-      : t('debug.rcModelValue', { modelId: rcModelDisplay });
-  const localOverrides =
-    rcModelDisplay !== null && localModelDisplay !== rcModelDisplay;
+      : t('debug.rcModelValue', { modelId: rcPass1Display });
+  const rcPass2Label =
+    rcPass2Display === null
+      ? t('debug.rcModelUnavailable')
+      : t('debug.rcModelValue', { modelId: rcPass2Display });
+  const localPass2OverridesRc =
+    rcPass2Display !== null && localPass2Display !== rcPass2Display;
   const tierLabelKey =
     tierOverride === 'force_free'
       ? 'debug.simUserModeFree'
@@ -449,16 +459,26 @@ export function DebugScreen() {
           {t('debug.simUserModeHelp', { effective: t(effectiveTierKey) })}
         </Text>
         <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
-          {t('debug.rcModelCaption')}
+          {t('debug.rcPass1Caption')}
         </Text>
-        <Text style={[styles.mono, { color: theme.colors.onSurface }]}>{rcLabel}</Text>
+        <Text style={[styles.mono, { color: theme.colors.onSurface }]}>{rcPass1Label}</Text>
         <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
-          {t('debug.localModelCaption')}
+          {t('debug.rcPass2Caption')}
+        </Text>
+        <Text style={[styles.mono, { color: theme.colors.onSurface }]}>{rcPass2Label}</Text>
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          {t('debug.localPass1Caption')}
         </Text>
         <Text style={[styles.mono, { color: theme.colors.onSurface }]}>
-          {t('debug.localModelValue', { modelId: localModelDisplay })}
+          {t('debug.localModelValue', { modelId: localPass1Display })}
         </Text>
-        {localOverrides ? (
+        <Text style={[styles.blockTitle, { color: theme.colors.onBackground }]}>
+          {t('debug.localPass2Caption')}
+        </Text>
+        <Text style={[styles.mono, { color: theme.colors.onSurface }]}>
+          {t('debug.localModelValue', { modelId: localPass2Display })}
+        </Text>
+        {localPass2OverridesRc ? (
           <Text style={[styles.help, { color: theme.colors.secondary }]}>
             {t('debug.localOverridesRcHint')}
           </Text>

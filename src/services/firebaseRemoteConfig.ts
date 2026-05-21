@@ -1,15 +1,14 @@
 /**
  * Singleton Firebase Remote Config — init unique (intervalle, defaultConfig) pour tous les modules.
  *
- * `active_gemini_model` est **volontairement absent** du defaultConfig : une valeur RC ne doit
- * jamais être confondue avec un fetch réussi hors-ligne (voir geminiRemoteModelSteering).
+ * Modèles Gemini : deux clés RC dédiées (`gemini_pass1_model_id`, `gemini_pass2_model_id`) avec
+ * défauts compilés dans `defaultConfig` (extraction rapide vs raisonnement profond).
  */
 
 import type { RemoteConfig } from 'firebase/remote-config';
 
 import { getFirebaseApp } from '../api/firebase';
 
-export const RC_KEY_ACTIVE_GEMINI_MODEL = 'active_gemini_model';
 export const RC_KEY_GEMINI_MODEL_FALLBACKS = 'gemini_model_fallbacks';
 export const RC_KEY_GEMINI_PASS1_MODEL_ID = 'gemini_pass1_model_id';
 export const RC_KEY_GEMINI_PASS2_MODEL_ID = 'gemini_pass2_model_id';

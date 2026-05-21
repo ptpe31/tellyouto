@@ -1,6 +1,7 @@
 import {
   ensureGeminiRemoteModelInitialized,
-  getActiveGeminiModelId,
+  getActivePass1ModelId,
+  getActivePass2ModelId,
   hasRemoteConfigFallbackModelsLoaded,
   setGeminiSessionCandidateModelIds,
 } from './geminiRemoteModelSteering';
@@ -10,10 +11,12 @@ export async function initializeGeminiEngine(): Promise<void> {
   await ensureGeminiRemoteModelInitialized();
 
   if (!hasRemoteConfigFallbackModelsLoaded()) {
-    const active = getActiveGeminiModelId();
+    const active = getActivePass2ModelId();
     const shortlist = GEMINI_MODEL_SHORTLIST.filter((id) => !isBannedGeminiModelId(id));
     setGeminiSessionCandidateModelIds([active, ...shortlist.filter((id) => id !== active)]);
   }
 
-  console.log(`[GEMINI-BOOT] 🤖 Modèle validé pour cette session : ${getActiveGeminiModelId()}`);
+  console.log(
+    `[GEMINI-BOOT] 🤖 Pass1 (extraction): ${getActivePass1ModelId()} | Pass2 (raisonnement): ${getActivePass2ModelId()}`,
+  );
 }

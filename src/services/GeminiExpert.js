@@ -1,7 +1,7 @@
 import {
   awaitGeminiSteeringBeforeNetworkCall,
   excludeGeminiModelForSession,
-  getActiveGeminiModelId,
+  getActivePass2ModelId,
   getGeminiCandidateModelIds,
   setGeminiSessionFallbackModelId,
   shouldExcludeGeminiModelForSession,
@@ -21,8 +21,8 @@ function log(stage, detail) {
 }
 
 function getModelId() {
-  const id = getActiveGeminiModelId();
-  log('model.resolve', { resolved: id, source: 'remote_config_cache' });
+  const id = getActivePass2ModelId();
+  log('model.resolve', { resolved: id, source: 'pass2_remote_config' });
   return id;
 }
 

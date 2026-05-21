@@ -39,33 +39,31 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 
 **Objectif** : changer le modèle IA en production **sans rebuild** (sauf modification du défaut compilé), avec résilience hors-ligne et auto-cicatrisation en session.
 
-**Singleton RC** : [firebaseRemoteConfig.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) — init unique (`minimumFetchIntervalMillis`, `defaultConfig`). **`active_gemini_model` est absent du `defaultConfig`** pour éviter qu’un fetch échoué soit confondu avec une valeur RC valide.
+**Singleton RC** : [firebaseRemoteConfig.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) — init unique (`minimumFetchIntervalMillis`, `defaultConfig`). Deux clés modèle avec défauts compilés : **`gemini_pass1_model_id`** (extraction) et **`gemini_pass2_model_id`** (raisonnement).
 
 **Clés Firebase Remote Config**
 
 | Clé | Rôle |
 |-----|------|
-| `active_gemini_model` | Modèle principal (toute chaîne valide, sans shortlist) |
-| `gemini_model_fallbacks` | CSV optionnel remplaçant la shortlist compilée (ex. `gemini-pro-latest,gemini-3.1-flash-lite`) |
-| `gemini_pass1_model_id` | Modèle Pass 1 (extraction / capture One-Tap) — défaut compilé `gemini-3.1-flash-lite` |
-| `gemini_pass2_model_id` | Modèle Pass 2 (enrichissement LIST / PROJECT) — défaut compilé `gemini-1.5-pro` |
+| `gemini_pass1_model_id` | Modèle Pass 1 (extraction / capture One-Tap, warmup proxy) — défaut `gemini-3.1-flash-lite` |
+| `gemini_pass2_model_id` | Modèle Pass 2 / Pass 3 / Expert / lab (raisonnement) — défaut `gemini-1.5-pro` |
+| `gemini_model_fallbacks` | CSV optionnel remplaçant la shortlist compilée pour la chaîne Pass 2 (ex. `gemini-pro-latest,gemini-3.1-flash-lite`) |
 | `prompt_pass3_synth_v1` | Template system Pass 3 (Feuille de route) |
 
 **Chaîne de résolution (boot)**
 
-1. Override Debug (`debug_override_model`, AsyncStorage, TTL 24 h) — prioritaire
-2. RC réseau (`fetchAndActivate` **OK** + `active_gemini_model` non vide) → persisté dans `rc_model_cache`
-3. Cache RC local (`rc_model_cache`, TTL 90 j) si fetch RC échoué ou clé vide
-4. Session fallback (mémoire vive uniquement, après 503/404)
-5. Défaut compilé : `gemini-3.1-flash-lite` ([geminiModelCatalog.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelCatalog.ts))
+1. Override Debug (`debug_override_model`, AsyncStorage, TTL 24 h) — prioritaire sur **Pass 2**
+2. RC réseau (`fetchAndActivate` **OK**) → `gemini_pass1_model_id` + `gemini_pass2_model_id` (repli `defaultConfig` si fetch échoué)
+3. Session fallback Pass 2 (mémoire vive uniquement, après 503/404)
+4. Défauts compilés : Pass 1 `gemini-3.1-flash-lite` · Pass 2 `gemini-1.5-pro`
 
-**Verrou avant appel réseau** : `awaitGeminiSteeringBeforeNetworkCall()` ([geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts), [GeminiExpert.js](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js)) attend `ensureGeminiRemoteModelInitialized()` avec **timeout 2 s** → fast-path Debug / cache RC / défaut sans bloquer One-Tap.
+**Verrou avant appel réseau** : `awaitGeminiSteeringBeforeNetworkCall()` ([geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts), [GeminiExpert.js](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js)) attend `ensureGeminiRemoteModelInitialized()` avec **timeout 2 s** → fast-path Debug / défauts sans bloquer One-Tap.
 
-**Self-healing session** : sur HTTP **404** ou **503** (ou 400 « model not found »), `excludeGeminiModelForSession(modelId)` alimente `sessionBannedModels` ; les captures suivantes ignorent ce modèle (`getGeminiCandidateModelIds`). Le fallback réussi reste **en mémoire** (`setGeminiSessionFallbackModelId`) — **jamais** écrit dans `rc_model_cache`.
+**Self-healing session** : sur HTTP **404** ou **503** (ou 400 « model not found »), `excludeGeminiModelForSession(modelId)` alimente `sessionBannedModels` ; les appels Pass 2 ignorent ce modèle (`getGeminiCandidateModelIds`). Le fallback réussi reste **en mémoire** (`setGeminiSessionFallbackModelId`) — jamais persisté.
 
-**Foreground refresh** : [App.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx) écoute `AppState` (`background|inactive` → `active`) et lance `scheduleGeminiForegroundRemoteConfigRefresh()` (silencieux, non bloquant). Met à jour cache RC et modèle actif sauf override Debug ou modèle banni en session.
+**Foreground refresh** : [App.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx) écoute `AppState` (`background|inactive` → `active`) et lance `scheduleGeminiForegroundRemoteConfigRefresh()` (silencieux, non bloquant). Recharge Pass 1 / Pass 2 depuis RC sauf override Debug Pass 2 ou modèle banni en session.
 
-**Bootstrap** : `initializeGeminiEngine()` au cold start ([App.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx)) ; shortlist compilée appliquée seulement si `gemini_model_fallbacks` absent du RC.
+**Bootstrap** : `initializeGeminiEngine()` au cold start ([App.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx)) ; shortlist compilée appliquée à la chaîne Pass 2 seulement si `gemini_model_fallbacks` absent du RC. **Warmup proxy** : `warmGeminiProxySession()` préchauffe **Pass 1** (`getActivePass1ModelId()`).
 
 **Proxy serveur** : fallback `modelId` = `gemini-3.1-flash-lite` si body absent ([functions/src/index.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts)).
 
@@ -1948,7 +1946,7 @@ Variables d’environnement principales (Expo public) :
 
 ### IA (Gemini, via proxy)
 - **Stratégie long terme** : instructions système + charge utile minimale + pré‑warming + Context Caching Vertex lorsque disponible — voir **« ARCHITECTURE IA (Latence) »** plus haut dans ce document.
-- **Steering modèle** : Remote Config (`active_gemini_model`, `gemini_model_fallbacks`) + caches AsyncStorage + blacklist session — voir § **0.b) Steering modèle Gemini (RC)**.
+- **Steering modèle** : Remote Config (`gemini_pass1_model_id`, `gemini_pass2_model_id`, `gemini_model_fallbacks`) + override Debug Pass 2 + blacklist session — voir § **0.b) Steering modèle Gemini (RC)**.
 - Modèles : routés côté client (`getGeminiCandidateModelIds`) mais appelés uniquement via proxy ; défaut compilé `gemini-3.1-flash-lite`.
 - Client n’embarque pas de clé Gemini : la clé (`GEMINI_API_KEY`) reste côté serveur (Secret Manager)
 - Objectif : extraction structurée low‑latency en streaming (SSE)
