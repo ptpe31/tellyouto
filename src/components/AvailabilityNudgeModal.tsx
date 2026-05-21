@@ -1,3 +1,14 @@
+/**
+ * DEPRECATED — modale « 2 minutes disponibles » retirée du montage (`App.tsx`).
+ * Implémentation d’origine archivée dans `nettoyage-code-mort.md` (§1).
+ * Suppression définitive prévue après phase de debug.
+ */
+/** Stub : ne rien afficher. */
+export function AvailabilityNudgeModal() {
+  return null;
+}
+
+/* ========== IMPLÉMENTATION D’ORIGINE (commentée — ne pas décommenter sans remonter App.tsx) ==========
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
 import { Alert, AppState, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -56,7 +67,6 @@ export function AvailabilityNudgeModal() {
       const reward = getOptimalReward(stats);
       await recordBonusReaction(reward.bonusType, false);
     } catch {
-      /* ignore profiling failure on passive close */
     }
     await recordAppInteraction();
     setVisible(false);
@@ -79,53 +89,8 @@ export function AvailabilityNudgeModal() {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => void onLater()}>
-      <View style={styles.overlay}>
-        <View style={styles.card}>
-          <Text style={styles.title}>{STRINGS.nudges.availabilityTitle}</Text>
-          <Text style={styles.body}>
-            {task
-              ? localAffinity >= 0.72
-                ? `Mode rapide: "${task.title}" en 2 minutes.`
-                : STRINGS.nudges.availabilityBody(task.title)
-              : STRINGS.nudges.availabilityMissingTask}
-          </Text>
-          <View style={styles.actions}>
-            <Pressable style={[styles.btn, styles.btnSecondary]} onPress={() => void onLater()} disabled={working}>
-              <Text style={styles.btnSecondaryText}>{STRINGS.nudges.availabilitySecondary}</Text>
-            </Pressable>
-            <Pressable style={[styles.btn, styles.btnPrimary]} onPress={() => void onDoNow()} disabled={working || !task}>
-              <Text style={styles.btnPrimaryText}>{STRINGS.nudges.availabilityPrimary}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
+      ...
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15,23,42,0.38)',
-    paddingHorizontal: 18,
-  },
-  card: {
-    width: '100%',
-    borderRadius: 16,
-    backgroundColor: '#f8fafc',
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(45,111,112,0.22)',
-  },
-  title: { fontSize: 20, fontWeight: '800', color: '#0f766e' },
-  body: { marginTop: 8, fontSize: 15, lineHeight: 21, color: '#334155' },
-  actions: { marginTop: 14, flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
-  btn: { borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12 },
-  btnSecondary: { backgroundColor: '#e2e8f0' },
-  btnPrimary: { backgroundColor: '#008080' },
-  btnSecondaryText: { color: '#334155', fontWeight: '700' },
-  btnPrimaryText: { color: '#f8fafc', fontWeight: '700' },
-});
-
+========== */

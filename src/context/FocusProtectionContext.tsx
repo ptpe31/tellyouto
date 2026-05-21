@@ -2,7 +2,7 @@ import React, { createContext, useContext, useMemo, useState } from 'react';
 
 /**
  * Mode « Protection » : terrain préparé pour réduire les interruptions pendant une Capsule.
- * (Simulation côté notifications — brancher expo-notifications plus tard.)
+ * DEPRECATED côté effet : `useFocusProtection` n’est appelé nulle part (§12 nettoyage-code-mort.md).
  */
 type FocusProtectionContextValue = {
   isProtectionActive: boolean;

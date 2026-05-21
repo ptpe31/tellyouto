@@ -1,6 +1,6 @@
-import { analyzeLocally } from './Gatekeeper';
-import { transcribeWithWhisperLocal } from './WhisperAdapter';
-
+/**
+ * DEPRECATED — orchestration locale pré-OneTap (`TaskStrategy`). Voir `nettoyage-code-mort.md` §10.
+ */
 export type OrchestratorDecision = 'LOCAL' | 'COMPLEX';
 
 export type OrchestratorResult = {
@@ -14,62 +14,31 @@ export type OrchestratorResult = {
   wordCount: number;
 };
 
-type TranscriptionInput = {
+/** DEPRECATED */
+export async function transcribeStage(_input: {
   audioPath?: string | null;
   fallbackText?: string;
-};
-
-function looksComplexProject(text: string): boolean {
-  return /\b(projet|roadmap|milestone|plan global|strategie|strategy|multi[- ]step)\b/i.test(text);
+}): Promise<string> {
+  return String(_input.fallbackText ?? '').trim();
 }
 
-function hasClearEntities(confidence: number, schedule: Date | null, tags: string[], localType: string): boolean {
-  if (confidence >= 0.68) return true;
-  if (schedule) return true;
-  if (localType === 'HABIT') return true;
-  return tags.length > 0 && confidence >= 0.55;
-}
-
-export async function transcribeStage(input: TranscriptionInput): Promise<string> {
-  const whisperText =
-    input.audioPath && input.audioPath.trim()
-      ? await transcribeWithWhisperLocal(input.audioPath.trim())
-      : null;
-  const rawText = (whisperText ?? input.fallbackText ?? '').trim();
-  return rawText;
-}
-
-export async function runIntentOrchestration(params: {
+/** DEPRECATED — utiliser le pipeline OneTap (`IntentionContext` / `oneTapUniversalCapture`). */
+export async function runIntentOrchestration(_params: {
   audioPath?: string | null;
   fallbackText?: string;
   locale?: string;
 }): Promise<OrchestratorResult> {
-  const rawText = await transcribeStage({
-    audioPath: params.audioPath,
-    fallbackText: params.fallbackText,
-  });
-  const wordCount = rawText.split(/\s+/).filter(Boolean).length;
-  const local = await analyzeLocally(rawText, params.locale ?? 'fr');
-  const confidence = Number(local.structured?.confidence ?? 0);
-  const suggestedTags = local.structured?.suggestedTags?.length
-    ? local.structured.suggestedTags
-    : [];
-  const schedule = local.structured?.schedule ?? null;
-
-  const localClear = hasClearEntities(confidence, schedule, suggestedTags, local.localType);
-  const isShort = wordCount > 0 && wordCount < 15;
-  const complexByShape = looksComplexProject(rawText) || local.localType === 'NOTE';
-  const decision: OrchestratorDecision =
-    isShort && localClear && !complexByShape && !local.isExpertNeeded ? 'LOCAL' : 'COMPLEX';
-
+  const rawText = String(_params.fallbackText ?? '').trim();
   return {
     rawText,
-    decision,
-    localType: local.localType,
-    confidence,
-    suggestedTags,
-    schedule,
-    reason: local.reason,
-    wordCount,
+    decision: 'COMPLEX',
+    localType: 'TASK',
+    confidence: 0,
+    suggestedTags: [],
+    schedule: null,
+    reason: 'DEPRECATED orchestrator',
+    wordCount: rawText.split(/\s+/).filter(Boolean).length,
   };
 }
+
+/* Implémentation Gatekeeper + Whisper : voir git history */

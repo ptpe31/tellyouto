@@ -644,7 +644,7 @@
     "bannerLead": "Aviso suave:",
     "warnFirebase": "la sincronización en la nube aún no está configurada",
     "warnSqlite": "la base local no pasó la comprobación",
-    "warnNotifications": "las notificaciones están desactivadas — tu aliado no puede avisarte de nuevas intenciones",
+    "warnNotifications": "Notificaciones desactivadas. Actívalas en los ajustes para recibir tus nuevas intenciones en tiempo real.",
     "dismiss": "OK"
   },
   "safeExternal": {

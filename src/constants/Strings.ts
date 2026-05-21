@@ -181,6 +181,7 @@ export const STRINGS = {
     superBonusLocal:
       "Ton esprit est si clair que l'Expert peut se reposer. Voici un cadeau !",
   },
+  /* DEPRECATED — nudge disponibilité (voir nettoyage-code-mort.md §5)
   nudges: {
     availabilityTitle: '2 minutes disponibles ?',
     availabilityBody: (title: string) =>
@@ -191,6 +192,7 @@ export const STRINGS = {
     availabilityToastRescue: '+2 credits de secours accordes',
     availabilityToastBoost: '+1 boost fleur accorde',
   },
+  */
   ads: {
     cooldownActive: "On laisse respirer l'esprit avant une nouvelle video.",
     cleanNudge: "Besoin d'un coup de main pour nettoyer ?",
@@ -220,7 +222,7 @@ export const STRINGS = {
   },
   errors: {
     genericTitle: 'Un ajustement est necessaire',
-    availabilityApplyFailed: "Impossible d'appliquer le nudge de disponibilite.",
+    // DEPRECATED — nudge disponibilité : availabilityApplyFailed: "Impossible d'appliquer le nudge de disponibilite.",
     bonusApplyFailed: "Impossible d'appliquer le bonus.",
   },
   herbier: {

@@ -77,7 +77,9 @@ type TrafficSchedulerOptions = {
   onMonitoringSnapshot?: (snapshot: TrafficMonitoringSnapshot) => void;
 };
 
+// DEPRECATED - REPLACED BY NotificationService.ts (TrafficScheduler legacy — debug uniquement)
 const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
+  // DEPRECATED - REPLACED BY NotificationService.ts
   async askSurveillanceActivation(task) {
     const n = getNotifications();
     if (!n) return;
@@ -90,31 +92,15 @@ const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
       trigger: null,
     });
   },
-  async notifySurveillanceReminder(task) {
-    const n = getNotifications();
-    if (!n) return;
-    await n.scheduleNotificationAsync({
-      content: {
-        title: 'Surveillance active',
-        body: `Surveillance en cours vers ${task.destination}.`,
-        data: { kind: 'traffic_surveillance_reminder', tripTaskId: task.id },
-      },
-      trigger: null,
-    });
+  // DEPRECATED §7 — jamais appelé
+  async notifySurveillanceReminder(_task) {
+    void _task;
   },
-  async triggerTopDepart(task) {
-    const n = getNotifications();
-    if (!n) return;
-    await n.scheduleNotificationAsync({
-      content: {
-        title: 'TOP DEPART',
-        body: `C'est le moment de partir pour ${task.destination}.`,
-        sound: 'default',
-        data: { kind: 'traffic_top_depart', tripTaskId: task.id },
-      },
-      trigger: null,
-    });
+  // DEPRECATED §7 — jamais appelé (remplacé par departure_signal_a)
+  async triggerTopDepart(_task) {
+    void _task;
   },
+  // DEPRECATED - REPLACED BY NotificationService.ts
   async notifyVigilanceOrange(task) {
     const n = getNotifications();
     if (!n) return;
@@ -127,6 +113,7 @@ const DEFAULT_NOTIFICATION_SERVICE: TrafficNotificationService = {
       trigger: null,
     });
   },
+  // DEPRECATED - REPLACED BY NotificationService.ts
   async notifyVigilanceRed(task) {
     const n = getNotifications();
     if (!n) return;

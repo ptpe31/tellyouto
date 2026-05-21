@@ -8,8 +8,7 @@
  */
 import Constants from 'expo-constants';
 
-import i18n from '../locales/i18n';
-import { getTrankilV2UserStats } from '../api/trankilV2Db';
+/* DEPRECATED notif helpers : i18n + getTrankilV2UserStats retirés tant que §6–§8 commentés */
 
 /**
  * Dans Expo Go (SDK 53+), le module notifications est limité et log ERROR/WARN au chargement.
@@ -75,38 +74,35 @@ export async function ensureNotificationPermissions(): Promise<boolean> {
   return status === 'granted';
 }
 
-/** Notification locale quand une intention arrive via connecteur externe (webhook simulé). */
-export async function notifyExternalIntentionCaptured(
-  intentionTitle: string,
-): Promise<void> {
+/** DEPRECATED — jamais branché. Voir `nettoyage-code-mort.md` §6. */
+export async function notifyExternalIntentionCaptured(_intentionTitle: string): Promise<void> {
+  void _intentionTitle;
+}
+
+/* notifyExternalIntentionCaptured — original :
+export async function notifyExternalIntentionCaptured(intentionTitle: string): Promise<void> {
   const n = getNotifications();
   if (!n) return;
-  try {
-    const stats = await getTrankilV2UserStats();
-    void stats;
-  } catch {
-    /* ignore quiet mode read failures */
-  }
   await n.scheduleNotificationAsync({
     content: {
       title: i18n.t('notifications.externalIntentionTitle'),
-      body: i18n.t('notifications.externalIntentionBody', {
-        title: intentionTitle,
-      }),
+      body: i18n.t('notifications.externalIntentionBody', { title: intentionTitle }),
     },
     trigger: null,
   });
 }
+*/
 
+/** DEPRECATED — `EveningStarModal` retiré de App.tsx. Voir `nettoyage-code-mort.md` §8. */
+export async function notifyChargingEveningPrompt(_body: string): Promise<void> {
+  void _body;
+}
+
+/* notifyChargingEveningPrompt — original :
 export async function notifyChargingEveningPrompt(body: string): Promise<void> {
   const n = getNotifications();
   if (!n) return;
-  await n.scheduleNotificationAsync({
-    content: {
-      title: 'Trankil',
-      body,
-    },
-    trigger: null,
-  });
+  await n.scheduleNotificationAsync({ content: { title: 'Trankil', body }, trigger: null });
 }
+*/
 

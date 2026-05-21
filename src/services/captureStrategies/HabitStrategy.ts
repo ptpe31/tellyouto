@@ -1,3 +1,4 @@
+/** DEPRECATED — stratégie pré-OneTap, non exportée. Voir `nettoyage-code-mort.md` §10. */
 import { finalizeOfflineFirstHabitFromShell, insertTrankilV2Intention } from '../../api/trankilV2Db';
 import type { GeminiAnniversaryDetails, GeminiHabitRecurrence } from '../GeminiExpert';
 import { extractAnniversaryDetails, extractHabitRecurrence } from '../GeminiExpert';

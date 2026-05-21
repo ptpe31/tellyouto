@@ -8,7 +8,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
-import { getNotifications } from './notifications';
 import { analyzeLocally } from './Gatekeeper';
 
 const CAPTURE_PROCESSING_TASK = 'TALKNDONE_CAPTURE_PROCESSING_TASK';
@@ -21,8 +20,6 @@ type PendingCaptureJob = {
   locale: string;
   createdAt: number;
 };
-
-let activeNotificationId: string | null = null;
 
 if (!TaskManager.isTaskDefined(CAPTURE_PROCESSING_TASK)) {
   TaskManager.defineTask(CAPTURE_PROCESSING_TASK, async () => {
@@ -59,22 +56,16 @@ async function writeQueue(queue: PendingCaptureJob[]): Promise<void> {
   await AsyncStorage.setItem(CAPTURE_QUEUE_KEY, JSON.stringify(queue));
 }
 
-/** Ajoute un job à `talkndone.capture.processing.queue` (traitement ultérieur par la tâche BackgroundFetch). */
+/** DEPRECATED — jamais appelé (queue AsyncStorage vide). Voir `nettoyage-code-mort.md` §9. */
 export async function enqueueCaptureProcessingJob(
-  transcript: string,
-  locale: string,
+  _transcript: string,
+  _locale: string,
 ): Promise<void> {
-  const trimmed = transcript.trim();
-  if (!trimmed) return;
-  const queue = await readQueue();
-  queue.push({
-    id: `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    transcript: trimmed,
-    locale: locale || 'fr',
-    createdAt: Date.now(),
-  });
-  await writeQueue(queue);
+  void _transcript;
+  void _locale;
 }
+
+/* enqueueCaptureProcessingJob — original : push sur CAPTURE_QUEUE_KEY */
 
 /** Enregistre la tâche `TALKNDONE_CAPTURE_PROCESSING_TASK` si BackgroundFetch est autorisé. */
 export async function configureCaptureBackgroundTask(): Promise<void> {
@@ -98,65 +89,18 @@ export async function configureCaptureBackgroundTask(): Promise<void> {
   }
 }
 
-async function ensureCaptureChannel(): Promise<void> {
-  const notifications = getNotifications();
-  if (!notifications || Platform.OS !== 'android') return;
-  await notifications.setNotificationChannelAsync(CAPTURE_CHANNEL_ID, {
-    name: 'Traitement capture',
-    importance: notifications.AndroidImportance.LOW,
-    lockscreenVisibility: notifications.AndroidNotificationVisibility.PRIVATE,
-    vibrationPattern: [0],
-    showBadge: false,
-    sound: null,
-  });
-}
+/* ensureCaptureChannel — DEPRECATED §9 nettoyage-code-mort.md */
 
-/**
- * Android : notification persistante pour inciter à laisser l’app active pendant analyse locale / vocal.
- */
+/** DEPRECATED — jamais appelé. Voir `nettoyage-code-mort.md` §9. */
 export async function startCaptureProcessingForeground(
-  context: 'quick' | 'deep' = 'quick',
+  _context: 'quick' | 'deep' = 'quick',
 ): Promise<void> {
-  const notifications = getNotifications();
-  if (!notifications) return;
-  try {
-    await ensureCaptureChannel();
-    const id = await notifications.scheduleNotificationAsync({
-      content: {
-        title: 'TalkNDone actif',
-        body:
-          context === 'deep'
-            ? 'Traitement vocal en cours, reste actif en arrière-plan.'
-            : 'Analyse locale en cours, reste actif en arrière-plan.',
-        sticky: true,
-        autoDismiss: false,
-        priority: notifications.AndroidNotificationPriority.MAX,
-        data: { kind: 'capture_processing' },
-      },
-      trigger: null,
-    });
-    activeNotificationId = id;
-  } catch (error) {
-    console.warn('[CaptureProcessingService] start foreground notification failed', error);
-  }
+  void _context;
 }
 
-/** Retire la notification sticky de traitement capture (id connu ou recherche par `data.kind`). */
+/** DEPRECATED — jamais appelé. Voir `nettoyage-code-mort.md` §9. */
 export async function stopCaptureProcessingForeground(): Promise<void> {
-  const notifications = getNotifications();
-  if (!notifications) return;
-  try {
-    if (activeNotificationId) {
-      await notifications.dismissNotificationAsync(activeNotificationId);
-      activeNotificationId = null;
-      return;
-    }
-    const presented = await notifications.getPresentedNotificationsAsync();
-    const matching = presented.find((n) => n.request.content.data?.kind === 'capture_processing');
-    if (matching) {
-      await notifications.dismissNotificationAsync(matching.request.identifier);
-    }
-  } catch (error) {
-    console.warn('[CaptureProcessingService] stop foreground notification failed', error);
-  }
+  /* no-op */
 }
+
+/* startCaptureProcessingForeground / stopCaptureProcessingForeground — originals in git / §9 doc */

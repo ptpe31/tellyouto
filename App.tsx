@@ -8,7 +8,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTheme } from 'react-native-paper';
 
 import { bootstrapTrankilV2Database, cleanOldArchives } from './src/api';
-import { AvailabilityNudgeModal } from './src/components/AvailabilityNudgeModal';
+// DEPRECATED — nudge « 2 minutes disponibles » retiré (voir nettoyage-code-mort.md)
+// import { AvailabilityNudgeModal } from './src/components/AvailabilityNudgeModal';
 // TODO: supprimer ce commentaire + réactiver l’import quand la modale « Rituel des étoiles » sera retirée ou réécrite.
 // import { EveningStarModal } from './src/components/EveningStarModal';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
@@ -31,7 +32,8 @@ import { UserSpectrumProvider } from './src/context/UserSpectrumContext';
 import { appLinking } from './src/navigation/linking';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { rootNavigationRef } from './src/navigation/rootNavigationRef';
-import { recordAppInteraction } from './src/services/AvailabilityTimer';
+// DEPRECATED — voir nettoyage-code-mort.md
+// import { recordAppInteraction } from './src/services/AvailabilityTimer';
 import { configureCaptureBackgroundTask } from './src/services/CaptureProcessingService';
 import { initializeGeminiEngine } from './src/services/initializeGeminiEngine';
 import { scheduleGeminiForegroundRemoteConfigRefresh } from './src/services/geminiRemoteModelSteering';
@@ -115,12 +117,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <View
-          style={{ flex: 1 }}
-          onTouchStart={() => {
-            void recordAppInteraction();
-          }}
-        >
+        <View style={{ flex: 1 }}>
           <ErrorBoundary>
             <ThemeProvider>
               <LanguageProvider>
@@ -138,7 +135,7 @@ export default function App() {
                               <MorningDewModal />
                               {/* TODO: supprimer ce bloc commenté + réimporter EveningStarModal si la modale « Rituel des étoiles » revient. */}
                               {/* <EveningStarModal /> */}
-                              <AvailabilityNudgeModal />
+                              {/* DEPRECATED: AvailabilityNudgeModal — nettoyage-code-mort.md */}
                               <IntentionProvider>
                                 <AppNavigation />
                               </IntentionProvider>

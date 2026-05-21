@@ -631,7 +631,7 @@
     "bannerLead": "温馨提示：",
     "warnFirebase": "尚未配置云端同步",
     "warnSqlite": "本地数据库检查未通过",
-    "warnNotifications": "通知已关闭 — 盟友无法提醒新意图",
+    "warnNotifications": "通知已关闭。请在设置中开启，以实时接收新意图。",
     "dismiss": "好"
   },
   "safeExternal": {

@@ -3147,59 +3147,48 @@ export async function archiveIntention(id: string): Promise<void> {
   await updateTrankilV2IntentionArchiveState(id, true);
 }
 
+/** DEPRECATED — nudge disponibilité retiré. Voir `nettoyage-code-mort.md` (§3). */
+export async function pickAvailabilityTask(): Promise<TrankilV2IntentionRow | null> {
+  return null;
+}
+
+/* pickAvailabilityTask — implémentation d’origine :
 export async function pickAvailabilityTask(): Promise<TrankilV2IntentionRow | null> {
   await initTrankilV2Schema();
   const db = await getDb();
   const row = await db.getFirstAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions
-     WHERE status = 'TODO'
-       AND type = 'TASK'
-       AND (
-         LOWER(title) LIKE '%2 min%'
-         OR LOWER(metadata_json) LIKE '%2 min%'
-         OR LOWER(metadata_json) LIKE '%simple_task%'
-       )
-     ORDER BY created_at ASC
-     LIMIT 1`,
+    `SELECT * FROM intentions WHERE status = 'TODO' AND type = 'TASK'
+     AND (LOWER(title) LIKE '%2 min%' OR LOWER(metadata_json) LIKE '%2 min%'
+          OR LOWER(metadata_json) LIKE '%simple_task%')
+     ORDER BY created_at ASC LIMIT 1`,
   );
   if (row) return row;
   return db.getFirstAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions
-     WHERE status = 'TODO'
-       AND type = 'TASK'
-     ORDER BY created_at ASC
-     LIMIT 1`,
+    `SELECT * FROM intentions WHERE status = 'TODO' AND type = 'TASK'
+     ORDER BY created_at ASC LIMIT 1`,
   );
 }
+*/
 
+/** DEPRECATED — jamais appelé en prod ; doublon de BonusEngine. Voir `nettoyage-code-mort.md` (§3). */
 export async function applyAvailabilityReward(): Promise<{
   ia_credits: number;
   zen_points: number;
   rewardType: 'rescue_credit' | 'zen_points';
 }> {
-  await initTrankilV2Schema();
-  const db = await getDb();
   const current = await getTrankilV2UserStats();
-  if (current.ia_credits <= 0) {
-    const nextCredits = current.ia_credits + 2;
-  await db.runAsync(`UPDATE user_stats SET ia_credits = ? WHERE id = 1`, [nextCredits]);
-    return {
-      ia_credits: nextCredits,
-      zen_points: current.zen_points,
-      rewardType: 'rescue_credit',
-    };
-  }
-  const nextPoints = current.zen_points + 5;
-  await db.runAsync(`UPDATE user_stats SET zen_points = ?, growth_score = ? WHERE id = 1`, [
-    nextPoints,
-    nextPoints,
-  ]);
   return {
     ia_credits: current.ia_credits,
-    zen_points: nextPoints,
+    zen_points: current.zen_points,
     rewardType: 'zen_points',
   };
 }
+
+/* applyAvailabilityReward — implémentation d’origine :
+export async function applyAvailabilityReward(): Promise<{ ... }> {
+  // +2 ia_credits si reservoir vide, sinon +5 zen_points
+}
+*/
 
 const GROWTH_MIN = 0;
 const GROWTH_MAX = 999999;

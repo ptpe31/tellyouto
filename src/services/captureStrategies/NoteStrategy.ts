@@ -1,3 +1,4 @@
+/** DEPRECATED — stratégie pré-OneTap, non exportée. Voir `nettoyage-code-mort.md` §10. */
 import { insertTrankilV2Intention } from '../../api/trankilV2Db';
 import type { CaptureChooseActionResult, CaptureStrategyDeps } from './types';
 

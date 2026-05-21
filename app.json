@@ -17,14 +17,22 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "La position est utilisée pour estimer le temps de trajet et afficher une fenêtre de départ sereine.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Surveillance du trafic en temps réel pour optimiser l'horaire de départ vers vos rendez-vous. La position n'est utilisée que pendant une mission trajet active.",
         "LSApplicationQueriesSchemes": [
-          "waze",
-          "comgooglemaps",
           "waze",
           "comgooglemaps"
         ],
         "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
-        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone."
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone.",
+        "UIBackgroundModes": [
+          "location",
+          "remote-notification",
+          "fetch",
+          "processing"
+        ]
+      },
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
       },
       "bundleIdentifier": "com.trankil.talkndone"
     },
@@ -37,7 +45,13 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "android.permission.RECORD_AUDIO"
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.SCHEDULE_EXACT_ALARM"
       ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -48,7 +62,26 @@
     "plugins": [
       "expo-dev-client",
       "expo-speech-recognition",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "La position est utilisée pour estimer le temps de trajet et afficher une fenêtre de départ sereine.",
+          "locationAlwaysAndWhenInUsePermission": "Surveillance du trafic en temps réel pour optimiser l'horaire de départ vers vos rendez-vous.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#ffffff",
+          "defaultChannel": "departure_contract_signals",
+          "enableBackgroundRemoteNotifications": true,
+          "mode": "development"
+        }
+      ]
     ]
   }
 }

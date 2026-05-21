@@ -1,3 +1,4 @@
+/** DEPRECATED — jamais importé. Voir `nettoyage-code-mort.md` §10. */
 import { Alert } from 'react-native';
 
 import { showAppToast } from '../appToast';
@@ -20,6 +21,10 @@ export async function handleCaptureFlowError(
   error: unknown,
   ctx: CaptureErrorHandlerContext,
 ): Promise<void> {
+  void error;
+  void ctx;
+  return;
+  /* corps original ci-dessous — inaccessible
   if (ctx.refundPendingCaptureCredit) {
     await ctx.refundPendingCaptureCredit();
   }
@@ -46,4 +51,5 @@ export async function handleCaptureFlowError(
     (ctx.fallbackMessageKey ? ctx.translate(ctx.fallbackMessageKey) : '') ||
     ctx.translate('tabs.debug');
   Alert.alert(title, message);
+  */
 }

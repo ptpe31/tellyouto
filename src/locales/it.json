@@ -644,7 +644,7 @@
     "bannerLead": "Nota gentile:",
     "warnFirebase": "la sincronizzazione cloud non è ancora configurata",
     "warnSqlite": "il controllo del database locale non è riuscito",
-    "warnNotifications": "le notifiche sono disattivate — l’alleato non può avvisarti sulle nuove intenzioni",
+    "warnNotifications": "Notifiche disattivate. Attivale nelle impostazioni per ricevere le nuove intenzioni in tempo reale.",
     "dismiss": "OK"
   },
   "safeExternal": {

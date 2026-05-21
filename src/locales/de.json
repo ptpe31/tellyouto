@@ -631,7 +631,7 @@
     "bannerLead": "Hinweis:",
     "warnFirebase": "Cloud-Sync ist noch nicht eingerichtet",
     "warnSqlite": "Lokale Datenbankprüfung fehlgeschlagen",
-    "warnNotifications": "Benachrichtigungen sind aus — dein Ally kann nicht auf neue Intentionen hinweisen",
+    "warnNotifications": "Benachrichtigungen deaktiviert. Aktiviere sie in den Einstellungen, um neue Intentionen in Echtzeit zu erhalten.",
     "dismiss": "OK"
   },
   "safeExternal": {

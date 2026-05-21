@@ -631,7 +631,7 @@
     "bannerLead": "お知らせ：",
     "warnFirebase": "クラウド同期がまだ設定されていません",
     "warnSqlite": "ローカルDBの確認に失敗しました",
-    "warnNotifications": "通知がオフです — 新しい意図のお知らせが届きません",
+    "warnNotifications": "通知がオフになっています。設定で有効にすると、新しい意図をリアルタイムで受け取れます。",
     "dismiss": "OK"
   },
   "safeExternal": {

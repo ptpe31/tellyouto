@@ -264,45 +264,14 @@ export async function requestAlarmPermissionIfNeeded(): Promise<boolean> {
 const DEBUG_AGENT_DIRECT_NOTIFICATION_ID = 'tellyouto_debug_agent_direct_alarm';
 
 /**
- * Écran Debug uniquement : planifie une notification native dans 10 minutes (même canal /
- * priorité que les alarmes rail), sans lecture ni écriture SQLite.
+ * DEPRECATED — aucun écran Debug ne l’appelle. Voir `nettoyage-code-mort.md` §11.
+ * Réactiver depuis l’historique git si besoin de test alarme native.
  */
 export async function scheduleDebugAgentDirectAlarmIn10Minutes(): Promise<string> {
-  const n = getNotifications();
-  if (!n) {
-    throw new Error(
-      'expo-notifications indisponible (Expo Go ou module absent — utiliser un dev build).',
-    );
-  }
-  const permitted = await requestAlarmPermissionIfNeeded();
-  if (!permitted) {
-    throw new Error(
-      'Permission notifications refusée ou non accordée (réglages système).',
-    );
-  }
-  const now = new Date();
-  const when = new Date(now.getTime() + 10 * 60 * 1000);
-  if (when.getTime() <= now.getTime() + 10_000) {
-    throw new Error('Date de déclenchement trop proche.');
-  }
-  try {
-    await n.cancelScheduledNotificationAsync(DEBUG_AGENT_DIRECT_NOTIFICATION_ID);
-  } catch {
-    /* aucune planification précédente */
-  }
-  const scheduledId = await scheduleRailStyleDateNotification(n, {
-    identifier: DEBUG_AGENT_DIRECT_NOTIFICATION_ID,
-    title: '🚨 TEST AGENT DIRECT',
-    when,
-    data: { kind: 'debug_agent_direct' },
-  });
-  if (__DEV__) {
-    console.log(
-      '[Debug-Agent] Ordre de planification envoyé pour dans 10 minutes.',
-    );
-  }
-  return scheduledId;
+  throw new Error('DEPRECATED: scheduleDebugAgentDirectAlarmIn10Minutes — voir nettoyage-code-mort.md §11');
 }
+
+/* scheduleDebugAgentDirectAlarmIn10Minutes — implémentation d’origine conservée dans git */
 
 async function persistScheduledId(intentionId: string, scheduledId: string): Promise<void> {
   await updateTrankilV2IntentionAlarmFields(intentionId, {
@@ -522,30 +491,17 @@ function guessReminderDateMs(row: TrankilV2IntentionRow): number | null {
   return null;
 }
 
+/** DEPRECATED — seul appelant : `postCaptureEffects` (§10). Voir `nettoyage-code-mort.md` §11. */
 export async function scheduleTrankilV2IntentionAlarmById(
-  intentionId: string,
+  _intentionId: string,
 ): Promise<{ ok: boolean; notificationId: string | null }> {
-  const row = await getTrankilV2IntentionById(intentionId);
-  if (!row) return { ok: false, notificationId: null };
-  const remindAt = guessReminderDateMs(row);
-  if (!remindAt) return { ok: false, notificationId: null };
-  await updateTrankilV2IntentionAlarmFields(intentionId, {
-    alarm_enabled: 1,
-    remind_at: remindAt,
-  });
-  const fresh = await getTrankilV2IntentionById(intentionId);
-  if (!fresh) return { ok: false, notificationId: null };
-  await scheduleIntentionRailAlarmAtDate(fresh, new Date(remindAt), new Date());
-  const synced = await getTrankilV2IntentionById(intentionId);
-  return { ok: true, notificationId: synced?.local_notification_id ?? null };
+  void _intentionId;
+  return { ok: false, notificationId: null };
 }
 
-export async function disableTrankilV2IntentionAlarmById(
-  intentionId: string,
-): Promise<void> {
-  await cancelIntentionRailAlarm(intentionId);
-  await updateTrankilV2IntentionAlarmFields(intentionId, {
-    alarm_enabled: 0,
-    local_notification_id: null,
-  });
+/** DEPRECATED — seul appelant : `postCaptureEffects` (§10). */
+export async function disableTrankilV2IntentionAlarmById(_intentionId: string): Promise<void> {
+  void _intentionId;
 }
+
+/* scheduleTrankilV2IntentionAlarmById / disableTrankilV2IntentionAlarmById — voir git */

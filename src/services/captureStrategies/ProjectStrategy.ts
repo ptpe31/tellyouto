@@ -1,3 +1,4 @@
+/** DEPRECATED — stratégie pré-OneTap, non exportée. Voir `nettoyage-code-mort.md` §10. */
 import type { GeminiExpertIntention } from '../GeminiExpert';
 import { atomizeProject } from '../GeminiExpert';
 import { safeParseGeminiExpertRows } from '../geminiResponseGuards';

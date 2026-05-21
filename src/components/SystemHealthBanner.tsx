@@ -19,7 +19,11 @@ export function SystemHealthBanner() {
     (async () => {
       const r = await runStartupHealthCheck();
       if (cancelled || r.warnings.length === 0) return;
-      const parts = r.warnings.map((k) => t(k));
+      const parts = r.warnings.map((k) =>
+        k === 'health.warnNotifications'
+          ? t(k)
+          : `${t('health.bannerLead')} ${t(k)}`.trim(),
+      );
       setMessage(parts.join(' · '));
       setVisible(true);
     })();
@@ -44,7 +48,7 @@ export function SystemHealthBanner() {
           },
         ]}
       >
-        {t('health.bannerLead')} {message}
+        {message}
       </Banner>
     </View>
   );
