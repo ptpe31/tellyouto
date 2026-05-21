@@ -46,7 +46,7 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 | Clé | Rôle |
 |-----|------|
 | `gemini_pass1_model_id` | Modèle Pass 1 (extraction / capture One-Tap, warmup proxy) — défaut `gemini-3.1-flash-lite` |
-| `gemini_pass2_model_id` | Modèle Pass 2 / Pass 3 / Expert / lab (raisonnement) — défaut `gemini-1.5-pro` |
+| `gemini_pass2_model_id` | Modèle Pass 2 / Pass 3 / Expert / lab (raisonnement) — défaut `gemini-pro-latest` |
 | `gemini_model_fallbacks` | CSV optionnel remplaçant la shortlist compilée pour la chaîne Pass 2 (ex. `gemini-pro-latest,gemini-3.1-flash-lite`) |
 | `prompt_pass3_synth_v1` | Template system Pass 3 (Feuille de route) |
 
@@ -55,7 +55,11 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 1. Override Debug (`debug_override_model`, AsyncStorage, TTL 24 h) — prioritaire sur **Pass 2**
 2. RC réseau (`fetchAndActivate` **OK**) → `gemini_pass1_model_id` + `gemini_pass2_model_id` (repli `defaultConfig` si fetch échoué)
 3. Session fallback Pass 2 (mémoire vive uniquement, après 503/404)
-4. Défauts compilés : Pass 1 `gemini-3.1-flash-lite` · Pass 2 `gemini-1.5-pro`
+4. Défauts compilés : Pass 1 `gemini-3.1-flash-lite` · Pass 2 `gemini-pro-latest`
+
+**Diagnostic RC (`__DEV__`)** : [`getRemoteConfigEntry`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) expose `value` + `source` (`remote` | `default` | `static`). Logs `[GEMINI-RC]` au boot, après `fetchAndActivate` (OK/ÉCHEC + message), et avant Pass 2 via [`logPass2ModelSteeringDiagnostics`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) (`effective`, `rcActivated`, `rcPass2Source`, `compiledDefault`, hint si fetch réseau absent). [`ensureFreshPassModelsFromRemoteConfig`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) re-tente un fetch si Pass 2 n’est pas encore sourcé depuis le réseau.
+
+**Limitation connue (React Native / Hermes)** : le SDK Firebase Remote Config peut échouer sur `fetchAndActivate` (`Cannot read property 'open' of undefined` — IndexedDB). Dans ce cas, l’app retombe sur `defaultConfig` compilé ; la console Firebase ne pilote le modèle qu’après correction du fetch RC (guard [`firebaseIndexedDbGuard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/firebaseIndexedDbGuard.ts) + import side-effect dans `firebaseRemoteConfig.ts`).
 
 **Verrou avant appel réseau** : `awaitGeminiSteeringBeforeNetworkCall()` ([geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts), [GeminiExpert.js](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js)) attend `ensureGeminiRemoteModelInitialized()` avec **timeout 2 s** → fast-path Debug / défauts sans bloquer One-Tap.
 
@@ -155,8 +159,8 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 - Fusion réelle Path B → Path A :
   - fusion d’une liste d’intents dans le squelette : [mergeIntentArrayIntoOneTapSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L747-L850)
   - titre affichable (strict) : le titre final est `CONTENT` (nettoyé par l’IA via prompt) et ne subit pas de post-processing lexical/regex côté client (seulement trim/majuscule).
-  - normalisation temporelle (dueDateTime ISO, recurrence null si vide, logisticsPotential) : [normalizeUniversalTemporalInData](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L165-L220).
-  - Top-Down Sync (Gemini patron) : si Path B met à jour `dueDateTime` (ou `arrivalDue`), le client doit recalculer et écraser `dueDateYmd` + `dueTimeHm` à partir du timestamp ISO afin d’éviter toute divergence avec les heuristiques Path A (chrono-node).
+  - normalisation temporelle (dueDateTime ISO, recurrence null si vide, logisticsPotential) : [normalizeUniversalTemporalInData](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L165-L220) + [`parsePass1DueDateTime`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/pass1DueDateParse.ts) (Hermes-safe, `timeMarker`).
+  - Top-Down Sync (Gemini patron) : si Path B met à jour `dueDateTime` (ou `arrivalDue`), le client recalcule `dueDateYmd` + `dueTimeHm` + `timeMarker` via `parsePass1DueDateTime` (pas de `new Date(iso)` naïf sur chaînes à espace) afin d’éviter toute divergence avec les heuristiques Path A (chrono-node).
 - Si aucune intention n’est extraite : le brouillon final reste le squelette Path A (pas de NOTE_FALLBACK à ce stade), avec logs debug éventuels : [refineOneTapWithGeminiCompressed](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L1236-L1378).
 
 2) Douane de persistance (côté DB) — [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L893-L1281)
@@ -1091,7 +1095,9 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 ### Pass 2 — Enrichissement (LIST / PROJECT)
 
 - **Déclenchement** : **uniquement** après persistance **`metadata_json.pass2_unlocked === true`** (consentement PRO) **et** action utilisateur sur le CTA Pass 2 — **interdit** : lancer `geminiEnrichGenericList` / Pass 2 **immédiatement** ou **automatiquement** après Pass 1, même si `TYPE === LIST` ou `TYPE === PROJECT`.
-- **Architecture cible** : appels Pass 2 **à la demande** via **modèle + `systemInstruction` dédiée** déjà configurés côté **Firebase / proxy** (corps utilisateur minimal : intention / contexte issus de la row, pas les blocs de règles) — objectif **réponse utile en moins de 3 secondes** (à instrumenter : P95 ou médiane selon produit). Voir **« ARCHITECTURE IA (Latence) »** (§ Pass 2).
+- **Implémentation actuelle (mai 2026)** : [`geminiEnrichGenericList`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) — prompt **inline** (règles + `Transcription:` dans le corps user, **sans** `systemInstruction` proxy) ; modèle `getActivePass2ModelId()` ; `generationConfig` : **`temperature: 0.18`**, **`maxOutputTokens: 2048`** (régression corrigée : la valeur `1536` tronquait les listes longues). Re-fetch RC + logs steering avant l’appel.
+- **Parsing réponse** : [`parseGeminiListInventoryJson`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/listIntentionModel.ts) / [`parseGeminiProjectMilestonesJson`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectMilestonesModel.ts) — strip fences markdown puis isolation JSON entre première `{` et dernière `}` avant `JSON.parse` (même stratégie que Pass 1).
+- **Architecture cible (migration future)** : déplacer les règles Pass 2 en **`systemInstruction`** côté proxy Firebase (corps user minimal) — voir **« ARCHITECTURE IA (Latence) »**.
 - **UI feedback** : après Pass 1, l’intention est visible en base **sans** état d’enrichissement forcé ; **`is_generating` / `list_enrich_status='pending'`** s’appliquent **uniquement** pendant l’appel Pass 2 déclenché par l’utilisateur.
 - Sorties attendues :
   - `LIST` : JSON strict conforme au schéma `list_scalable_v1` (inventaire).
@@ -1106,7 +1112,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 ### Prompt Système Gemini (Pass 2)
 
-> **Déploiement** : le texte ci‑dessous est la **référence fonctionnelle** du contenu à porter en **`systemInstruction`** côté Firebase / proxy pour les appels Pass 2 **à la demande** (pas dans le corps utilisateur répété).
+> **Déploiement actuel** : le texte ci‑dessous est embarqué tel quel dans [`PASS2_LIST_INLINE_PROMPT`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) / [`PASS2_PROJECT_INLINE_PROMPT`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) avec la **`Transcription:`** injectée dans le même message user. **Cible migration** : porter ce contenu en **`systemInstruction`** côté Firebase / proxy (corps user = transcript seul).
 
 #### Prompt LIST (inventaire scalable)
 
@@ -1172,7 +1178,7 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 - **Pass 2 hors capture automatique** : **aucune** chaîne « Pass 1 terminé → lancer Pass 2 ». Le Pass 2 n’est invoqué **qu’après** **`pass2_unlocked: true`** (et action utilisateur). Côté transport, l’app n’envoie **pas** les blocs de règles Pass 2 : **uniquement** des données minimales (identifiant intention, transcript ou mémo déjà stocké, sortie Pass 1 persistée si nécessaire) ; les **règles** restent en **`systemInstruction`** sur le **proxy Firebase**.
 - **Pass 2 à la demande — SLA latence** : même déclenché **plus tard** (réouverture fiche, longtemps après Pass 1), l’appel doit réutiliser la **même architecture** (modèle + SI dédiée côté Firebase) et viser une **réponse exploitable en moins de 3 secondes** (charge utile courte, pas de re‑injection des prompts longs côté client).
 
-> **État actuel (pont)** : le bloc contractuel Pass 1 est encore assemblé dans [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) (`intentionFlow` côté UI = hook `useOptionalIntentionContext()`, pas un fichier de prompts). La migration consiste à **déplacer** ce contenu vers les SI déployées avec le proxy.
+> **État actuel (pont)** : Pass 1 — bloc contractuel assemblé dans [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) (`systemInstruction` + user compact `NOW` / `SEED` / `INPUT`). Pass 2 LIST/PROJECT — prompt inline dans [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) (restauré mai 2026 après régression `maxOutputTokens: 1536` + split system/user). La migration consiste à **déplacer** ces blocs vers les SI déployées avec le proxy.
 
 ### Protocole de pré‑warming (session Gemini)
 
@@ -1190,8 +1196,9 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 ### 2) Pass 2 — Logistique, entités et enrichissements (à la demande)
 
 - **Garde produit** : le Pass 2 ne part **jamais** seul après Pass 1 ; il est **strictement conditionné** à **`pass2_unlocked: true`** + action utilisateur (détail dans § OneTap LIST/PROJECT et Douane de persistance).
-- **System instruction dédiée (proxy / Firebase)** : toute la logique d’**extraction / structuration fine** (adresses et lieux, alertes / rappels complexes, notes structurées, champs trajet, règles JSON LIST / PROJECT, etc.) vit dans une **seconde** `systemInstruction` (ou jeux SI par mode `LIST` | `PROJECT` | `TRIP` si nécessaire), **déjà déployée** avec le proxy pour garantir des appels **courts** et une latence cible **en moins de 3 secondes** jusqu’à réponse utile.
-- **Corps utilisateur (client → proxy)** : **pas** de blocs de règles ; uniquement le **minimum** pour contextualiser l’intention à enrichir (ex. id, transcript / mémo, champs Pass 1 déjà persistés).
+- **Paramètres validés (LIST/PROJECT, mai 2026)** : `temperature: 0.18`, `maxOutputTokens: 2048`, pas de `responseMimeType` forcé (le JSON mode natif + plafond `1536` avait provoqué des troncatures `Unexpected end of input` sur listes recette).
+- **System instruction dédiée (cible proxy / Firebase)** : toute la logique d’**extraction / structuration fine** (règles JSON LIST / PROJECT, etc.) doit migrer vers une **seconde** `systemInstruction` côté serveur ; **aujourd’hui** le prompt complet reste inline côté client (voir § *Prompt Système Gemini (Pass 2)*).
+- **Corps utilisateur (cible)** : transcript seul ; **aujourd’hui** : règles + `Transcription:` dans un seul message user.
 #### Parallélisation réservée (`Promise.all`)
 
 - La parallélisation **ne s’applique que** si (a) l’utilisateur dispose d’un bouton **« Enrichir tout »** (futur) qui lance explicitement un lot d’enrichissements Pass 2, **ou** (b) l’utilisateur **déverrouille plusieurs intentions en une seule action simultanée** (même geste / même transaction produit). **Sinon**, le traitement Pass 2 reste **unitaire** : **une** intention déverrouillée → **un** appel enrichissement à la fois (pas de `Promise.all` implicite). Dans tous les cas, cela **ne** remplace **pas** la règle séquentielle **chunk N → DB** du séquenceur de **capture** (dictée multi‑chunks).
@@ -1205,6 +1212,7 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 
 ### 4) Monitoring, debug et verbosité
 
+- **[`logAiInteraction`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/logAiInteraction.ts)** (`__DEV__`) : blocs audit Pass 1 / Pass 2 (modèle, latence, config, tokens, prompt, **`RAW RESPONSE` même en échec parse** — affiché avant `ERROR` pour diagnostiquer JSON tronqué ou bavard).
 - **`[GeminiDebug]`** (ex. [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) — log `FULL_PROMPT_SENT`, [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts)) : ne plus journaliser des **milliers de tokens** de consignes désormais portées par `systemInstruction`. Journaliser uniquement :
   - les **données dynamiques** (référence temps, en-tête de transcript, hash ou longueur, identifiants trace),
   - les **latences** (TTFB, durée totale, durée persistance DB),

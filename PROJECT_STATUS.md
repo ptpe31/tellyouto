@@ -11,7 +11,7 @@
 - **Cluster tactique (Tirelire)** : [`getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) sur `TimelineScreen` (seuil d’affichage `count >= 2`, contexte ALL + TODO) ; carte neumorphique + ouverture [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtrée par `category_id` ; log `[CLUSTER-ENGINE]`. **Projets orphelins** : bouton `cluster.planProjectStart` → `project.start_date` + replan jalons (`replanProjectMilestonesFromStartDate`) + `due_date` pour sortir du cluster.
 - **TRIP — Contrat de Départ (mai 2026)** : **marge adaptative** `Deadline = T_arr − (T_pred × D)` ; `T_ideal` statique API ou distance/50 km/h ; relax fixe 15 min ; ancres `min()` ; hystérésis 5 min ; PROBE3 skip ; `departure_time ≥ now+2min` ; dispatcher PROBE1/2/3 ([`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts)) ; zéro polling ; UI **ElasticDepartureCapsule** sheet + Timeline compacte ; **notifications locales** [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/NotificationService.ts) (sticky silencieuse + Signal A sonore time-sensitive + Signal B rappel sans son) ; [`dossier_de_soumission.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/dossier_de_soumission.md) ; [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts).
 - **Pass 1 — Few-Shot JSON universel (mai 2026)** : prompt unique `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(..., now)` — sortie `{"intents":[...]}`, ancrage `NOW:` en heure locale, 4 exemples dynamiques (FR/EN/LIST/TRIP), parsing **JSON-first** avec repli Bullet-Pipe uniquement si aucun `{` ; modèle piloté par RC **`gemini_pass1_model_id`** (défaut `gemini-3.1-flash-lite`).
-- **Pass 2 / Pass 3 — steering raisonnement** : **`gemini_pass2_model_id`** (défaut `gemini-1.5-pro`) — enrichissement LIST/PROJECT, Pass 3 Feuille de route, GeminiExpert, lab ; warmup proxy cible **Pass 1** uniquement.
+- **Pass 2 / Pass 3 — steering raisonnement** : **`gemini_pass2_model_id`** (défaut compilé **`gemini-pro-latest`**) — enrichissement LIST/PROJECT, Pass 3 Feuille de route, GeminiExpert, lab ; warmup proxy cible **Pass 1** uniquement. Diagnostic RC `[GEMINI-RC]` + re-fetch avant Pass 2 si source ≠ `remote`.
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents ; sur **TalkDebug**, l’**overlay de progression** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) + événements `CAPTURE_PIPELINE_PROGRESS`) couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline). **Correction STT optionnelle** : crayon → barre validation **Poubelle / Check** au-dessus du clavier (`translateY` + listeners clavier) → `transcript` final vers Gemini ; logs `transcript_manual_edit` / `[MIC] ✏️`.
 
 ---
@@ -81,9 +81,9 @@ Repères dans `src/services/*` :
 
 | Fichier | Rôle |
 |---------|------|
-| [`firebaseRemoteConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) | Singleton RC (`fetchAndActivate`, clés Pass 1/2 / Pass 3 / Sentinel / fallbacks) |
+| [`firebaseRemoteConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) | Singleton RC (`fetchAndActivate`, `getRemoteConfigEntry` + `source`, logs OK/ÉCHEC, défaut Pass 2 `gemini-pro-latest`) |
 | [`initializeGeminiEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/initializeGeminiEngine.ts) | Boot steering + shortlist Pass 2 si pas de `gemini_model_fallbacks` RC |
-| [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | **`getActivePass1ModelId()`** / **`getActivePass2ModelId()`** ; override Debug Pass 2 ; blacklist 404/503 ; foreground refresh |
+| [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | **`getActivePass1ModelId()`** / **`getActivePass2ModelId()`** ; override Debug Pass 2 ; blacklist 404/503 ; foreground refresh ; **`logPass2ModelSteeringDiagnostics`** ; **`ensureFreshPassModelsFromRemoteConfig`** |
 | [`geminiModelCatalog.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelCatalog.ts) | Shortlist compilée ; défaut `gemini-3.1-flash-lite` |
 | [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | Appels proxy (SSE), verrou steering 2 s, retry candidats, exclusion session |
 | [`GeminiExpert.js`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js) | Idem verrou + self-healing pour flux Expert / atomize |
@@ -93,7 +93,7 @@ Repères dans `src/services/*` :
 **Remote Config (console Firebase)**
 
 - `gemini_pass1_model_id` — extraction One-Tap + warmup proxy (défaut `gemini-3.1-flash-lite`)
-- `gemini_pass2_model_id` — raisonnement Pass 2 / Pass 3 / Expert / lab (défaut `gemini-1.5-pro`)
+- `gemini_pass2_model_id` — raisonnement Pass 2 / Pass 3 / Expert / lab (défaut compilé **`gemini-pro-latest`** ; console Firebase peut diverger si `fetchAndActivate` échoue sur Hermes — voir logs `[GEMINI-RC]`)
 - `gemini_model_fallbacks` — CSV candidats de secours Pass 2 (optionnel)
 - `prompt_pass3_synth_v1` — template Pass 3
 
@@ -231,7 +231,9 @@ SPEC (v34) : **aucun** enrichissement Pass 2 automatique après Pass 1 ; uniquem
 - **`IntentionDetailSheet.tsx`** : footer CTA TRIP/LIST/PROJECT ; `pass2_unlocked: 1` au clic PRO ; TRIP → `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*) ; surveillance **Big Button uniquement** (`remind_to_leave` lu en DB pour `syncSentinelAfterDestinationChange`) ; sheet vierge (`remindToLeaveEnabled=false`) à chaque `row.id`.
 - **TRIP logistique (sheet)** : pill **créneau élastique** PRO ; switch `remind_to_leave` (FREE → paywall) ; **All Day** → `suspendTripMissionForAllDay` (remind OFF, clear metadata, stop sondes) ; retour horaire → `wakeTripMissionAfterTimedRestore` ; bouton **Lancer l’itinéraire** si coords arrivée.
 - **`TalkDebugScreen.tsx`** : `onPatchRow={patchPeekDetailRow}` sur `IntentionDetailSheet` (sync `peekDetailRows` après Pass 2 — évite CTA fantôme post-génération).
-- **Pass 2 modèle** : `getActivePass2ModelId()` → RC `gemini_pass2_model_id` ; consommé par `geminiEnrichGenericList` (LIST/PROJECT).
+- **Pass 2 modèle** : `getActivePass2ModelId()` → RC `gemini_pass2_model_id` (repli défaut compilé) ; consommé par `geminiEnrichGenericList` (LIST/PROJECT).
+- **Pass 2 appel (`geminiEnrichGenericList`, mai 2026)** : prompt **inline** (`PASS2_LIST_INLINE_PROMPT` / `PASS2_PROJECT_INLINE_PROMPT` + `Transcription:`) — **sans** `systemInstruction` proxy ; `temperature: 0.18`, `maxOutputTokens: 2048` ; parse JSON durci (`listIntentionModel` / `projectMilestonesModel` — isolation `{…}`).
+- **Pass 1 dates** : [`pass1DueDateParse.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/pass1DueDateParse.ts) — `parsePass1DueDateTime` / `applyPass1DueFields` (Hermes-safe, `timeMarker` ALL_DAY/EXACT_TIME) utilisés dans `oneTapUniversalCapture` + `oneTapPersist`.
 - **Pass 1** : `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(transcript, seed, now)` dans [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) ; proxy reçoit `systemInstruction` + corps user compact (`NOW` / `SEED` / `INPUT`).
 - **Pré-warming** : [`warmGeminiProxySession`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) appelé depuis [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) après `setIsRecording(true)` si réseau disponible.
 
@@ -439,11 +441,12 @@ Le contrat “mise en file offline pour traitement ultérieur” est présent, a
 
 Si l’objectif produit est “zéro friction offline”, il peut encore manquer un **replay automatique** plus agressif (avec garde-fous anti-doublon et backoff).
 
-### 4.6 Instrumentation Pass 2 (logs)
+### 4.6 Instrumentation Pass 1 / Pass 2 (logs)
 
 État actuel :
 
-- Enrichissement **uniquement** depuis `IntentionDetailSheet` (flux manuel PRO) ; logs dev `[Pass2] ✅ … enrich …ms` après succès.
+- **[`logAiInteraction`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/logAiInteraction.ts)** (`__DEV__`) : blocs `[🤖 AI PASS 1 - EXTRACTION]` / `[🧠 AI PASS 2 - REASONING]` ou `[❌ … FAILED]` avec modèle, latence, config (`JSON Mode`, temp, tokens), prompt, **`RAW RESPONSE` même en échec** (avant `ERROR` — diagnostic parse JSON).
+- Enrichissement Pass 2 **uniquement** depuis `IntentionDetailSheet` (flux manuel PRO) ; logs dev `[Pass2] ✅ … enrich …ms` après succès ; `[GEMINI-RC] Pass2 steering` avant `lab.list_enrich_generic`.
 - Plus d’enrichissement silencieux depuis `oneTapPersist` après insert LIST/PROJECT.
 
 ---
