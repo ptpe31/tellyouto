@@ -10,7 +10,7 @@ import {
   shouldExcludeGeminiModelForSession,
 } from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
-import { logAiInteraction } from '../utils/logAiInteraction';
+import { aiLogTokensFromHttpMeta, logAiInteraction } from '../utils/logAiInteraction';
 
 const GLOG = '\n  | ';
 
@@ -861,49 +861,68 @@ export async function geminiEnrichGenericList(
   const systemInstruction = mode === 'PROJECT' ? PASS2_PROJECT_SYSTEM_INSTRUCTION : PASS2_LIST_SYSTEM_INSTRUCTION;
   const userText = `Reference Time: ${ref}\n\nTranscript:\n"""${safe.replace(/"/g, '\\"')}"""`;
   const modelId = getActivePass2ModelId();
+  const temperature = 0.12;
+  const historyLength = 1;
+  const isJsonMode = false;
   const t0 = perfNowMs();
-
-  const { text } = await callGeminiProxyStream({
-    systemInstruction,
-    modelOverride: modelId,
-    request: {
-      contents: [{ parts: [{ text: userText }] }],
-      generationConfig: { temperature: 0.12, maxOutputTokens: 1536 },
-    },
-    operation: 'lab.list_enrich_generic',
-  });
-  const latencyMs = perfNowMs() - t0;
-  const rawResponseText = extractTextFromGenerateResponse(text);
-  if (!rawResponseText) throw new Error('Gemini: empty list enrich response');
-  if (mode === 'PROJECT') {
-    const { parseGeminiProjectMilestonesJson } = await import('./projectMilestonesModel');
-    const parsed = parseGeminiProjectMilestonesJson(rawResponseText);
-    logAiInteraction({
-      pass: 2,
-      label: 'REASONING',
-      modelId,
-      latencyMs,
-      systemInstruction,
-      userContent: userText,
-      rawResponse: rawResponseText,
-      parsedResult: parsed,
-      parsedSectionTitle: 'PARSED MILESTONES',
-    });
-    return { mode, parsed, rawResponseText };
-  }
-  const parsed = parseGeminiListInventoryJson(rawResponseText);
-  logAiInteraction({
-    pass: 2,
-    label: 'REASONING',
+  const logBase = {
+    pass: 2 as const,
+    label: 'REASONING' as const,
     modelId,
-    latencyMs,
     systemInstruction,
     userContent: userText,
-    rawResponse: rawResponseText,
-    parsedResult: parsed,
-    parsedSectionTitle: 'PARSED LIST',
-  });
-  return { mode, parsed, rawResponseText };
+    temperature,
+    isJsonMode,
+    historyLength,
+  };
+
+  try {
+    const { text, meta } = await callGeminiProxyStream({
+      systemInstruction,
+      modelOverride: modelId,
+      request: {
+        contents: [{ parts: [{ text: userText }] }],
+        generationConfig: { temperature, maxOutputTokens: 1536 },
+      },
+      operation: 'lab.list_enrich_generic',
+    });
+    const latencyMs = perfNowMs() - t0;
+    const rawResponseText = extractTextFromGenerateResponse(text);
+    if (!rawResponseText) throw new Error('Gemini: empty list enrich response');
+    const tokens = aiLogTokensFromHttpMeta(meta);
+    if (mode === 'PROJECT') {
+      const { parseGeminiProjectMilestonesJson } = await import('./projectMilestonesModel');
+      const parsed = parseGeminiProjectMilestonesJson(rawResponseText);
+      logAiInteraction({
+        ...logBase,
+        modelId: meta.modelId,
+        latencyMs,
+        rawResponse: rawResponseText,
+        parsedResult: parsed,
+        parsedSectionTitle: 'PARSED MILESTONES',
+        tokens,
+      });
+      return { mode, parsed, rawResponseText };
+    }
+    const parsed = parseGeminiListInventoryJson(rawResponseText);
+    logAiInteraction({
+      ...logBase,
+      modelId: meta.modelId,
+      latencyMs,
+      rawResponse: rawResponseText,
+      parsedResult: parsed,
+      parsedSectionTitle: 'PARSED LIST',
+      tokens,
+    });
+    return { mode, parsed, rawResponseText };
+  } catch (error) {
+    logAiInteraction({
+      ...logBase,
+      latencyMs: perfNowMs() - t0,
+      error,
+    });
+    throw error;
+  }
 }
 
 const JSON_EXTRACTOR_PREFIX = 'You are a JSON extractor. Output ONLY raw JSON. No chat, no markdown.\n\n';

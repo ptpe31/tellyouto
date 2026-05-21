@@ -42,7 +42,7 @@ import * as chrono from 'chrono-node';
 
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { logCaptureFlow } from '../utils/captureFlowLog';
-import { isAiLoggingEnabled, logAiInteraction } from '../utils/logAiInteraction';
+import { aiLogTokensFromHttpMeta, isAiLoggingEnabled, logAiInteraction } from '../utils/logAiInteraction';
 import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
 import { DEBUG_MODE_DOUANE } from './oneTapPersist';
 import { getActivePass1ModelId } from './geminiRemoteModelSteering';
@@ -1638,19 +1638,41 @@ export async function refineOneTapWithGeminiCompressed(
   let rawModelText: string;
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const netStart = perfNowMs();
-  if (useStream) {
-    const r = await geminiStreamOneTapCompressedLine(
-      { systemInstruction, userText, modelId: activeModelId },
-      (acc) => applyBuffer(acc),
-      pathBLog,
-    );
-    rawModelText = r.raw;
-    httpMeta = r.httpMeta;
-  } else {
-    const r = await geminiGenerateOneTapCompressedLine({ systemInstruction, userText, modelId: activeModelId }, pathBLog);
-    rawModelText = r.raw;
-    httpMeta = r.httpMeta;
-    applyBuffer(rawModelText);
+  const pass1Temperature = useStream ? 0 : undefined;
+  const pass1HistoryLength = 1;
+  try {
+    if (useStream) {
+      const r = await geminiStreamOneTapCompressedLine(
+        { systemInstruction, userText, modelId: activeModelId },
+        (acc) => applyBuffer(acc),
+        pathBLog,
+      );
+      rawModelText = r.raw;
+      httpMeta = r.httpMeta;
+    } else {
+      const r = await geminiGenerateOneTapCompressedLine(
+        { systemInstruction, userText, modelId: activeModelId },
+        pathBLog,
+      );
+      rawModelText = r.raw;
+      httpMeta = r.httpMeta;
+      applyBuffer(rawModelText);
+    }
+  } catch (error) {
+    logAiInteraction({
+      pass: 1,
+      label: 'EXTRACTION',
+      modelId: httpMeta?.modelId ?? activeModelId,
+      latencyMs: perfNowMs() - netStart,
+      systemInstruction,
+      userContent: userText,
+      error,
+      tokens: aiLogTokensFromHttpMeta(httpMeta),
+      temperature: pass1Temperature,
+      isJsonMode: false,
+      historyLength: pass1HistoryLength,
+    });
+    throw error;
   }
   const netEnd = perfNowMs();
 
@@ -1793,6 +1815,10 @@ export async function refineOneTapWithGeminiCompressed(
     userContent: userText,
     rawResponse: rawModelText,
     parsedResult: extractedFinal.length ? extractedFinal : null,
+    tokens: aiLogTokensFromHttpMeta(metaForLog),
+    temperature: pass1Temperature,
+    isJsonMode: false,
+    historyLength: pass1HistoryLength,
   });
 
   return { parsed: parsedWithPerfMeta, rawModelText, httpMeta: metaForLog };
