@@ -86,66 +86,94 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
   - Path B (Gemini) : fournit le Smart Title définitif via son champ `CONTENT`.
   - Règle de conflit : dès que Path B répond, `CONTENT` devient la source de vérité absolue. Le client ne fait aucun nettoyage lexical/regex sur `CONTENT` (à part formatage de surface : trim/majuscule) ; si le titre est “sale”, on corrige le prompt, pas le code.
 
-#### 2) Recette du prompt system — Few-Shot JSON universel
+#### 2) Recette du prompt Pass 1 — Few-Shot JSON universel
 
-Le prompt OneTap est construit dans [`buildOneTapPass1SystemInstruction(now: Date)`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) (system instruction) et [`buildOneTapPass1UserContent(transcript, seedLine, now: Date)`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) (user turn). L'instance `now = new Date()` est créée **une seule fois** dans `refineOneTapWithGeminiCompressed` et passée aux deux builders — cohérence temporelle garantie à la milliseconde.
+**Source de vérité code** : [`buildOneTapPass1SystemInstruction(now)`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) · [`buildOneTapPass1UserContent(transcript, seedLine, now)`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) · orchestration [`refineOneTapWithGeminiCompressed`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts).
 
-> **Prompt universel** : le même prompt s'applique à tous les modèles (Flash, Pro, Lite, 8b). Aucun routage par modèle n'est nécessaire. Le code legacy Bullet-Pipe est conservé en commentaire dans le fichier pour rollback d'urgence.
+L'instance `now = new Date()` est créée **une seule fois** par capture et passée aux deux builders — cohérence few-shot / `NOW:` utilisateur.
 
-Le `seed` (squelette Path A sérialisé en `P:...|K:...|T:...|...`) est injecté via [wireLineFromSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L450-L493) dans le rôle utilisateur (champ `SEED:`).
+> **Prompt universel** : même contrat pour tous les modèles Pass 1. Legacy Bullet-Pipe conservé (`buildOneTapPass1SystemInstructionLegacy`) pour rollback.
 
-**Ancrage temporel (system instruction, ligne 1)** — `NOW:` est formaté en **heure locale** via le helper privé `formatLocalYYYYMMDDHHmm(now)` (jamais UTC / `toISOString()`). Les dates des exemples few-shot sont calculées depuis le même `now` via des méthodes `Date` natives (`setDate`, `setHours`) :
+##### 2.a) Architecture transport (proxy Firebase)
+
+| Rôle | Contenu | Envoyé comme |
+|------|---------|--------------|
+| **System instruction** | Règles + 4 few-shots + schéma sortie | `body.systemInstruction` |
+| **User turn** | `NOW` + fuseau + `SEED` + `INPUT` | `request.contents[0].parts[0].text` |
+
+- **Modèle** : `getActivePass1ModelId()` → RC `gemini_pass1_model_id` (défaut `gemini-3.1-flash-lite`).
+- **Operations** : `oneTap.wire.stream` (micro) · `oneTap.wire.nonstream` (bulk).
+- **`generationConfig`** : `maxOutputTokens: 2048` · `temperature: 0` (stream) · **sans** `responseMimeType`.
+- **Logs dev** : [`logAiInteraction`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/logAiInteraction.ts) pass 1 / `EXTRACTION`.
+
+##### 2.b) System instruction — texte (structure)
+
+Ligne 1 (heure locale, jamais UTC) :
 
 ```
-NOW: YYYY-MM-DD HH:mm | <weekdayEn> | <tz>
+NOW: YYYY-MM-DD HH:mm | <weekdayEn> | <IANA tz>
+Use NOW as the authoritative current time. All relative dates ("demain", "in 2h", weekday names) must be resolved from NOW.
 ```
 
-**Règles système (condensé) :**
-- Language : détection automatique → sortie dans la même langue. ZERO translation.
-- CATEGORY : exactement une valeur parmi `ONE_TAP_CATEGORY_CODES` (injectée dynamiquement via `.join(' ')`). Fallback `PERSO`.
-- CONTEXT : token unique en majuscules (`BUREAU`, `EXTERIEUR`, `CANAPE`, `MAISON` ou custom). `null` si vraiment inconnu.
-- CONTENT : titre action pur — supprimer tous les marqueurs temporels, corriger les typos, commencer par une majuscule.
-- TRIP CONTRACT : tout mouvement → `type=TRIP`. Dictionnaire `TRIP_TRIGGER_TERMS_*` injecté dynamiquement. Champs : `destination` + `arrivalDue`.
-- HABIT : toute récurrence → `type=HABIT`, champ `recurrence`.
-- LIST : inventaire/courses → `type=LIST`, champs `title` + `baseCount`.
-- PROJECT : objectif multi-étapes → `type=PROJECT`, champ `content`.
-- TASK : fallback action ponctuelle, champ `content`.
-- Dates (`due` / `arrivalDue`) : format `"YYYY-MM-DD HH:mm"` local 24h. `null` si aucune heure mentionnée.
+Bloc `RULES:` (valeurs injectées dynamiquement) :
 
-**Hiérarchie de décision TYPE** (dans `buildOneTapPass1SystemInstruction`) :
-1. **`PROJECT`** — *Générer le plan* : objectifs avec étapes, apprentissage, organisation.
-2. **`LIST`** — *Créer la liste* : inventaires, courses, collections concrètes.
-3. **`HABIT`** — *Configurer l'habitude* : récurrence, routine, fréquence.
-4. **`TRIP`** — *Préparer le trajet* : TRIP CONTRACT (mouvement / lieu).
-5. **`TASK`** — repli *Ajouter une note* : action atomique ponctuelle.
+```
+RULES:
+- Language: detect from input → output ONLY in that language. ZERO translation.
+- CATEGORY: exactly one of HOME WORK PERSO HEALTH FINANCE TRAVEL SOCIAL SHOP LEARN OTHER
+- CONTEXT: one UPPERCASE token (BUREAU EXTERIEUR CANAPE MAISON or custom). null if truly unknown.
+- CONTENT: pure action title — strip ALL time/date words. Fix typos. Start Uppercase.
+- TRIP: any movement → type=TRIP. Trigger words: <TRIP_TRIGGER_TERMS EN+FR+extra>. Use field "destination" + "arrivalDue".
+- HABIT: any recurrence → type=HABIT, field "recurrence".
+- LIST: any inventory/shopping → type=LIST, fields "title" + "baseCount".
+- PROJECT: any multi-step objective → type=PROJECT, field "content".
+- TASK: fallback for one-off actions, field "content".
+- due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned.
+```
 
-**4 exemples Few-Shot (langue mixte FR/EN — apprentissage par mimétisme)** — les dates sont calculées dynamiquement depuis `now` :
+**4 exemples few-shot** (dates calculées depuis `now`, toujours futures) :
 
-| Input | Type | Champs clés |
-|---|---|---|
-| `"Rappelle-moi demain à 7h"` | TASK | `content`, `due` = `tomorrowFmt` (now+1j à 07:00) |
-| `"Meeting with John in 2h"` | TASK | `content`, `due` = `inTwoHoursFmt` (now+2h) |
-| `"Liste de courses pour ce soir"` | LIST | `title`, `baseCount` |
-| `"Aller à Paris demain à 18h"` | TRIP | `destination`, `arrivalDue` = `tomorrow18hFmt` (now+1j à 18:00) |
+| Input | Output JSON (résumé) |
+|-------|---------------------|
+| `"Rappelle-moi demain à 7h"` | `TASK` · `content:"Rappel"` · `due:"<now+1j 07:00>"` · `PERSO` · `MAISON` |
+| `"Meeting with John in 2h"` | `TASK` · `due:"<now+2h>"` · `WORK` · `BUREAU` |
+| `"Liste de courses pour ce soir"` | `LIST` · `title:"Courses"` · `baseCount:1` · `SHOP` · `MAISON` |
+| `"Aller à Paris demain à 18h"` | `TRIP` · `destination:"Paris"` · `arrivalDue:"<now+1j 18:00>"` · `TRAVEL` · `EXTERIEUR` |
 
-> **Invariant temporel** : les 3 dates calculées (`tomorrowFmt`, `inTwoHoursFmt`, `tomorrow18hFmt`) sont toujours dans le futur par rapport à `NOW:` quelle que soit l'heure d'utilisation — évite le biais "retour dans le passé" pour les modèles Lite.
+Clôture :
 
-**Contrat de sortie** : `{"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…"}]}` — JSON pur, aucun markdown, aucune explication, aucun texte avant ou après. Les clés spécifiques (`title`, `destination`, `arrivalDue`, `recurrence`, `baseCount`) sont enseignées par les exemples, pas par le schéma (évite la fusion littérale de clés par les modèles Lite).
+```
+Reply ONLY with a single raw JSON object. No markdown. No explanation. No text before or after.
+Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…"}]}
+```
 
-**Rôle utilisateur** — corps compact (via `buildOneTapPass1UserContent`) :
+> Les clés `title`, `baseCount`, `destination`, `arrivalDue`, `recurrence` sont apprises via les **exemples**, pas listées dans le schéma minimal (évite fusion littérale sur Lite).
+
+##### 2.c) Corps utilisateur
+
 ```
 NOW: <formatLocalYYYYMMDDHHmm(now)>
-TZ: <tz> | <weekdayEn> | weekday=<isoWeekday>
-SEED: <squelette Path A sérialisé>
-INPUT: """<transcript, max 12 000 chars>"""
+TZ: <tz> | <weekdayEn> | weekday=<1..7>
+SEED: <wireLineFromSkeleton>
+INPUT: """<transcript max 12 000c>"""
 ```
-- Le transcript est tronqué à 12 000 chars. Les séquences `"""` internes sont collapsées en `""` (prévention d'injection de prompt). Les `"` simples ne sont **pas** échappés — des backslashs inutiles dégradent la lisibilité pour le LLM.
-- Types sémantiques autorisés :
-  - `TASK` : action simple et unique.
-  - `TRIP` : déplacement (logistique). Champs `destination` + `arrivalDue`.
-  - `LIST` : inventaire / liste de courses. Champs `title` + `baseCount`.
-  - `PROJECT` : objectif complexe multi-étapes. **Pass 2 non déclenché automatiquement** — uniquement après `pass2_unlocked: true`.
-  - `HABIT` : action récurrente / routine. Champ `recurrence`.
+
+- `SEED` = [`wireLineFromSkeleton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) : `P:<type>|K:<category>|T:<title≤90>|…` (+ `D:`/`H:`/`L:`/`C:`/`V:` selon type Path A).
+- Anti-injection : `"""` internes → `""` ; pas d'échappement `"` sur guillemets simples.
+
+##### 2.d) Champs intent par TYPE
+
+| TYPE | Champs clés | Note produit |
+|------|-------------|--------------|
+| `TASK` | `content`, `due?`, `category`, `context?` | dates → `parsePass1DueDateTime` |
+| `TRIP` | `destination`, `arrivalDue?` | logistique |
+| `LIST` | `title`, `baseCount` | coquille vide · Pass 2 manuel |
+| `PROJECT` | `content` | jalons Pass 2 manuel |
+| `HABIT` | `content`, `recurrence` | |
+| `NOTE` | `content` | |
+
+Hiérarchie spec (non répétée dans le prompt) : `PROJECT` → `LIST` → `HABIT` → `TRIP` → `TASK`.
+
 #### 3) Traitement de sortie (Douane & normalisation)
 
 La “Douane” OneTap est distribuée sur deux étages réels :
@@ -1087,18 +1115,16 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 ### Pass 1 — Classification
 
-- Format de réponse Gemini : **Few-Shot JSON universel** (`{"intents":[...]}`) — s’applique à tous les modèles (Flash, Pro, Lite, 8b), aucun routage par modèle.
-- Rôle : détecter le `TYPE`, extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT), la **catégorie** (`CATEGORY_CODE`) et le **contexte d’exécution** (`CONTEXT`). Pour les TRIP : `destination` + `arrivalDue`. Pour les LIST : `title` + `baseCount`. Pour les HABIT : `recurrence`.
-- **Aiguillage** : le choix de `TYPE` suit la hiérarchie **action / centrée utilisateur** décrite plus haut (§ contrat Pass 1 / types sémantiques).
-- **Prompt** : `buildOneTapPass1SystemInstruction(now: Date)` + `buildOneTapPass1UserContent(transcript, seedLine, now: Date)` — voir § **2) Recette du prompt system**.
+- Format de réponse Gemini : **Few-Shot JSON universel** (`{"intents":[...]}`) — contrat détaillé § **2) Recette du prompt Pass 1**.
+- Rôle : détecter le `TYPE`, extraire un titre propre, `category`, `context` ; champs spécifiques TRIP/LIST/HABIT/PROJECT/TASK (voir tableau § 2.d).
+- **Transport** : `systemInstruction` (règles + exemples) + user (`NOW` / `SEED` / `INPUT`) — modèle RC Pass 1, `maxOutputTokens: 2048`.
+- **Prompt** : `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(transcript, seedLine, now)`.
 
 ### Pass 2 — Enrichissement (LIST / PROJECT)
 
-- **Déclenchement** : **uniquement** après persistance **`metadata_json.pass2_unlocked === true`** (consentement PRO) **et** action utilisateur sur le CTA Pass 2 — **interdit** : lancer `geminiEnrichGenericList` / Pass 2 **immédiatement** ou **automatiquement** après Pass 1, même si `TYPE === LIST` ou `TYPE === PROJECT`.
-- **Implémentation actuelle (mai 2026)** : [`geminiEnrichGenericList`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) — prompt **inline** (règles + `Transcription:` dans le corps user, **sans** `systemInstruction` proxy) ; modèle `getActivePass2ModelId()` ; `generationConfig` : **`temperature: 0.18`**, **`maxOutputTokens: 2048`** (régression corrigée : la valeur `1536` tronquait les listes longues). Re-fetch RC + logs steering avant l’appel.
-- **Parsing réponse** : [`parseGeminiListInventoryJson`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/listIntentionModel.ts) / [`parseGeminiProjectMilestonesJson`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectMilestonesModel.ts) — strip fences markdown puis isolation JSON entre première `{` et dernière `}` avant `JSON.parse` (même stratégie que Pass 1).
-- **Architecture cible (migration future)** : déplacer les règles Pass 2 en **`systemInstruction`** côté proxy Firebase (corps user minimal) — voir **« ARCHITECTURE IA (Latence) »**.
-- **UI feedback** : après Pass 1, l’intention est visible en base **sans** état d’enrichissement forcé ; **`is_generating` / `list_enrich_status='pending'`** s’appliquent **uniquement** pendant l’appel Pass 2 déclenché par l’utilisateur.
+- **Déclenchement** : uniquement après `pass2_unlocked: true` + action CTA PRO — voir § Verrou sémantique.
+- **Prompt & transport** : voir § **Prompt Pass 2 — enrichissement LIST / PROJECT** (texte intégral inline, paramètres API, post-traitement unités).
+- **Implémentation** : [`geminiEnrichGenericList`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) depuis `IntentionDetailSheet` uniquement.
 - Sorties attendues :
   - `LIST` : JSON strict conforme au schéma `list_scalable_v1` (inventaire).
   - `PROJECT` : JSON strict conforme au schéma `project_milestones_v1` (jalons + durées, sans dates).
@@ -1110,11 +1136,24 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
   - Si le contexte est général : utiliser `"Assistant Personnel"`.
   - Stockage : persister `expert_persona` en SQL au niveau jalon (colonne dédiée si disponible, sinon via `metadata_json.project_milestones_v1.milestones[].expert_persona` + patch SQL).
 
-### Prompt Système Gemini (Pass 2)
+### Prompt Pass 2 — enrichissement LIST / PROJECT
 
-> **Déploiement actuel** : le texte ci‑dessous est embarqué tel quel dans [`PASS2_LIST_INLINE_PROMPT`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) / [`PASS2_PROJECT_INLINE_PROMPT`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) avec la **`Transcription:`** injectée dans le même message user. **Cible migration** : porter ce contenu en **`systemInstruction`** côté Firebase / proxy (corps user = transcript seul).
+**Source** : [`geminiEnrichGenericList`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) · constantes `PASS2_LIST_INLINE_PROMPT` / `PASS2_PROJECT_INLINE_PROMPT`.
 
-#### Prompt LIST (inventaire scalable)
+##### Architecture transport (état mai 2026)
+
+| Paramètre | Valeur |
+|-----------|--------|
+| **Modèle** | `getActivePass2ModelId()` → RC `gemini_pass2_model_id` (défaut compilé `gemini-pro-latest`) |
+| **systemInstruction** | **absent** — tout le prompt est inline dans le message user |
+| **Transcript** | injecté dans le bloc `Transcription:` du prompt (max 10 000 car.) |
+| **Operation** | `lab.list_enrich_generic` |
+| **generationConfig** | `temperature: 0.18` · `maxOutputTokens: 2048` · **sans** `responseMimeType` |
+| **Pré-appel** | `ensureFreshPassModelsFromRemoteConfig()` + `logPass2ModelSteeringDiagnostics` |
+
+> **Régression corrigée** : split system/user + `maxOutputTokens: 1536` tronquait les listes recette. Version validée = prompt inline unique + 2048 tokens.
+
+##### Prompt LIST (`PASS2_LIST_INLINE_PROMPT`) — texte intégral
 
 ```
 Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
@@ -1125,36 +1164,51 @@ Analyse le domaine :
 - Si c'est une recette : décompose en ingrédients (Boucherie, Légumes, etc.).
 - Si c'est une étude/examen : décompose en chapitres ou sessions.
 - Si c'est un objectif/projet : décompose en jalons ou étapes clés.
-Unités adaptatives : Détecte l'unité la plus pertinente (kg, personnes, chapitres, séances).
+Unités adaptatives : Détecte l'unité la plus pertinente (kg, jours, chapitres, séances).
 Scalabilité : scalable=true pour les items dont la quantité dépend de la cible (ex: ingrédients pour X personnes).
 Format : Réponds uniquement par un objet JSON pur suivant le schéma list_scalable_v1. Ne mets aucune explication avant ou après.
+
+Transcription:
+"""<transcript>"""
+
+Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
+{"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "baseQuantity": number, "unit": string, "scalable": boolean}]}]}
 ```
 
-#### Prompt PROJECT (jalons temporels)
+**Sémantique JSON LIST** :
+- `baseQuantity` = quantité **par personne** (ou par unité cible) ; UI multiplie par `baseCount` si `scalable: true`.
+- `unitLabel` = libellé de la cible (ex. `personne`, `personnes`).
+- Catégories = rayons logiques (Boucherie, Épicerie sucrée, …).
+
+##### Prompt PROJECT (`PASS2_PROJECT_INLINE_PROMPT`) — texte intégral
 
 ```
 Tu es un expert en planification de projets. Ton rôle est de décomposer une intention en jalons/étapes clés.
 
 Consignes strictes :
 Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur.
-INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de "demain", pas d’horaires).
+INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de "demain", pas d'horaires).
 À la place, fournis pour chaque jalon une durée estimée.
+Pour chaque jalon, identifie l'expert métier le plus qualifié (ex: Électricien, Acousticien, Diététicien, Wedding Planner). Si le contexte est général, utilise "Assistant Personnel".
 
-Schéma attendu project_milestones_v1 :
-{
-  "title": "Titre projet",
-  "milestones": [
-    { "title": "Étape 1", "estimated_duration": 2, "unit": "hours|days|weeks", "expert_persona": "Électricien" }
-  ]
-}
+Transcription:
+"""<transcript>"""
 
-Règles :
-- estimated_duration est un nombre positif (entier si possible).
-- unit ∈ { "hours", "days", "weeks" }.
-- expert_persona est obligatoire et doit être un métier fantôme pertinent (ex: Électricien, Acousticien, Diététicien, Wedding Planner). Si incertain, "Assistant Personnel".
-- Le nombre de jalons doit rester raisonnable (5 à 12).
-- Format : Réponds uniquement par un objet JSON pur. Aucune explication avant/après.
+Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
+{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}
 ```
+
+##### Post-traitement réponse Pass 2
+
+1. **Parse JSON** : [`parseGeminiListInventoryJson`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/listIntentionModel.ts) / [`parseGeminiProjectMilestonesJson`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectMilestonesModel.ts) — strip fences markdown · isolation entre première `{` et dernière `}`.
+2. **Unités LIST** (`normalizeUnit`) :
+   - **Conservées telles quelles** : `g`, `kg`, `ml`, `cl`, `l`, et unités libres (`sachets`, `pincées`, `cuillères`, …).
+   - **`unités` / `units` / `unité`** → chaîne vide `""` (affichage « 20 Œufs » sans « unités »).
+   - **`pcs` / `pièces`** → `piece` · inconnu → `piece`.
+3. **Persistance** : `geminiJsonToStoredPayload` → `metadata_json.list_scalable_v1` ou `project_milestones_v1`.
+4. **Logs dev** : [`logAiInteraction`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/logAiInteraction.ts) pass 2 / `REASONING` · `RAW RESPONSE` même en échec parse.
+
+**Cible migration** : porter les blocs ci-dessus en `systemInstruction` proxy ; corps user = `Transcription:` seule.
 
 ### Données projet (metadata_json)
 

@@ -3601,7 +3601,13 @@ export function IntentionDetailSheet({
                             cat.items.map((it) => {
                               const mult = isList ? listPayload.multiplier : 1;
                               const qty = it.scalable ? it.qty * mult : it.qty;
-                              const label = isList ? `${Math.round(qty * 1000) / 1000} ${it.unit}` : '';
+                              const qtyRounded = Math.round(qty * 1000) / 1000;
+                              const unitTrim = String(it.unit ?? '').trim();
+                              const label = isList
+                                ? unitTrim
+                                  ? `${qtyRounded} ${it.unit}`
+                                  : `${qtyRounded}`
+                                : '';
                               return (
                                 <Pressable
                                   key={it.uid}

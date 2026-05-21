@@ -56,22 +56,43 @@ export type ListScalablePayload = {
   categories: ListCategoryStored[];
 };
 
-const ALLOWED_UNITS = new Set(['g', 'kg', 'piece', 'cl', 'l']);
+const CANONICAL_UNITS = new Set(['g', 'kg', 'piece', 'cl', 'l', 'ml']);
+
+/** Unités dénombrables génériques → masquer l'unité (ex. « 20 Œufs » sans « unités »). */
+const COUNT_ONLY_UNITS = new Set([
+  'unité',
+  'unite',
+  'unités',
+  'unites',
+  'unit',
+  'units',
+  'u',
+]);
 
 /**
- * Ramène une unité libre (ex. typo, synonyme) vers une clé supportée.
+ * Normalise une unité issue du JSON Gemini ou du formulaire.
+ * Conserve les unités naturelles (sachets, pincées, cuillères…) ; ne force `piece` qu'en dernier recours.
  *
  * @param u — Valeur brute issue du JSON ou du formulaire.
- * @returns Clé normalisée parmi `g`, `kg`, `piece`, `cl`, `l` (défaut : `piece`).
+ * @returns Clé canonique, unité libre préservée, ou `''` pour affichage quantité seule.
  */
 function normalizeUnit(u: unknown): string {
-  const s = String(u ?? 'piece')
-    .trim()
-    .toLowerCase();
-  if (ALLOWED_UNITS.has(s)) return s;
-  if (s === 'pcs' || s === 'pc' || s === 'pièce' || s === 'pieces' || s === 'unité' || s === 'unite')
-    return 'piece';
-  if (s === 'ml') return 'cl';
+  const raw = String(u ?? '').trim();
+  if (!raw) return 'piece';
+
+  const s = raw.toLowerCase();
+
+  if (CANONICAL_UNITS.has(s)) return s;
+
+  if (COUNT_ONLY_UNITS.has(s)) return '';
+
+  if (s === 'pcs' || s === 'pc' || s === 'pièce' || s === 'pièces' || s === 'pieces') return 'piece';
+
+  // Unité libre plausible (sachets, pincées, cuillères à soupe, etc.)
+  if (/^[\p{L}\p{N}\s./°%-]+$/u.test(raw) && raw.length <= 32) {
+    return s;
+  }
+
   return 'piece';
 }
 

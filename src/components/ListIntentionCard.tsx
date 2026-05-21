@@ -28,9 +28,11 @@ function formatUnitLabel(
   unit: string,
   qty: number,
 ): string {
-  const u = String(unit || 'piece').toLowerCase();
+  const trimmed = String(unit ?? '').trim();
   const n = Number.isFinite(qty) ? qty : 0;
   const rounded = Math.round(n * 1000) / 1000;
+  if (!trimmed) return String(rounded);
+  const u = trimmed.toLowerCase();
   let rule: string;
   try {
     rule = new Intl.PluralRules(lng).select(rounded);
