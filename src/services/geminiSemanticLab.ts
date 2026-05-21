@@ -4,6 +4,7 @@ import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
 import {
   awaitGeminiSteeringBeforeNetworkCall,
   excludeGeminiModelForSession,
+  getActivePass2ModelId,
   getGeminiCandidateModelIds,
   setGeminiSessionFallbackModelId,
   shouldExcludeGeminiModelForSession,
@@ -860,6 +861,7 @@ export async function geminiEnrichGenericList(
 
   const { text } = await callGeminiProxyStream({
     systemInstruction,
+    modelOverride: getActivePass2ModelId(),
     request: {
       contents: [{ parts: [{ text: userText }] }],
       generationConfig: { temperature: 0.12, maxOutputTokens: 1536 },
@@ -895,7 +897,7 @@ export async function geminiGenerateTextUserPrompt(prompt: string): Promise<stri
 }
 
 export async function geminiGenerateOneTapCompressedLine(
-  args: { systemInstruction: string; userText: string },
+  args: { systemInstruction: string; userText: string; modelId?: string },
   pathBLog?: GeminiPathBLogAnchor,
 ): Promise<{ raw: string; httpMeta: GeminiHttpSettledMeta | undefined }> {
   const userText = String(args.userText || '').trim();
@@ -904,6 +906,7 @@ export async function geminiGenerateOneTapCompressedLine(
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const { text } = await callGeminiProxyStream({
     systemInstruction: systemInstruction.length > 0 ? systemInstruction : undefined,
+    modelOverride: args.modelId,
     request: {
       contents: [{ parts: [{ text: userText }] }],
       generationConfig: { maxOutputTokens: 2048 },
@@ -926,7 +929,7 @@ export async function geminiGenerateOneTapCompressedLine(
 }
 
 export async function geminiStreamOneTapCompressedLine(
-  args: { systemInstruction: string; userText: string },
+  args: { systemInstruction: string; userText: string; modelId?: string },
   onAccumulatedText: (full: string) => void,
   pathBLog?: GeminiPathBLogAnchor,
 ): Promise<{ raw: string; httpMeta: GeminiHttpSettledMeta | undefined }> {
@@ -936,6 +939,7 @@ export async function geminiStreamOneTapCompressedLine(
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const { text } = await callGeminiProxyStream({
     systemInstruction: systemInstruction.length > 0 ? systemInstruction : undefined,
+    modelOverride: args.modelId,
     request: {
       contents: [{ parts: [{ text: userText }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 2048 },

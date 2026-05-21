@@ -47,6 +47,8 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 |-----|------|
 | `active_gemini_model` | Modèle principal (toute chaîne valide, sans shortlist) |
 | `gemini_model_fallbacks` | CSV optionnel remplaçant la shortlist compilée (ex. `gemini-pro-latest,gemini-3.1-flash-lite`) |
+| `gemini_pass1_model_id` | Modèle Pass 1 (extraction / capture One-Tap) — défaut compilé `gemini-3.1-flash-lite` |
+| `gemini_pass2_model_id` | Modèle Pass 2 (enrichissement LIST / PROJECT) — défaut compilé `gemini-1.5-pro` |
 | `prompt_pass3_synth_v1` | Template system Pass 3 (Feuille de route) |
 
 **Chaîne de résolution (boot)**
@@ -82,62 +84,74 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
   - Path B (Gemini) : fournit le Smart Title définitif via son champ `CONTENT`.
   - Règle de conflit : dès que Path B répond, `CONTENT` devient la source de vérité absolue. Le client ne fait aucun nettoyage lexical/regex sur `CONTENT` (à part formatage de surface : trim/majuscule) ; si le titre est “sale”, on corrige le prompt, pas le code.
 
-#### 2) Recette du prompt system (instructions immuables)
+#### 2) Recette du prompt system — Few-Shot JSON universel
 
-Le prompt OneTap réellement envoyé au modèle est construit dans [oneTapUniversalCapture.ts:L998-L1055](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts#L998-L1055) à partir :
-- d’un `seed` (squelette Path A sérialisé en `P:...|K:...|T:...|...`) via [wireLineFromSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L450-L493),
-- d’une détection de langue heuristique locale (FR/EN) via [detectLangForOneTapPrompt](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L921-L934).
+Le prompt OneTap est construit dans [`buildOneTapPass1SystemInstruction(now: Date)`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) (system instruction) et [`buildOneTapPass1UserContent(transcript, seedLine, now: Date)`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) (user turn). L'instance `now = new Date()` est créée **une seule fois** dans `refineOneTapWithGeminiCompressed` et passée aux deux builders — cohérence temporelle garantie à la milliseconde.
 
-Instructions système critiques (texte exact, condensé) incluses dans le prompt :
-- UNIVERSAL TEMPORAL ANCHOR (STRICT) :
-  - `Today is: <WEEKDAY_EN>, <NOW_ISO> (Local Time: <TZ>)`
-  - `Current Human Time: <WEEKDAY_EN> at <DUE_TIME_HM>`
-  - `RULE: If user mentions "<WEEKDAY_EN>" (today) without "next", set DUE_DATE to TODAY (J+0).`
-- DETECTED LANGUAGE DISCIPLINE (ABSOLUTE) :
-  - “Identify the language (EN, FR, ES, IT, etc.)”
-  - “Output strings ONLY in that language”
-  - `CRITICAL: ZERO TRANSLATION. Keep the user's verbs and nouns.`
-  - “The DISPLAY TITLE CONTRACT applies UNIVERSALLY to all languages”
-- CATEGORY CONTRACT (ABSOLUTE) :
-  - catégories autorisées exactement : `HOME, WORK, PERSO, HEALTH, FINANCE, TRAVEL, SOCIAL, SHOP, LEARN, OTHER`
-  - interdiction de traduire/inventer ; fallback `PERSO` si doute.
-- CONTEXT CONTRACT (ABSOLUTE) :
-  - le 5ᵉ segment **CONTEXT** identifie le lieu ou l’état d’exécution (token unique en majuscules).
-  - shortlist prioritaire : `BUREAU`, `EXTERIEUR`, `CANAPE`, `MAISON`
-  - sinon : un mot unique en majuscules (ex. `VOITURE`, `SALLE_DE_SPORT`) ; jamais de phrase ni de traduction.
-- TRIP CONTRACT (ABSOLUTE) :
-  - “Any mention of movement ... MUST be classified as TRIP”
-  - dictionnaire de déclencheurs (FR/EN/extra) injecté tel quel.
-- Reference time :
-  - `Current Reference Time: [ISO: ... (tz)]` pour résoudre “demain”, etc.
-- Format de sortie :
-  - “Reply ONLY with Bullet-Pipe lines starting with ">".”
-  - “No JSON. No markdown. No explanations.”
-  - forme : `> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT`
-    - `SLOT_4` : `DUE_DATE` (TASK/TRIP), `RECURRENCE_TEXT` (HABIT), `BASE_COUNT` (LIST/PROJECT), ou `null`
-    - `CONTEXT` : token CONTEXT CONTRACT (ou `null` si vraiment inconnu)
-  - rétrocompatibilité parsing : lignes à 4 segments (sans CONTEXT) restent acceptées.
-  - Types sémantiques autorisés (vision 2026) :
-    - `TASK` : action simple et unique.
-    - `TRIP` : action impliquant un déplacement (logistique).
-    - `LIST` : inventaire / liste de courses simple.
-    - `PROJECT` : objectif complexe nécessitant plusieurs étapes (structure **LIST/PROJECT** ; l’**enrichissement Pass 2** n’est **jamais** déclenché automatiquement après Pass 1 — uniquement après **`pass2_unlocked: true`**, voir IntentionDetailSheet).
-    - `HABIT` : action récurrente / routine.
-  - Règles de décision (côté Gemini — **action orientée**, alignées sur la prochaine action utile dans l’app) — hiérarchie dans `buildOneTapPass1SystemInstruction` :
-    1. **`PROJECT`** — prochaine étape produit équivalente à *Générer le plan* : objectifs avec étapes, apprentissage, organisation, préparation (ex. plan de répétition, organiser un voyage au sens « projet », préparer un projet, apprendre X).
-    2. **`LIST`** — prochaine étape *Créer / générer la liste* : inventaires, courses, collections de choses concrètes.
-    3. **`HABIT`** — prochaine étape *Configurer l’habitude* : récurrence, routine, fréquence (chaque jour, matins, weekly, etc.).
-    4. **`TRIP`** — prochaine étape *Préparer le trajet* : **TRIP CONTRACT** (mouvement / lieu).
-    5. **`TASK`** — repli *Ajouter une note* : action atomique ponctuelle sans sous-étapes évidentes.
+> **Prompt universel** : le même prompt s'applique à tous les modèles (Flash, Pro, Lite, 8b). Aucun routage par modèle n'est nécessaire. Le code legacy Bullet-Pipe est conservé en commentaire dans le fichier pour rollback d'urgence.
 
+Le `seed` (squelette Path A sérialisé en `P:...|K:...|T:...|...`) est injecté via [wireLineFromSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L450-L493) dans le rôle utilisateur (champ `SEED:`).
+
+**Ancrage temporel (system instruction, ligne 1)** — `NOW:` est formaté en **heure locale** via le helper privé `formatLocalYYYYMMDDHHmm(now)` (jamais UTC / `toISOString()`). Les dates des exemples few-shot sont calculées depuis le même `now` via des méthodes `Date` natives (`setDate`, `setHours`) :
+
+```
+NOW: YYYY-MM-DD HH:mm | <weekdayEn> | <tz>
+```
+
+**Règles système (condensé) :**
+- Language : détection automatique → sortie dans la même langue. ZERO translation.
+- CATEGORY : exactement une valeur parmi `ONE_TAP_CATEGORY_CODES` (injectée dynamiquement via `.join(' ')`). Fallback `PERSO`.
+- CONTEXT : token unique en majuscules (`BUREAU`, `EXTERIEUR`, `CANAPE`, `MAISON` ou custom). `null` si vraiment inconnu.
+- CONTENT : titre action pur — supprimer tous les marqueurs temporels, corriger les typos, commencer par une majuscule.
+- TRIP CONTRACT : tout mouvement → `type=TRIP`. Dictionnaire `TRIP_TRIGGER_TERMS_*` injecté dynamiquement. Champs : `destination` + `arrivalDue`.
+- HABIT : toute récurrence → `type=HABIT`, champ `recurrence`.
+- LIST : inventaire/courses → `type=LIST`, champs `title` + `baseCount`.
+- PROJECT : objectif multi-étapes → `type=PROJECT`, champ `content`.
+- TASK : fallback action ponctuelle, champ `content`.
+- Dates (`due` / `arrivalDue`) : format `"YYYY-MM-DD HH:mm"` local 24h. `null` si aucune heure mentionnée.
+
+**Hiérarchie de décision TYPE** (dans `buildOneTapPass1SystemInstruction`) :
+1. **`PROJECT`** — *Générer le plan* : objectifs avec étapes, apprentissage, organisation.
+2. **`LIST`** — *Créer la liste* : inventaires, courses, collections concrètes.
+3. **`HABIT`** — *Configurer l'habitude* : récurrence, routine, fréquence.
+4. **`TRIP`** — *Préparer le trajet* : TRIP CONTRACT (mouvement / lieu).
+5. **`TASK`** — repli *Ajouter une note* : action atomique ponctuelle.
+
+**4 exemples Few-Shot (langue mixte FR/EN — apprentissage par mimétisme)** — les dates sont calculées dynamiquement depuis `now` :
+
+| Input | Type | Champs clés |
+|---|---|---|
+| `"Rappelle-moi demain à 7h"` | TASK | `content`, `due` = `tomorrowFmt` (now+1j à 07:00) |
+| `"Meeting with John in 2h"` | TASK | `content`, `due` = `inTwoHoursFmt` (now+2h) |
+| `"Liste de courses pour ce soir"` | LIST | `title`, `baseCount` |
+| `"Aller à Paris demain à 18h"` | TRIP | `destination`, `arrivalDue` = `tomorrow18hFmt` (now+1j à 18:00) |
+
+> **Invariant temporel** : les 3 dates calculées (`tomorrowFmt`, `inTwoHoursFmt`, `tomorrow18hFmt`) sont toujours dans le futur par rapport à `NOW:` quelle que soit l'heure d'utilisation — évite le biais "retour dans le passé" pour les modèles Lite.
+
+**Contrat de sortie** : `{"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…"}]}` — JSON pur, aucun markdown, aucune explication, aucun texte avant ou après. Les clés spécifiques (`title`, `destination`, `arrivalDue`, `recurrence`, `baseCount`) sont enseignées par les exemples, pas par le schéma (évite la fusion littérale de clés par les modèles Lite).
+
+**Rôle utilisateur** — corps compact (via `buildOneTapPass1UserContent`) :
+```
+NOW: <formatLocalYYYYMMDDHHmm(now)>
+TZ: <tz> | <weekdayEn> | weekday=<isoWeekday>
+SEED: <squelette Path A sérialisé>
+INPUT: """<transcript, max 12 000 chars>"""
+```
+- Le transcript est tronqué à 12 000 chars. Les séquences `"""` internes sont collapsées en `""` (prévention d'injection de prompt). Les `"` simples ne sont **pas** échappés — des backslashs inutiles dégradent la lisibilité pour le LLM.
+- Types sémantiques autorisés :
+  - `TASK` : action simple et unique.
+  - `TRIP` : déplacement (logistique). Champs `destination` + `arrivalDue`.
+  - `LIST` : inventaire / liste de courses. Champs `title` + `baseCount`.
+  - `PROJECT` : objectif complexe multi-étapes. **Pass 2 non déclenché automatiquement** — uniquement après `pass2_unlocked: true`.
+  - `HABIT` : action récurrente / routine. Champ `recurrence`.
 #### 3) Traitement de sortie (Douane & normalisation)
 
 La “Douane” OneTap est distribuée sur deux étages réels :
 
 1) Douane de parsing (côté capture, avant persistance) — [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts)
-- Parse de la sortie modèle :
-  - Bullet‑Pipe : [parseBulletPipeIntentsFromBuffer](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L319-L380)
-  - JSON fallback (si le modèle renvoie un objet) : [parseJsonIntentsFromBuffer](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L382-L439) avec parse best‑effort (`tryParseJsonObjectBestEffort` padding de `}`) : [oneTapUniversalCapture.ts:L572-L592](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L572-L592).
+- Parse de la sortie modèle — **JSON en priorité, Bullet-Pipe en filet de sécurité** :
+  - **JSON (priorité)** : [parseJsonIntentsFromBuffer](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L382-L439) avec parse best‑effort (`tryParseJsonObjectBestEffort` padding de `}`, `stripJsonFences` pour les backticks). Protection trailing garbage : `lastIndexOf('}')` appliqué **uniquement en mode non-stream** (`!partial`) pour éviter la troncature sur des fragments incomplets en streaming.
+  - **Bullet-Pipe (fallback silencieux)** : [parseBulletPipeIntentsFromBuffer](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L319-L380) — activé **uniquement si le buffer ne contient aucun `{`** (le modèle a totalement ignoré l'instruction JSON). Si `{` est présent et que JSON retourne `[]`, on fait confiance au résultat vide — déclencher Bullet-Pipe créerait des fausses intentions depuis du texte d'excuse markdown.
 - Normalisation de catégorie : unknown → `PERSO` via [normalizeOneTapCategoryCode](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts).
 - Normalisation de contexte : `normalizeOneTapContextTag` ; **ExtractionResult** ; brouillon `categoryTag` + `contextTag` ; `[DOUANE]` / `[CAPTURE_FLOW] pass1_bullet_pipe_resolved`.
 - Fusion réelle Path B → Path A :
@@ -1071,10 +1085,10 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 ### Pass 1 — Classification
 
-- Format de réponse Gemini : **Bullet‑Pipe** uniquement (lignes `> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT`).
-- Rôle : détecter le `TYPE`, extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT), la **catégorie** (`CATEGORY_CODE`) et le **contexte d’exécution** (`CONTEXT`).
-- **Aiguillage** : le choix de `TYPE` suit la hiérarchie **action / centrée utilisateur** décrite plus haut (§ contrat Pass 1 / types sémantiques).
-- **Évolution prévue** : déporter les règles métier dans `systemInstruction` et réduire le prompt utilisateur — voir **« ARCHITECTURE IA (Latence) »** (§ Pass 1).
+- Format de réponse Gemini : **Few-Shot JSON universel** (`{"intents":[...]}`) — s’applique à tous les modèles (Flash, Pro, Lite, 8b), aucun routage par modèle.
+- Rôle : détecter le `TYPE`, extraire un `CONTENT` propre (DISPLAY TITLE CONTRACT), la **catégorie** (`CATEGORY_CODE`) et le **contexte d’exécution** (`CONTEXT`). Pour les TRIP : `destination` + `arrivalDue`. Pour les LIST : `title` + `baseCount`. Pour les HABIT : `recurrence`.
+- **Aiguillage** : le choix de `TYPE` suit la hiérarchie **action / centrée utilisateur** décrite plus haut (§ contrat Pass 1 / types sémantiques).
+- **Prompt** : `buildOneTapPass1SystemInstruction(now: Date)` + `buildOneTapPass1UserContent(transcript, seedLine, now: Date)` — voir § **2) Recette du prompt system**.
 
 ### Pass 2 — Enrichissement (LIST / PROJECT)
 
@@ -1153,9 +1167,10 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 ### Contrat `systemInstruction` (Firebase / proxy) vs client
 
 - **Pass 1 et Pass 2** : l’intégralité des « prompts » métier (segmentation Bullet‑Pipe, contrats TRIP / DISPLAY TITLE, enrichissements LIST / PROJECT, logistique & entités, etc.) doit être **déclarée et versionnée côté serveur** — [`functions/src/index.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts) (proxy Firebase) et/ou couches Vertex associées — sous forme de **`systemInstruction`** (une SI par rôle Pass 1 / Pass 2, ou jeux SI par mode si besoin). **Aucun** de ces blocs ne doit plus être reconstruit ou embarqué dans le binaire comme corps « user » volumineux pour chaque capture.
-- **Application cliente** : pour l’appel d’extraction principal (dictée → modèle), le rôle **utilisateur** ne transporte plus que :
-  - **`Reference Time`** : horodatage ISO de référence (fuseau / « maintenant » capture),
-  - **`Transcript`** : texte final de la dictée (ou équivalent strictement nécessaire à l’instant T).
+- **Application cliente** : pour l’appel d’extraction principal (dictée → modèle), le rôle **utilisateur** transporte :
+  - **`NOW`** : horodatage local formaté `YYYY-MM-DD HH:mm` (heure locale, jamais UTC) + fuseau + jour de semaine + index ISO,
+  - **`SEED`** : squelette Path A sérialisé (hint chrono-node local),
+  - **`INPUT`** : texte final de la dictée (max 12 000 chars, triples guillemets collapsés).
 - **Pass 2 hors capture automatique** : **aucune** chaîne « Pass 1 terminé → lancer Pass 2 ». Le Pass 2 n’est invoqué **qu’après** **`pass2_unlocked: true`** (et action utilisateur). Côté transport, l’app n’envoie **pas** les blocs de règles Pass 2 : **uniquement** des données minimales (identifiant intention, transcript ou mémo déjà stocké, sortie Pass 1 persistée si nécessaire) ; les **règles** restent en **`systemInstruction`** sur le **proxy Firebase**.
 - **Pass 2 à la demande — SLA latence** : même déclenché **plus tard** (réouverture fiche, longtemps après Pass 1), l’appel doit réutiliser la **même architecture** (modèle + SI dédiée côté Firebase) et viser une **réponse exploitable en moins de 3 secondes** (charge utile courte, pas de re‑injection des prompts longs côté client).
 

@@ -16,8 +16,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   fetchAndActivateRemoteConfig,
   getRemoteConfigStringValue,
+  DEFAULT_GEMINI_PASS1_MODEL_ID,
+  DEFAULT_GEMINI_PASS2_MODEL_ID,
   RC_KEY_ACTIVE_GEMINI_MODEL,
   RC_KEY_GEMINI_MODEL_FALLBACKS,
+  RC_KEY_GEMINI_PASS1_MODEL_ID,
+  RC_KEY_GEMINI_PASS2_MODEL_ID,
 } from './firebaseRemoteConfig';
 import {
   GEMINI_MODEL_SHORTLIST,
@@ -62,9 +66,13 @@ function getConfiguredShortlist(): string[] {
 }
 
 export const GEMINI_SAFE_DEFAULT_MODEL_ID = getConfiguredShortlist()[0] ?? 'gemini-3.1-flash-lite';
+export const GEMINI_PASS1_DEFAULT_MODEL_ID = DEFAULT_GEMINI_PASS1_MODEL_ID;
+export const GEMINI_PASS2_DEFAULT_MODEL_ID = DEFAULT_GEMINI_PASS2_MODEL_ID;
 const GEMINI_FALLBACK_LIST_MODELS = getConfiguredShortlist();
 
 let cachedActiveGeminiModelId: string = GEMINI_SAFE_DEFAULT_MODEL_ID;
+let cachedPass1ModelId: string = GEMINI_PASS1_DEFAULT_MODEL_ID;
+let cachedPass2ModelId: string = GEMINI_PASS2_DEFAULT_MODEL_ID;
 let sessionFallbackModelId: string | null = null;
 let lastRemoteConfigResolvedModelId: string | null = null;
 let lastResolutionSource: GeminiModelResolutionSource = 'hardcoded_default';
@@ -286,6 +294,20 @@ export function getActiveGeminiModelId(): string {
   return sessionFallbackModelId ?? cachedActiveGeminiModelId;
 }
 
+/** Modèle Pass 1 (extraction / capture One-Tap) — piloté par RC `gemini_pass1_model_id`. */
+export function getActivePass1ModelId(): string {
+  const clean = sanitizeRemoteModelId(cachedPass1ModelId);
+  if (clean && !sessionBannedModels.has(clean)) return clean;
+  return GEMINI_PASS1_DEFAULT_MODEL_ID;
+}
+
+/** Modèle Pass 2 (enrichissement LIST / PROJECT) — piloté par RC `gemini_pass2_model_id`. */
+export function getActivePass2ModelId(): string {
+  const clean = sanitizeRemoteModelId(cachedPass2ModelId);
+  if (clean && !sessionBannedModels.has(clean)) return clean;
+  return GEMINI_PASS2_DEFAULT_MODEL_ID;
+}
+
 export function getGeminiModelResolutionSource(): GeminiModelResolutionSource {
   if (sessionFallbackModelId) return 'session_fallback';
   return lastResolutionSource;
@@ -385,7 +407,22 @@ export async function applyGeminiLocalModelOverride(modelId: string): Promise<vo
   await persistDebugModelOverride(clean);
 }
 
+async function loadPassModelsFromRemoteConfig(): Promise<void> {
+  const pass1Raw = await getRemoteConfigStringValue(RC_KEY_GEMINI_PASS1_MODEL_ID);
+  const pass1 = pass1Raw ? sanitizeRemoteModelId(pass1Raw) : null;
+  if (pass1 && !isBannedGeminiModelId(pass1)) {
+    cachedPass1ModelId = pass1;
+  }
+
+  const pass2Raw = await getRemoteConfigStringValue(RC_KEY_GEMINI_PASS2_MODEL_ID);
+  const pass2 = pass2Raw ? sanitizeRemoteModelId(pass2Raw) : null;
+  if (pass2 && !isBannedGeminiModelId(pass2)) {
+    cachedPass2ModelId = pass2;
+  }
+}
+
 async function applyRemoteConfigModelsAfterFetch(fetchOk: boolean): Promise<string | null> {
+  await loadPassModelsFromRemoteConfig();
   if (fetchOk) {
     await loadFallbackModelsFromRemoteConfig();
   }

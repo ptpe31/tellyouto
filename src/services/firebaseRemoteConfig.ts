@@ -11,9 +11,13 @@ import { getFirebaseApp } from '../api/firebase';
 
 export const RC_KEY_ACTIVE_GEMINI_MODEL = 'active_gemini_model';
 export const RC_KEY_GEMINI_MODEL_FALLBACKS = 'gemini_model_fallbacks';
+export const RC_KEY_GEMINI_PASS1_MODEL_ID = 'gemini_pass1_model_id';
+export const RC_KEY_GEMINI_PASS2_MODEL_ID = 'gemini_pass2_model_id';
 export const RC_KEY_PASS3_PROMPT = 'prompt_pass3_synth_v1';
 export const RC_KEY_INITIAL_FREE_QUOTA = 'initial_free_quota';
 
+export const DEFAULT_GEMINI_PASS1_MODEL_ID = 'gemini-3.1-flash-lite';
+export const DEFAULT_GEMINI_PASS2_MODEL_ID = 'gemini-1.5-pro';
 export const DEFAULT_SENTINEL_INITIAL_FREE_QUOTA = 6;
 
 export const PASS3_PROMPT_FALLBACK_TEMPLATE = `Tu es l'architecte de synthèse d'une application mobile de planning. Transforme ce JSON d'intentions en une feuille de route HTML épurée.
@@ -35,6 +39,8 @@ let lastFetchSucceeded = false;
 
 function buildDefaultConfig(): Record<string, string | number> {
   return {
+    [RC_KEY_GEMINI_PASS1_MODEL_ID]: DEFAULT_GEMINI_PASS1_MODEL_ID,
+    [RC_KEY_GEMINI_PASS2_MODEL_ID]: DEFAULT_GEMINI_PASS2_MODEL_ID,
     [RC_KEY_PASS3_PROMPT]: PASS3_PROMPT_FALLBACK_TEMPLATE,
     [RC_KEY_INITIAL_FREE_QUOTA]: DEFAULT_SENTINEL_INITIAL_FREE_QUOTA,
   };

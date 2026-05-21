@@ -44,7 +44,7 @@ import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
 import { DEBUG_MODE_DOUANE } from './oneTapPersist';
-import { getActiveGeminiModelId } from './geminiRemoteModelSteering';
+import { getActivePass1ModelId } from './geminiRemoteModelSteering';
 import type { ListItemDraft } from './listIntentionModel';
 import {
   geminiGenerateOneTapCompressedLine,
@@ -514,7 +514,13 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
   if (!base) return [];
   if (partial && !base.endsWith('}')) return [];
   const startIdx = base.indexOf('{');
-  const s = startIdx >= 0 ? base.slice(startIdx) : base;
+  let s = startIdx >= 0 ? base.slice(startIdx) : base;
+  // In non-stream (final parse) mode only: strip trailing prose after the closing brace.
+  // In streaming mode the buffer is incomplete — lastIndexOf('}') would truncate inner objects.
+  if (!partial) {
+    const endIdx = s.lastIndexOf('}');
+    if (endIdx > 0) s = s.slice(0, endIdx + 1);
+  }
   const obj = tryParseJsonObjectBestEffort(s);
   if (!obj) return [];
   const intentsRaw = (obj as { intents?: unknown }).intents;
@@ -1200,11 +1206,13 @@ function buildPass1TemporalFields(now: Date): {
   return { tz, fullDateString, isoWeekday, weekdayEn, dueTimeHm };
 }
 
-/**
- * Instructions système Pass 1 (proxy Firebase / Vertex). Toutes les règles de format / contrats y sont regroupées.
- * Le corps utilisateur ({@link buildOneTapPass1UserContent}) ne contient que les faits : Reference Time, seed, dictée.
- */
-export function buildOneTapPass1SystemInstruction(): string {
+function formatLocalYYYYMMDDHHmm(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// LEGACY PROMPT (Bullet-Pipe) — kept for rollback reference.
+function buildOneTapPass1SystemInstructionLegacy(): string {
   const lang2 = 'auto';
   const loc = `DETECTED LANGUAGE DISCIPLINE (ABSOLUTE):
 - Identify the language (EN, FR, ES, IT, etc.).
@@ -1291,10 +1299,69 @@ Examples:
 }
 
 /**
- * Corps utilisateur Pass 1 : **uniquement** données brutes — aucune règle de format ni contrat (tout est en
- * {@link buildOneTapPass1SystemInstruction}). Cible ~ quelques centaines de caractères hors dictée très longue.
+ * Instructions système Pass 1 — Few-Shot JSON universel (tous modèles).
+ * Le corps utilisateur ({@link buildOneTapPass1UserContent}) ne contient que les faits : NOW, seed, dictée.
  */
-export function buildOneTapPass1UserContent(transcript: string, seedLine: string): string {
+export function buildOneTapPass1SystemInstruction(now: Date): string {
+  const { tz, weekdayEn } = buildPass1TemporalFields(now);
+  const nowFmt = formatLocalYYYYMMDDHHmm(now);
+  const categoryList = ONE_TAP_CATEGORY_CODES.join(' ');
+  const contextHints = 'BUREAU EXTERIEUR CANAPE MAISON';
+  const tripTriggerList = [
+    ...TRIP_TRIGGER_TERMS_EN,
+    ...TRIP_TRIGGER_TERMS_FR,
+    ...TRIP_TRIGGER_TERMS_EXTRA,
+  ].join(', ');
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(7, 0, 0, 0);
+
+  const inTwoHours = new Date(now);
+  inTwoHours.setHours(inTwoHours.getHours() + 2, inTwoHours.getMinutes(), 0, 0);
+
+  const tomorrow18h = new Date(now);
+  tomorrow18h.setDate(tomorrow18h.getDate() + 1);
+  tomorrow18h.setHours(18, 0, 0, 0);
+
+  const tomorrowFmt = formatLocalYYYYMMDDHHmm(tomorrow);
+  const inTwoHoursFmt = formatLocalYYYYMMDDHHmm(inTwoHours);
+  const tomorrow18hFmt = formatLocalYYYYMMDDHHmm(tomorrow18h);
+
+  return `NOW: ${nowFmt} | ${weekdayEn} | ${tz}
+Use NOW as the authoritative current time. All relative dates ("demain", "in 2h", weekday names) must be resolved from NOW.
+
+RULES:
+- Language: detect from input → output ONLY in that language. ZERO translation.
+- CATEGORY: exactly one of ${categoryList}
+- CONTEXT: one UPPERCASE token (${contextHints} or custom). null if truly unknown.
+- CONTENT: pure action title — strip ALL time/date words. Fix typos. Start Uppercase.
+- TRIP: any movement → type=TRIP. Trigger words: ${tripTriggerList}. Use field "destination" + "arrivalDue".
+- HABIT: any recurrence → type=HABIT, field "recurrence".
+- LIST: any inventory/shopping → type=LIST, fields "title" + "baseCount".
+- PROJECT: any multi-step objective → type=PROJECT, field "content".
+- TASK: fallback for one-off actions, field "content".
+- due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned.
+
+EXAMPLES — input language = output language, dates are computed from NOW above:
+Input: "Rappelle-moi demain à 7h"
+Output: {"intents":[{"type":"TASK","content":"Rappel","due":"${tomorrowFmt}","category":"PERSO","context":"MAISON"}]}
+
+Input: "Meeting with John in 2h"
+Output: {"intents":[{"type":"TASK","content":"Meeting with John","due":"${inTwoHoursFmt}","category":"WORK","context":"BUREAU"}]}
+
+Input: "Liste de courses pour ce soir"
+Output: {"intents":[{"type":"LIST","title":"Courses","baseCount":1,"category":"SHOP","context":"MAISON"}]}
+
+Input: "Aller à Paris demain à 18h"
+Output: {"intents":[{"type":"TRIP","destination":"Paris","arrivalDue":"${tomorrow18hFmt}","category":"TRAVEL","context":"EXTERIEUR"}]}
+
+Reply ONLY with a single raw JSON object. No markdown. No explanation. No text before or after.
+Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…"}]}`;
+}
+
+// LEGACY PROMPT (Bullet-Pipe) — kept for rollback reference.
+function buildOneTapPass1UserContentLegacy(transcript: string, seedLine: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
   const seed = seedLine;
   const now = new Date();
@@ -1310,6 +1377,18 @@ ${seed}
 
 Dictation:
 """${safe.replace(/"/g, '\\"')}"""`;
+}
+
+/**
+ * Corps utilisateur Pass 1 — données brutes uniquement (NOW, seed, dictée).
+ */
+export function buildOneTapPass1UserContent(transcript: string, seedLine: string, now: Date): string {
+  const { tz, isoWeekday, weekdayEn } = buildPass1TemporalFields(now);
+  const safe = (transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript).replace(/"""/g, '""');
+  return `NOW: ${formatLocalYYYYMMDDHHmm(now)}
+TZ: ${tz} | ${weekdayEn} | weekday=${isoWeekday}
+SEED: ${seedLine}
+INPUT: """${safe}"""`;
 }
 
 /**
@@ -1504,8 +1583,10 @@ export async function refineOneTapWithGeminiCompressed(
   if (VERBOSE_DEBUG) console.log(`[OneTap] 🎤 TRANSCRIPTION: ${JSON.stringify(transcript)}`);
 
   const seed = wireLineFromSkeleton(skeleton);
-  const systemInstruction = buildOneTapPass1SystemInstruction();
-  const userText = buildOneTapPass1UserContent(transcript, seed);
+  const now = new Date();
+  const activeModelId = getActivePass1ModelId();
+  const systemInstruction = buildOneTapPass1SystemInstruction(now);
+  const userText = buildOneTapPass1UserContent(transcript, seed, now);
   const useStream = options.useStream !== false;
   const pathBGeminiStart = perfNowMs();
   const lang2 = baseLangFromBcp47(detectLangForOneTapPrompt(transcript, ''));
@@ -1531,9 +1612,11 @@ export async function refineOneTapWithGeminiCompressed(
     return annotateIncompletes(intents, transcript, skeleton);
   };
   const applyBuffer = (buf: string) => {
-    const parsedIntents = parseBulletPipeIntentsFromBuffer(buf, useStream);
-    const extractedIntents = parsedIntents.length ? parsedIntents : parseJsonIntentsFromBuffer(buf, useStream);
-    if (!extractedIntents.length) return;
+    let extractedIntents = parseJsonIntentsFromBuffer(buf, useStream);
+    if ((!extractedIntents || extractedIntents.length === 0) && !buf.includes('{')) {
+      extractedIntents = parseBulletPipeIntentsFromBuffer(buf, useStream);
+    }
+    if (!extractedIntents || extractedIntents.length === 0) return;
     const intents = normalizeIncompletes(extractedIntents);
     const sig = intents
       .map((it) => {
@@ -1573,11 +1656,15 @@ export async function refineOneTapWithGeminiCompressed(
   let httpMeta: GeminiHttpSettledMeta | undefined;
   const netStart = perfNowMs();
   if (useStream) {
-    const r = await geminiStreamOneTapCompressedLine({ systemInstruction, userText }, (acc) => applyBuffer(acc), pathBLog);
+    const r = await geminiStreamOneTapCompressedLine(
+      { systemInstruction, userText, modelId: activeModelId },
+      (acc) => applyBuffer(acc),
+      pathBLog,
+    );
     rawModelText = r.raw;
     httpMeta = r.httpMeta;
   } else {
-    const r = await geminiGenerateOneTapCompressedLine({ systemInstruction, userText }, pathBLog);
+    const r = await geminiGenerateOneTapCompressedLine({ systemInstruction, userText, modelId: activeModelId }, pathBLog);
     rawModelText = r.raw;
     httpMeta = r.httpMeta;
     applyBuffer(rawModelText);
@@ -1586,8 +1673,10 @@ export async function refineOneTapWithGeminiCompressed(
 
   const parseStart = perfNowMs();
   let parsed = skeleton;
-  const bp = parseBulletPipeIntentsFromBuffer(rawModelText, false);
-  const extractedFinal = bp.length ? bp : parseJsonIntentsFromBuffer(rawModelText, false);
+  let extractedFinal = parseJsonIntentsFromBuffer(rawModelText, false);
+  if ((!extractedFinal || extractedFinal.length === 0) && !rawModelText.includes('{')) {
+    extractedFinal = parseBulletPipeIntentsFromBuffer(rawModelText, false);
+  }
   if (extractedFinal.length) {
     parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, normalizeIncompletes(extractedFinal));
     logCaptureFlow(undefined, 'pass1_bullet_pipe_resolved', {
@@ -1634,7 +1723,7 @@ export async function refineOneTapWithGeminiCompressed(
 
   const pathBGeminiEnd = perfNowMs();
   const geminiRefineMs = Math.round(pathBGeminiEnd - pathBGeminiStart);
-  const metaModelId = getActiveGeminiModelId();
+  const metaModelId = httpMeta?.modelId ?? activeModelId;
   const metaForLog: GeminiHttpSettledMeta =
     httpMeta ?? {
       modelId: metaModelId,
@@ -1803,8 +1892,9 @@ export async function geminiOneTapUniversalFromTranscript(
   const geminiEndMs = perfNowMs();
   const parseEndMs = perfNowMs();
   const seedLine = wireLineFromSkeleton(skeleton);
-  const siLen = buildOneTapPass1SystemInstruction().length;
-  const userLen = buildOneTapPass1UserContent(transcript, seedLine).length;
+  const logNow = new Date();
+  const siLen = buildOneTapPass1SystemInstruction(logNow).length;
+  const userLen = buildOneTapPass1UserContent(transcript, seedLine, logNow).length;
   const promptChars = siLen + userLen;
   console.log(
     `[OneTapPerf] prompt.metrics${OT_LOG}promptChars: ${promptChars}${OT_LOG}siChars: ${siLen}${OT_LOG}userChars: ${userLen}${OT_LOG}geminiMs: ${Math.round(geminiEndMs - geminiStartMs)}${OT_LOG}parseMs: ${Math.round(parseEndMs - geminiEndMs)}`,

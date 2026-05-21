@@ -10,6 +10,8 @@
 - **Feuille de Route (Pass 3)** : depuis la Timeline, icône imprimante → sas SQL (retards + orphelines) → synthèse Gemini HTML (RC `prompt_pass3_synth_v1`) → `daily_summaries` + WebView / PDF ; overlay progression réutilise `useAIProgressInertia` + `AIUniversalProgressOverlay` ; lien sous le groupe « Aujourd’hui ».
 - **Cluster tactique (Tirelire)** : [`getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) sur `TimelineScreen` (seuil d’affichage `count >= 2`, contexte ALL + TODO) ; carte neumorphique + ouverture [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtrée par `category_id` ; log `[CLUSTER-ENGINE]`. **Projets orphelins** : bouton `cluster.planProjectStart` → `project.start_date` + replan jalons (`replanProjectMilestonesFromStartDate`) + `due_date` pour sortir du cluster.
 - **TRIP — Contrat de Départ (mai 2026)** : **marge adaptative** `Deadline = T_arr − (T_pred × D)` ; `T_ideal` statique API ou distance/50 km/h ; relax fixe 15 min ; ancres `min()` ; hystérésis 5 min ; PROBE3 skip ; `departure_time ≥ now+2min` ; dispatcher PROBE1/2/3 ([`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts)) ; zéro polling ; UI **ElasticDepartureCapsule** sheet + Timeline compacte ; **notifications locales** [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/NotificationService.ts) (sticky silencieuse + Signal A sonore time-sensitive + Signal B rappel sans son) ; [`dossier_de_soumission.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/dossier_de_soumission.md) ; [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts).
+- **Pass 1 — Few-Shot JSON universel (mai 2026)** : prompt unique `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(..., now)` — sortie `{"intents":[...]}`, ancrage `NOW:` en heure locale, 4 exemples dynamiques (FR/EN/LIST/TRIP), parsing **JSON-first** avec repli Bullet-Pipe uniquement si aucun `{` ; modèle piloté par RC **`gemini_pass1_model_id`** (défaut `gemini-3.1-flash-lite`).
+- **Pass 2 — steering dédié** : enrichissement LIST/PROJECT via **`gemini_pass2_model_id`** (défaut `gemini-1.5-pro`) dans `geminiEnrichGenericList` ; découplé du modèle global `active_gemini_model`.
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents ; sur **TalkDebug**, l’**overlay de progression** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) + événements `CAPTURE_PIPELINE_PROGRESS`) couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline). **Correction STT optionnelle** : crayon → barre validation **Poubelle / Check** au-dessus du clavier (`translateY` + listeners clavier) → `transcript` final vers Gemini ; logs `transcript_manual_edit` / `[MIC] ✏️`.
 
 ---
@@ -81,7 +83,7 @@ Repères dans `src/services/*` :
 |---------|------|
 | [`firebaseRemoteConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) | Singleton RC (`fetchAndActivate`, clés Pass 3 / Sentinel / fallbacks) — **`active_gemini_model` hors defaultConfig** |
 | [`initializeGeminiEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/initializeGeminiEngine.ts) | Boot steering + shortlist compilée si pas de `gemini_model_fallbacks` RC |
-| [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | Résolution modèle : Debug override → RC réseau → `rc_model_cache` → session fallback → défaut ; blacklist 404/503 ; foreground refresh |
+| [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | Résolution modèle : Debug override → RC réseau → `rc_model_cache` → session fallback → défaut ; **`getActivePass1ModelId()`** / **`getActivePass2ModelId()`** (RC dédiées) ; blacklist 404/503 ; foreground refresh |
 | [`geminiModelCatalog.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelCatalog.ts) | Shortlist compilée ; défaut `gemini-3.1-flash-lite` |
 | [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | Appels proxy (SSE), verrou steering 2 s, retry candidats, exclusion session |
 | [`GeminiExpert.js`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js) | Idem verrou + self-healing pour flux Expert / atomize |
@@ -90,8 +92,10 @@ Repères dans `src/services/*` :
 
 **Remote Config (console Firebase)**
 
-- `active_gemini_model` — modèle principal (sans rebuild app)
+- `active_gemini_model` — modèle principal (Pass 3, warmup, flux génériques — sans rebuild app)
 - `gemini_model_fallbacks` — CSV candidats de secours (optionnel)
+- `gemini_pass1_model_id` — modèle Pass 1 extraction One-Tap (défaut compilé `gemini-3.1-flash-lite`)
+- `gemini_pass2_model_id` — modèle Pass 2 enrichissement LIST/PROJECT (défaut compilé `gemini-1.5-pro`)
 - `prompt_pass3_synth_v1` — template Pass 3
 
 **AsyncStorage**
@@ -130,6 +134,7 @@ Fichiers clés sous `src/services/traffic/` :
 | [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/NotificationService.ts) | Contrat de départ : sticky silencieuse, Signal A (départ + son), Signal B (rappel), sync V4 |
 | [`formatDepartureCapsule.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/formatDepartureCapsule.ts) | `formatCapsule(trip)` → chaîne Unicode `[🟢 HH:mm ———◉———— HH:mm]` |
 | [`dossier_de_soumission.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/dossier_de_soumission.md) | Textes copier-coller Apple/Google (localisation, time-sensitive, confidentialité) |
+| [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) | **Registre de code mort** : modules retirés ou stubés, procédure de réactivation, checklist suppression définitive (voir § Annexe — registre code mort) |
 
 **Legacy conservé** : `TrafficScheduler.ts` / `TrafficEngine.ts` (DebugScreen simulateur) ; colonnes SQLite `displayed_t_*`, `newtonEnabled` en metadata (nettoyage UI fait).
 
@@ -179,13 +184,14 @@ Fonction clé : `refineOneTapWithGeminiCompressed(transcript, skeleton, options)
 
 Points importants :
 
-- Prompt : `buildOneTapPass1SystemInstruction()` + `buildOneTapPass1UserContent(transcript, wireLineFromSkeleton(skeleton))` (deux blocs distincts côté proxy, pas de concaténation côté app).
-- **Pass 1 — aiguillage TYPE** : la `systemInstruction` impose une hiérarchie **action / centrée utilisateur** (PROJECT → LIST → HABIT → TRIP → TASK) : le modèle choisit le `TYPE` selon la **prochaine action la plus utile** dans l’app (plan, liste, habitude, trajet, note atomique), sans changer le format Bullet‑Pipe ni les contrats DISPLAY TITLE / CATEGORY / TRIP.
-- Langue : `detectLangForOneTapPrompt()` puis discipline “zéro traduction” (contrat SPEC).
+- Prompt : `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(transcript, seed, now)` — **Few-Shot JSON universel** (tous modèles) ; `now` partagé entre SI et user turn ; legacy Bullet-Pipe conservé en `*Legacy()` pour rollback.
+- **Pass 1 — format de sortie** : `{"intents":[...]}` (JSON pur) ; 4 exemples dynamiques avec dates locales calculées depuis `now` ; schéma canonique minimal en fin de SI.
+- **Pass 1 — aiguillage TYPE** : règles condensées + exemples (PROJECT → LIST → HABIT → TRIP → TASK) ; champs spécifiques (`destination`/`arrivalDue`, `title`/`baseCount`, etc.) enseignés par mimétisme.
+- **Modèle Pass 1** : `getActivePass1ModelId()` → RC `gemini_pass1_model_id` ; injecté via `modelOverride` dans `geminiStreamOneTapCompressedLine` / `geminiGenerateOneTapCompressedLine`.
 - Appel Gemini : `geminiSemanticLab` (stream ou non‑stream).
 - Parsing modèle :
-  - priorité au format **Bullet‑Pipe** 5 segments : `> TYPE | CONTENT | CATEGORY_CODE | SLOT_4 | CONTEXT` (`parseBulletPipeIntentsFromBuffer` ; rétrocompat 4 segments)
-  - fallback JSON “best-effort” (`parseJsonIntentsFromBuffer`)
+  - **priorité JSON** : `parseJsonIntentsFromBuffer` (trailing garbage coupé en mode final `!partial`)
+  - **repli Bullet-Pipe** uniquement si le buffer ne contient **aucun `{`** (évite faux positifs sur excuses markdown)
   - type intermédiaire **ExtractionResult** ; intents portent `category` + `context`
 - Fusion : `mergeIntentArrayIntoOneTapSkeleton(...)` puis normalisation
   - `categoryTag` + **`contextTag`** sur le brouillon fusionné
@@ -227,7 +233,8 @@ SPEC (v34) : **aucun** enrichissement Pass 2 automatique après Pass 1 ; uniquem
 - **`IntentionDetailSheet.tsx`** : footer CTA TRIP/LIST/PROJECT ; `pass2_unlocked: 1` au clic PRO ; TRIP → `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*) ; surveillance **Big Button uniquement** (`remind_to_leave` lu en DB pour `syncSentinelAfterDestinationChange`) ; sheet vierge (`remindToLeaveEnabled=false`) à chaque `row.id`.
 - **TRIP logistique (sheet)** : pill **créneau élastique** PRO ; switch `remind_to_leave` (FREE → paywall) ; **All Day** → `suspendTripMissionForAllDay` (remind OFF, clear metadata, stop sondes) ; retour horaire → `wakeTripMissionAfterTimedRestore` ; bouton **Lancer l’itinéraire** si coords arrivée.
 - **`TalkDebugScreen.tsx`** : `onPatchRow={patchPeekDetailRow}` sur `IntentionDetailSheet` (sync `peekDetailRows` après Pass 2 — évite CTA fantôme post-génération).
-- **Pass 1** : `buildOneTapPass1SystemInstruction` + `buildOneTapPass1UserContent` dans [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) ; proxy reçoit `systemInstruction` + corps user réduit (référence temps + dictée + seed heuristique).
+- **Pass 2 modèle** : `getActivePass2ModelId()` → RC `gemini_pass2_model_id` ; consommé par `geminiEnrichGenericList` (LIST/PROJECT).
+- **Pass 1** : `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(transcript, seed, now)` dans [`oneTapUniversalCapture.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts) ; proxy reçoit `systemInstruction` + corps user compact (`NOW` / `SEED` / `INPUT`).
 - **Pré-warming** : [`warmGeminiProxySession`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) appelé depuis [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) après `setIsRecording(true)` si réseau disponible.
 
 #### NOTE_FALLBACK (résilience)
@@ -294,8 +301,8 @@ Fichier : `src/services/CaptureProcessingService.ts`
 - `src/services/oneTapUniversalCapture.ts`
   - `splitBulkTranscript(raw)` : split par séparateur `**` (bulk client-side).
   - `inferOneTapSkeletonFromTranscript(...)` : Path A synchrone (squelette local).
-  - `refineOneTapWithGeminiCompressed(...)` : Path B Gemini (`systemInstruction` Pass 1 + corps user court via `geminiGenerateOneTapCompressedLine` / stream).
-  - `buildOneTapPass1SystemInstruction()` / `buildOneTapPass1UserContent(...)` : découpage SPEC (SI vs Reference Time + seed + dictée seulement ; pas de règles dupliquées dans le user).
+  - `refineOneTapWithGeminiCompressed(...)` : Path B Gemini (`systemInstruction` Pass 1 Few-Shot JSON + corps user via `geminiGenerateOneTapCompressedLine` / stream ; `getActivePass1ModelId()`).
+  - `buildOneTapPass1SystemInstruction(now: Date)` / `buildOneTapPass1UserContent(transcript, seed, now)` : Few-Shot JSON universel ; legacy Bullet-Pipe dans `*Legacy()`.
   - `parsePartialWireLine(buffer)` / `mergeWireIntoOneTapSkeleton(...)` : parsing “wire” (héritage + compat).
   - (internes critiques) `parseBulletPipeIntentsFromBuffer`, `parseJsonIntentsFromBuffer`, `mergeIntentArrayIntoOneTapSkeleton`.
 
@@ -386,10 +393,13 @@ SPEC (section “Pipeline Unique — Micro as a Bulk(1)”) demande :
 
 SPEC : simplicité = stabilité ; pas de second pipeline « live » dans le contexte capture.
 
+**Registre dédié :** [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) — inventaire des symboles retirés ou commentés, liens fichiers, checklist avant suppression définitive. **À mettre à jour** à chaque retrait de feature (pas d’utilisateurs finaux → privilégier commentaires + stubs plutôt que delete immédiat).
+
 État actuel :
 
 - `oneTapUniversalCapture.ts` conserve une surface `useStream` / parsing multi‑intents pour compatibilité interne ou usages futurs.
 - `IntentionContext` **n’expose plus** `runGeminiStreamRefine` ni validation streaming associée : un seul chemin bulk + persistance ventilée.
+- **Nudge « 2 minutes disponibles »** (`AvailabilityNudgeModal`) : **retiré** de `App.tsx` (mai 2026) ; stubs + blocs `DEPRECATED` dans `AvailabilityNudgeModal.tsx`, `AvailabilityTimer.ts`, `BonusEngine` (chemin optimal reward), `Strings.nudges`, `trankilV2Db.pickAvailabilityTask` — détail §1–§5 du registre.
 
 ### 4.3 Table `offline_audio_queue` et bootstrap DB
 
@@ -442,6 +452,19 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 
 ## Annexes (repères pratiques)
 
+### Registre code mort — [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md)
+
+Fichier **hors SPEC** : journal de travail pour la **suppression progressive** du code inutilisé, sans perdre le contexte pour un debug ou une réactivation temporaire.
+
+| Rôle | Contenu |
+|------|---------|
+| **Pourquoi** | Pas encore d’utilisateurs finaux → on **démonte** les features (UI + timers) mais on **garde** l’implémentation en commentaires / stubs pour comparer ou réactiver pendant les tests. |
+| **Quoi** | Liste des fichiers concernés, statut (RETIRÉ / COMMENTÉ / À SUPPRIMER), clés AsyncStorage orphelines, commandes `rg` + `tsc`, renvois vers d’autres candidats morts (audit notifications, legacy Sentinel, etc.). |
+| **Quand l’ouvrir** | Avant un gros nettoyage git ; après avoir retiré une modale, un timer ou un export API ; pour savoir quoi supprimer définitivement une fois la validation terminée. |
+| **Maintenance** | Ajouter une section numérotée par feature retirée ; cocher la checklist §7 du registre quand les symboles sont supprimés du dépôt. |
+
+**Entrées actuelles (mai 2026) :** nudge disponibilité §1–§5 ; pointeurs vers audit notifications (§6) non traités dans ce passage.
+
 ### Fichiers à relire en priorité quand tu reprends le dev
 
 1. `src/context/IntentionContext.tsx` (orchestration + verrous + offline + booléen drain)
@@ -458,4 +481,5 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 12. `src/utils/elasticSlotEngine.ts` + `src/services/traffic/trafficSchedulerElasticTick.ts` (TRIP Contrat de Départ)
 13. `src/services/traffic/sentinelTripMission.ts` (cancel / reset mission)
 14. `src/services/NotificationService.ts` + `src/utils/formatDepartureCapsule.ts` + `dossier_de_soumission.md` (notifications Contrat de Départ)
+15. [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) (registre code mort / retraits feature)
 
