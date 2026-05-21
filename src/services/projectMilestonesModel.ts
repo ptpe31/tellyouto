@@ -80,8 +80,14 @@ export function parseProjectMilestonesPayloadFromMetadataJson(raw: string | null
 }
 
 export function parseGeminiProjectMilestonesJson(raw: string): ProjectMilestonesPayload {
-  const s = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
-  const obj = JSON.parse(s) as Record<string, unknown>;
+  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
+  const startIdx = stripped.indexOf('{');
+  const endIdx = stripped.lastIndexOf('}');
+  let cleanText = stripped;
+  if (startIdx >= 0 && endIdx > startIdx) {
+    cleanText = stripped.slice(startIdx, endIdx + 1);
+  }
+  const obj = JSON.parse(cleanText) as Record<string, unknown>;
   const title = String(obj.title ?? '').trim();
   if (!title) throw new Error('PROJECT_JSON_MISSING_TITLE');
   const ms = obj.milestones;

@@ -43,6 +43,7 @@ import * as chrono from 'chrono-node';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 import { aiLogTokensFromHttpMeta, isAiLoggingEnabled, logAiInteraction } from '../utils/logAiInteraction';
+import { applyPass1DueFields, parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
 import { DEBUG_MODE_DOUANE } from './oneTapPersist';
 import { getActivePass1ModelId } from './geminiRemoteModelSteering';
@@ -224,8 +225,12 @@ function normalizeUniversalTemporalInData(data: Record<string, unknown>): Record
     if (!trimmed) {
       next.dueDateTime = null;
     } else {
-      const dt = new Date(trimmed);
-      next.dueDateTime = Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+      const parsed = parsePass1DueDateTime(trimmed);
+      next.dueDateTime = parsed.dueDateTime;
+      if (parsed.dueDateYmd) next.dueDateYmd = parsed.dueDateYmd;
+      if (parsed.dueTimeHm) next.dueTimeHm = parsed.dueTimeHm;
+      next.timeMarker = parsed.timeMarker;
+      next.is_all_day = parsed.timeMarker === 'ALL_DAY' ? 1 : 0;
     }
   } else {
     next.dueDateTime = null;
@@ -958,7 +963,7 @@ function mergeIntentArrayIntoOneTapSkeleton(
       const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
       if (content && (!title || title === skeleton.title)) title = content.slice(0, 200);
       const due = typeof rawIntent.due === 'string' ? rawIntent.due.trim() : '';
-      if (due) out.dueDateTime = due;
+      if (due) applyPass1DueFields(out, due);
       const notes = typeof rawIntent.notes === 'string' ? rawIntent.notes.trim() : '';
       if (notes) out.notes = notes.slice(0, 2000);
     }
@@ -990,7 +995,7 @@ function mergeIntentArrayIntoOneTapSkeleton(
       if (Number.isFinite(lat)) out.location_lat = lat;
       if (Number.isFinite(lng)) out.location_lng = lng;
       const due = typeof rawIntent.arrivalDue === 'string' ? rawIntent.arrivalDue.trim() : '';
-      if (due) out.dueDateTime = due;
+      if (due) applyPass1DueFields(out, due);
     }
     if (type === 'NOTE') {
       const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';

@@ -132,12 +132,12 @@ export function logAiInteraction(params: LogAiInteractionParams): void {
 
   lines.push('--- SYSTEM INSTRUCTION ---', systemInstruction, '--- USER CONTENT ---', params.userContent);
 
-  if (failed) {
-    lines.push('--- ERROR ---', formatError(params.error));
-  }
-
   if (params.rawResponse !== undefined) {
     lines.push('--- RAW RESPONSE ---', params.rawResponse);
+  }
+
+  if (failed) {
+    lines.push('--- ERROR ---', formatError(params.error));
   }
 
   if (!failed && params.parsedResult !== undefined) {

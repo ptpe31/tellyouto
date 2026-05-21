@@ -6,6 +6,8 @@ import {
   getActivePass1ModelId,
   getActivePass2ModelId,
   getGeminiCandidateModelIds,
+  logPass2ModelSteeringDiagnostics,
+  ensureFreshPassModelsFromRemoteConfig,
   setGeminiSessionFallbackModelId,
   shouldExcludeGeminiModelForSession,
 } from './geminiRemoteModelSteering';
@@ -334,9 +336,7 @@ async function callGeminiProxyStream(params: {
   onAccumulatedText?: (full: string) => void;
   options?: PostGeminiHttpOptions;
 }): Promise<{ text: string; meta: GeminiHttpSettledMeta }> {
-  if (!params.modelOverride) {
-    await awaitGeminiSteeringBeforeNetworkCall();
-  }
+  await awaitGeminiSteeringBeforeNetworkCall();
 
   const candidates = params.modelOverride
     ? [params.modelOverride]
@@ -803,7 +803,7 @@ Return exactly this shape (keys in English as shown):
   return { parsed, rawResponseText };
 }
 
-const PASS2_LIST_SYSTEM_INSTRUCTION = `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
+const PASS2_LIST_INLINE_PROMPT = (transcript: string) => `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
 
 Consignes strictes :
 Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur (Français, Anglais, Espagnol, etc.).
@@ -815,12 +815,14 @@ Unités adaptatives : Détecte l'unité la plus pertinente (kg, jours, chapitres
 Scalabilité : scalable=true pour les items dont la quantité dépend de la cible (ex: ingrédients pour X personnes).
 Format : Réponds uniquement par un objet JSON pur suivant le schéma list_scalable_v1. Ne mets aucune explication avant ou après.
 
+Transcription:
+"""${transcript.replace(/"/g, '\\"')}"""
+
 Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
 {"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "baseQuantity": number, "unit": string, "scalable": boolean}]}]}
+`;
 
-Le corps utilisateur fournira uniquement Reference Time (ISO) et Transcript (dictée).`;
-
-const PASS2_PROJECT_SYSTEM_INSTRUCTION = `Tu es un expert en planification de projets. Ton rôle est de décomposer une intention en jalons/étapes clés.
+const PASS2_PROJECT_INLINE_PROMPT = (transcript: string) => `Tu es un expert en planification de projets. Ton rôle est de décomposer une intention en jalons/étapes clés.
 
 Consignes strictes :
 Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur.
@@ -828,10 +830,12 @@ INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de
 À la place, fournis pour chaque jalon une durée estimée.
 Pour chaque jalon, identifie l'expert métier le plus qualifié (ex: Électricien, Acousticien, Diététicien, Wedding Planner). Si le contexte est général, utilise "Assistant Personnel".
 
+Transcription:
+"""${transcript.replace(/"/g, '\\"')}"""
+
 Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
 {"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}
-
-Le corps utilisateur fournira uniquement Reference Time (ISO) et Transcript (dictée).`;
+`;
 
 /** Pré-chauffe auth + TLS + proxy Gemini (Pass 1 — première requête utilisateur). */
 export async function warmGeminiProxySession(): Promise<void> {
@@ -857,11 +861,13 @@ export async function geminiEnrichGenericList(
 > {
   const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
   const mode = options.mode === 'PROJECT' ? 'PROJECT' : 'LIST';
-  const ref = String(options.referenceTimeIso ?? new Date().toISOString());
-  const systemInstruction = mode === 'PROJECT' ? PASS2_PROJECT_SYSTEM_INSTRUCTION : PASS2_LIST_SYSTEM_INSTRUCTION;
-  const userText = `Reference Time: ${ref}\n\nTranscript:\n"""${safe.replace(/"/g, '\\"')}"""`;
+  const prompt =
+    mode === 'PROJECT' ? PASS2_PROJECT_INLINE_PROMPT(safe) : PASS2_LIST_INLINE_PROMPT(safe);
+  await awaitGeminiSteeringBeforeNetworkCall();
+  await ensureFreshPassModelsFromRemoteConfig();
+  await logPass2ModelSteeringDiagnostics(`lab.list_enrich_generic/${mode}`);
   const modelId = getActivePass2ModelId();
-  const temperature = 0.12;
+  const temperature = 0.18;
   const historyLength = 1;
   const isJsonMode = false;
   const t0 = perfNowMs();
@@ -869,25 +875,24 @@ export async function geminiEnrichGenericList(
     pass: 2 as const,
     label: 'REASONING' as const,
     modelId,
-    systemInstruction,
-    userContent: userText,
+    userContent: prompt,
     temperature,
     isJsonMode,
     historyLength,
   };
 
+  let rawResponseText: string | undefined;
   try {
     const { text, meta } = await callGeminiProxyStream({
-      systemInstruction,
       modelOverride: modelId,
       request: {
-        contents: [{ parts: [{ text: userText }] }],
-        generationConfig: { temperature, maxOutputTokens: 1536 },
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature, maxOutputTokens: 2048 },
       },
       operation: 'lab.list_enrich_generic',
     });
     const latencyMs = perfNowMs() - t0;
-    const rawResponseText = extractTextFromGenerateResponse(text);
+    rawResponseText = extractTextFromGenerateResponse(text);
     if (!rawResponseText) throw new Error('Gemini: empty list enrich response');
     const tokens = aiLogTokensFromHttpMeta(meta);
     if (mode === 'PROJECT') {
@@ -920,6 +925,7 @@ export async function geminiEnrichGenericList(
       ...logBase,
       latencyMs: perfNowMs() - t0,
       error,
+      rawResponse: rawResponseText,
     });
     throw error;
   }

@@ -28,6 +28,7 @@ import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
 import { buildProjectMilestonesMetadataPatch, ensureProjectMilestoneUids } from './projectMilestonesModel';
 import { NOTE_FALLBACK_LABEL } from './timelineIntentionVisibility';
+import { parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 
 
@@ -76,6 +77,46 @@ function str(d: Record<string, unknown>, key: string): string | null {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
   return s.length ? s : null;
+}
+
+function resolveOneTapTemporalFields(data: Record<string, unknown>): {
+  dueDateYmd: string | null;
+  dueTimeHm: string | null;
+  timeMarker: 'ALL_DAY' | 'EXACT_TIME';
+  dueDateTime: string | null;
+  isAllDay: number;
+} {
+  let dueDateYmd = str(data, 'dueDateYmd') ?? str(data, 'nextDueYmd');
+  let dueTimeHm = str(data, 'dueTimeHm');
+  let timeMarkerRaw = str(data, 'timeMarker');
+  let dueDateTime = str(data, 'dueDateTime') ?? str(data, 'arrivalDue');
+
+  if ((!dueDateYmd || !dueTimeHm) && dueDateTime) {
+    const parsed = parsePass1DueDateTime(dueDateTime);
+    dueDateYmd = dueDateYmd ?? parsed.dueDateYmd;
+    dueTimeHm = dueTimeHm ?? parsed.dueTimeHm;
+    timeMarkerRaw = timeMarkerRaw ?? parsed.timeMarker;
+    dueDateTime = parsed.dueDateTime ?? dueDateTime;
+  }
+
+  if (dueDateYmd && !/^\d{4}-\d{2}-\d{2}$/.test(dueDateYmd)) {
+    dueDateYmd = null;
+  }
+
+  const timeMarker: 'ALL_DAY' | 'EXACT_TIME' =
+    timeMarkerRaw === 'EXACT_TIME' || timeMarkerRaw === 'ALL_DAY'
+      ? timeMarkerRaw
+      : dueTimeHm && dueTimeHm !== '00:00'
+        ? 'EXACT_TIME'
+        : 'ALL_DAY';
+
+  return {
+    dueDateYmd,
+    dueTimeHm,
+    timeMarker,
+    dueDateTime,
+    isAllDay: timeMarker === 'ALL_DAY' ? 1 : 0,
+  };
 }
 
 function normalizeDomainCategoryId(raw: string | null | undefined): string {
@@ -240,13 +281,14 @@ async function materializeOneTapIntentionRow(params: {
       };
     case 'TASK':
     case 'RECURRING_TASK': {
-      let dueDateYmd = str(draft.data, 'dueDateYmd') ?? str(draft.data, 'nextDueYmd');
-      if (dueDateYmd && !/^\d{4}-\d{2}-\d{2}$/.test(dueDateYmd)) {
-        dueDateYmd = null;
-      }
+      const temporal = resolveOneTapTemporalFields(draft.data as Record<string, unknown>);
       const metaExtra: Record<string, unknown> = {
         source: 'one_tap_universal',
         categoryTag: draft.categoryTag,
+        ...(temporal.dueTimeHm ? { dueTimeHm: temporal.dueTimeHm } : {}),
+        ...(temporal.dueDateTime ? { dueDateTime: temporal.dueDateTime } : {}),
+        timeMarker: temporal.timeMarker,
+        is_all_day: temporal.isAllDay,
       };
       if (params.parentJalonUid) {
         metaExtra.zoom_parent_jalon_uid = params.parentJalonUid;
@@ -259,10 +301,11 @@ async function materializeOneTapIntentionRow(params: {
         title,
         rawTranscript: raw,
         localType: 'TASK',
-        dueDateYmd,
+        dueDateYmd: temporal.dueDateYmd,
         categoryIdOverride: domainCategoryId,
         suggestedTags: [draft.categoryTag.toLowerCase().replace(/\s+/g, '_')],
         source: 'one_tap_task',
+        timeMarker: temporal.timeMarker,
         metadataExtra: metaExtra,
         is_pending_ai: isPendingAi,
         created_at,
@@ -270,33 +313,27 @@ async function materializeOneTapIntentionRow(params: {
       return { ...row, parent_id: params.parentId ?? null, context_tag: contextTagDb, ...aiMeta };
     }
     case 'TRIP': {
-      let dueDateYmd = str(draft.data, 'dueDateYmd');
-      if (!dueDateYmd) {
-        const iso = str(draft.data, 'dueDateTime') ?? str(draft.data, 'arrivalDue');
-        if (iso) {
-          const d = new Date(iso);
-          if (!Number.isNaN(d.getTime())) {
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            dueDateYmd = `${y}-${m}-${day}`;
-          }
-        }
-      }
-      if (dueDateYmd && !/^\d{4}-\d{2}-\d{2}$/.test(dueDateYmd)) {
-        dueDateYmd = null;
-      }
+      const temporal = resolveOneTapTemporalFields(draft.data as Record<string, unknown>);
       const dest = str(draft.data, 'destination_name') || title;
       const { row } = buildLocalTemporalIntentionInsertRow({
         id: intentionId,
         title: dest.slice(0, 200),
         rawTranscript: raw,
         localType: 'TASK',
-        dueDateYmd,
+        dueDateYmd: temporal.dueDateYmd,
         categoryIdOverride: domainCategoryId,
         suggestedTags: [draft.categoryTag.toLowerCase().replace(/\s+/g, '_')],
         source: 'one_tap_trip',
-        metadataExtra: { source: 'one_tap_universal', categoryTag: draft.categoryTag, trip: draft.data },
+        timeMarker: temporal.timeMarker,
+        metadataExtra: {
+          source: 'one_tap_universal',
+          categoryTag: draft.categoryTag,
+          trip: draft.data,
+          ...(temporal.dueTimeHm ? { dueTimeHm: temporal.dueTimeHm } : {}),
+          ...(temporal.dueDateTime ? { dueDateTime: temporal.dueDateTime, arrivalDue: temporal.dueDateTime } : {}),
+          timeMarker: temporal.timeMarker,
+          is_all_day: temporal.isAllDay,
+        },
         is_pending_ai: isPendingAi,
         created_at,
       });
@@ -986,16 +1023,14 @@ function inferTemporalType(data: Record<string, unknown>): 'TASK' | 'HABIT' {
   return 'TASK';
 }
 
-function parseIsoToYmdHm(iso: string): { ymd: string; hm: string } | null {
-  const dt = new Date(iso);
-  const ms = dt.getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return null;
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, '0');
-  const d = String(dt.getDate()).padStart(2, '0');
-  const hh = String(dt.getHours()).padStart(2, '0');
-  const mm = String(dt.getMinutes()).padStart(2, '0');
-  return { ymd: `${y}-${m}-${d}`, hm: `${hh}:${mm}` };
+function parseIsoToYmdHm(iso: string): { ymd: string; hm: string; timeMarker: 'ALL_DAY' | 'EXACT_TIME' } | null {
+  const parsed = parsePass1DueDateTime(iso);
+  if (!parsed.dueDateYmd) return null;
+  return {
+    ymd: parsed.dueDateYmd,
+    hm: parsed.dueTimeHm ?? '00:00',
+    timeMarker: parsed.timeMarker,
+  };
 }
 
 function buildListDraftBlock(params: {
@@ -1212,7 +1247,7 @@ export async function persistOneTapDraftVentilated(params: {
           const content = String(r.content ?? '').trim() || draft.title;
           const notes = typeof r.notes === 'string' ? r.notes.trim() : '';
           const dueIso = typeof r.due === 'string' ? r.due.trim() : '';
-          const patch = dueIso ? parseIsoToYmdHm(dueIso) : null;
+          const parsedDue = dueIso ? parsePass1DueDateTime(dueIso) : null;
           const taskDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
@@ -1220,8 +1255,12 @@ export async function persistOneTapDraftVentilated(params: {
             title: content.slice(0, 200) || draft.title,
             predictedType: 'TASK',
             data: {
-              ...(dueIso ? { dueDateTime: dueIso } : {}),
-              ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
+              ...(parsedDue?.dueDateTime ? { dueDateTime: parsedDue.dueDateTime } : dueIso ? { dueDateTime: dueIso } : {}),
+              ...(parsedDue?.dueDateYmd ? { dueDateYmd: parsedDue.dueDateYmd } : {}),
+              ...(parsedDue?.dueTimeHm ? { dueTimeHm: parsedDue.dueTimeHm } : {}),
+              ...(parsedDue
+                ? { timeMarker: parsedDue.timeMarker, is_all_day: parsedDue.timeMarker === 'ALL_DAY' ? 1 : 0 }
+                : {}),
               ...(notes ? { notes: notes.slice(0, 2000) } : {}),
             },
           };
@@ -1248,7 +1287,7 @@ export async function persistOneTapDraftVentilated(params: {
           const destination =
             String(r.destination ?? r.content ?? r.title ?? '').trim() || str(draft.data, 'destination_name') || draft.title;
           const dueIso = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : typeof r.due === 'string' ? r.due.trim() : '';
-          const patch = dueIso ? parseIsoToYmdHm(dueIso) : null;
+          const parsedDue = dueIso ? parsePass1DueDateTime(dueIso) : null;
           const tripDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
@@ -1258,8 +1297,16 @@ export async function persistOneTapDraftVentilated(params: {
             data: {
               logisticsPotential: true,
               destination_name: destination.slice(0, 400),
-              ...(dueIso ? { dueDateTime: dueIso } : {}),
-              ...(patch ? { dueDateYmd: patch.ymd, dueTimeHm: patch.hm } : {}),
+              ...(parsedDue?.dueDateTime
+                ? { dueDateTime: parsedDue.dueDateTime, arrivalDue: parsedDue.dueDateTime }
+                : dueIso
+                  ? { dueDateTime: dueIso, arrivalDue: dueIso }
+                  : {}),
+              ...(parsedDue?.dueDateYmd ? { dueDateYmd: parsedDue.dueDateYmd } : {}),
+              ...(parsedDue?.dueTimeHm ? { dueTimeHm: parsedDue.dueTimeHm } : {}),
+              ...(parsedDue
+                ? { timeMarker: parsedDue.timeMarker, is_all_day: parsedDue.timeMarker === 'ALL_DAY' ? 1 : 0 }
+                : {}),
               location_address: str(draft.data, 'location_address') ?? '',
               location_place_id: (draft.data as Record<string, unknown>).location_place_id ?? null,
               location_lat: (draft.data as Record<string, unknown>).location_lat ?? null,
