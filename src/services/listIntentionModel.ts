@@ -56,7 +56,7 @@ export type ListScalablePayload = {
   categories: ListCategoryStored[];
 };
 
-const CANONICAL_UNITS = new Set(['g', 'kg', 'piece', 'cl', 'l', 'ml']);
+const CANONICAL_UNITS = new Set(['g', 'kg', 'cl', 'l', 'ml']);
 
 /** Unités dénombrables génériques → masquer l'unité (ex. « 20 Œufs » sans « unités »). */
 const COUNT_ONLY_UNITS = new Set([
@@ -67,6 +67,12 @@ const COUNT_ONLY_UNITS = new Set([
   'unit',
   'units',
   'u',
+  'pièce',
+  'pièces',
+  'piece',
+  'pieces',
+  'pcs',
+  'pc',
 ]);
 
 /**
@@ -85,8 +91,6 @@ function normalizeUnit(u: unknown): string {
   if (CANONICAL_UNITS.has(s)) return s;
 
   if (COUNT_ONLY_UNITS.has(s)) return '';
-
-  if (s === 'pcs' || s === 'pc' || s === 'pièce' || s === 'pièces' || s === 'pieces') return 'piece';
 
   // Unité libre plausible (sachets, pincées, cuillères à soupe, etc.)
   if (/^[\p{L}\p{N}\s./°%-]+$/u.test(raw) && raw.length <= 32) {
@@ -214,6 +218,50 @@ export function buildListInventoryJsonStringFromDraftBlock(
 }
 
 /**
+ * Ferme les `{` / `[` ouverts si la réponse Gemini a été tronquée en cours de génération.
+ */
+function salvageTruncatedJsonText(text: string): string {
+  let s = text.replace(/,?\s*$/, '');
+  const closers: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const ch of s) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') closers.push('}');
+    else if (ch === '[') closers.push(']');
+    else if ((ch === '}' || ch === ']') && closers.length > 0 && closers[closers.length - 1] === ch) {
+      closers.pop();
+    }
+  }
+  if (inString) s += '"';
+  s = s.replace(/,\s*$/, '');
+  while (closers.length > 0) s += closers.pop();
+  return s;
+}
+
+/** Parse JSON avec repli : isolation `{…}` puis fermeture automatique des accolades manquantes. */
+function parseListJsonObject(cleanText: string): Record<string, unknown> {
+  try {
+    return JSON.parse(cleanText) as Record<string, unknown>;
+  } catch {
+    const salvaged = salvageTruncatedJsonText(cleanText);
+    return JSON.parse(salvaged) as Record<string, unknown>;
+  }
+}
+
+/**
  * Parse la réponse texte Gemini (JSON pur ou entouré de fences ```).
  *
  * @param raw — Texte renvoyé par le modèle.
@@ -223,12 +271,13 @@ export function buildListInventoryJsonStringFromDraftBlock(
 export function parseGeminiListInventoryJson(raw: string): GeminiListInventoryJson {
   const stripped = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
   const startIdx = stripped.indexOf('{');
-  const endIdx = stripped.lastIndexOf('}');
-  let cleanText = stripped;
-  if (startIdx >= 0 && endIdx > startIdx) {
-    cleanText = stripped.slice(startIdx, endIdx + 1);
+  if (startIdx < 0) throw new Error('LIST_JSON_MISSING_OBJECT');
+  let cleanText = stripped.slice(startIdx);
+  if (/[}\]]\s*$/.test(stripped)) {
+    const endIdx = cleanText.lastIndexOf('}');
+    if (endIdx > 0) cleanText = cleanText.slice(0, endIdx + 1);
   }
-  const obj = JSON.parse(cleanText) as Record<string, unknown>;
+  const obj = parseListJsonObject(cleanText);
   const title = String(obj.title ?? '').trim();
   if (!title) throw new Error('LIST_JSON_MISSING_TITLE');
   const baseCount = Math.max(1, Math.round(Number(obj.baseCount ?? 1)));

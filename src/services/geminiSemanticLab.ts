@@ -803,22 +803,19 @@ Return exactly this shape (keys in English as shown):
   return { parsed, rawResponseText };
 }
 
-const PASS2_LIST_INLINE_PROMPT = (transcript: string) => `Tu es un expert en logistique et planification. Ton rôle est de décomposer une intention en une liste structurée et actionnable.
+const PASS2_LIST_INLINE_PROMPT = (transcript: string) => `Tu es un expert en logistique. Décompose l'intention en une liste structurée JSON.
 
-Consignes strictes :
-Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur (Français, Anglais, Espagnol, etc.).
-Analyse le domaine :
-- Si c'est une recette : décompose en ingrédients (Boucherie, Légumes, etc.).
-- Si c'est une étude/examen : décompose en chapitres ou sessions.
-- Si c'est un objectif/projet : décompose en jalons ou étapes clés.
-Unités adaptatives : Détecte l'unité la plus pertinente (kg, jours, chapitres, séances).
-Scalabilité : scalable=true pour les items dont la quantité dépend de la cible (ex: ingrédients pour X personnes).
-Format : Réponds uniquement par un objet JSON pur suivant le schéma list_scalable_v1. Ne mets aucune explication avant ou après.
+CONSIGNES DE ROBUSTESSE (CRITIQUE) :
+- Langue : Réponds impérativement dans la langue de la dictée.
+- Concision : Noms d'items courts (max 3 mots). Exemple : "Chocolat noir" au lieu de "Chocolat noir à pâtisser".
+- Format : JSON pur uniquement. AUCUNE explication, aucun texte introductif.
+- Sécurité : Ferme TOUTES les accolades et crochets avant de terminer ta réponse.
+- Taille : Max 12 items au total. Si la liste dépasse, groupe par catégorie.
 
 Transcription:
 """${transcript.replace(/"/g, '\\"')}"""
 
-Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
+Schéma JSON :
 {"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "baseQuantity": number, "unit": string, "scalable": boolean}]}]}
 `;
 
