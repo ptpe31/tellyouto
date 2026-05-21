@@ -53,6 +53,22 @@ function buildDefaultConfig(): Record<string, string | number> {
   };
 }
 
+function logIndexedDbProbeForRcAudit(context: string): void {
+  if (!__DEV__) return;
+  try {
+    const idb = (globalThis as Record<string, unknown>).indexedDB;
+    const openFn = idb != null && typeof idb === 'object' ? (idb as { open?: unknown }).open : null;
+    console.log(`[GEMINI-RC] ${context} — indexedDB probe:`, {
+      defined: idb !== undefined,
+      isNull: idb === null,
+      type: typeof idb,
+      hasOpen: typeof openFn === 'function',
+    });
+  } catch (probeError) {
+    console.warn('[GEMINI-RC] indexedDB probe failed:', probeError);
+  }
+}
+
 async function ensureRemoteConfigInstance(): Promise<RemoteConfig | null> {
   const app = getFirebaseApp();
   if (!app) {
@@ -64,13 +80,21 @@ async function ensureRemoteConfigInstance(): Promise<RemoteConfig | null> {
 
   const { getRemoteConfig } = await import('firebase/remote-config');
   if (!remoteConfigInstance) {
+    logIndexedDbProbeForRcAudit('Avant getRemoteConfig');
     remoteConfigInstance = getRemoteConfig(app);
+    console.log('[GEMINI-RC] Initialisation - remoteConfig instance exists:', !!remoteConfigInstance);
+    if (!remoteConfigInstance) {
+      console.error('[GEMINI-RC] ERREUR : Instance RemoteConfig non trouvée !');
+      return null;
+    }
     remoteConfigInstance.settings.minimumFetchIntervalMillis = __DEV__ ? 0 : PROD_MIN_FETCH_INTERVAL_MS;
-    remoteConfigInstance.defaultConfig = buildDefaultConfig();
+    const defaultConfig = buildDefaultConfig();
+    remoteConfigInstance.defaultConfig = defaultConfig;
     if (__DEV__) {
       console.log(
         `[GEMINI-RC] Remote Config init — projectId=${app.options.projectId ?? '?'} fetchInterval=${remoteConfigInstance.settings.minimumFetchIntervalMillis}ms`,
       );
+      console.log('[GEMINI-RC] Configuration par défaut chargée (init) :', defaultConfig);
     }
   }
   return remoteConfigInstance;
@@ -83,11 +107,17 @@ export async function fetchAndActivateRemoteConfig(): Promise<boolean> {
   fetchInFlight = (async () => {
     try {
       const rc = await ensureRemoteConfigInstance();
+      console.log('[GEMINI-RC] Initialisation - remoteConfig instance exists:', !!rc);
       if (!rc) {
+        console.error('[GEMINI-RC] ERREUR : Instance RemoteConfig non trouvée !');
         lastFetchSucceeded = false;
         lastFetchErrorMessage = 'firebase_app_unavailable';
         return false;
       }
+      const defaultConfig = buildDefaultConfig();
+      console.log('[GEMINI-RC] Configuration par défaut chargée :', defaultConfig);
+      logIndexedDbProbeForRcAudit('Avant fetchAndActivate');
+      console.log('[GEMINI-RC] Tentative de fetchAndActivate...');
       const { fetchAndActivate } = await import('firebase/remote-config');
       const activated = await fetchAndActivate(rc);
       lastFetchSucceeded = true;
@@ -96,12 +126,14 @@ export async function fetchAndActivateRemoteConfig(): Promise<boolean> {
         console.log(`[GEMINI-RC] fetchAndActivate OK (activated=${activated})`);
       }
       return true;
-    } catch (e) {
+    } catch (error) {
       lastFetchSucceeded = false;
-      lastFetchErrorMessage = e instanceof Error ? e.message : String(e);
-      if (__DEV__) {
-        console.warn(`[GEMINI-RC] fetchAndActivate ÉCHEC : ${lastFetchErrorMessage}`);
+      lastFetchErrorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[GEMINI-RC] Erreur détaillée fetchAndActivate :', error);
+      if (error instanceof Error) {
+        console.error('[GEMINI-RC] Stacktrace :', error.stack);
       }
+      console.warn(`[GEMINI-RC] fetchAndActivate ÉCHEC : ${lastFetchErrorMessage}`);
       return false;
     } finally {
       fetchInFlight = null;

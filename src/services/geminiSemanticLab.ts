@@ -350,6 +350,14 @@ async function callGeminiProxyStream(params: {
   for (let i = 0; i < candidates.length; i += 1) {
     const modelId = candidates[i];
     const url = getGeminiProxyStreamUrl();
+    console.log(
+      '[GEMINI-API] Appel lancé vers le proxy | ModelId:',
+      modelId,
+      '| Operation:',
+      params.operation,
+      '| URL:',
+      url,
+    );
 
     let res = await fetch(url, {
       method: 'POST',
