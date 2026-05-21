@@ -42,6 +42,7 @@ import * as chrono from 'chrono-node';
 
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { logCaptureFlow } from '../utils/captureFlowLog';
+import { isAiLoggingEnabled, logAiInteraction } from '../utils/logAiInteraction';
 import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
 import { DEBUG_MODE_DOUANE } from './oneTapPersist';
 import { getActivePass1ModelId } from './geminiRemoteModelSteering';
@@ -391,14 +392,6 @@ function bulletPipeRowFromSegments(segs: string[]): ExtractionResult | null {
   const hasContextSegment = segs.length >= 5;
   const slot4 = String(segs[3] ?? '').trim();
   const contextTag = normalizeOneTapContextTag(hasContextSegment ? segs[4] : '');
-  if (VERBOSE_DEBUG) {
-    console.log('[GeminiDebug] 🗺️ MAPPING_CHECK:', {
-      segmentCategory: segs[2],
-      resolvedCategoryId: categoryTag,
-      segmentContext: hasContextSegment ? segs[4] : '',
-      resolvedContextTag: contextTag,
-    });
-  }
   return { type, content, categoryTag, contextTag, slot4 };
 }
 
@@ -1589,16 +1582,6 @@ export async function refineOneTapWithGeminiCompressed(
   const userText = buildOneTapPass1UserContent(transcript, seed, now);
   const useStream = options.useStream !== false;
   const pathBGeminiStart = perfNowMs();
-  const lang2 = baseLangFromBcp47(detectLangForOneTapPrompt(transcript, ''));
-  if (VERBOSE_DEBUG) {
-    console.log('[GeminiDebug] 🛡️ PROMPT_PARAMS:', {
-      lang2,
-      transcriptHead: transcript.slice(0, 20),
-      systemInstructionChars: systemInstruction.length,
-      userTextChars: userText.length,
-    });
-  }
-
   const pathBLog: GeminiPathBLogAnchor = {
     pathACategoryTag: skeleton.categoryTag,
     pathAPredictedType: skeleton.predictedType,
@@ -1679,7 +1662,7 @@ export async function refineOneTapWithGeminiCompressed(
   }
   if (extractedFinal.length) {
     parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, normalizeIncompletes(extractedFinal));
-    logCaptureFlow(undefined, 'pass1_bullet_pipe_resolved', {
+    logCaptureFlow(undefined, 'pass1_intents_resolved', {
       categoryTag: parsed.categoryTag,
       contextTag: parsed.contextTag || '',
       intentCount: extractedFinal.length,
@@ -1696,12 +1679,13 @@ export async function refineOneTapWithGeminiCompressed(
     if (rawModelText.includes('"intents"')) {
       const forced = parseJsonIntentsFromBuffer(rawModelText, false);
       if (forced.length) {
+        extractedFinal = forced;
         parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, normalizeIncompletes(forced));
-      } else if (VERBOSE_DEBUG) {
-        console.log('[GeminiDebug] ⚠️ INVALID_BULLET_PIPE_OUTPUT:', rawModelText.slice(0, 600));
+      } else if (isAiLoggingEnabled()) {
+        console.log('[OneTap] ⚠️ Pass1 parse failed — no intents extracted from model output');
       }
-    } else if (VERBOSE_DEBUG) {
-      console.log('[GeminiDebug] ⚠️ INVALID_BULLET_PIPE_OUTPUT:', rawModelText.slice(0, 600));
+    } else if (isAiLoggingEnabled()) {
+      console.log('[OneTap] ⚠️ Pass1 parse failed — no intents extracted from model output');
     }
   }
   if (!parsed.title.trim()) {
@@ -1799,6 +1783,17 @@ export async function refineOneTapWithGeminiCompressed(
       `[OneTapPerf] 🏁 END_TO_END_CHAIN${OT_LOG}T0 (End Capture) -> T1 (Local Skeleton): ${t0ToT1}ms${OT_LOG}T1 -> T3 (Gemini Refinement): ${geminiRefineMs}ms${OT_LOG}TOTAL_LATENCY: ${totalFromT0}ms${OT_LOG}RESULT_CAT: ${parsed.categoryTag}${OT_LOG}RESULT_CTX: ${parsed.contextTag || '—'}`,
     );
   }
+
+  logAiInteraction({
+    pass: 1,
+    label: 'EXTRACTION',
+    modelId: metaForLog.modelId,
+    latencyMs: netEnd - netStart,
+    systemInstruction,
+    userContent: userText,
+    rawResponse: rawModelText,
+    parsedResult: extractedFinal.length ? extractedFinal : null,
+  });
 
   return { parsed: parsedWithPerfMeta, rawModelText, httpMeta: metaForLog };
 }

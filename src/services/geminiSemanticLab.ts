@@ -1,5 +1,4 @@
 import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
-import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
 import {
   awaitGeminiSteeringBeforeNetworkCall,
@@ -11,6 +10,7 @@ import {
   shouldExcludeGeminiModelForSession,
 } from './geminiRemoteModelSteering';
 import { parseGeminiListInventoryJson, type GeminiListInventoryJson } from './listIntentionModel';
+import { logAiInteraction } from '../utils/logAiInteraction';
 
 const GLOG = '\n  | ';
 
@@ -860,24 +860,49 @@ export async function geminiEnrichGenericList(
   const ref = String(options.referenceTimeIso ?? new Date().toISOString());
   const systemInstruction = mode === 'PROJECT' ? PASS2_PROJECT_SYSTEM_INSTRUCTION : PASS2_LIST_SYSTEM_INSTRUCTION;
   const userText = `Reference Time: ${ref}\n\nTranscript:\n"""${safe.replace(/"/g, '\\"')}"""`;
+  const modelId = getActivePass2ModelId();
+  const t0 = perfNowMs();
 
   const { text } = await callGeminiProxyStream({
     systemInstruction,
-    modelOverride: getActivePass2ModelId(),
+    modelOverride: modelId,
     request: {
       contents: [{ parts: [{ text: userText }] }],
       generationConfig: { temperature: 0.12, maxOutputTokens: 1536 },
     },
     operation: 'lab.list_enrich_generic',
   });
+  const latencyMs = perfNowMs() - t0;
   const rawResponseText = extractTextFromGenerateResponse(text);
   if (!rawResponseText) throw new Error('Gemini: empty list enrich response');
   if (mode === 'PROJECT') {
     const { parseGeminiProjectMilestonesJson } = await import('./projectMilestonesModel');
     const parsed = parseGeminiProjectMilestonesJson(rawResponseText);
+    logAiInteraction({
+      pass: 2,
+      label: 'REASONING',
+      modelId,
+      latencyMs,
+      systemInstruction,
+      userContent: userText,
+      rawResponse: rawResponseText,
+      parsedResult: parsed,
+      parsedSectionTitle: 'PARSED MILESTONES',
+    });
     return { mode, parsed, rawResponseText };
   }
   const parsed = parseGeminiListInventoryJson(rawResponseText);
+  logAiInteraction({
+    pass: 2,
+    label: 'REASONING',
+    modelId,
+    latencyMs,
+    systemInstruction,
+    userContent: userText,
+    rawResponse: rawResponseText,
+    parsedResult: parsed,
+    parsedSectionTitle: 'PARSED LIST',
+  });
   return { mode, parsed, rawResponseText };
 }
 
@@ -924,7 +949,6 @@ export async function geminiGenerateOneTapCompressedLine(
       : undefined,
   });
   const rawText = extractTextFromGenerateResponse(text);
-  if (VERBOSE_DEBUG) console.log('[GeminiDebug] 📥 RAW_MODEL_OUTPUT:', rawText);
   const raw = normalizeOneTapWireText(rawText);
   if (!raw) throw new Error('Gemini: réponse filaire vide');
   return { raw, httpMeta };
@@ -958,7 +982,6 @@ export async function geminiStreamOneTapCompressedLine(
       : undefined,
   });
   const rawText = extractTextFromGenerateResponse(text);
-  if (VERBOSE_DEBUG) console.log('[GeminiDebug] 📥 RAW_MODEL_OUTPUT:', rawText);
   const raw = normalizeOneTapWireText(rawText);
   if (!raw) throw new Error('Gemini: réponse filaire vide');
   return { raw, httpMeta };
