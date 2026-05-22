@@ -53,13 +53,27 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 **Chaîne de résolution (boot)**
 
 1. Override Debug (`debug_override_model`, AsyncStorage, TTL 24 h) — prioritaire sur **Pass 2**
-2. RC réseau (`fetchAndActivate` **OK**) → `gemini_pass1_model_id` + `gemini_pass2_model_id` (repli `defaultConfig` si fetch échoué)
+2. RC réseau (`fetchAndActivate` **OK**, **web uniquement**) → `gemini_pass1_model_id` + `gemini_pass2_model_id` ; sur **iOS/Android**, fetch réseau **court-circuité** (Option A) → `defaultConfig` compilé immédiatement
 3. Session fallback Pass 2 (mémoire vive uniquement, après 503/404)
-4. Défauts compilés : Pass 1 `gemini-3.1-flash-lite` · Pass 2 `gemini-pro-latest`
+4. Défauts compilés : Pass 1 `gemini-3.1-flash-lite` · Pass 2 `gemini-1.5-flash`
 
-**Diagnostic RC (`__DEV__`)** : [`getRemoteConfigEntry`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) expose `value` + `source` (`remote` | `default` | `static`). Logs `[GEMINI-RC]` au boot, après `fetchAndActivate` (OK/ÉCHEC + message), et avant Pass 2 via [`logPass2ModelSteeringDiagnostics`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) (`effective`, `rcActivated`, `rcPass2Source`, `compiledDefault`, hint si fetch réseau absent). [`ensureFreshPassModelsFromRemoteConfig`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) re-tente un fetch si Pass 2 n’est pas encore sourcé depuis le réseau.
+**Architecture Firebase (Option A — web JS SDK)**
 
-**Limitation connue (React Native / Hermes)** : le SDK Firebase Remote Config peut échouer sur `fetchAndActivate` (`Cannot read property 'open' of undefined` — IndexedDB). Dans ce cas, l’app retombe sur `defaultConfig` compilé ; la console Firebase ne pilote le modèle qu’après correction du fetch RC (guard [`firebaseIndexedDbGuard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/firebaseIndexedDbGuard.ts) + import side-effect dans `firebaseRemoteConfig.ts`).
+Point d’entrée unique : [`src/config/firebase.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/firebase.ts) → interface `FirebaseProvider` :
+
+| Module | Rôle |
+|--------|------|
+| [`firebaseWebProvider.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/firebaseWebProvider.ts) | Backend actif Expo/Hermes : `@firebase/app`, Auth (`getReactNativePersistence` + AsyncStorage), Firestore (`initializeFirestore` + `memoryLocalCache()`) |
+| [`firebaseNativeProvider.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/firebaseNativeProvider.ts) | Option B — stub `@react-native-firebase/*` (non implémenté) |
+| [`src/api/firebase.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/firebase.ts) | Façade deprecated — réexporte `config/firebase` |
+
+**Remote Config mobile (Option A)** : le SDK web RC est **structurellement incompatible** avec Hermes sans IndexedDB (`@firebase/installations` exige `idb` pour `getId()` avant tout fetch REST). Aucun polyfill IDB n’est utilisé. Dans [`firebaseRemoteConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts), si `Platform.OS !== 'web'`, `fetchAndActivateRemoteConfig()` retourne `false` sans appeler le réseau ; log boot : `[GEMINI-RC] Mobile détecté : fetch réseau ignoré, utilisation des défauts compilés`. Les clés sont lues via `defaultConfig` / `getRemoteConfigEntry` (source `default`).
+
+**TODO (Option B)** : migrer vers `@react-native-firebase/remote-config` dans `firebaseNativeProvider.ts` pour réactiver le fetch réseau RC sur mobile ; activer via `EXPO_PUBLIC_FIREBASE_BACKEND=react-native-firebase` (voir commentaire identique dans `fetchAndActivateRemoteConfig`).
+
+**Diagnostic RC (`__DEV__`)** : [`getRemoteConfigEntry`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/firebaseRemoteConfig.ts) expose `value` + `source` (`remote` | `default` | `static`). Logs `[GEMINI-RC]` au boot : init instance, skip mobile (Option A), ou après `fetchAndActivate` web (OK/ÉCHEC + message) ; avant Pass 2 via [`logPass2ModelSteeringDiagnostics`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts). [`ensureFreshPassModelsFromRemoteConfig`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) re-tente un fetch si Pass 2 n’est pas encore sourcé depuis le réseau (**web** ; no-op fetch sur mobile).
+
+**Nettoyage mai 2026** : suppression de [`firebaseIndexedDbGuard.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/firebaseIndexedDbGuard.ts) (patch IDB retiré — Firestore n’en dépendait pas ; RC mobile bascule sur Option A).
 
 **Verrou avant appel réseau** : `awaitGeminiSteeringBeforeNetworkCall()` ([geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts), [GeminiExpert.js](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js)) attend `ensureGeminiRemoteModelInitialized()` avec **timeout 2 s** → fast-path Debug / défauts sans bloquer One-Tap.
 

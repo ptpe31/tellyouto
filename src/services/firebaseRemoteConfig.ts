@@ -5,11 +5,10 @@
  * défauts compilés dans `defaultConfig` (extraction rapide vs raisonnement profond).
  */
 
-import '../api/firebaseIndexedDbGuard';
-
 import type { RemoteConfig, ValueSource } from 'firebase/remote-config';
+import { Platform } from 'react-native';
 
-import { getFirebaseApp } from '../api/firebase';
+import { getFirebaseApp } from '../config/firebase';
 
 export const RC_KEY_GEMINI_MODEL_FALLBACKS = 'gemini_model_fallbacks';
 export const RC_KEY_GEMINI_PASS1_MODEL_ID = 'gemini_pass1_model_id';
@@ -53,22 +52,6 @@ function buildDefaultConfig(): Record<string, string | number> {
   };
 }
 
-function logIndexedDbProbeForRcAudit(context: string): void {
-  if (!__DEV__) return;
-  try {
-    const idb = (globalThis as Record<string, unknown>).indexedDB;
-    const openFn = idb != null && typeof idb === 'object' ? (idb as { open?: unknown }).open : null;
-    console.log(`[GEMINI-RC] ${context} — indexedDB probe:`, {
-      defined: idb !== undefined,
-      isNull: idb === null,
-      type: typeof idb,
-      hasOpen: typeof openFn === 'function',
-    });
-  } catch (probeError) {
-    console.warn('[GEMINI-RC] indexedDB probe failed:', probeError);
-  }
-}
-
 async function ensureRemoteConfigInstance(): Promise<RemoteConfig | null> {
   const app = getFirebaseApp();
   if (!app) {
@@ -80,7 +63,6 @@ async function ensureRemoteConfigInstance(): Promise<RemoteConfig | null> {
 
   const { getRemoteConfig } = await import('firebase/remote-config');
   if (!remoteConfigInstance) {
-    logIndexedDbProbeForRcAudit('Avant getRemoteConfig');
     remoteConfigInstance = getRemoteConfig(app);
     console.log('[GEMINI-RC] Initialisation - remoteConfig instance exists:', !!remoteConfigInstance);
     if (!remoteConfigInstance) {
@@ -102,6 +84,14 @@ async function ensureRemoteConfigInstance(): Promise<RemoteConfig | null> {
 
 /** @returns `true` si `fetchAndActivate` a réussi pour cet appel. */
 export async function fetchAndActivateRemoteConfig(): Promise<boolean> {
+  // TODO (Option B) : Migrer vers @react-native-firebase/remote-config dans firebaseNativeProvider.ts pour réactiver le fetch réseau sur mobile.
+  if (Platform.OS !== 'web') {
+    lastFetchSucceeded = false;
+    lastFetchErrorMessage = null;
+    console.log('[GEMINI-RC] Mobile détecté : fetch réseau ignoré, utilisation des défauts compilés');
+    return false;
+  }
+
   if (fetchInFlight) return fetchInFlight;
 
   fetchInFlight = (async () => {
@@ -116,7 +106,6 @@ export async function fetchAndActivateRemoteConfig(): Promise<boolean> {
       }
       const defaultConfig = buildDefaultConfig();
       console.log('[GEMINI-RC] Configuration par défaut chargée :', defaultConfig);
-      logIndexedDbProbeForRcAudit('Avant fetchAndActivate');
       console.log('[GEMINI-RC] Tentative de fetchAndActivate...');
       const { fetchAndActivate } = await import('firebase/remote-config');
       const activated = await fetchAndActivate(rc);

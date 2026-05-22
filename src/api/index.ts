@@ -10,7 +10,7 @@ export {
   ensureAuthenticatedUser,
   isFirebaseUserAnonymous,
 } from './accountLinking';
-export { getFirebaseApp, getFirestoreDb } from './firebase';
+export { getFirebaseApp, getFirestoreDb } from '../config/firebase';
 export {
   addRemainingIntents,
   addIaCredits,
