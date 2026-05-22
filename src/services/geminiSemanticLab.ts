@@ -124,7 +124,7 @@ type ProxyStreamEvent =
       tokens_completion?: number | null;
       tokens_total?: number | null;
     }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; code?: string; details?: string };
 
 async function getFirebaseIdToken(): Promise<string> {
   await ensureFirebaseAnonymousAuth();
@@ -204,7 +204,7 @@ async function readProxySse(
                 }
               : usageMetadata);
         } else if (evt.type === 'error') {
-          throw new Error(evt.error || 'proxy_error');
+          throw new Error(evt.details || evt.error || 'proxy_error');
         }
       }
     }
@@ -327,6 +327,12 @@ async function readProxyResponse(
   return { text: out };
 }
 
+function buildGeminiProxyCandidateChain(modelOverride?: string): string[] {
+  if (!modelOverride) return getGeminiCandidateModelIds();
+  const fallbacks = getGeminiCandidateModelIds().filter((id) => id !== modelOverride);
+  return [modelOverride, ...fallbacks];
+}
+
 async function callGeminiProxyStream(params: {
   request: object;
   operation: string;
@@ -338,9 +344,7 @@ async function callGeminiProxyStream(params: {
 }): Promise<{ text: string; meta: GeminiHttpSettledMeta }> {
   await awaitGeminiSteeringBeforeNetworkCall();
 
-  const candidates = params.modelOverride
-    ? [params.modelOverride]
-    : getGeminiCandidateModelIds();
+  const candidates = buildGeminiProxyCandidateChain(params.modelOverride);
 
   let token = await getFirebaseIdToken();
   let tokenRefreshed = false;
@@ -426,7 +430,7 @@ async function callGeminiProxyStream(params: {
       };
       params.options?.onHttpSuccessMeta?.(meta);
       if (!params.options?.pathBLog) logGeminiApiCallSuccess(meta);
-      if (i > 0 && !params.modelOverride) {
+      if (i > 0) {
         setGeminiSessionFallbackModelId(modelId);
       }
       return { text: out.text, meta };

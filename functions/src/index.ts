@@ -159,7 +159,11 @@ export const geminiProxyStream = onRequest(
       );
       res.end();
     } catch (e) {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'gemini_failed' })}\n\n`);
+      const details = e instanceof Error ? e.message : String(e);
+      console.error('[geminiProxyStream] Gemini API error:', details);
+      res.write(
+        `data: ${JSON.stringify({ type: 'error', code: 'gemini_failed', error: 'gemini_failed', details })}\n\n`,
+      );
       res.end();
     }
   },
