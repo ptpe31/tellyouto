@@ -55,7 +55,7 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 1. Override Debug (`debug_override_model`, AsyncStorage, TTL 24 h) — prioritaire sur **Pass 2**
 2. RC réseau (`fetchAndActivate` **OK**, **web uniquement**) → `gemini_pass1_model_id` + `gemini_pass2_model_id` ; sur **iOS/Android**, fetch réseau **court-circuité** (Option A) → `defaultConfig` compilé immédiatement
 3. Session fallback Pass 2 (mémoire vive uniquement, après 503/404)
-4. Défauts compilés : Pass 1 `gemini-3.1-flash-lite` · Pass 2 `gemini-1.5-flash`
+4. Défauts compilés : Pass 1 `gemini-3.1-flash-lite` · Pass 2 `gemini-pro-latest`
 
 **Architecture Firebase (Option A — web JS SDK)**
 
@@ -112,7 +112,7 @@ L'instance `now = new Date()` est créée **une seule fois** par capture et pass
 
 | Rôle | Contenu | Envoyé comme |
 |------|---------|--------------|
-| **System instruction** | Règles + 4 few-shots + schéma sortie | `body.systemInstruction` |
+| **System instruction** | Règles + 6 few-shots multilingues + schéma sortie | `body.systemInstruction` |
 | **User turn** | `NOW` + fuseau + `SEED` + `INPUT` | `request.contents[0].parts[0].text` |
 
 - **Modèle** : `getActivePass1ModelId()` → RC `gemini_pass1_model_id` (défaut `gemini-3.1-flash-lite`).
@@ -139,20 +139,22 @@ RULES:
 - CONTENT: pure action title — strip ALL time/date words. Fix typos. Start Uppercase.
 - TRIP: any movement → type=TRIP. Trigger words: <TRIP_TRIGGER_TERMS EN+FR+extra>. Use field "destination" + "arrivalDue".
 - HABIT: any recurrence → type=HABIT, field "recurrence".
-- LIST: any inventory/shopping → type=LIST, fields "title" + "baseCount".
+- LIST: ONLY for complex shopping, recipes, project materials, or explicit requests for a multi-item inventory (e.g., "fournitures scolaires", "party supplies"). → type=LIST, fields "title" + "baseCount".
 - PROJECT: any multi-step objective → type=PROJECT, field "content".
-- TASK: fallback for one-off actions, field "content".
+- TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"). → type=TASK, field "content".
 - due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned.
 ```
 
-**4 exemples few-shot** (dates calculées depuis `now`, toujours futures) :
+**6 exemples few-shot** (multilingues FR/EN/ES — langue d'entrée = langue de sortie ; dates calculées depuis `now`) :
 
 | Input | Output JSON (résumé) |
 |-------|---------------------|
-| `"Rappelle-moi demain à 7h"` | `TASK` · `content:"Rappel"` · `due:"<now+1j 07:00>"` · `PERSO` · `MAISON` |
-| `"Meeting with John in 2h"` | `TASK` · `due:"<now+2h>"` · `WORK` · `BUREAU` |
-| `"Liste de courses pour ce soir"` | `LIST` · `title:"Courses"` · `baseCount:1` · `SHOP` · `MAISON` |
-| `"Aller à Paris demain à 18h"` | `TRIP` · `destination:"Paris"` · `arrivalDue:"<now+1j 18:00>"` · `TRAVEL` · `EXTERIEUR` |
+| `"Acheter de la colle"` | `TASK` · `content:"Acheter de la colle"` · `SHOP` · `MAISON` |
+| `"Materials to repaint the bedroom"` | `LIST` · `title:"Repaint the bedroom"` · `baseCount:1` · `SHOP` · `MAISON` |
+| `"Comprar huevos y leche"` | `TASK` · `content:"Comprar huevos y leche"` · `SHOP` · `MAISON` |
+| `"Courses pour le barbecue de samedi"` | `LIST` · `title:"Barbecue"` · `baseCount:1` · `SHOP` · `EXTERIEUR` |
+| `"Packing list for the ski trip"` | `LIST` · `title:"Ski trip packing"` · `baseCount:1` · `TRAVEL` · `MAISON` |
+| `"Meeting with John in 2h"` | `TASK` · `content:"Meeting with John"` · `due:"<now+2h>"` · `WORK` · `BUREAU` |
 
 Clôture :
 
@@ -179,9 +181,9 @@ INPUT: """<transcript max 12 000c>"""
 
 | TYPE | Champs clés | Note produit |
 |------|-------------|--------------|
-| `TASK` | `content`, `due?`, `category`, `context?` | dates → `parsePass1DueDateTime` |
+| `TASK` | `content`, `due?`, `category`, `context?` | achat ponctuel, énumération simple (ex. « acheter des œufs ») |
 | `TRIP` | `destination`, `arrivalDue?` | logistique |
-| `LIST` | `title`, `baseCount` | coquille vide · Pass 2 manuel |
+| `LIST` | `title`, `baseCount` | inventaire multi-items, recette, fournitures — coquille vide · Pass 2 manuel |
 | `PROJECT` | `content` | jalons Pass 2 manuel |
 | `HABIT` | `content`, `recurrence` | |
 | `NOTE` | `content` | |
@@ -199,7 +201,7 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 - Normalisation de catégorie : unknown → `PERSO` via [normalizeOneTapCategoryCode](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts).
 - Normalisation de contexte : `normalizeOneTapContextTag` ; **ExtractionResult** ; brouillon `categoryTag` + `contextTag` ; `[DOUANE]` / `[CAPTURE_FLOW] pass1_bullet_pipe_resolved`.
 - Fusion réelle Path B → Path A :
-  - fusion d’une liste d’intents dans le squelette : [mergeIntentArrayIntoOneTapSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L747-L850)
+  - fusion d’une liste d’intents dans le squelette : [mergeIntentArrayIntoOneTapSkeleton](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts) — **`clearPass1MergedIntentFields`** efface list/trip/due/notes à **chaque** itération ; en bulk, seule la **dernière** intention du tableau pilote `predictedType` / titre / champs top-level du squelette (évite la fuite TRIP→LIST en streaming partiel).
   - titre affichable (strict) : le titre final est `CONTENT` (nettoyé par l’IA via prompt) et ne subit pas de post-processing lexical/regex côté client (seulement trim/majuscule).
   - normalisation temporelle (dueDateTime ISO, recurrence null si vide, logisticsPotential) : [normalizeUniversalTemporalInData](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapUniversalCapture.ts#L165-L220) + [`parsePass1DueDateTime`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/pass1DueDateParse.ts) (Hermes-safe, `timeMarker`).
   - Top-Down Sync (Gemini patron) : si Path B met à jour `dueDateTime` (ou `arrivalDue`), le client recalcule `dueDateYmd` + `dueTimeHm` + `timeMarker` via `parsePass1DueDateTime` (pas de `new Date(iso)` naïf sur chaînes à espace) afin d’éviter toute divergence avec les heuristiques Path A (chrono-node).
@@ -2017,8 +2019,9 @@ Variables d’environnement principales (Expo public) :
     - champs “app” attendus : `tokens_prompt`, `tokens_completion`, `tokens_total` (mêmes valeurs, prêtes à persister côté client)
     - Si ces champs sont absents, c’est un bug proxy (et non un “null acceptable”) et le monitoring coût/perf côté app reste vide.
   - Payload : le proxy accepte `{ modelId, systemInstruction, request }` ; si `request` est absent, il reconstruit une requête à partir de `prompt` : [index.ts:L10-L40](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L10-L40).
-  - Sanitisation : pas de validation/sanitisation applicative du `body` côté proxy au-delà du contrôle méthode + auth ; le proxy forwarde `request` tel quel vers Gemini (et renvoie un `gemini_failed` générique en cas d’erreur).
-  - Gestion d’erreur : en cas d’échec Gemini, l’événement SSE renvoyé est `{type:'error', error:'gemini_failed'}` (pas d’exception détaillée) : [index.ts:L105-L108](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/functions/src/index.ts#L105-L108).
+  - Sanitisation : pas de validation/sanitisation applicative du `body` côté proxy au-delà du contrôle méthode + auth ; le proxy forwarde `request` tel quel vers Gemini.
+  - Gestion d’erreur : en cas d’échec Gemini, l’événement SSE est `{ type:'error', code:'gemini_failed', error:'gemini_failed', details:<message Google> }` ; log serveur `[geminiProxyStream]`. Côté app, `readProxySse` lève `details` en priorité.
+  - **Fallback modèles (app)** : `callGeminiProxyStream` enchaîne `[modelOverride, …getGeminiCandidateModelIds()]` quand un `modelOverride` est fourni (Pass 2, One-Tap, etc.) — repli automatique sur la shortlist compilée si le modèle principal échoue.
 
 ### IA (Gemini, via proxy)
 - **Stratégie long terme** : instructions système + charge utile minimale + pré‑warming + Context Caching Vertex lorsque disponible — voir **« ARCHITECTURE IA (Latence) »** plus haut dans ce document.
@@ -2029,5 +2032,5 @@ Variables d’environnement principales (Expo public) :
 - Headers client : l’app envoie `Authorization: Bearer <Firebase ID token>` et accepte SSE/JSON ([geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts)).
 - Refresh token : si `401/403`, l’app force un refresh du token puis retente une fois.
 - **Verrou steering** : tout appel passe par `awaitGeminiSteeringBeforeNetworkCall()` (timeout 2 s).
-- **Fallback modèles** : liste ordonnée (`getGeminiCandidateModelIds`) ; sur 404/503 → `excludeGeminiModelForSession` puis candidat suivant ; succès fallback → session mémoire uniquement.
+- **Fallback modèles** : liste ordonnée (`getGeminiCandidateModelIds`) ; avec `modelOverride`, chaîne `[override, …shortlist]` ; sur 404/503 → `excludeGeminiModelForSession` puis candidat suivant ; succès fallback → session mémoire uniquement.
 - Échec complet : si tous les candidats échouent, l’appel lève une erreur (propagée au `try/catch` UI qui déclenche le offline queue).

@@ -896,27 +896,62 @@ function coerceListItems(
   return out;
 }
 
+function clearPass1MergedIntentFields(out: Record<string, unknown>): void {
+  delete out.list;
+  delete out.project_mode;
+  delete out.destination_name;
+  delete out.logisticsPotential;
+  delete out.location_address;
+  delete out.location_place_id;
+  delete out.location_lat;
+  delete out.location_lng;
+  delete out.remind_to_leave;
+  delete out.notes;
+  delete out.memo;
+  delete out.cadenceDescription;
+  delete out.preferredTimeHm;
+  delete out.personName;
+  delete out.monthDay;
+  delete out.anchorNotes;
+  delete out.dueDateYmd;
+  delete out.dueTimeHm;
+  delete out.timeMarker;
+  delete out.is_all_day;
+  delete out.arrivalDue;
+  out.dueDateTime = null;
+  out.recurrence = null;
+}
+
 /**
  * Fusionne un tableau d’intentions parsées (Bullet-Pipe / JSON) dans le squelette OneTap :
  * type/titre/catégorie, `dueDateTime`, listes, TRIP, etc. puis normalisation temporelle.
+ *
+ * En bulk, seule la **dernière** intention du tableau pilote les champs top-level du squelette ;
+ * chaque itération repart d’un état local vierge pour éviter les fuites TRIP/LIST/TASK.
  */
 function mergeIntentArrayIntoOneTapSkeleton(
   skeleton: OneTapUniversalResult,
   intents: OneTapIntentJson[],
 ): OneTapUniversalResult {
   const mergedBase = { ...(skeleton.data as Record<string, unknown>) };
+  clearPass1MergedIntentFields(mergedBase);
   const out: Record<string, unknown> = { ...mergedBase, intents };
   let title = skeleton.title;
   let categoryTag = skeleton.categoryTag;
   let contextTag = skeleton.contextTag;
-  let hasTrip = false;
-  let tripTitle = '';
-  let primaryType: OneTapPredictedType | null = null;
+  let lastType: OneTapPredictedType | null = null;
 
   for (const rawIntent of intents) {
+    clearPass1MergedIntentFields(out);
+    out.intents = intents;
+
+    title = skeleton.title;
+    categoryTag = skeleton.categoryTag;
+    contextTag = skeleton.contextTag;
+
     const type = normalizeIntentType(rawIntent?.type);
     if (!type) continue;
-    if (!primaryType) primaryType = type;
+    lastType = type;
     const cat = typeof rawIntent.category === 'string' ? normalizeOneTapCategoryCode(rawIntent.category) : '';
     if (cat) categoryTag = cat;
     const ctx = typeof rawIntent.context === 'string' ? normalizeOneTapContextTag(rawIntent.context) : '';
@@ -961,7 +996,7 @@ function mergeIntentArrayIntoOneTapSkeleton(
     }
     if (type === 'TASK') {
       const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
-      if (content && (!title || title === skeleton.title)) title = content.slice(0, 200);
+      if (content) title = content.slice(0, 200);
       const due = typeof rawIntent.due === 'string' ? rawIntent.due.trim() : '';
       if (due) applyPass1DueFields(out, due);
       const notes = typeof rawIntent.notes === 'string' ? rawIntent.notes.trim() : '';
@@ -969,7 +1004,7 @@ function mergeIntentArrayIntoOneTapSkeleton(
     }
     if (type === 'HABIT') {
       const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
-      if (content && (!title || title === skeleton.title)) title = content.slice(0, 200);
+      if (content) title = content.slice(0, 200);
       const rec = typeof rawIntent.recurrence === 'string' ? rawIntent.recurrence.trim() : '';
       if (rec) {
         out.cadenceDescription = rec.slice(0, 500);
@@ -981,10 +1016,9 @@ function mergeIntentArrayIntoOneTapSkeleton(
     if (type === 'TRIP') {
       const dest = typeof rawIntent.destination === 'string' ? rawIntent.destination.trim() : '';
       if (dest) {
-        hasTrip = true;
-        if (!tripTitle) tripTitle = dest.slice(0, 200);
         out.logisticsPotential = true;
         out.destination_name = dest.slice(0, 400);
+        title = dest.slice(0, 200);
       }
       const addr = typeof rawIntent.address === 'string' ? rawIntent.address.trim() : '';
       if (addr) out.location_address = addr.slice(0, 500);
@@ -1004,9 +1038,8 @@ function mergeIntentArrayIntoOneTapSkeleton(
   }
 
   const data = normalizeUniversalTemporalInData(out);
-  const rawNextTitle = (hasTrip ? tripTitle : title).trim().slice(0, 200) || skeleton.title;
-  const nextTitle = rawNextTitle;
-  const baseType = hasTrip ? 'TRIP' : (primaryType ?? skeleton.predictedType);
+  const nextTitle = title.trim().slice(0, 200) || skeleton.title;
+  const baseType = lastType ?? skeleton.predictedType;
   const merged = { ...skeleton, predictedType: baseType, categoryTag, contextTag, title: nextTitle, data };
   if (DEBUG_MODE_DOUANE) {
     console.log(
@@ -1311,20 +1344,10 @@ export function buildOneTapPass1SystemInstruction(now: Date): string {
     ...TRIP_TRIGGER_TERMS_EXTRA,
   ].join(', ');
 
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(7, 0, 0, 0);
-
   const inTwoHours = new Date(now);
   inTwoHours.setHours(inTwoHours.getHours() + 2, inTwoHours.getMinutes(), 0, 0);
 
-  const tomorrow18h = new Date(now);
-  tomorrow18h.setDate(tomorrow18h.getDate() + 1);
-  tomorrow18h.setHours(18, 0, 0, 0);
-
-  const tomorrowFmt = formatLocalYYYYMMDDHHmm(tomorrow);
   const inTwoHoursFmt = formatLocalYYYYMMDDHHmm(inTwoHours);
-  const tomorrow18hFmt = formatLocalYYYYMMDDHHmm(tomorrow18h);
 
   return `NOW: ${nowFmt} | ${weekdayEn} | ${tz}
 Use NOW as the authoritative current time. All relative dates ("demain", "in 2h", weekday names) must be resolved from NOW.
@@ -1336,23 +1359,29 @@ RULES:
 - CONTENT: pure action title — strip ALL time/date words. Fix typos. Start Uppercase.
 - TRIP: any movement → type=TRIP. Trigger words: ${tripTriggerList}. Use field "destination" + "arrivalDue".
 - HABIT: any recurrence → type=HABIT, field "recurrence".
-- LIST: any inventory/shopping → type=LIST, fields "title" + "baseCount".
+- LIST: ONLY for complex shopping, recipes, project materials, or explicit requests for a multi-item inventory (e.g., "fournitures scolaires", "party supplies"). → type=LIST, fields "title" + "baseCount".
 - PROJECT: any multi-step objective → type=PROJECT, field "content".
-- TASK: fallback for one-off actions, field "content".
+- TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"). → type=TASK, field "content".
 - due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned.
 
 EXAMPLES — input language = output language, dates are computed from NOW above:
-Input: "Rappelle-moi demain à 7h"
-Output: {"intents":[{"type":"TASK","content":"Rappel","due":"${tomorrowFmt}","category":"PERSO","context":"MAISON"}]}
+Input: "Acheter de la colle"
+Output: {"intents":[{"type":"TASK","content":"Acheter de la colle","category":"SHOP","context":"MAISON"}]}
+
+Input: "Materials to repaint the bedroom"
+Output: {"intents":[{"type":"LIST","title":"Repaint the bedroom","baseCount":1,"category":"SHOP","context":"MAISON"}]}
+
+Input: "Comprar huevos y leche"
+Output: {"intents":[{"type":"TASK","content":"Comprar huevos y leche","category":"SHOP","context":"MAISON"}]}
+
+Input: "Courses pour le barbecue de samedi"
+Output: {"intents":[{"type":"LIST","title":"Barbecue","baseCount":1,"category":"SHOP","context":"EXTERIEUR"}]}
+
+Input: "Packing list for the ski trip"
+Output: {"intents":[{"type":"LIST","title":"Ski trip packing","baseCount":1,"category":"TRAVEL","context":"MAISON"}]}
 
 Input: "Meeting with John in 2h"
 Output: {"intents":[{"type":"TASK","content":"Meeting with John","due":"${inTwoHoursFmt}","category":"WORK","context":"BUREAU"}]}
-
-Input: "Liste de courses pour ce soir"
-Output: {"intents":[{"type":"LIST","title":"Courses","baseCount":1,"category":"SHOP","context":"MAISON"}]}
-
-Input: "Aller à Paris demain à 18h"
-Output: {"intents":[{"type":"TRIP","destination":"Paris","arrivalDue":"${tomorrow18hFmt}","category":"TRAVEL","context":"EXTERIEUR"}]}
 
 Reply ONLY with a single raw JSON object. No markdown. No explanation. No text before or after.
 Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…"}]}`;

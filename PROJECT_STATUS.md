@@ -10,8 +10,8 @@
 - **Feuille de Route (Pass 3)** : depuis la Timeline, icône imprimante → sas SQL (retards + orphelines) → synthèse Gemini HTML (RC `prompt_pass3_synth_v1`) → `daily_summaries` + WebView / PDF ; overlay progression réutilise `useAIProgressInertia` + `AIUniversalProgressOverlay` ; lien sous le groupe « Aujourd’hui ».
 - **Cluster tactique (Tirelire)** : [`getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) sur `TimelineScreen` (seuil d’affichage `count >= 2`, contexte ALL + TODO) ; carte neumorphique + ouverture [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtrée par `category_id` ; log `[CLUSTER-ENGINE]`. **Projets orphelins** : bouton `cluster.planProjectStart` → `project.start_date` + replan jalons (`replanProjectMilestonesFromStartDate`) + `due_date` pour sortir du cluster.
 - **TRIP — Contrat de Départ (mai 2026)** : **marge adaptative** `Deadline = T_arr − (T_pred × D)` ; `T_ideal` statique API ou distance/50 km/h ; relax fixe 15 min ; ancres `min()` ; hystérésis 5 min ; PROBE3 skip ; `departure_time ≥ now+2min` ; dispatcher PROBE1/2/3 ([`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts)) ; zéro polling ; UI **ElasticDepartureCapsule** sheet + Timeline compacte ; **notifications locales** [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/NotificationService.ts) (sticky silencieuse + Signal A sonore time-sensitive + Signal B rappel sans son) ; [`dossier_de_soumission.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/dossier_de_soumission.md) ; [`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts).
-- **Pass 1 — Few-Shot JSON universel (mai 2026)** : `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(..., now)` — SI proxy (règles + 4 few-shots datés) + user (`NOW` / `TZ` / `SEED` / `INPUT`) ; `maxOutputTokens: 2048` ; modèle RC **`gemini_pass1_model_id`**. Détail complet : **SPEC.md § 2**.
-- **Pass 2 LIST/PROJECT (mai 2026)** : `geminiEnrichGenericList` — prompt inline `PASS2_*_INLINE_PROMPT` + `Transcription:` · **sans** `systemInstruction` · `temperature: 0.18` · `maxOutputTokens: 2048` · modèle RC **`gemini-pro-latest`** (défaut compilé). Unités naturelles préservées (`sachets`, `pincées`, `g`…) ; `unités` → affichage quantité seule. Détail : **SPEC.md § Prompt Pass 2**.
+- **Pass 1 — Few-Shot JSON universel (mai 2026)** : `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(..., now)` — SI proxy (règles LIST/TASK différenciées + **6** few-shots multilingues FR/EN/ES) + user (`NOW` / `TZ` / `SEED` / `INPUT`) ; `maxOutputTokens: 2048` ; modèle RC **`gemini_pass1_model_id`**. Détail complet : **SPEC.md § 2**.
+- **Pass 2 LIST/PROJECT (mai 2026)** : `geminiEnrichGenericList` — prompt inline `PASS2_*_INLINE_PROMPT` + `Transcription:` · **sans** `systemInstruction` · `temperature: 0.18` · `maxOutputTokens: 2048` · modèle RC **`gemini-pro-latest`** (défaut compilé) · chaîne fallback proxy `[override, …shortlist]`. Unités naturelles préservées (`sachets`, `pincées`, `g`…) ; `unités` → affichage quantité seule. Détail : **SPEC.md § Prompt Pass 2**.
 - **Pass 3 / Expert** : même steering `gemini_pass2_model_id` ; warmup proxy cible **Pass 1** uniquement ; RC `[GEMINI-RC]` (mobile : défauts compilés, fetch réseau ignoré — Option A) ; re-fetch avant Pass 2 si source ≠ `remote` (**web**).
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents ; sur **TalkDebug**, l’**overlay de progression** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) + événements `CAPTURE_PIPELINE_PROGRESS`) couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline). **Correction STT optionnelle** : crayon → barre validation **Poubelle / Check** au-dessus du clavier (`translateY` + listeners clavier) → `transcript` final vers Gemini ; logs `transcript_manual_edit` / `[MIC] ✏️`.
 
@@ -111,7 +111,7 @@ Point d’entrée : [`src/config/firebase.ts`](file:///Users/lala/Dev/trankil-v3
 **Remote Config (console Firebase)**
 
 - `gemini_pass1_model_id` — extraction One-Tap + warmup proxy (défaut compilé `gemini-3.1-flash-lite`)
-- `gemini_pass2_model_id` — raisonnement Pass 2 / Pass 3 / Expert / lab (défaut compilé `gemini-1.5-flash` ; **mobile** : toujours défauts compilés jusqu’à Option B — pas de fetch réseau Hermes)
+- `gemini_pass2_model_id` — raisonnement Pass 2 / Pass 3 / Expert / lab (défaut compilé `gemini-pro-latest` ; **mobile** : toujours défauts compilés jusqu’à Option B — pas de fetch réseau Hermes)
 - `gemini_model_fallbacks` — CSV candidats de secours Pass 2 (optionnel)
 - `prompt_pass3_synth_v1` — template Pass 3
 
@@ -200,9 +200,9 @@ Fonction clé : `refineOneTapWithGeminiCompressed(transcript, skeleton, options)
 
 Points importants (voir **SPEC.md § 2** pour le texte intégral) :
 
-- **Transport Pass 1** : `body.systemInstruction` = règles + 4 few-shots + schéma ; `request.contents` = `NOW:` / `TZ:` / `SEED:` (`wireLineFromSkeleton` : `P:type|K:category|T:title|…`) / `INPUT:"""…"""`.
+- **Transport Pass 1** : `body.systemInstruction` = règles + 6 few-shots multilingues + schéma ; `request.contents` = `NOW:` / `TZ:` / `SEED:` (`wireLineFromSkeleton` : `P:type|K:category|T:title|…`) / `INPUT:"""…"""`.
 - Prompt : `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(transcript, seed, now)` — `now` unique par capture ; legacy Bullet-Pipe en `*Legacy()`.
-- **SI** : ligne `NOW` locale autoritaire · bloc `RULES` (CATEGORY `HOME WORK … OTHER`, TRIP triggers injectés, LIST `title`+`baseCount`, etc.) · 4 exemples FR/EN avec dates `<now+1j>`, `<now+2h>` · clôture JSON pur.
+- **SI** : ligne `NOW` locale autoritaire · bloc `RULES` (CATEGORY `HOME WORK … OTHER`, TRIP triggers injectés, **LIST** = inventaire multi-items / recette / fournitures, **TASK** = achat ponctuel ou énumération simple) · 6 exemples FR/EN/ES (zero translation) · clôture JSON pur.
 - **`generationConfig`** : `maxOutputTokens: 2048` · `temperature: 0` (stream) · pas de `responseMimeType`.
 - **Modèle** : `getActivePass1ModelId()` → RC `gemini_pass1_model_id` ; ops `oneTap.wire.stream` / `oneTap.wire.nonstream`.
 - Appel Gemini : `geminiSemanticLab` (stream ou non‑stream).
@@ -211,6 +211,7 @@ Points importants (voir **SPEC.md § 2** pour le texte intégral) :
   - **repli Bullet-Pipe** uniquement si le buffer ne contient **aucun `{`** (évite faux positifs sur excuses markdown)
   - type intermédiaire **ExtractionResult** ; intents portent `category` + `context`
 - Fusion : `mergeIntentArrayIntoOneTapSkeleton(...)` puis normalisation
+  - **`clearPass1MergedIntentFields`** : isolation par intention en bulk (reset list/trip/due à chaque itération ; dernière intention → preview top-level) — corrige la fuite TRIP→LIST en logs streaming
   - `categoryTag` + **`contextTag`** sur le brouillon fusionné
   - normalisation des catégories inconnues → `PERSO` (`normalizeOneTapCategoryCode`)
   - normalisation contexte → token uppercase (`normalizeOneTapContextTag`)
@@ -249,7 +250,7 @@ SPEC (v34) : **aucun** enrichissement Pass 2 automatique après Pass 1 ; uniquem
 - **`IntentionDetailSheet.tsx`** : footer CTA TRIP/LIST/PROJECT ; `pass2_unlocked: 1` au clic PRO ; TRIP → `intentionDetail.actionSetupAlert` (*Me prévenir quand partir ?*) ; surveillance **Big Button uniquement** (`remind_to_leave` lu en DB pour `syncSentinelAfterDestinationChange`) ; sheet vierge (`remindToLeaveEnabled=false`) à chaque `row.id`.
 - **TRIP logistique (sheet)** : pill **créneau élastique** PRO ; switch `remind_to_leave` (FREE → paywall) ; **All Day** → `suspendTripMissionForAllDay` (remind OFF, clear metadata, stop sondes) ; retour horaire → `wakeTripMissionAfterTimedRestore` ; bouton **Lancer l’itinéraire** si coords arrivée.
 - **`TalkDebugScreen.tsx`** : `onPatchRow={patchPeekDetailRow}` sur `IntentionDetailSheet` (sync `peekDetailRows` après Pass 2 — évite CTA fantôme post-génération).
-- **Pass 2 modèle** : `getActivePass2ModelId()` → RC `gemini_pass2_model_id` (mobile : défaut compilé) ; `[GEMINI-RC] Pass2 steering` + re-fetch si source ≠ `remote` (**web**).
+- **Pass 2 modèle** : `getActivePass2ModelId()` → RC `gemini_pass2_model_id` (défaut compilé `gemini-pro-latest`) ; proxy fallback `[override, …shortlist]` ; `[GEMINI-RC] Pass2 steering` + re-fetch si source ≠ `remote` (**web**).
 - **Pass 2 prompt (`geminiEnrichGenericList`)** — voir **SPEC.md § Prompt Pass 2** :
   - **LIST** : expert logistique · miroir linguistique · domaine (recette→ingrédients, examen→chapitres…) · `scalable:true` · JSON `list_scalable_v1` avec `baseQuantity` par personne.
   - **PROJECT** : jalons sans dates · `expert_persona` obligatoire · JSON `project_milestones_v1`.
