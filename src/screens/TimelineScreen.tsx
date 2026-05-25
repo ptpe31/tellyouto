@@ -42,13 +42,13 @@ import {
   type TrankilV2TimelineItemRow,
 } from '../api';
 import {
+  CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH_EVENT_NAME,
   INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
   INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
   INTENTIONS_CHANGED_EVENT_NAME,
 } from '../constants/intentionEvents';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 import type { AppTabParamList } from '../navigation/types';
-import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import { showAppToast } from '../services/appToast';
 import { retryOfflineFirstAiSort, timelineRowEligibleForOfflineAiRetry } from '../services/offlineFirstAiRetry';
 import { filterTimelineVisibleRows } from '../services/timelineIntentionVisibility';
@@ -67,7 +67,7 @@ import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper
 import { IntentionCard } from '../components/IntentionCard';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import type { TripTimelineFooter } from '../utils/tripTimelineCard';
-import { TalkCaptureMicButton } from '../components/TalkCaptureMicButton';
+import { useCapturePresentation } from '../context/CapturePresentationContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { getBestOrphanCluster } from '../services/clusterEngine';
 import { generateSmartTitle } from '../services/smartTitle';
@@ -85,7 +85,7 @@ import { Platform as RPlatform } from '../utils/rnPlatform';
 
 /**
  * Onglet **Timeline** : lecture paginée SQLite (`listTrankilV2*`), filtres contexte / statut, cartes intention,
- * feuille détail, micro compact (`TalkCaptureMicButton`), retry offline-first IA, événements peek.
+ * feuille détail, micro global (`GlobalCaptureOverlay`), retry offline-first IA, événements peek.
  * Voir `PROJECT_STATUS.md` §1.2.
  *
  * @module TimelineScreen
@@ -378,6 +378,8 @@ type ListEntry = RowSection | IdeaBankDashboardEntry;
 export function TimelineScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
+  const { setPresentation, resetPresentation, isPipelineOverlayVisible, pipelineOverlayVisibleRef } =
+    useCapturePresentation();
   const theme = useTheme();
   const designTokens = useDesignTokens();
   const insets = useSafeAreaInsets();
@@ -422,6 +424,18 @@ export function TimelineScreen() {
   const [childStats, setChildStats] = useState(() => new Map<string, TrankilV2ChildTaskStats>());
   const [pendingLocalDone, setPendingLocalDone] = useState(() => new Set<string>());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
+
+  useFocusEffect(
+    useCallback(() => {
+      setPresentation({
+        variant: 'timeline',
+        compact: true,
+        dashboardPipelineHost: false,
+        micHidden: false,
+      });
+      return () => resetPresentation();
+    }, [resetPresentation, setPresentation]),
+  );
   const pendingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const anchorDate = useMemo(
@@ -502,38 +516,13 @@ export function TimelineScreen() {
 
   /** Écoute `INTENTION_PEEK_*` pour ouvrir / hydrater le peek post-capture (aligné SPEC cinématique). */
   useEffect(() => {
-    const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
-      if (!isFocusedRef.current) {
-        logCaptureFlow(undefined, 'ui_peek_snapshot_skip_unfocused', { screen: 'Timeline' });
-        return;
-      }
-      peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
-      const peekRow = buildPeekPendingRowFromSnapshot(
-        payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown },
-        normalizeCategoryId,
-      );
-      setDetailRow(peekRow);
-      setDetailPosition('peek');
-      setDetailPeekHeightPx(capturePeekPathAHeightPx());
-      setPeekCapturePhase('path_a');
-      setDetailOpen(true);
-      logCaptureFlow(undefined, 'ui_peek_snapshot', {
-        screen: 'Timeline',
-        categoryTag: String((payload as { categoryTag?: unknown }).categoryTag ?? ''),
-        predictedType: String((payload as { predictedType?: unknown }).predictedType ?? ''),
-      });
-    });
-    const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
-      if (!isFocusedRef.current) {
-        logCaptureFlow(undefined, 'ui_peek_first_save_skip_unfocused', { screen: 'Timeline' });
-        return;
-      }
-      const intentionId = String((payload as any)?.intentionId ?? '').trim();
+    const applyTimelinePeekFirstSave = (payload: unknown) => {
+      const intentionId = String((payload as { intentionId?: unknown })?.intentionId ?? '').trim();
       if (!intentionId) return;
-      const title = String((payload as any)?.title ?? '').trim();
-      const transcript = String((payload as any)?.transcript ?? '').trim();
-      const categoryId = normalizeCategoryId((payload as any)?.categoryTag);
-      const type = String((payload as any)?.predictedType ?? 'NOTE').trim().toUpperCase();
+      const title = String((payload as { title?: unknown })?.title ?? '').trim();
+      const transcript = String((payload as { transcript?: unknown })?.transcript ?? '').trim();
+      const categoryId = normalizeCategoryId((payload as { categoryTag?: unknown })?.categoryTag);
+      const type = String((payload as { predictedType?: unknown })?.predictedType ?? 'NOTE').trim().toUpperCase();
       const previewRow = {
         id: intentionId,
         type,
@@ -565,12 +554,53 @@ export function TimelineScreen() {
         const mapped = mapTrankilIntentionToTimelineItemRow(full);
         setDetailRow((prev) => (prev && prev.id === intentionId ? mapped : prev));
       })();
+    };
+
+    const dashboardBalletLocksPeekUi = () => isPipelineOverlayVisible || pipelineOverlayVisibleRef.current;
+
+    const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
+      if (!isFocusedRef.current) {
+        logCaptureFlow(undefined, 'ui_peek_snapshot_skip_unfocused', { screen: 'Timeline' });
+        return;
+      }
+      if (dashboardBalletLocksPeekUi()) return;
+      peekSnapshotRef.current = payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null;
+      const peekRow = buildPeekPendingRowFromSnapshot(
+        payload as { categoryTag?: unknown; predictedType?: unknown; title?: unknown },
+        normalizeCategoryId,
+      );
+      setDetailRow(peekRow);
+      setDetailPosition('peek');
+      setDetailPeekHeightPx(capturePeekPathAHeightPx());
+      setPeekCapturePhase('path_a');
+      setDetailOpen(true);
+      logCaptureFlow(undefined, 'ui_peek_snapshot', {
+        screen: 'Timeline',
+        categoryTag: String((payload as { categoryTag?: unknown }).categoryTag ?? ''),
+        predictedType: String((payload as { predictedType?: unknown }).predictedType ?? ''),
+      });
     });
+    const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
+      if (!isFocusedRef.current) {
+        logCaptureFlow(undefined, 'ui_peek_first_save_skip_unfocused', { screen: 'Timeline' });
+        return;
+      }
+      if (dashboardBalletLocksPeekUi()) return;
+      applyTimelinePeekFirstSave(payload);
+    });
+    const subDeferred = DeviceEventEmitter.addListener(
+      CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH_EVENT_NAME,
+      (payload) => {
+        if (!isFocusedRef.current) return;
+        applyTimelinePeekFirstSave(payload);
+      },
+    );
     return () => {
       subSnap.remove();
       subFirstSave.remove();
+      subDeferred.remove();
     };
-  }, []);
+  }, [isPipelineOverlayVisible, pipelineOverlayVisibleRef]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1603,22 +1633,6 @@ export function TimelineScreen() {
         />
       ) : null}
 
-      <View
-        pointerEvents="box-none"
-        style={[styles.micDock, { paddingBottom: Math.max(insets.bottom, 12) }]}
-      >
-        <TalkCaptureMicButton
-          compact
-          onCaptureEnd={({ transcript }) => {
-            DeviceEventEmitter.emit(TALK_CAPTURE_DEBUG_EVENT, {
-              mode: 'quick',
-              at: Date.now(),
-              rawTranscript: transcript,
-            });
-          }}
-        />
-      </View>
-
       <IdeaBankModal
         visible={ideaBankOpen}
         onClose={() => {
@@ -1737,13 +1751,4 @@ const styles = StyleSheet.create({
   },
   ideaBankLabel: { fontSize: 16, fontWeight: '700' },
   ideaBankClusterSubtitle: { fontSize: 13, fontWeight: '600', marginTop: 4, opacity: 0.92 },
-  micDock: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    paddingTop: 8,
-    backgroundColor: 'transparent',
-  },
 });

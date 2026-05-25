@@ -21,11 +21,13 @@ import {
   getTrankilV2UnorganizedCount,
 } from '../api/trankilV2Db';
 import {
+  CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH_EVENT_NAME,
+  CAPTURE_PIPELINE_SPRINT_COMPLETE_EVENT_NAME,
   INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
   INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
   INTENTIONS_CHANGED_EVENT_NAME,
 } from '../constants/intentionEvents';
-import { logCaptureFlow, CAPTURE_PIPELINE_PROGRESS_EVENT, type CapturePipelineProgressPayload } from '../utils/captureFlowLog';
+import { logCaptureFlow } from '../utils/captureFlowLog';
 import {
   buildPeekPendingRowFromSnapshot,
   capturePeekPathAHeightPx,
@@ -34,12 +36,10 @@ import {
 } from '../utils/capturePeekLayout';
 import { getIntentionColor } from '../utils/intentionColorHash';
 import { mapTrankilIntentionToTimelineItemRow, type TrankilV2TimelineItemRow } from '../api';
+import { useCapturePresentation } from '../context/CapturePresentationContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { DealerBoard } from '../components/DealerBoard';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
-import { PassProModal } from '../components/PassProModal';
-import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOverlay';
-import { TalkCaptureMicButton, type TalkCaptureEndPayload, type TalkCaptureMicButtonHandle } from '../components/TalkCaptureMicButton';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
 import { formatYmdLocal } from '../services/TimeSorter';
@@ -48,28 +48,14 @@ import type { AppTabParamList } from '../navigation/types';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
-import {
-  AI_PROGRESS_FINAL_SPRINT_MS,
-  AI_PROGRESS_INERTIA_TOTAL_MS,
-  AI_PROGRESS_REVEAL_HOLD_MS,
-  useAIProgressInertia,
-} from '../hooks/useAIProgressInertia';
 
 /**
- * Écran **Talk / Debug** : Phoenix texte + micro → `IntentionContext.submitCapturePayload` (Bulk(1)),
- * événements peek (`INTENTION_PEEK_*`). Le pipeline complet vit dans `TalkCaptureMicButton` + contexte.
+ * Écran **Talk / Debug** : Phoenix texte + micro global → `IntentionContext.submitCapturePayload` (Bulk(1)),
+ * événements peek (`INTENTION_PEEK_*`).
  *
  * @module TalkDebugScreen
  */
 
-/** Horodatage perf cohérent avec les logs `[OneTapPerf]` (T0, etc.). */
-function perfNowMs(): number {
-  return typeof performance !== 'undefined' && typeof performance.now === 'function'
-    ? performance.now()
-    : Date.now();
-}
-
-/** Normalise un tag catégorie UI vers les codes domaine SQLite (fallback `PERSO`). */
 function normalizeCategoryId(raw: unknown): string {
   const up = String(raw ?? '').trim().toUpperCase();
   if (!up) return 'PERSO';
@@ -151,7 +137,14 @@ export function TalkDebugScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const intentionFlow = useOptionalIntentionContext();
-  const [passProVisible, setPassProVisible] = useState(false);
+  const {
+    setPresentation,
+    resetPresentation,
+    registerOverlayLifecycleHandlers,
+    isPipelineOverlayVisible,
+    pipelineOverlayVisibleRef,
+    captureRecordingActive,
+  } = useCapturePresentation();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const designTokens = useDesignTokens();
@@ -162,130 +155,39 @@ export function TalkDebugScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [peekDetailRows, setPeekDetailRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [selectedIntentionIndex, setSelectedIntentionIndex] = useState(0);
-  const setSelectedIntentionIndexRef = useRef<(n: number) => void>(() => {});
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
   const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(() => capturePeekPathAHeightPx());
   const [peekCapturePhase, setPeekCapturePhase] = useState<'idle' | 'path_a' | 'path_b'>('idle');
   const [phoenixInput, setPhoenixInput] = useState('');
   const [phoenixSubmitting, setPhoenixSubmitting] = useState(false);
-  const [captureStep, setCaptureStep] = useState<'idle' | 'recording'>('idle');
   const [freeQuotaSnapshot, setFreeQuotaSnapshot] = useState<{ remaining: number; max: number } | null>(null);
   const [todayTodoCount, setTodayTodoCount] = useState(0);
   const [headerUnorganizedCount, setHeaderUnorganizedCount] = useState(0);
 
-  const micRef = useRef<TalkCaptureMicButtonHandle | null>(null);
-  const [pipelineModalVisible, setPipelineModalVisible] = useState(false);
-  /** Titre « Terminé » pendant le sprint final vers 100 %. */
-  const [pipelineDashTitleComplete, setPipelineDashTitleComplete] = useState(false);
-  const [pipelineResilienceOrange, setPipelineResilienceOrange] = useState(false);
-  const pipelineResilienceOrangeRef = useRef(false);
-  const pipelineModalVisibleRef = useRef(false);
-  const pendingPeekFirstSavePayloadRef = useRef<unknown>(null);
-  const applyPeekFirstSavePayloadRef = useRef<(payload: unknown) => void>(() => {});
-  const pipelineActiveTraceRef = useRef<string | null>(null);
-  const pipelineOrangeNavScheduledRef = useRef(false);
-  const pendingRevealAfter100TimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const beginDashboardHideRef = useRef<(detail: string) => void>(() => {});
-  const closePipelineOverlayCoreRef = useRef<() => void>(() => {});
-  const resetAiProgressRef = useRef<() => void>(() => {});
-  /** Instant `performance.now()` à l’appel `stopRecording` (sonde [BALLET-PROFILER]). */
-  const captureEndRef = useRef(0);
-  const balletProfilerGatesRef = useRef({
-    t1: false,
-    t2: false,
-    t3: false,
-    t4: false,
-    t5BoostStart: false,
-    t5100Reached: false,
-    t6HideStart: false,
-  });
-
-  const logBalletProfilerDelta = useCallback((tag: string, detail: string) => {
-    const base = captureEndRef.current;
-    if (base <= 0) return;
-    const delta = perfNowMs() - base;
-    console.log(`[BALLET-PROFILER] ${tag} ${detail} delta_ms=${delta.toFixed(3)}`);
-  }, []);
-
-  /** Barre à 100 % tout de suite (succès Gemini ou persistance). */
-  const beginDashboardHide = useCallback(
-    (detail: string) => {
-      if (captureEndRef.current <= 0) return;
-      if (balletProfilerGatesRef.current.t6HideStart) return;
-      balletProfilerGatesRef.current.t6HideStart = true;
-      logBalletProfilerDelta('T6_HIDE_START', detail);
-    },
-    [logBalletProfilerDelta],
+  useFocusEffect(
+    useCallback(() => {
+      setPresentation({
+        variant: 'talkDebug',
+        compact: false,
+        dashboardPipelineHost: true,
+        micHidden: false,
+        waveformA11yLabel: t('talkDebug.voiceWaveformA11y'),
+        lockedHintText: t('talkDebug.micQuotaUpsellHint'),
+      });
+      const unregister = registerOverlayLifecycleHandlers({
+        onPipelineSprintComplete: () => setSelectedIntentionIndex(0),
+      });
+      return () => {
+        unregister();
+        resetPresentation();
+      };
+    }, [registerOverlayLifecycleHandlers, resetPresentation, setPresentation, t]),
   );
 
-  const onAiFinalSprintHit100 = useCallback(() => {
-    if (!balletProfilerGatesRef.current.t5100Reached) {
-      balletProfilerGatesRef.current.t5100Reached = true;
-      logBalletProfilerDelta('T5_100_REACHED', 'progress bar at 100% (200ms linear sprint complete)');
-    }
-  }, [logBalletProfilerDelta]);
-
-  const onAiSprintCompleteAt100 = useCallback(() => {
-    if (pendingRevealAfter100TimeoutRef.current) {
-      clearTimeout(pendingRevealAfter100TimeoutRef.current);
-    }
-    pendingRevealAfter100TimeoutRef.current = setTimeout(() => {
-      pendingRevealAfter100TimeoutRef.current = null;
-      setSelectedIntentionIndexRef.current(0);
-      beginDashboardHideRef.current(`reveal hold ${AI_PROGRESS_REVEAL_HOLD_MS}ms after 100%`);
-      closePipelineOverlayCoreRef.current();
-      queueMicrotask(() => micRef.current?.exitPipelineWaitToIdle());
-    }, AI_PROGRESS_REVEAL_HOLD_MS);
-  }, []);
-
-  const {
-    progress: pipelineDisplayedPct,
-    reset: resetAiProgress,
-    beginInertia: beginAiProgressInertia,
-    bumpTarget: bumpAiProgressTarget,
-    startFinalSprintTo100: startAiFinalSprint,
-    finalSprintActiveRef,
-    inertiaEpochRef,
-  } = useAIProgressInertia({
-    active: pipelineModalVisible,
-    onFinalSprintHit100: onAiFinalSprintHit100,
-    onLinearSprintComplete: onAiSprintCompleteAt100,
-  });
-
-  resetAiProgressRef.current = resetAiProgress;
-
-  const closePipelineOverlayCore = useCallback(() => {
-    pipelineModalVisibleRef.current = false;
-    if (pendingRevealAfter100TimeoutRef.current) {
-      clearTimeout(pendingRevealAfter100TimeoutRef.current);
-      pendingRevealAfter100TimeoutRef.current = null;
-    }
-    pipelineActiveTraceRef.current = null;
-    setPipelineDashTitleComplete(false);
-    resetAiProgressRef.current();
-    setPipelineModalVisible(false);
-    const pending = pendingPeekFirstSavePayloadRef.current;
-    pendingPeekFirstSavePayloadRef.current = null;
-    if (pending) {
-      queueMicrotask(() => applyPeekFirstSavePayloadRef.current(pending));
-    }
-  }, []);
-
-  const onProfilerStopRecordingT0 = useCallback(() => {
-    captureEndRef.current = perfNowMs();
-    balletProfilerGatesRef.current = { t1: false, t2: false, t3: false, t4: false, t5BoostStart: false, t5100Reached: false, t6HideStart: false };
-    console.log('[BALLET-PROFILER] T0 stopRecording invoked delta_ms=0.000');
-  }, []);
-
   useEffect(() => {
-    pipelineResilienceOrangeRef.current = pipelineResilienceOrange;
-  }, [pipelineResilienceOrange]);
+    setPresentation({ disabled: phoenixSubmitting });
+  }, [phoenixSubmitting, setPresentation]);
 
-  useEffect(() => {
-    pipelineModalVisibleRef.current = pipelineModalVisible;
-  }, [pipelineModalVisible]);
-
-  /** Rafraîchit compteurs en-tête (tâches du jour, piggy, quota free capture). */
   const refreshPilotHeader = useCallback(async () => {
     const ymd = formatYmdLocal(new Date());
     const [unorg, todayN, snap] = await Promise.all([
@@ -315,13 +217,6 @@ export function TalkDebugScreen() {
     return () => subs.forEach((s) => s.remove());
   }, [refreshPilotHeader]);
 
-  /** Remet l’étape capture micro à l’état repos (annulation). */
-  const hardResetToIdle = useCallback(() => {
-    setCaptureStep('idle');
-  }, []);
-
-  const micLocked = !spectrum.isProUser && (freeQuotaSnapshot?.remaining ?? 1) <= 0;
-
   const detailRow = useMemo(() => {
     if (peekDetailRows.length === 0) return null;
     const i = Math.min(Math.max(0, selectedIntentionIndex), peekDetailRows.length - 1);
@@ -342,278 +237,6 @@ export function TalkDebugScreen() {
     setSelectedIntentionIndex((i) => Math.min(Math.max(0, i), n - 1));
   }, [peekDetailRows.length]);
 
-  /** Gate micro : quota free épuisé → false (modal Pro si verrou). */
-  const beforeStartCapture = useCallback(async (): Promise<boolean> => {
-    if (micLocked) {
-      setPassProVisible(true);
-      return false;
-    }
-    return true;
-  }, [micLocked]);
-
-  /** Début d’enregistrement micro : ferme le dashboard résiduel (nouvelle capture). */
-  const onMicStart = useCallback(() => {
-    setCaptureStep('recording');
-    setPipelineModalVisible(false);
-    pipelineModalVisibleRef.current = false;
-    setPipelineResilienceOrange(false);
-    pipelineResilienceOrangeRef.current = false;
-    pipelineOrangeNavScheduledRef.current = false;
-    captureEndRef.current = 0;
-    balletProfilerGatesRef.current = { t1: false, t2: false, t3: false, t4: false, t5BoostStart: false, t5100Reached: false, t6HideStart: false };
-    pendingPeekFirstSavePayloadRef.current = null;
-    if (pendingRevealAfter100TimeoutRef.current) {
-      clearTimeout(pendingRevealAfter100TimeoutRef.current);
-      pendingRevealAfter100TimeoutRef.current = null;
-    }
-    pipelineActiveTraceRef.current = null;
-    resetAiProgressRef.current();
-    setPipelineDashTitleComplete(false);
-    setSelectedIntentionIndex(0);
-  }, []);
-
-  /** Overlay + inertie 0→60 % (2×1,2 s ease-in-out) au relâchement micro (`TalkCaptureMicButton`). */
-  const onPipelineDashboardOpenImmediate = useCallback(
-    ({ traceId }: { traceId: string }) => {
-      pendingPeekFirstSavePayloadRef.current = null;
-      if (pendingRevealAfter100TimeoutRef.current) {
-        clearTimeout(pendingRevealAfter100TimeoutRef.current);
-        pendingRevealAfter100TimeoutRef.current = null;
-      }
-      setPipelineDashTitleComplete(false);
-      pipelineModalVisibleRef.current = true;
-      pipelineActiveTraceRef.current = String(traceId || '').trim() || null;
-      pipelineOrangeNavScheduledRef.current = false;
-      resetAiProgress();
-      beginAiProgressInertia();
-      setPipelineResilienceOrange(false);
-      pipelineResilienceOrangeRef.current = false;
-      setPipelineModalVisible(true);
-    },
-    [beginAiProgressInertia, resetAiProgress],
-  );
-
-  const onPipelineDashboardCancelImmediate = useCallback(() => {
-    pendingPeekFirstSavePayloadRef.current = null;
-    if (pendingRevealAfter100TimeoutRef.current) {
-      clearTimeout(pendingRevealAfter100TimeoutRef.current);
-      pendingRevealAfter100TimeoutRef.current = null;
-    }
-    setPipelineDashTitleComplete(false);
-    pipelineModalVisibleRef.current = false;
-    pipelineActiveTraceRef.current = null;
-    setPipelineModalVisible(false);
-    resetAiProgress();
-  }, [resetAiProgress]);
-
-  /** Micro « échap » : ferme l’overlay sans annuler `submitCapturePayload`. */
-  const onPipelineWaitMicPress = useCallback(() => {
-    beginDashboardHide('dashboard dismissed; mic escape (no cancel submit)');
-    closePipelineOverlayCore();
-    queueMicrotask(() => micRef.current?.exitPipelineWaitToIdle());
-  }, [beginDashboardHide, closePipelineOverlayCore]);
-
-  useEffect(() => {
-    if (!pipelineModalVisible || captureEndRef.current <= 0) return;
-    if (balletProfilerGatesRef.current.t1) return;
-    balletProfilerGatesRef.current.t1 = true;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        logBalletProfilerDelta('T1', 'dashboard overlay visible (post-commit paint)');
-      });
-    });
-  }, [logBalletProfilerDelta, pipelineModalVisible]);
-
-  useEffect(() => {
-    if (!pipelineModalVisible || captureEndRef.current <= 0) return;
-    if (balletProfilerGatesRef.current.t2) return;
-    if (pipelineDisplayedPct <= 0) return;
-    balletProfilerGatesRef.current.t2 = true;
-    logBalletProfilerDelta('T2', 'first progress bar motion (inertia P1/P2 glide)');
-  }, [logBalletProfilerDelta, pipelineDisplayedPct, pipelineModalVisible]);
-
-  useEffect(() => {
-    if (!pipelineModalVisible || captureEndRef.current <= 0) return;
-    if (balletProfilerGatesRef.current.t4) return;
-    const inertiaStart = inertiaEpochRef.current;
-    if (inertiaStart <= 0) return;
-    const elapsedBallet = perfNowMs() - inertiaStart;
-    if (elapsedBallet < AI_PROGRESS_INERTIA_TOTAL_MS) return;
-    if (pipelineDisplayedPct < 60) return;
-    balletProfilerGatesRef.current.t4 = true;
-    logBalletProfilerDelta(
-      'T4',
-      `phase 3 stepAnalysis (inertia_elapsed_ms>=${AI_PROGRESS_INERTIA_TOTAL_MS}, actual=${Math.round(elapsedBallet)}; displayedPct>=60)`,
-    );
-  }, [logBalletProfilerDelta, pipelineDisplayedPct, pipelineModalVisible]);
-
-  useEffect(() => {
-    beginDashboardHideRef.current = beginDashboardHide;
-  }, [beginDashboardHide]);
-
-  useEffect(() => {
-    closePipelineOverlayCoreRef.current = closePipelineOverlayCore;
-  }, [closePipelineOverlayCore]);
-
-  useEffect(() => {
-    setSelectedIntentionIndexRef.current = setSelectedIntentionIndex;
-  }, []);
-
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(CAPTURE_PIPELINE_PROGRESS_EVENT, (raw: CapturePipelineProgressPayload) => {
-      const trace = String(raw.trace || '').trim();
-      const active = String(pipelineActiveTraceRef.current || '').trim();
-      if (!trace || !active || trace !== active) return;
-      if (!balletProfilerGatesRef.current.t3) {
-        balletProfilerGatesRef.current.t3 = true;
-        logBalletProfilerDelta('T3', 'first CAPTURE_PIPELINE event');
-      }
-      const d = raw.detail;
-      let setOrange = false;
-      const bump = (v: number) => {
-        bumpAiProgressTarget(v);
-      };
-      switch (raw.phase) {
-        case 'mic_stop_audio_done':
-          break;
-        case 'mic_submit_invoke':
-          bump(16);
-          break;
-        case 'submit_enter':
-          bump(19);
-          break;
-        case 'submit_netinfo':
-          bump(26);
-          break;
-        case 'netinfo_online_null_reachable':
-          bump(29);
-          break;
-        case 'peek_snapshot_emit':
-          bump(50);
-          break;
-        case 'peek_snapshot_offline_queue':
-          setOrange = true;
-          pipelineResilienceOrangeRef.current = true;
-          bump(100);
-          break;
-        case 'bulk_start':
-          bump(68);
-          break;
-        case 'gemini_one_tap_call_success': {
-          const gIdx = Number(d?.idx ?? 1);
-          const gTot = Number(d?.total ?? 1);
-          bump(100);
-          if (gIdx === gTot && !pipelineResilienceOrangeRef.current) {
-            if (finalSprintActiveRef.current) break;
-            if (!balletProfilerGatesRef.current.t5BoostStart) {
-              balletProfilerGatesRef.current.t5BoostStart = true;
-              logBalletProfilerDelta(
-                'T5_BOOST_START',
-                `gemini_one_tap_call_success → linear sprint to 100% (${AI_PROGRESS_FINAL_SPRINT_MS}ms)`,
-              );
-            }
-            setPipelineDashTitleComplete(true);
-            startAiFinalSprint();
-          }
-          break;
-        }
-        case 'chunk_ventilated_await':
-          bump(73);
-          break;
-        case 'chunk_persist_ok':
-          bump(82);
-          break;
-        case 'persist_callback': {
-          bump(87);
-          const cIdx = Number(d?.chunkIndex ?? 1);
-          const cTot = Number(d?.chunkTotal ?? 1);
-          if (
-            cIdx === cTot &&
-            !pipelineResilienceOrangeRef.current &&
-            pipelineModalVisibleRef.current &&
-            !finalSprintActiveRef.current
-          ) {
-            if (!balletProfilerGatesRef.current.t5BoostStart) {
-              balletProfilerGatesRef.current.t5BoostStart = true;
-              logBalletProfilerDelta(
-                'T5_BOOST_START',
-                `persist_callback fallback → linear sprint to 100% (${AI_PROGRESS_FINAL_SPRINT_MS}ms)`,
-              );
-            }
-            setPipelineDashTitleComplete(true);
-            startAiFinalSprint();
-          }
-          break;
-        }
-        case 'peek_first_save_emit':
-          bump(93);
-          break;
-        case 'submit_return_after_bulk':
-          bump(100);
-          break;
-        case 'bulk_network_resilience_enqueue':
-          setOrange = true;
-          pipelineResilienceOrangeRef.current = true;
-          bump(100);
-          break;
-        case 'submit_offline_queued':
-          if (d?.reason === 'netinfo_offline') {
-            setOrange = true;
-            pipelineResilienceOrangeRef.current = true;
-          }
-          bump(100);
-          break;
-        default:
-          break;
-      }
-      if (setOrange) setPipelineResilienceOrange(true);
-    });
-    return () => sub.remove();
-  }, [bumpAiProgressTarget, logBalletProfilerDelta, startAiFinalSprint]);
-
-  useEffect(() => {
-    if (pipelineModalVisible) return;
-    if (captureEndRef.current <= 0) return;
-    if (!balletProfilerGatesRef.current.t6HideStart) return;
-    balletProfilerGatesRef.current.t6HideStart = false;
-    logBalletProfilerDelta('T7_CLEANUP', 'dashboard Modal dismissed (native tree)');
-  }, [logBalletProfilerDelta, pipelineModalVisible]);
-
-  useEffect(() => {
-    if (!pipelineModalVisible || !pipelineResilienceOrange) return;
-    if (pipelineDisplayedPct < 98.5) return;
-    if (pipelineOrangeNavScheduledRef.current) return;
-    pipelineOrangeNavScheduledRef.current = true;
-    const t = setTimeout(() => {
-      pipelineOrangeNavScheduledRef.current = false;
-      beginDashboardHide('resilience: dashboard close before Timeline navigation');
-      navigation.navigate('Timeline', { initialTimeNav: 'TODAY', initialContext: 'ALL' });
-      closePipelineOverlayCore();
-      micRef.current?.exitPipelineWaitToIdle();
-    }, 2000);
-    return () => {
-      clearTimeout(t);
-      pipelineOrangeNavScheduledRef.current = false;
-    };
-  }, [beginDashboardHide, closePipelineOverlayCore, navigation, pipelineDisplayedPct, pipelineModalVisible, pipelineResilienceOrange]);
-
-  const pipelineTitleText = useMemo(() => {
-    if (pipelineResilienceOrange) return t('talkDebug.errorNetwork');
-    if (pipelineDashTitleComplete) return t('talkDebug.stepComplete');
-    if (pipelineDisplayedPct < 30) return t('talkDebug.stepTransport');
-    if (pipelineDisplayedPct < 60) return t('talkDebug.stepTranscription');
-    return t('talkDebug.stepAnalysis');
-  }, [pipelineDashTitleComplete, pipelineDisplayedPct, pipelineResilienceOrange, t]);
-
-  const pipelineBarColor = pipelineResilienceOrange ? '#fb923c' : '#38bdf8';
-
-  /**
-   * Fin dictée côté parent : T0 perf + bannière cycle. Le pipeline Gemini + `submitCapturePayload`
-   * est enchaîné dans `TalkCaptureMicButton` à la validation.
-   */
-  const onMicEnd = useCallback((_payload: TalkCaptureEndPayload) => {}, []);
-
-  /** Ferme la feuille détail (peek ou plein écran). */
   const closeDetail = useCallback(() => {
     setDetailOpen(false);
     setPeekDetailRows([]);
@@ -660,9 +283,6 @@ export function TalkDebugScreen() {
     });
   }, [t]);
 
-  applyPeekFirstSavePayloadRef.current = applyPeekFirstSavePayload;
-
-  /** Évite une feuille capture résiduelle sur un onglet non focalisé (cf. SPEC routage peek). */
   useEffect(() => {
     if (isFocused) return;
     const inCapturePeekFlow =
@@ -671,9 +291,8 @@ export function TalkDebugScreen() {
     closeDetail();
   }, [closeDetail, detailOpen, isFocused, peekCapturePhase, peekDetailRows]);
 
-  /** Écoute `INTENTION_PEEK_*` : Path A / Path B (sheet bloquée tant que le dashboard ballet est visible). */
   useEffect(() => {
-    const dashboardBalletLocksPeekUi = () => pipelineModalVisible || pipelineModalVisibleRef.current;
+    const dashboardBalletLocksPeekUi = () => isPipelineOverlayVisible || pipelineOverlayVisibleRef.current;
 
     const subSnap = DeviceEventEmitter.addListener(INTENTION_PEEK_SNAPSHOT_EVENT_NAME, (payload) => {
       if (!isFocusedRef.current) return;
@@ -691,29 +310,28 @@ export function TalkDebugScreen() {
     });
     const subFirstSave = DeviceEventEmitter.addListener(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, (payload) => {
       if (!isFocusedRef.current) return;
-      if (dashboardBalletLocksPeekUi()) {
-        pendingPeekFirstSavePayloadRef.current = payload;
-        return;
-      }
+      if (dashboardBalletLocksPeekUi()) return;
       applyPeekFirstSavePayload(payload);
+    });
+    const subDeferred = DeviceEventEmitter.addListener(
+      CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH_EVENT_NAME,
+      (payload) => {
+        if (!isFocusedRef.current) return;
+        applyPeekFirstSavePayload(payload);
+      },
+    );
+    const subSprint = DeviceEventEmitter.addListener(CAPTURE_PIPELINE_SPRINT_COMPLETE_EVENT_NAME, () => {
+      if (!isFocusedRef.current) return;
+      setSelectedIntentionIndex(0);
     });
     return () => {
       subSnap.remove();
       subFirstSave.remove();
+      subDeferred.remove();
+      subSprint.remove();
     };
-  }, [applyPeekFirstSavePayload, pipelineModalVisible]);
+  }, [applyPeekFirstSavePayload, isPipelineOverlayVisible, pipelineOverlayVisibleRef]);
 
-  /** Après validation UI côté `TalkCaptureMicButton` : repasse l’étape capture à idle. */
-  const onMicValidated = useCallback(() => {
-    setCaptureStep('idle');
-  }, []);
-
-  /** Annulation micro : reset étape capture. */
-  const onMicCancel = useCallback(async () => {
-    hardResetToIdle();
-  }, [hardResetToIdle]);
-
-  /** Saisie texte « Phoenix » : même pipeline OneTap que le micro (`submitCapturePayload`, Bulk(1)). */
   const onSubmitPhoenix = useCallback(async () => {
     const transcript = phoenixInput.trim();
     if (!transcript) return;
@@ -736,10 +354,6 @@ export function TalkDebugScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: designTokens.backgroundColor }]}>
-      <PassProModal
-        visible={passProVisible}
-        onDismiss={() => setPassProVisible(false)}
-      />
       <IntentionDetailSheet
         visible={detailOpen}
         row={detailRow}
@@ -753,12 +367,6 @@ export function TalkDebugScreen() {
         captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
         intentionMixAccentColor={intentionMixAccentColor}
         morphSheetContentOnIntentionChange={peekDetailRows.length > 1}
-      />
-      <AIUniversalProgressOverlay
-        isVisible={pipelineModalVisible}
-        progress={pipelineDisplayedPct}
-        label={pipelineTitleText}
-        barColor={pipelineBarColor}
       />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>
@@ -827,37 +435,12 @@ export function TalkDebugScreen() {
 
       <View style={styles.middleSpacer} />
 
-      <IntentionSuggestionsBanner visible={captureStep === 'idle' && !pipelineModalVisible} bottomOffset={112} />
+      <IntentionSuggestionsBanner
+        visible={!captureRecordingActive && !isPipelineOverlayVisible}
+        bottomOffset={112}
+      />
 
-      <View
-        style={[
-          styles.captureDock,
-          {
-            paddingBottom: Math.max(insets.bottom, 10),
-            justifyContent: captureStep === 'idle' ? 'flex-end' : 'flex-start',
-          },
-        ]}
-      >
-        <TalkCaptureMicButton
-          ref={micRef}
-          variant="talkDebug"
-          disabled={phoenixSubmitting}
-          locked={micLocked}
-          lockedHintText={t('talkDebug.micQuotaUpsellHint')}
-          waveformA11yLabel={t('talkDebug.voiceWaveformA11y')}
-          onLockedPress={() => setPassProVisible(true)}
-          beforeStart={beforeStartCapture}
-          onCaptureStart={onMicStart}
-          onCaptureEnd={onMicEnd}
-          onCaptureCancel={onMicCancel}
-          onValidated={onMicValidated}
-          dashboardPipelineHost
-          onPipelineDashboardOpenImmediate={onPipelineDashboardOpenImmediate}
-          onPipelineDashboardCancelImmediate={onPipelineDashboardCancelImmediate}
-          onPipelineWaitMicPress={onPipelineWaitMicPress}
-          onProfilerStopRecordingT0={onProfilerStopRecordingT0}
-        />
-      </View>
+      <View style={[styles.bottomSpacer, { paddingBottom: Math.max(insets.bottom, 10) }]} />
 
       <DealerBoard
         selectedIntentionIndex={selectedIntentionIndex}
@@ -887,6 +470,6 @@ const styles = StyleSheet.create({
   },
   phoenixSendText: { fontSize: 14, fontWeight: '900' },
   middleSpacer: { flex: 1, minHeight: 0 },
-  captureDock: { paddingHorizontal: 20, paddingTop: 10, minHeight: 120 },
+  bottomSpacer: { minHeight: 120 },
   disabled: { opacity: 0.5 },
 });

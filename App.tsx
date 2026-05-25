@@ -24,6 +24,8 @@ import { CalendarIntegrationProvider } from './src/context/CalendarIntegrationCo
 import { DebugUnlockProvider } from './src/context/DebugUnlockContext';
 import { FocusProtectionProvider } from './src/context/FocusProtectionContext';
 import { IntentionProvider } from './src/context/IntentionContext';
+import { CapturePresentationProvider } from './src/context/CapturePresentationContext';
+import { GlobalCaptureOverlay } from './src/components/GlobalCaptureOverlay';
 import { LanguageProvider } from './src/context/LanguageContext';
 import { PowerProvider } from './src/context/PowerContext';
 import { SaturationProvider, useSaturation } from './src/context/SaturationContext';
@@ -137,7 +139,10 @@ export default function App() {
                               {/* <EveningStarModal /> */}
                               {/* DEPRECATED: AvailabilityNudgeModal — nettoyage-code-mort.md */}
                               <IntentionProvider>
-                                <AppNavigation />
+                                <CapturePresentationProvider>
+                                  <AppNavigation />
+                                  <GlobalCaptureOverlay />
+                                </CapturePresentationProvider>
                               </IntentionProvider>
                               <StartupPerfBanner />
                               <StatusBarRoot />
