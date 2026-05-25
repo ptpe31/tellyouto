@@ -49,6 +49,7 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 | `gemini_pass2_model_id` | Modèle Pass 2 / Pass 3 / Expert / lab (raisonnement) — défaut `gemini-pro-latest` |
 | `gemini_model_fallbacks` | CSV optionnel remplaçant la shortlist compilée pour la chaîne Pass 2 (ex. `gemini-pro-latest,gemini-3.1-flash-lite`) |
 | `prompt_pass3_synth_v1` | Template system Pass 3 (Feuille de route) |
+| `max_pins_count` | Plafond d’intentions épinglées dans l’Espace Sacré (Cockpit) — défaut compilé `2` via [`MAX_PINS_COUNT`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/appConfig.ts) |
 
 **Chaîne de résolution (boot)**
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   DeviceEventEmitter,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -19,7 +20,9 @@ import {
   getFreeCaptureQuotaSnapshot,
   getTrankilV2IntentionById,
   getTrankilV2UnorganizedCount,
+  listTrankilV2PinnedIntentions,
 } from '../api/trankilV2Db';
+import { MAX_PINS_COUNT } from '../config/appConfig';
 import {
   CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH_EVENT_NAME,
   INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
@@ -48,6 +51,7 @@ import type { AppTabParamList } from '../navigation/types';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
+import { formatCreationSubtitle } from '../utils/timeFormat';
 
 /**
  * Écran **Talk / Debug** : Phoenix texte + micro global → `IntentionContext.submitCapturePayload` (Bulk(1)),
@@ -163,6 +167,9 @@ export function TalkDebugScreen() {
   const [freeQuotaSnapshot, setFreeQuotaSnapshot] = useState<{ remaining: number; max: number } | null>(null);
   const [todayTodoCount, setTodayTodoCount] = useState(0);
   const [headerUnorganizedCount, setHeaderUnorganizedCount] = useState(0);
+  const [pinnedRows, setPinnedRows] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [sacredDetailOpen, setSacredDetailOpen] = useState(false);
+  const [sacredDetailRow, setSacredDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -190,13 +197,15 @@ export function TalkDebugScreen() {
 
   const refreshPilotHeader = useCallback(async () => {
     const ymd = formatYmdLocal(new Date());
-    const [unorg, todayN, snap] = await Promise.all([
+    const [unorg, todayN, snap, pinned] = await Promise.all([
       getTrankilV2UnorganizedCount(),
       countTrankilV2RootTodoTasksDueOnLocalDate(ymd),
       spectrum.isProUser ? Promise.resolve(null) : getFreeCaptureQuotaSnapshot(),
+      listTrankilV2PinnedIntentions(MAX_PINS_COUNT),
     ]);
     setHeaderUnorganizedCount(unorg);
     setTodayTodoCount(todayN);
+    setPinnedRows(pinned.map(mapTrankilIntentionToTimelineItemRow));
     if (snap) {
       setFreeQuotaSnapshot({ remaining: snap.remaining, max: snap.max });
     } else {
@@ -244,6 +253,26 @@ export function TalkDebugScreen() {
     setDetailPosition('full');
     setDetailPeekHeightPx(capturePeekPathAHeightPx());
     setPeekCapturePhase('idle');
+  }, []);
+
+  const closeSacredDetail = useCallback(() => {
+    setSacredDetailOpen(false);
+    setSacredDetailRow(null);
+  }, []);
+
+  const openSacredDetail = useCallback((r: TrankilV2TimelineItemRow) => {
+    setSacredDetailRow(r);
+    setSacredDetailOpen(true);
+  }, []);
+
+  const patchSacredDetailRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
+    setPinnedRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setSacredDetailRow((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+    if (patch.is_pinned === 0) {
+      setPinnedRows((prev) => prev.filter((r) => r.id !== id));
+      setSacredDetailOpen(false);
+      setSacredDetailRow(null);
+    }
   }, []);
 
   const patchPeekDetailRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
@@ -363,6 +392,14 @@ export function TalkDebugScreen() {
         intentionMixAccentColor={intentionMixAccentColor}
         morphSheetContentOnIntentionChange={peekDetailRows.length > 1}
       />
+      <IntentionDetailSheet
+        visible={sacredDetailOpen}
+        row={sacredDetailRow}
+        theme={theme}
+        onClose={closeSacredDetail}
+        onPatchRow={patchSacredDetailRow}
+        initialPosition="full"
+      />
       <View style={[styles.headerSafe, { paddingTop: Math.max(insets.top, 6) }]}>
         <View style={styles.phoenixRow}>
           <TextInput
@@ -426,6 +463,33 @@ export function TalkDebugScreen() {
           }
           translate={t}
         />
+        {pinnedRows.length > 0 ? (
+          <View style={styles.sacredSpace}>
+            <Text style={[styles.sacredTitle, { color: designTokens.textSecondary }]}>
+              {t('talkDebug.sacredSpace.title')}
+            </Text>
+            {pinnedRows.map((r) => {
+              const title = String(r.display_title ?? '').trim() || t('timeline.untitled');
+              const rel = formatCreationSubtitle(Number(r.created_at), t, i18n.language);
+              return (
+                <Pressable
+                  key={r.id}
+                  onPress={() => openSacredDetail(r)}
+                  style={({ pressed }) => [styles.sacredRow, { opacity: pressed ? 0.82 : 1 }]}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.sacredPin, { color: designTokens.textPrimary }]}>📌</Text>
+                  <Text style={[styles.sacredText, { color: designTokens.textPrimary }]} numberOfLines={1}>
+                    {title}
+                    {rel ? (
+                      <Text style={[styles.sacredDate, { color: designTokens.textSecondary }]}> ({rel})</Text>
+                    ) : null}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.middleSpacer} />
@@ -464,6 +528,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.25)',
   },
   phoenixSendText: { fontSize: 14, fontWeight: '900' },
+  sacredSpace: { marginTop: 6, gap: 4 },
+  sacredTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 2 },
+  sacredRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  sacredPin: { fontSize: 14, width: 20, textAlign: 'center' },
+  sacredText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  sacredDate: { fontWeight: '500', fontSize: 13 },
   middleSpacer: { flex: 1, minHeight: 0 },
   bottomSpacer: { minHeight: TALK_DEBUG_MIC_DOCK_MIN_HEIGHT },
   disabled: { opacity: 0.5 },

@@ -59,6 +59,7 @@ import {
   CAPTURE_SHEET_FULL_MAX_RATIO,
 } from '../utils/capturePeekLayout';
 import { IdeaBankModal } from '../components/IdeaBankModal';
+import { SmartClustersCarousel } from '../components/SmartClustersCarousel';
 import { DailyRoadmapReportModal } from '../components/dailyRoadmap/DailyRoadmapReportModal';
 import { Pass3CleanupSasOverlay, type Pass3CleanupRow } from '../components/dailyRoadmap/Pass3CleanupSasOverlay';
 import { TimelineFilterModal } from '../components/TimelineFilterModal';
@@ -73,7 +74,7 @@ import { getBestOrphanCluster } from '../services/clusterEngine';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { formatYmdLocal } from '../services/TimeSorter';
-import { shouldShowUndatedOrphanInTodayView } from '../utils/timeFormat';
+import { shouldShowUndatedOrphanInTodayView, createdYmdFromMs } from '../utils/timeFormat';
 import { buildDailyRoadmapPayload, runDailyRoadmapGeminiHtml } from '../services/dailyRoadmapPass3';
 import { ensureGeminiRemoteModelInitialized } from '../services/geminiRemoteModelSteering';
 import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOverlay';
@@ -280,7 +281,6 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 
 const SECTION_HEADER_H = 36;
 const ROADMAP_LINK_H = 40;
-const IDEA_BANK_H = 76;
 const CARD_ROW_H = 120;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
@@ -300,13 +300,6 @@ type TimelineFlatItem =
   | { kind: 'section'; id: string; titleText: string }
   | { kind: 'roadmapLink'; id: string }
   | {
-      kind: 'ideaBankDashboardRow';
-      id: string;
-      shopCount: number;
-      cluster: { categoryId: string; count: number } | null;
-      bankCount: number;
-    }
-  | {
       kind: 'card';
       id: string;
       row: TrankilV2TimelineItemRow;
@@ -316,16 +309,6 @@ type TimelineFlatItem =
 function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
   const out: TimelineFlatItem[] = [];
   for (const e of entries) {
-    if (e.kind === 'ideaBankDashboard') {
-      out.push({
-        kind: 'ideaBankDashboardRow',
-        id: 'ideaBankDashboard',
-        shopCount: e.shopCount,
-        cluster: e.cluster,
-        bankCount: e.bankCount,
-      });
-      continue;
-    }
     out.push({ kind: 'section', id: `sec-${e.id}`, titleText: e.titleText });
     for (const r of e.rows) {
       out.push({
@@ -347,8 +330,6 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
         ? SECTION_HEADER_H
         : it.kind === 'roadmapLink'
           ? ROADMAP_LINK_H
-        : it.kind === 'ideaBankDashboardRow'
-          ? IDEA_BANK_H
           : CARD_ROW_H;
     const cur = { length: len, offset: off };
     off += len;
@@ -365,14 +346,7 @@ type RowSection = {
   rowVariant?: 'default' | 'noPressure';
 };
 
-type IdeaBankDashboardEntry = {
-  kind: 'ideaBankDashboard';
-  shopCount: number;
-  cluster: { categoryId: string; count: number } | null;
-  bankCount: number;
-};
-
-type ListEntry = RowSection | IdeaBankDashboardEntry;
+type ListEntry = RowSection;
 
 /** Écran onglet Timeline : projection des intentions et interactions (done différé, détail, filtres). */
 export function TimelineScreen() {
@@ -403,6 +377,7 @@ export function TimelineScreen() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
+  const [ideaBankMode, setIdeaBankMode] = useState<'default' | 'inbox'>('default');
   const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [dailyRoadmapSummary, setDailyRoadmapSummary] = useState<{
@@ -1137,10 +1112,46 @@ export function TimelineScreen() {
 
   const activeCluster = useMemo(() => getBestOrphanCluster(nonShopOrphans), [nonShopOrphans]);
 
+  const inboxTodayItems = useMemo(() => {
+    const todayYmd = toYmd(anchorDate);
+    return hiddenUnorganizedForIdeaBank.filter((r) => {
+      const createdYmd = createdYmdFromMs(Number(r.created_at));
+      return createdYmd === todayYmd;
+    });
+  }, [anchorDate, hiddenUnorganizedForIdeaBank]);
+
+  /** Compteurs mock — requêtes SQLite dédiées à brancher ultérieurement. */
+  const activeProjectsCount = 3;
+  const listsAddsCount = 2;
+
   const ideaBankModalItems = useMemo(() => {
+    if (ideaBankMode === 'inbox') return inboxTodayItems;
     if (!ideaBankCategoryFilter) return hiddenUnorganizedForIdeaBank;
     return orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) === ideaBankCategoryFilter);
-  }, [hiddenUnorganizedForIdeaBank, ideaBankCategoryFilter, orphanClusterPool]);
+  }, [
+    hiddenUnorganizedForIdeaBank,
+    ideaBankCategoryFilter,
+    ideaBankMode,
+    inboxTodayItems,
+    orphanClusterPool,
+  ]);
+
+  const smartClusterVisible =
+    timeNav === 'TODAY' && contextBubble === 'ALL' && statusFilter === 'TODO';
+
+  const smartClusterProps = useMemo(
+    () => ({
+      newCount: inboxTodayItems.length,
+      shopCount: shopOrphans.length,
+      cluster:
+        activeCluster && activeCluster.count >= 2
+          ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
+          : null,
+      projectsCount: activeProjectsCount,
+      listsCount: listsAddsCount,
+    }),
+    [activeCluster, activeProjectsCount, inboxTodayItems.length, listsAddsCount, shopOrphans.length],
+  );
 
   const dayTitle = useCallback(
     (ymd: string): string => {
@@ -1206,23 +1217,6 @@ export function TimelineScreen() {
     }
 
     const out: ListEntry[] = [];
-    if (contextBubble === 'ALL' && statusFilter === 'TODO') {
-      const shopCount = shopOrphans.length;
-      const cluster =
-        activeCluster && activeCluster.count >= 2
-          ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
-          : null;
-      const bankCount = hiddenUnorganizedForIdeaBank.length;
-
-      if (shopCount > 0 || cluster || (!cluster && bankCount > 0)) {
-        out.push({
-          kind: 'ideaBankDashboard',
-          shopCount,
-          cluster,
-          bankCount,
-        });
-      }
-    }
     for (const [ymd, rows] of [...groups.entries()]) {
       out.push({
         kind: 'rows',
@@ -1233,13 +1227,10 @@ export function TimelineScreen() {
     }
     return out;
   }, [
-    activeCluster,
     anchorDate,
     contextBubble,
     dayTitle,
     filteredPool,
-    hiddenUnorganizedForIdeaBank.length,
-    shopOrphans.length,
     statusFilter,
     timeNav,
   ]);
@@ -1370,84 +1361,6 @@ export function TimelineScreen() {
           </View>
         );
       }
-      if (item.kind === 'ideaBankDashboardRow') {
-        const hasShop = item.shopCount > 0;
-        const hasCluster = item.cluster !== null;
-        const showBankFallback = !hasCluster && item.bankCount > 0;
-
-        if (!hasShop && !hasCluster && !showBankFallback) return null;
-
-        return (
-          <View style={[styles.section, { paddingHorizontal: 16, flexDirection: 'row', gap: 12 }]}>
-            {hasShop && (
-              <Pressable
-                onPress={() => {
-                  setIdeaBankCategoryFilter('SHOP');
-                  setIdeaBankOpen(true);
-                }}
-                style={[
-                  neumorphicRaised(theme),
-                  styles.ideaBankPressable,
-                  styles.ideaBankPressableColumn,
-                  { flex: 1, borderWidth: 1, borderColor: theme.colors.outlineVariant },
-                ]}
-              >
-                <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
-                  {t('timeline.ideaBank.shopTitle')}
-                </Text>
-                <Text style={[styles.ideaBankClusterSubtitle, { color: theme.colors.onSurfaceVariant }]}>
-                  {t('timeline.ideaBank.shopSubtitle', { count: item.shopCount })}
-                </Text>
-              </Pressable>
-            )}
-
-            {hasCluster && (
-              <Pressable
-                onPress={() => {
-                  setIdeaBankCategoryFilter(item.cluster!.categoryId);
-                  setIdeaBankOpen(true);
-                }}
-                style={[
-                  neumorphicRaised(theme),
-                  styles.ideaBankPressable,
-                  styles.ideaBankPressableColumn,
-                  { flex: 1, borderWidth: 1, borderColor: theme.colors.outlineVariant },
-                ]}
-              >
-                <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
-                  {t('timeline.ideaBank.clusterNudge')}
-                </Text>
-                <Text style={[styles.ideaBankClusterSubtitle, { color: theme.colors.onSurfaceVariant }]}>
-                  {t('timeline.ideaBank.clusterSubtitle', {
-                    count: item.cluster!.count,
-                    category: i18n.exists(`category.${item.cluster!.categoryId}`)
-                      ? t(`category.${item.cluster!.categoryId}`)
-                      : item.cluster!.categoryId,
-                  })}
-                </Text>
-              </Pressable>
-            )}
-
-            {showBankFallback && (
-              <Pressable
-                onPress={() => {
-                  setIdeaBankCategoryFilter(null);
-                  setIdeaBankOpen(true);
-                }}
-                style={[
-                  neumorphicRaised(theme),
-                  styles.ideaBankPressable,
-                  { flex: 1, borderWidth: 1, borderColor: theme.colors.outlineVariant },
-                ]}
-              >
-                <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
-                  {item.bankCount} {t('timeline.ideaBank.button')}
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        );
-      }
       const row = item.row;
       const pid = String(row.parent_id ?? '').trim();
       const orbKey = row.type === 'HABIT' ? 'habits' : row.type === 'TASK' && pid ? 'projects' : row.type === 'TASK' ? 'tasks' : 'other';
@@ -1489,20 +1402,63 @@ export function TimelineScreen() {
       anchorDate,
       dailyRoadmapSummary,
       handleToggleRowComplete,
-      i18n,
       openSavedDailyRoadmap,
       openDetail,
       handleTripFooterPress,
       pendingLocalDone,
-      reload,
-      setIdeaBankCategoryFilter,
-      setIdeaBankOpen,
       spectrum.isProUser,
       statusFilter,
       t,
       theme,
     ],
   );
+
+  const openIdeaBankInbox = useCallback(() => {
+    setIdeaBankMode('inbox');
+    setIdeaBankCategoryFilter(null);
+    setIdeaBankOpen(true);
+  }, []);
+
+  const openIdeaBankShop = useCallback(() => {
+    setIdeaBankMode('default');
+    setIdeaBankCategoryFilter('SHOP');
+    setIdeaBankOpen(true);
+  }, []);
+
+  const openIdeaBankCluster = useCallback(() => {
+    const cluster =
+      activeCluster && activeCluster.count >= 2
+        ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
+        : null;
+    if (!cluster) return;
+    setIdeaBankMode('default');
+    setIdeaBankCategoryFilter(cluster.categoryId);
+    setIdeaBankOpen(true);
+  }, [activeCluster]);
+
+  const smartClustersHeader = useMemo(() => {
+    if (!smartClusterVisible) return null;
+    return (
+      <SmartClustersCarousel
+        {...smartClusterProps}
+        onPressNew={openIdeaBankInbox}
+        onPressShop={openIdeaBankShop}
+        onPressCluster={openIdeaBankCluster}
+        onPressProjects={() => {
+          if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
+        }}
+        onPressLists={() => {
+          if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
+        }}
+      />
+    );
+  }, [
+    openIdeaBankCluster,
+    openIdeaBankInbox,
+    openIdeaBankShop,
+    smartClusterProps,
+    smartClusterVisible,
+  ]);
 
   return (
     <View style={[styles.root, { backgroundColor: designTokens.backgroundColor }]}>
@@ -1549,6 +1505,7 @@ export function TimelineScreen() {
         onEndReached={() => void loadMoreRows()}
         onEndReachedThreshold={0.35}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}
+        ListHeaderComponent={smartClustersHeader}
         ListFooterComponent={
           loadingMore ? (
             <View style={styles.listFooterLoading}>
@@ -1637,13 +1594,21 @@ export function TimelineScreen() {
         visible={ideaBankOpen}
         onClose={() => {
           setIdeaBankCategoryFilter(null);
+          setIdeaBankMode('default');
           setIdeaBankOpen(false);
         }}
         items={ideaBankModalItems}
         status={statusFilter}
         anchorDate={anchorDate}
         onChanged={reload}
-        title={ideaBankCategoryFilter === 'SHOP' ? t('timeline.ideaBank.shopTitle') : undefined}
+        mode={ideaBankMode}
+        title={
+          ideaBankCategoryFilter === 'SHOP'
+            ? t('timeline.ideaBank.shopTitle')
+            : ideaBankMode === 'inbox'
+              ? t('timeline.smartClusters.newTitle')
+              : undefined
+        }
       />
     </View>
   );

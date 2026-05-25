@@ -61,7 +61,19 @@
       "scheduleTitle": "Kies een datum",
       "empty": "Geen taken zonder datum.",
       "close": "Sluiten",
-      "cancel": "Annuleren"
+      "cancel": "Annuleren",
+      "clusterNudge": "Shall we move these forward?",
+      "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "To buy",
+      "shopSubtitle": "{{count}} items"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ New",
+      "newSubtitle": "{{count}} to sort",
+      "projectsTitle": "📁 Projects",
+      "projectsSubtitle": "({{count}} active)",
+      "listsTitle": "📋 Lists",
+      "listsSubtitle": "({{count}} additions)"
     }
   },
   "settings": {
@@ -71,5 +83,16 @@
     "archivePurge7": "7 dagen",
     "archivePurge30": "30 dagen",
     "archivePurgeNever": "Nooit"
+  },
+  "talkDebug": {
+    "sacredSpace": {
+      "title": "Sacred Space"
+    }
+  },
+  "intentionDetail": {
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinMaxReachedTitle": "Pin limit reached",
+    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
   }
 }

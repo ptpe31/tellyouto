@@ -61,7 +61,19 @@
       "scheduleTitle": "Välj datum",
       "empty": "Inga uppgifter utan datum.",
       "close": "Stäng",
-      "cancel": "Avbryt"
+      "cancel": "Avbryt",
+      "clusterNudge": "Shall we move these forward?",
+      "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "To buy",
+      "shopSubtitle": "{{count}} items"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ New",
+      "newSubtitle": "{{count}} to sort",
+      "projectsTitle": "📁 Projects",
+      "projectsSubtitle": "({{count}} active)",
+      "listsTitle": "📋 Lists",
+      "listsSubtitle": "({{count}} additions)"
     }
   },
   "settings": {
@@ -71,5 +83,16 @@
     "archivePurge7": "7 dagar",
     "archivePurge30": "30 dagar",
     "archivePurgeNever": "Aldrig"
+  },
+  "talkDebug": {
+    "sacredSpace": {
+      "title": "Sacred Space"
+    }
+  },
+  "intentionDetail": {
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinMaxReachedTitle": "Pin limit reached",
+    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
   }
 }

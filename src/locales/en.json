@@ -107,6 +107,10 @@
     "launchRoute": "Launch route",
     "launchRouteDisabledHint": "Add a valid destination address to launch navigation.",
     "close": "Close",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinMaxReachedTitle": "Pin limit reached",
+    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first.",
     "labelIntention": "Intention",
     "labelTiming": "Timing",
     "labelItinerary": "Route",
@@ -586,6 +590,14 @@
       "empty": "No undated tasks.",
       "close": "Close",
       "cancel": "Cancel"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ New",
+      "newSubtitle": "{{count}} to sort",
+      "projectsTitle": "📁 Projects",
+      "projectsSubtitle": "({{count}} active)",
+      "listsTitle": "📋 Lists",
+      "listsSubtitle": "({{count}} additions)"
     }
   },
   "focusMode": {
@@ -1296,6 +1308,9 @@
     }
   },
   "talkDebug": {
+    "sacredSpace": {
+      "title": "Sacred Space"
+    },
     "noteSaved": "Note saved",
     "audioTitle": "Audio memo",
     "audioMissing": "No audio file detected.",

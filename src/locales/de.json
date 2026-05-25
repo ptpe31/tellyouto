@@ -316,7 +316,19 @@
       "scheduleTitle": "Datum wählen",
       "empty": "Keine Aufgaben ohne Datum.",
       "close": "Schließen",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "clusterNudge": "Shall we move these forward?",
+      "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "To buy",
+      "shopSubtitle": "{{count}} items"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ New",
+      "newSubtitle": "{{count}} to sort",
+      "projectsTitle": "📁 Projects",
+      "projectsSubtitle": "({{count}} active)",
+      "listsTitle": "📋 Lists",
+      "listsSubtitle": "({{count}} additions)"
     }
   },
   "focusMode": {
@@ -672,12 +684,12 @@
     "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
     "temperamentLabel": "Dein aktuelles Temperament: {{profile}}",
     "profileOverride": {
+      "1": {
+        "action_tip": "Es ist okay, wenn nicht alles abgehakt ist. Eine klare Aktion reicht fur morgen."
+      },
       "4": {
         "insight": "Dein Geist ist klar, geordnet und sicher. Alles Wichtige ist in deinem Kalender verankert.",
         "action_tip": "Du kannst die Last heute Abend loslassen: Dein System ist sauber und unter Kontrolle."
-      },
-      "1": {
-        "action_tip": "Es ist okay, wenn nicht alles abgehakt ist. Eine klare Aktion reicht fur morgen."
       }
     }
   },
@@ -898,9 +910,18 @@
     "audioTitle": "Audio-Notiz",
     "audioMissing": "Keine Audiodatei gefunden.",
     "audioSaved": "Audio-Notiz gespeichert",
-    "actionSuccess": "Aktion erfolgreich abgeschlossen."
+    "actionSuccess": "Aktion erfolgreich abgeschlossen.",
+    "sacredSpace": {
+      "title": "Sacred Space"
+    }
   },
   "navigation": {
     "semanticBrainLabHeader": "Semantic Brain Lab"
+  },
+  "intentionDetail": {
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinMaxReachedTitle": "Pin limit reached",
+    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
   }
 }

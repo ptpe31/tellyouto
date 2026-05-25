@@ -53,6 +53,8 @@ export type TrankilV2IntentionRow = {
   is_pending_ai?: number;
   /** 1 = rappel « quand partir » (logistique déplacement). */
   remind_to_leave?: number;
+  /** 0/1 — épinglé dans l’Espace Sacré (Cockpit). */
+  is_pinned?: number;
   /** Lieu / adresse texte libre (nullable). */
   location_address?: string | null;
   ai_model_used?: string | null;
@@ -87,6 +89,7 @@ export type TrankilV2TimelineItemRow = {
   is_pending_ai?: number;
   transport_mode?: string | null;
   remind_to_leave?: number;
+  is_pinned?: number;
 };
 
 export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
@@ -460,6 +463,7 @@ export async function initTrankilV2Schema(): Promise<void> {
         debug_latency_ms INTEGER,
         location_id TEXT,
         transport_mode TEXT,
+        is_pinned INTEGER NOT NULL DEFAULT 0 CHECK (is_pinned IN (0, 1)),
         FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL
       );
     `);
@@ -481,6 +485,15 @@ export async function initTrankilV2Schema(): Promise<void> {
     if (!hasContextTag) {
       await db.execAsync(`ALTER TABLE intentions ADD COLUMN context_tag TEXT;`);
     }
+    const hasIsPinned = columns.some((c) => c.name === 'is_pinned');
+    if (!hasIsPinned) {
+      await db.execAsync(
+        `ALTER TABLE intentions ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0 CHECK (is_pinned IN (0, 1));`,
+      );
+    }
+    await db.execAsync(
+      `CREATE INDEX IF NOT EXISTS idx_intentions_is_pinned ON intentions (is_pinned, updated_at DESC);`,
+    );
     await db.execAsync(
       `CREATE INDEX IF NOT EXISTS idx_intentions_parent_zoom_uid_created_at ON intentions (parent_id, zoom_parent_jalon_uid, created_at);`,
     );
@@ -1462,7 +1475,50 @@ export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow)
     is_pending_ai: row.is_pending_ai ?? 0,
     transport_mode: row.transport_mode ?? null,
     remind_to_leave: row.remind_to_leave ?? 0,
+    is_pinned: row.is_pinned ?? 0,
   };
+}
+
+/** Nombre d’intentions actuellement épinglées (`is_pinned = 1`, non archivées). */
+export async function countTrankilV2PinnedIntentions(): Promise<number> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions
+     WHERE COALESCE(is_pinned, 0) = 1
+       AND COALESCE(is_archived, 0) = 0
+       AND status != 'ARCHIVED'`,
+  );
+  return Number(row?.n ?? 0);
+}
+
+/** Intentions épinglées pour l’Espace Sacré (tri récent → ancien). */
+export async function listTrankilV2PinnedIntentions(limit = 8): Promise<TrankilV2IntentionRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const cap = Math.max(1, Math.min(32, Math.floor(limit)));
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions
+     WHERE COALESCE(is_pinned, 0) = 1
+       AND COALESCE(is_archived, 0) = 0
+       AND status != 'ARCHIVED'
+     ORDER BY updated_at DESC, created_at DESC
+     LIMIT ?`,
+    [cap],
+  );
+}
+
+/** Épingle ou désépingle une intention (respecte le plafond côté UI). */
+export async function updateTrankilV2IntentionPinnedState(id: string, isPinned: boolean): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const now = Date.now();
+  await db.runAsync(
+    `UPDATE intentions SET is_pinned = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`,
+    [isPinned ? 1 : 0, now, id],
+  );
+  await syncAfterIntentionWrite('updateTrankilV2IntentionPinnedState');
+  notifyIntentionsChanged({ id, reason: isPinned ? 'pin' : 'unpin' });
 }
 
 /**
@@ -2022,6 +2078,7 @@ export type TrankilV2IntentionInsert = {
   debug_latency_ms?: number | null;
   location_id?: string | null;
   transport_mode?: string | null;
+  is_pinned?: number;
 };
 
 /** Spec v34 : `category_id` jamais vide en insertion (fallback PERSO). */
@@ -2113,8 +2170,9 @@ export async function insertTrankilV2Intention(
       is_pending_ai,
       remind_to_leave, location_address,
       ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, debug_tokens, debug_latency_ms, location_id,
+      is_pinned,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
   const args = [
     row.id,
     row.type,
@@ -2154,6 +2212,7 @@ export async function insertTrankilV2Intention(
     Number.isFinite(row.debug_tokens as number) ? Number(row.debug_tokens) : null,
     Number.isFinite(row.debug_latency_ms as number) ? Number(row.debug_latency_ms) : null,
     row.location_id ?? null,
+    row.is_pinned ?? 0,
   ];
   const placeholderCount = (sql.match(/\?/g) ?? []).length;
   if (placeholderCount !== args.length) {

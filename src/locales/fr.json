@@ -107,6 +107,10 @@
     "launchRoute": "Lancer l'itinéraire",
     "launchRouteDisabledHint": "Ajoutez une adresse d'arrivée valide pour lancer l'itinéraire.",
     "close": "Fermer",
+    "pin": "Épingler",
+    "unpin": "Désépingler",
+    "pinMaxReachedTitle": "Limite d'épingles atteinte",
+    "pinMaxReachedBody": "Tu peux épingler au maximum {{max}} intentions. Désépingle-en une autre d'abord.",
     "labelIntention": "Intention",
     "labelTiming": "Timing",
     "labelItinerary": "Itinéraire",
@@ -586,6 +590,14 @@
       "empty": "Aucune tâche sans date.",
       "close": "Fermer",
       "cancel": "Annuler"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ Nouveau",
+      "newSubtitle": "{{count}} à trier",
+      "projectsTitle": "📁 Projets",
+      "projectsSubtitle": "({{count}} actifs)",
+      "listsTitle": "📋 Listes",
+      "listsSubtitle": "({{count}} ajouts)"
     }
   },
   "focusMode": {
@@ -1296,6 +1308,9 @@
     }
   },
   "talkDebug": {
+    "sacredSpace": {
+      "title": "L'Espace Sacré"
+    },
     "noteSaved": "Note enregistree",
     "audioTitle": "Memo audio",
     "audioMissing": "Aucun fichier audio detecte.",

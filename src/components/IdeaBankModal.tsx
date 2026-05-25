@@ -41,6 +41,8 @@ type Props = {
   anchorDate: Date;
   onChanged: () => void;
   title?: string;
+  /** `inbox` : intentions du jour non traitées (Smart Clusters « Nouveau »). */
+  mode?: 'default' | 'inbox';
 };
 
 function pad2(n: number): string {
@@ -77,7 +79,7 @@ function isProjectWithoutStartDate(row: TrankilV2TimelineItemRow): boolean {
   return !getProjectStartDateFromMetadataJson(row.metadata_json);
 }
 
-export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onChanged, title }: Props) {
+export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onChanged, title, mode = 'default' }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   const designTokens = useDesignTokens();
@@ -209,7 +211,8 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
           >
             <View style={styles.sheetHeader}>
               <Text style={[styles.sheetTitle, { color: designTokens.textPrimary }]}>
-                {title || t('timeline.ideaBank.title')}
+                {title ||
+                  (mode === 'inbox' ? t('timeline.smartClusters.newTitle') : t('timeline.ideaBank.title'))}
               </Text>
               <Pressable onPress={onClose} hitSlop={12}>
                 <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>

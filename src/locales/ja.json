@@ -316,7 +316,19 @@
       "scheduleTitle": "日付を選ぶ",
       "empty": "日付のないタスクはありません。",
       "close": "閉じる",
-      "cancel": "キャンセル"
+      "cancel": "キャンセル",
+      "clusterNudge": "Shall we move these forward?",
+      "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "To buy",
+      "shopSubtitle": "{{count}} items"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ New",
+      "newSubtitle": "{{count}} to sort",
+      "projectsTitle": "📁 Projects",
+      "projectsSubtitle": "({{count}} active)",
+      "listsTitle": "📋 Lists",
+      "listsSubtitle": "({{count}} additions)"
     }
   },
   "focusMode": {
@@ -672,12 +684,12 @@
     "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
     "temperamentLabel": "現在の気質: {{profile}}",
     "profileOverride": {
+      "1": {
+        "action_tip": "すべてにチェックが付いていなくても大丈夫。明日に向けて一つの明確な行動で十分です。"
+      },
       "4": {
         "insight": "あなたの頭の中は整理され、安全です。大切なことはすべてカレンダーに固定されています。",
         "action_tip": "今夜は負荷を手放して大丈夫。あなたのシステムは整っていて安定しています。"
-      },
-      "1": {
-        "action_tip": "すべてにチェックが付いていなくても大丈夫。明日に向けて一つの明確な行動で十分です。"
       }
     }
   },
@@ -898,9 +910,18 @@
     "audioTitle": "音声メモ",
     "audioMissing": "音声ファイルが見つかりません。",
     "audioSaved": "音声メモを保存しました",
-    "actionSuccess": "操作が完了しました。"
+    "actionSuccess": "操作が完了しました。",
+    "sacredSpace": {
+      "title": "Sacred Space"
+    }
   },
   "navigation": {
     "semanticBrainLabHeader": "Semantic Brain Lab"
+  },
+  "intentionDetail": {
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinMaxReachedTitle": "Pin limit reached",
+    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
   }
 }

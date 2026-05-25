@@ -316,7 +316,19 @@
       "scheduleTitle": "选择日期",
       "empty": "没有无日期的任务。",
       "close": "关闭",
-      "cancel": "取消"
+      "cancel": "取消",
+      "clusterNudge": "Shall we move these forward?",
+      "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "To buy",
+      "shopSubtitle": "{{count}} items"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ New",
+      "newSubtitle": "{{count}} to sort",
+      "projectsTitle": "📁 Projects",
+      "projectsSubtitle": "({{count}} active)",
+      "listsTitle": "📋 Lists",
+      "listsSubtitle": "({{count}} additions)"
     }
   },
   "focusMode": {
@@ -672,12 +684,12 @@
     "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
     "temperamentLabel": "你当前的气质: {{profile}}",
     "profileOverride": {
+      "1": {
+        "action_tip": "即使没有全部勾选也没关系。为明天保留一个清晰的小行动就足够。"
+      },
       "4": {
         "insight": "你的思绪已经清晰、有序且安全。重要事项都已锚定到日历中。",
         "action_tip": "今晚可以放心卸下负担：你的系统已经整洁并在掌控之中。"
-      },
-      "1": {
-        "action_tip": "即使没有全部勾选也没关系。为明天保留一个清晰的小行动就足够。"
       }
     }
   },
@@ -898,9 +910,18 @@
     "audioTitle": "语音备忘",
     "audioMissing": "未检测到音频文件。",
     "audioSaved": "语音备忘已保存",
-    "actionSuccess": "操作成功完成。"
+    "actionSuccess": "操作成功完成。",
+    "sacredSpace": {
+      "title": "Sacred Space"
+    }
   },
   "navigation": {
     "semanticBrainLabHeader": "Semantic Brain Lab"
+  },
+  "intentionDetail": {
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinMaxReachedTitle": "Pin limit reached",
+    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
   }
 }

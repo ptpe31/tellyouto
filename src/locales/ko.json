@@ -61,7 +61,19 @@
       "scheduleTitle": "날짜 선택",
       "empty": "날짜 없는 작업이 없습니다.",
       "close": "닫기",
-      "cancel": "취소"
+      "cancel": "취소",
+      "clusterNudge": "Shall we move these forward?",
+      "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "To buy",
+      "shopSubtitle": "{{count}} items"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ New",
+      "newSubtitle": "{{count}} to sort",
+      "projectsTitle": "📁 Projects",
+      "projectsSubtitle": "({{count}} active)",
+      "listsTitle": "📋 Lists",
+      "listsSubtitle": "({{count}} additions)"
     }
   },
   "settings": {
@@ -71,5 +83,16 @@
     "archivePurge7": "7일",
     "archivePurge30": "30일",
     "archivePurgeNever": "안 함"
+  },
+  "talkDebug": {
+    "sacredSpace": {
+      "title": "Sacred Space"
+    }
+  },
+  "intentionDetail": {
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinMaxReachedTitle": "Pin limit reached",
+    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
   }
 }

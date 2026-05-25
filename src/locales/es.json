@@ -329,7 +329,19 @@
       "scheduleTitle": "Elegir una fecha",
       "empty": "No hay tareas sin fecha.",
       "close": "Cerrar",
-      "cancel": "Cancelar"
+      "cancel": "Cancelar",
+      "clusterNudge": "Shall we move these forward?",
+      "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "To buy",
+      "shopSubtitle": "{{count}} items"
+    },
+    "smartClusters": {
+      "newTitle": "⚡ New",
+      "newSubtitle": "{{count}} to sort",
+      "projectsTitle": "📁 Projects",
+      "projectsSubtitle": "({{count}} active)",
+      "listsTitle": "📋 Lists",
+      "listsSubtitle": "({{count}} additions)"
     }
   },
   "focusMode": {
@@ -685,12 +697,12 @@
     "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
     "temperamentLabel": "Tu temperamento actual: {{profile}}",
     "profileOverride": {
+      "1": {
+        "action_tip": "No pasa nada si no todo esta marcado. Una sola accion clara basta para manana."
+      },
       "4": {
         "insight": "Tu mente esta clara, ordenada y segura. Todo lo importante esta anclado en tu calendario.",
         "action_tip": "Puedes soltar la carga esta noche: tu sistema esta limpio y bajo control."
-      },
-      "1": {
-        "action_tip": "No pasa nada si no todo esta marcado. Una sola accion clara basta para manana."
       }
     }
   },
@@ -956,14 +968,21 @@
     "tripSurveillanceStart": "Vigilar el trayecto",
     "tripSurveillanceStartLocked": "Vigilar el trayecto 🔒",
     "tripSurveillanceActive": "Vigilancia activa 🛡️",
-    "surveillanceMissingInfo": "Añade un destino válido y una hora de llegada para activar la vigilancia."
+    "surveillanceMissingInfo": "Añade un destino válido y una hora de llegada para activar la vigilancia.",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinMaxReachedTitle": "Pin limit reached",
+    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
   },
   "talkDebug": {
     "noteSaved": "Nota guardada",
     "audioTitle": "Memo de audio",
     "audioMissing": "No se detecto ningun archivo de audio.",
     "audioSaved": "Memo de audio guardado",
-    "actionSuccess": "Accion completada correctamente."
+    "actionSuccess": "Accion completada correctamente.",
+    "sacredSpace": {
+      "title": "Sacred Space"
+    }
   },
   "navigation": {
     "semanticBrainLabHeader": "Semantic Brain Lab"

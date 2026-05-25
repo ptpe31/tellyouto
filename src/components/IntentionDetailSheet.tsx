@@ -29,17 +29,20 @@ import * as Haptics from 'expo-haptics';
 import type { TrankilV2TimelineItemRow } from '../api';
 import {
   patchMetadata,
+  countTrankilV2PinnedIntentions,
   getTrankilV2IntentionById,
   getZoomChildrenStatsForProjectMilestone,
   listZoomChildrenForProjectMilestone,
   toggleIntentionDone,
   updateIntention,
   updateTrankilV2IntentionLocationAddress,
+  updateTrankilV2IntentionPinnedState,
   updateTrankilV2IntentionRemindToLeave,
   updateTrankilV2IntentionTemporal,
   updateTrankilV2IntentionTransportMode,
   trankilV2SqliteBarrier,
 } from '../api/trankilV2Db';
+import { MAX_PINS_COUNT } from '../config/appConfig';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { ElasticDepartureCapsule } from './ElasticDepartureCapsule';
@@ -589,6 +592,8 @@ export function IntentionDetailSheet({
   /** Ignore le premier onChange iOS du DateTimePicker (événement fantôme au montage). */
   const temporalPickerSkipChangeRef = useRef(false);
   const [remindToLeaveEnabled, setRemindToLeaveEnabled] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const [pinBusy, setPinBusy] = useState(false);
   /** Évite le flash « Surveillance active » tant que le fetch SQLite du row.id courant n'a pas répondu. */
   const [remindToLeaveHydratedForRowId, setRemindToLeaveHydratedForRowId] = useState<string | null>(null);
   const remindToLeaveEnabledRef = useRef(false);
@@ -917,6 +922,54 @@ export function IntentionDetailSheet({
       cancelled = true;
     };
   }, [isTrip, row?.id, visible]);
+
+  useEffect(() => {
+    if (!visible || !row?.id || row.id === 'peek_pending') {
+      setIsPinned(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const full = await getTrankilV2IntentionById(row.id);
+      if (cancelled) return;
+      setIsPinned(Number(full?.is_pinned) === 1);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [row?.id, visible]);
+
+  const onTogglePin = useCallback(async () => {
+    if (!row?.id || row.id === 'peek_pending' || pinBusy) return;
+    const id = row.id;
+    if (isPinned) {
+      setPinBusy(true);
+      try {
+        await updateTrankilV2IntentionPinnedState(id, false);
+        setIsPinned(false);
+        onPatchRow?.(id, { is_pinned: 0 });
+      } finally {
+        setPinBusy(false);
+      }
+      return;
+    }
+    const pinnedCount = await countTrankilV2PinnedIntentions();
+    if (pinnedCount >= MAX_PINS_COUNT) {
+      Alert.alert(
+        t('intentionDetail.pinMaxReachedTitle'),
+        t('intentionDetail.pinMaxReachedBody', { max: MAX_PINS_COUNT }),
+      );
+      return;
+    }
+    setPinBusy(true);
+    try {
+      await updateTrankilV2IntentionPinnedState(id, true);
+      setIsPinned(true);
+      onPatchRow?.(id, { is_pinned: 1 });
+    } finally {
+      setPinBusy(false);
+    }
+  }, [isPinned, onPatchRow, pinBusy, row?.id, t]);
 
   useEffect(() => {
     if (visible) {
@@ -3755,6 +3808,18 @@ export function IntentionDetailSheet({
               ) : null}
               <View style={styles.footerRow}>
                 {pass2FooterCtaNode}
+                {row && row.id !== 'peek_pending' && !isValidationView ? (
+                  <Button
+                    mode="text"
+                    icon={isPinned ? 'pin-off' : 'pin'}
+                    disabled={pinBusy}
+                    onPress={() => void onTogglePin()}
+                    style={styles.footerPinBtn}
+                    labelStyle={styles.footerCloseLabel}
+                  >
+                    {isPinned ? t('intentionDetail.unpin') : t('intentionDetail.pin')}
+                  </Button>
+                ) : null}
                 <Button mode="text" onPress={onClose} style={styles.footerCloseBtn} labelStyle={styles.footerCloseLabel}>
                   {t('intentionDetail.close')}
                 </Button>
@@ -4112,7 +4177,8 @@ const styles = StyleSheet.create({
   newtonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   footer: { paddingHorizontal: 16, paddingTop: 10 },
   footerActionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' },
+  footerPinBtn: { marginRight: 'auto' },
   footerTripCol: { width: '100%', gap: 10, marginBottom: 10 },
   footerLaunchCol: { flexShrink: 1, maxWidth: '58%' },
   footerBtn: { borderRadius: 16 },
