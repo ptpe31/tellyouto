@@ -1902,7 +1902,8 @@ const INTENTION_ACTIVE_TODO_SQL = `
 const INBOX_TODAY_WHERE = `
   ${INTENTION_ACTIVE_TODO_SQL}
   ${INTENTION_SYSTEM_RESERVED_SQL}
-  AND ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}`;
+  AND ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}
+  AND NOT ${INTENTION_IS_PROCESSED_SQL}`;
 
 /** Raccourci « À acheter » : toutes les intentions SHOP actives. */
 const SHOP_SHORTCUT_WHERE = `
@@ -1939,7 +1940,7 @@ export async function listTrankilV2NewInboxToday(todayYmd?: string): Promise<Tra
   return listTrankilV2InboxToday(todayYmd);
 }
 
-/** Inbox : toutes les intentions créées aujourd'hui (sas de saisie rapide). */
+/** Inbox : captures du jour encore à trier (tri récent → ancien). */
 export async function listTrankilV2InboxToday(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();
@@ -1950,6 +1951,37 @@ export async function listTrankilV2InboxToday(todayYmd?: string): Promise<Tranki
      ORDER BY i.created_at DESC`,
     [ymd],
   );
+}
+
+/** Retire une intention de l'Inbox (marquée triée / traitée, sans suppression). */
+export async function markTrankilV2IntentionRemovedFromInbox(id: string): Promise<void> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ id: string }>(`SELECT id FROM intentions WHERE id = ? LIMIT 1`, [id]);
+  if (!row) return;
+  const now = Date.now();
+  await db.runAsync(
+    `UPDATE intentions SET is_organized = 1, is_local_processed = 1, updated_at = ?, is_dirty = 1 WHERE id = ?`,
+    [now, id],
+  );
+  await syncAfterIntentionWrite('markTrankilV2IntentionRemovedFromInbox');
+  notifyIntentionsChanged({ id, reason: 'inbox_remove' });
+}
+
+/** Retire en masse les intentions visibles de l'Inbox (marquées triées / traitées). */
+export async function bulkMarkTrankilV2InboxRemoved(ids: string[]): Promise<void> {
+  const unique = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+  if (unique.length === 0) return;
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const now = Date.now();
+  const placeholders = unique.map(() => '?').join(',');
+  await db.runAsync(
+    `UPDATE intentions SET is_organized = 1, is_local_processed = 1, updated_at = ?, is_dirty = 1 WHERE id IN (${placeholders})`,
+    [now, ...unique],
+  );
+  await syncAfterIntentionWrite('bulkMarkTrankilV2InboxRemoved');
+  notifyIntentionsChanged({ reason: 'inbox_remove_all' });
 }
 
 /** Compte le raccourci « À acheter » (category SHOP). */

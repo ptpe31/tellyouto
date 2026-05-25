@@ -9,6 +9,16 @@
     "pickDate": "Choisir une date",
     "cancel": "Annuler"
   },
+  "inbox": {
+    "action": {
+      "remove": "Retirer de l'Inbox",
+      "removeAll": "Tout retirer de l'Inbox",
+      "removeConfirmTitle": "Retirer de l'Inbox ?",
+      "removeConfirmBody": "L'intention reste dans TellYouTo, mais disparaît de l'Inbox du jour.",
+      "removeAllConfirmTitle": "Tout retirer de l'Inbox ?",
+      "removeAllConfirmBody": "Les {{count}} intentions visibles seront marquées comme triées."
+    }
+  },
   "talkCapture": {
     "hintTap": "Appuie pour capturer une piste vocale",
     "savedTimeline": "Intention enregistrée dans Timeline",

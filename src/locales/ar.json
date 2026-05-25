@@ -14,6 +14,16 @@
       "sv": "Svenska"
     }
   },
+  "inbox": {
+    "action": {
+      "remove": "Remove from Inbox",
+      "removeAll": "Remove all from Inbox",
+      "removeConfirmTitle": "Remove from Inbox?",
+      "removeConfirmBody": "The intention stays in TellYouTo but leaves today's Inbox.",
+      "removeAllConfirmTitle": "Remove all from Inbox?",
+      "removeAllConfirmBody": "All {{count}} visible intentions will be marked as triaged."
+    }
+  },
   "timeline": {
     "createdOn": "أُنشئ في {{date}}",
     "allDuration": "طوال اليوم",

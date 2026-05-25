@@ -14,8 +14,10 @@ import { useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  bulkMarkTrankilV2InboxRemoved,
   deleteTrankilV2IntentionById,
   markTrankilV2IntentionDone,
+  markTrankilV2IntentionRemovedFromInbox,
   patchMetadata,
   updateTrankilV2IntentionTemporal,
   type TrankilIntentStatus,
@@ -150,8 +152,30 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
     setScheduleForId(row.id);
   }, []);
 
+  const onRemoveFromInbox = useCallback(
+    (id: string) => {
+      Alert.alert(t('inbox.action.removeConfirmTitle'), t('inbox.action.removeConfirmBody'), [
+        { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
+        {
+          text: t('inbox.action.remove'),
+          style: 'destructive',
+          onPress: async () => {
+            await markTrankilV2IntentionRemovedFromInbox(id);
+            await syncNativeRailAlarmsAfterIntentionWrite('ideaBankInboxRemove');
+            await refresh();
+          },
+        },
+      ]);
+    },
+    [refresh, t],
+  );
+
   const onDelete = useCallback(
     (id: string) => {
+      if (mode === 'inbox') {
+        onRemoveFromInbox(id);
+        return;
+      }
       Alert.alert(t('timeline.ideaBank.removeConfirmTitle'), t('timeline.ideaBank.removeConfirmBody'), [
         { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
         {
@@ -165,11 +189,26 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
         },
       ]);
     },
-    [refresh, t],
+    [mode, onRemoveFromInbox, refresh, t],
   );
 
   const onClearAll = useCallback(() => {
     if (items.length === 0) return;
+    if (mode === 'inbox') {
+      Alert.alert(t('inbox.action.removeAllConfirmTitle'), t('inbox.action.removeAllConfirmBody', { count: items.length }), [
+        { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
+        {
+          text: t('inbox.action.removeAll'),
+          style: 'destructive',
+          onPress: async () => {
+            await bulkMarkTrankilV2InboxRemoved(items.map((row) => row.id));
+            await syncNativeRailAlarmsAfterIntentionWrite('ideaBankInboxRemoveAll');
+            await refresh();
+          },
+        },
+      ]);
+      return;
+    }
     Alert.alert(t('timeline.ideaBank.clearAllTitle'), t('timeline.ideaBank.clearAllBody'), [
       { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
       {
@@ -185,7 +224,10 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
         },
       },
     ]);
-  }, [items, onClose, refresh, t]);
+  }, [items, mode, onClose, refresh, t]);
+
+  const removeActionLabel = mode === 'inbox' ? t('inbox.action.remove') : t('timeline.ideaBank.remove');
+  const clearAllActionLabel = mode === 'inbox' ? t('inbox.action.removeAll') : t('timeline.ideaBank.clearAll');
 
   const schedulingRow = useMemo(
     () => (scheduleForId ? items.find((r) => r.id === scheduleForId) : null),
@@ -289,7 +331,7 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                           >
                             <Trash2 size={18} color={theme.colors.error} />
                             <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
-                              {t('timeline.ideaBank.remove')}
+                              {removeActionLabel}
                             </Text>
                           </Pressable>
                         </View>
@@ -306,7 +348,7 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                 onPress={onClearAll}
               >
                 <Text style={{ color: theme.colors.error, fontWeight: '700', textAlign: 'center' }}>
-                  {t('timeline.ideaBank.clearAll')}
+                  {clearAllActionLabel}
                 </Text>
               </Pressable>
             ) : null}
