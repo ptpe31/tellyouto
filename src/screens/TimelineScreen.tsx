@@ -29,6 +29,7 @@ import {
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2NewInboxToday,
+  listTrankilV2ShopClusterIntentions,
   listActiveProjectsToday,
   listActiveListsToday,
   listTrankilV2TimelineItemsByDate,
@@ -386,10 +387,12 @@ export function TimelineScreen() {
   const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
   const [smartClusterCounts, setSmartClusterCounts] = useState({
     newToday: 0,
+    shopCount: 0,
     projectsToday: 0,
     listsToday: 0,
   });
   const [inboxTodayRows, setInboxTodayRows] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [shopClusterRows, setShopClusterRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [projectsTodayDebug, setProjectsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
   const [listsTodayDebug, setListsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
@@ -726,10 +729,11 @@ export function TimelineScreen() {
     try {
       const { anchor } = resolveAnchor(timeNav, customPickedDate);
       const ymd = toYmd(anchor);
-      const [b, counts, inboxRaw, projectsRaw, listsRaw] = await Promise.all([
+      const [b, counts, inboxRaw, shopRaw, projectsRaw, listsRaw] = await Promise.all([
         fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0),
         getTrankilV2SmartClusterCounts(ymd),
         listTrankilV2NewInboxToday(ymd),
+        listTrankilV2ShopClusterIntentions(),
         listActiveProjectsToday(ymd),
         listActiveListsToday(ymd),
       ]);
@@ -740,6 +744,7 @@ export function TimelineScreen() {
       setArchivedHasMore(b.archivedHasMore);
       setSmartClusterCounts(counts);
       setInboxTodayRows(inboxRaw.map(mapTrankilIntentionToTimelineItemRow));
+      setShopClusterRows(shopRaw.map(mapTrankilIntentionToTimelineItemRow));
       setProjectsTodayDebug(projectsRaw);
       setListsTodayDebug(listsRaw);
     } finally {
@@ -1125,11 +1130,6 @@ export function TimelineScreen() {
     return [...m.values()];
   }, [hiddenUnorganizedForIdeaBank, undatedTodoInPool]);
 
-  const shopOrphans = useMemo(
-    () => orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) === 'SHOP'),
-    [orphanClusterPool],
-  );
-
   const nonShopOrphans = useMemo(
     () => orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) !== 'SHOP'),
     [orphanClusterPool],
@@ -1141,6 +1141,7 @@ export function TimelineScreen() {
 
   const ideaBankModalItems = useMemo(() => {
     if (ideaBankMode === 'inbox') return inboxTodayItems;
+    if (ideaBankCategoryFilter === 'SHOP') return shopClusterRows;
     if (!ideaBankCategoryFilter) return hiddenUnorganizedForIdeaBank;
     return orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) === ideaBankCategoryFilter);
   }, [
@@ -1149,6 +1150,7 @@ export function TimelineScreen() {
     ideaBankMode,
     inboxTodayItems,
     orphanClusterPool,
+    shopClusterRows,
   ]);
 
   const smartClusterVisible =
@@ -1157,7 +1159,7 @@ export function TimelineScreen() {
   const smartClusterProps = useMemo(
     () => ({
       newCount: smartClusterCounts.newToday,
-      shopCount: shopOrphans.length,
+      shopCount: smartClusterCounts.shopCount,
       cluster:
         activeCluster && activeCluster.count >= 2
           ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
@@ -1165,7 +1167,7 @@ export function TimelineScreen() {
       projectsCount: smartClusterCounts.projectsToday,
       listsCount: smartClusterCounts.listsToday,
     }),
-    [activeCluster, shopOrphans.length, smartClusterCounts],
+    [activeCluster, smartClusterCounts],
   );
 
   const clusterDebugContents = useMemo((): SmartClusterDebugContents => {
@@ -1173,18 +1175,22 @@ export function TimelineScreen() {
       id: row.id,
       title: String(row.display_title ?? '').trim() || row.id,
     });
+    const toEntryFromIdTitle = (row: { id: string; title: string }): SmartClusterDebugEntry => ({
+      id: row.id,
+      title: String(row.title ?? '').trim() || row.id,
+    });
     const clusterCategoryId =
       activeCluster && activeCluster.count >= 2 ? activeCluster.categoryId : null;
     return {
       new: inboxTodayItems.map(toEntry),
-      shop: shopOrphans.map(toEntry),
+      shop: shopClusterRows.map(toEntry),
       cluster: clusterCategoryId
         ? orphanClusterPool
             .filter((r) => normalizeCategoryId(r.category_id) === clusterCategoryId)
             .map(toEntry)
         : [],
-      projects: projectsTodayDebug,
-      lists: listsTodayDebug,
+      projects: projectsTodayDebug.map(toEntryFromIdTitle),
+      lists: listsTodayDebug.map(toEntryFromIdTitle),
     };
   }, [
     activeCluster,
@@ -1192,7 +1198,7 @@ export function TimelineScreen() {
     listsTodayDebug,
     orphanClusterPool,
     projectsTodayDebug,
-    shopOrphans,
+    shopClusterRows,
   ]);
 
   const dayTitle = useCallback(

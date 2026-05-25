@@ -1882,11 +1882,25 @@ const INTENTION_SYSTEM_RESERVED_SQL = `
 
 const INTENTION_NO_DUE_DATE_SQL = `(i.due_date IS NULL OR trim(i.due_date) = '')`;
 
+const INTENTION_CATEGORY_ID_NORM_SQL = `UPPER(trim(COALESCE(i.category_id, i.category, '')))`;
+
+/** Catégorie domaine SHOP (équivalent `categoryTag = 'SHOP'` côté IA). */
+const INTENTION_IS_SHOP_SQL = `${INTENTION_CATEGORY_ID_NORM_SQL} = 'SHOP'`;
+
+const INTENTION_NOT_SHOP_SQL = `${INTENTION_CATEGORY_ID_NORM_SQL} != 'SHOP'`;
+
 const INTENTION_ACTIVE_TODO_SQL = `
   i.status = 'TODO'
   AND COALESCE(i.is_archived, 0) = 0`;
 
-/** Compte les intentions créées aujourd’hui (local) sans échéance — sas « Nouveau ». */
+/** Pool « À acheter » : SHOP sans échéance (TASK ou LIST). */
+const SHOP_CLUSTER_WHERE = `
+  ${INTENTION_ACTIVE_TODO_SQL}
+  ${INTENTION_SYSTEM_RESERVED_SQL}
+  AND ${INTENTION_NO_DUE_DATE_SQL}
+  AND ${INTENTION_IS_SHOP_SQL}`;
+
+/** Compte les intentions créées aujourd’hui (local) sans échéance — sas « Nouveau » (hors SHOP). */
 export async function countNewIntentionsToday(todayYmd?: string): Promise<number> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();
@@ -1896,13 +1910,14 @@ export async function countNewIntentionsToday(todayYmd?: string): Promise<number
      WHERE ${INTENTION_ACTIVE_TODO_SQL}
        ${INTENTION_SYSTEM_RESERVED_SQL}
        AND ${INTENTION_NO_DUE_DATE_SQL}
+       AND ${INTENTION_NOT_SHOP_SQL}
        AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?`,
     [ymd],
   );
   return Number(row?.n ?? 0);
 }
 
-/** Liste les intentions du sas « Nouveau » (créées aujourd’hui, sans échéance). */
+/** Liste les intentions du sas « Nouveau » (créées aujourd’hui, sans échéance, hors SHOP). */
 export async function listTrankilV2NewInboxToday(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();
@@ -1912,9 +1927,31 @@ export async function listTrankilV2NewInboxToday(todayYmd?: string): Promise<Tra
      WHERE ${INTENTION_ACTIVE_TODO_SQL}
        ${INTENTION_SYSTEM_RESERVED_SQL}
        AND ${INTENTION_NO_DUE_DATE_SQL}
+       AND ${INTENTION_NOT_SHOP_SQL}
        AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
      ORDER BY i.created_at DESC`,
     [ymd],
+  );
+}
+
+/** Compte le cluster « À acheter » (category SHOP, sans date — inclut les LIST SHOP). */
+export async function countShopClusterIntentions(): Promise<number> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions i WHERE ${SHOP_CLUSTER_WHERE}`,
+  );
+  return Number(row?.n ?? 0);
+}
+
+/** Liste le cluster « À acheter » (TASK/LIST en category SHOP, sans échéance). */
+export async function listTrankilV2ShopClusterIntentions(): Promise<TrankilV2IntentionRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions i
+     WHERE ${SHOP_CLUSTER_WHERE}
+     ORDER BY i.created_at DESC`,
   );
 }
 
@@ -1953,6 +1990,7 @@ const ACTIVE_LISTS_TODAY_WHERE = `
   AND COALESCE(i.is_archived, 0) = 0
   AND i.status != 'ARCHIVED'
   ${INTENTION_SYSTEM_RESERVED_SQL}
+  AND ${INTENTION_NOT_SHOP_SQL}
   AND (
     date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
     OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
@@ -1999,6 +2037,7 @@ export async function countActiveListsToday(todayYmd?: string): Promise<number> 
        AND COALESCE(i.is_archived, 0) = 0
        AND i.status != 'ARCHIVED'
        ${INTENTION_SYSTEM_RESERVED_SQL}
+       AND ${INTENTION_NOT_SHOP_SQL}
        AND (
          date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
          OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
@@ -2010,6 +2049,7 @@ export async function countActiveListsToday(todayYmd?: string): Promise<number> 
 
 export type TrankilV2SmartClusterCounts = {
   newToday: number;
+  shopCount: number;
   projectsToday: number;
   listsToday: number;
 };
@@ -2021,6 +2061,7 @@ export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise
   const db = await getDb();
   const row = await db.getFirstAsync<{
     new_today: number;
+    shop_count: number;
     projects_today: number;
     lists_today: number;
   }>(
@@ -2029,7 +2070,9 @@ export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise
         WHERE ${INTENTION_ACTIVE_TODO_SQL}
           ${INTENTION_SYSTEM_RESERVED_SQL}
           AND ${INTENTION_NO_DUE_DATE_SQL}
+          AND ${INTENTION_NOT_SHOP_SQL}
           AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?) AS new_today,
+       (SELECT COUNT(*) FROM intentions i WHERE ${SHOP_CLUSTER_WHERE}) AS shop_count,
        (SELECT COUNT(*) FROM intentions i
         WHERE i.type = 'PROJECT'
           AND COALESCE(i.is_archived, 0) = 0
@@ -2044,6 +2087,7 @@ export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise
           AND COALESCE(i.is_archived, 0) = 0
           AND i.status != 'ARCHIVED'
           ${INTENTION_SYSTEM_RESERVED_SQL}
+          AND ${INTENTION_NOT_SHOP_SQL}
           AND (
             date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
             OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
@@ -2052,6 +2096,7 @@ export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise
   );
   return {
     newToday: Number(row?.new_today ?? 0),
+    shopCount: Number(row?.shop_count ?? 0),
     projectsToday: Number(row?.projects_today ?? 0),
     listsToday: Number(row?.lists_today ?? 0),
   };
