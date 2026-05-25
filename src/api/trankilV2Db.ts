@@ -1938,6 +1938,56 @@ export async function countActiveProjectsToday(todayYmd?: string): Promise<numbe
   return Number(row?.n ?? 0);
 }
 
+const ACTIVE_PROJECTS_TODAY_WHERE = `
+  i.type = 'PROJECT'
+  AND COALESCE(i.is_archived, 0) = 0
+  AND i.status != 'ARCHIVED'
+  ${INTENTION_SYSTEM_RESERVED_SQL}
+  AND (
+    date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+    OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
+  )`;
+
+const ACTIVE_LISTS_TODAY_WHERE = `
+  i.type = 'LIST'
+  AND COALESCE(i.is_archived, 0) = 0
+  AND i.status != 'ARCHIVED'
+  ${INTENTION_SYSTEM_RESERVED_SQL}
+  AND (
+    date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+    OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
+  )`;
+
+/** Projets touchés aujourd’hui — id + titre (debug carrousel / stress tests). */
+export async function listActiveProjectsToday(
+  todayYmd?: string,
+): Promise<Array<{ id: string; title: string }>> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<{ id: string; title: string }>(
+    `SELECT i.id AS id, i.title AS title FROM intentions i
+     WHERE ${ACTIVE_PROJECTS_TODAY_WHERE}
+     ORDER BY COALESCE(NULLIF(i.updated_at, 0), i.created_at) DESC`,
+    [ymd, ymd],
+  );
+}
+
+/** Listes touchées aujourd’hui — id + titre (debug carrousel / stress tests). */
+export async function listActiveListsToday(
+  todayYmd?: string,
+): Promise<Array<{ id: string; title: string }>> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<{ id: string; title: string }>(
+    `SELECT i.id AS id, i.title AS title FROM intentions i
+     WHERE ${ACTIVE_LISTS_TODAY_WHERE}
+     ORDER BY COALESCE(NULLIF(i.updated_at, 0), i.created_at) DESC`,
+    [ymd, ymd],
+  );
+}
+
 /** Listes touchées aujourd’hui (création ou mise à jour locale). */
 export async function countActiveListsToday(todayYmd?: string): Promise<number> {
   const ymd = resolveLocalTodayYmd(todayYmd);

@@ -29,6 +29,8 @@ import {
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2NewInboxToday,
+  listActiveProjectsToday,
+  listActiveListsToday,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
   listTrankilV2UnorganizedIntentions,
@@ -61,7 +63,8 @@ import {
   CAPTURE_SHEET_FULL_MAX_RATIO,
 } from '../utils/capturePeekLayout';
 import { IdeaBankModal } from '../components/IdeaBankModal';
-import { SmartClustersCarousel } from '../components/SmartClustersCarousel';
+import { SmartClustersCarousel, type SmartClusterDebugContents } from '../components/SmartClustersCarousel';
+import type { SmartClusterDebugEntry } from '../utils/clusterDebugLog';
 import { DailyRoadmapReportModal } from '../components/dailyRoadmap/DailyRoadmapReportModal';
 import { Pass3CleanupSasOverlay, type Pass3CleanupRow } from '../components/dailyRoadmap/Pass3CleanupSasOverlay';
 import { TimelineFilterModal } from '../components/TimelineFilterModal';
@@ -387,6 +390,8 @@ export function TimelineScreen() {
     listsToday: 0,
   });
   const [inboxTodayRows, setInboxTodayRows] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [projectsTodayDebug, setProjectsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
+  const [listsTodayDebug, setListsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [dailyRoadmapSummary, setDailyRoadmapSummary] = useState<{
     id: string;
@@ -721,10 +726,12 @@ export function TimelineScreen() {
     try {
       const { anchor } = resolveAnchor(timeNav, customPickedDate);
       const ymd = toYmd(anchor);
-      const [b, counts, inboxRaw] = await Promise.all([
+      const [b, counts, inboxRaw, projectsRaw, listsRaw] = await Promise.all([
         fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0),
         getTrankilV2SmartClusterCounts(ymd),
         listTrankilV2NewInboxToday(ymd),
+        listActiveProjectsToday(ymd),
+        listActiveListsToday(ymd),
       ]);
       setUnorganizedTodo(b.unorganizedTodo);
       setPrimaryRows(b.primary);
@@ -733,6 +740,8 @@ export function TimelineScreen() {
       setArchivedHasMore(b.archivedHasMore);
       setSmartClusterCounts(counts);
       setInboxTodayRows(inboxRaw.map(mapTrankilIntentionToTimelineItemRow));
+      setProjectsTodayDebug(projectsRaw);
+      setListsTodayDebug(listsRaw);
     } finally {
       setLoading(false);
       void refreshDailyRoadmapSummary();
@@ -1159,6 +1168,33 @@ export function TimelineScreen() {
     [activeCluster, shopOrphans.length, smartClusterCounts],
   );
 
+  const clusterDebugContents = useMemo((): SmartClusterDebugContents => {
+    const toEntry = (row: TrankilV2TimelineItemRow): SmartClusterDebugEntry => ({
+      id: row.id,
+      title: String(row.display_title ?? '').trim() || row.id,
+    });
+    const clusterCategoryId =
+      activeCluster && activeCluster.count >= 2 ? activeCluster.categoryId : null;
+    return {
+      new: inboxTodayItems.map(toEntry),
+      shop: shopOrphans.map(toEntry),
+      cluster: clusterCategoryId
+        ? orphanClusterPool
+            .filter((r) => normalizeCategoryId(r.category_id) === clusterCategoryId)
+            .map(toEntry)
+        : [],
+      projects: projectsTodayDebug,
+      lists: listsTodayDebug,
+    };
+  }, [
+    activeCluster,
+    inboxTodayItems,
+    listsTodayDebug,
+    orphanClusterPool,
+    projectsTodayDebug,
+    shopOrphans,
+  ]);
+
   const dayTitle = useCallback(
     (ymd: string): string => {
       const today = toYmd(anchorDate);
@@ -1448,6 +1484,7 @@ export function TimelineScreen() {
     return (
       <SmartClustersCarousel
         {...smartClusterProps}
+        debugContents={clusterDebugContents}
         onPressNew={openIdeaBankInbox}
         onPressShop={openIdeaBankShop}
         onPressCluster={openIdeaBankCluster}
@@ -1463,6 +1500,7 @@ export function TimelineScreen() {
     openIdeaBankCluster,
     openIdeaBankInbox,
     openIdeaBankShop,
+    clusterDebugContents,
     smartClusterProps,
     smartClusterVisible,
   ]);

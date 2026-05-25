@@ -79,6 +79,8 @@ export {
   countActiveListsToday,
   getTrankilV2SmartClusterCounts,
   listTrankilV2NewInboxToday,
+  listActiveProjectsToday,
+  listActiveListsToday,
   patchMetadata,
   updateTrankilV2IntentionAlarmFields,
   listTrankilV2PendingAlarmIntentions,
