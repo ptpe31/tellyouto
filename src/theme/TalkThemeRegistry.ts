@@ -14,7 +14,8 @@ export type DesignVariant =
   | 'CYBER_MINIMALIST'
   | 'BENTO_MODERN'
   | 'NORDIC_FOREST'
-  | 'SUNSET_PASTEL';
+  | 'SUNSET_PASTEL'
+  | 'SPATIAL_CALM_PREMIUM';
 
 /** Clé AsyncStorage — variante active (showroom Debug). */
 export const DESIGN_VARIANT_STORAGE_KEY = '@trankil_debug_theme_variant';
@@ -32,6 +33,7 @@ export const ALL_DESIGN_VARIANTS: DesignVariant[] = [
   'BENTO_MODERN',
   'NORDIC_FOREST',
   'SUNSET_PASTEL',
+  'SPATIAL_CALM_PREMIUM',
 ];
 
 export const DESIGN_VARIANT_LABELS: Record<DesignVariant, string> = {
@@ -41,6 +43,7 @@ export const DESIGN_VARIANT_LABELS: Record<DesignVariant, string> = {
   BENTO_MODERN: 'Bento / Apple Style',
   NORDIC_FOREST: 'Nordic Forest',
   SUNSET_PASTEL: 'Sunset Pastel',
+  SPATIAL_CALM_PREMIUM: 'Spatial Calm Premium',
 };
 
 export function isDesignVariant(value: string): value is DesignVariant {
@@ -78,13 +81,55 @@ export type DesignTokens = {
 
 type TokenPalette = Omit<DesignTokens, 'variant' | 'shadowStyle' | 'cardShadowStyle'>;
 
+type ShadowIntensity = 'soft' | 'standard' | 'flat' | 'card' | 'spatial';
+
+const SPATIAL_CARD_STROKE = '#2C2D35';
+
+/** Élévation « Spatial Design » : stroke fin + lueur accent (micro / raised). */
+function buildSpatialCalmShadow(
+  surfaceColor: string,
+  borderRadius: number,
+  accentColor: string,
+  kind: 'raised' | 'inset',
+): ViewStyle {
+  const base: ViewStyle = {
+    backgroundColor: surfaceColor,
+    borderRadius,
+    borderWidth: 1,
+    borderColor: SPATIAL_CARD_STROKE,
+  };
+
+  if (kind === 'inset') {
+    return base;
+  }
+
+  return {
+    ...base,
+    ...Platform.select({
+      ios: {
+        shadowColor: accentColor,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.32,
+        shadowRadius: 16,
+      },
+      android: { elevation: 8 },
+      default: {},
+    }),
+  };
+}
+
 function buildNeumorphicShadow(
   surfaceColor: string,
   borderRadius: number,
   isDark: boolean,
   kind: 'raised' | 'inset',
-  intensity: 'soft' | 'standard' | 'flat' | 'card',
+  intensity: ShadowIntensity,
+  accentColor?: string,
 ): ViewStyle {
+  if (intensity === 'spatial' && accentColor) {
+    return buildSpatialCalmShadow(surfaceColor, borderRadius, accentColor, kind);
+  }
+
   if (intensity === 'flat') {
     return {
       backgroundColor: surfaceColor,
@@ -150,7 +195,7 @@ function withShadows(
   const isDark = colorScheme === 'dark';
   const shadowProfile: Record<
     DesignVariant,
-    { raised: 'soft' | 'standard' | 'flat' | 'card'; inset: 'soft' | 'standard' | 'flat' | 'card' }
+    { raised: ShadowIntensity; inset: ShadowIntensity }
   > = {
     CURRENT: { raised: 'standard', inset: 'standard' },
     ZEN_NEUMORPHIC: { raised: 'soft', inset: 'soft' },
@@ -158,9 +203,11 @@ function withShadows(
     BENTO_MODERN: { raised: 'card', inset: 'card' },
     NORDIC_FOREST: { raised: 'soft', inset: 'soft' },
     SUNSET_PASTEL: { raised: 'soft', inset: 'soft' },
+    SPATIAL_CALM_PREMIUM: { raised: 'spatial', inset: 'spatial' },
   };
 
   const profile = shadowProfile[variant];
+  const spatialAccent = variant === 'SPATIAL_CALM_PREMIUM' ? colors.accentColor : undefined;
   return {
     variant,
     ...colors,
@@ -170,6 +217,7 @@ function withShadows(
       isDark,
       'raised',
       profile.raised,
+      spatialAccent,
     ),
     cardShadowStyle: buildNeumorphicShadow(
       colors.cardBackground,
@@ -177,6 +225,7 @@ function withShadows(
       isDark,
       'inset',
       profile.inset,
+      spatialAccent,
     ),
   };
 }
@@ -243,6 +292,14 @@ const VARIANT_PALETTES: Record<Exclude<DesignVariant, 'CURRENT'>, TokenPalette> 
     textSecondary: '#8B7A90',
     accentColor: '#E8849A',
     borderRadius: 20,
+  },
+  SPATIAL_CALM_PREMIUM: {
+    backgroundColor: '#121316',
+    cardBackground: '#1C1D22',
+    textPrimary: '#F4F5F6',
+    textSecondary: '#8A8F98',
+    accentColor: '#6366F1',
+    borderRadius: 16,
   },
 };
 

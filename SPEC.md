@@ -918,6 +918,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 | `BENTO_MODERN` | Cards blanches, radius 24, style Apple Shortcuts / Linear |
 | `NORDIC_FOREST` | Vert sauge, sapin, crème/lin — focus organique |
 | `SUNSET_PASTEL` | Violet crépuscule, pêche, corail pastel — bien-être créatif |
+| `SPATIAL_CALM_PREMIUM` | Graphite mat `#121316`, cartes flottantes stroke `#2C2D35`, accent indigo `#6366F1`, lueur micro (Linear / Superhuman — Calm Tech 2026) |
 
 #### Structure de tokens (identique pour tous les thèmes)
 
