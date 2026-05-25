@@ -74,6 +74,11 @@ export {
   countTrankilV2PinnedIntentions,
   listTrankilV2PinnedIntentions,
   updateTrankilV2IntentionPinnedState,
+  countNewIntentionsToday,
+  countActiveProjectsToday,
+  countActiveListsToday,
+  getTrankilV2SmartClusterCounts,
+  listTrankilV2NewInboxToday,
   patchMetadata,
   updateTrankilV2IntentionAlarmFields,
   listTrankilV2PendingAlarmIntentions,
@@ -95,6 +100,7 @@ export type {
   Pass3CleanupBucket,
   FreeCaptureQuotaSnapshot,
   ListFreeQuotaSnapshot,
+  TrankilV2SmartClusterCounts,
 } from './trankilV2Db';
 export { getAppPreference, setAppPreference, clearAllAppPreferences } from './localDb';
 export { syncNativeRailAlarmsAfterIntentionWrite } from './intentionHardwareSync';

@@ -24,7 +24,7 @@ type Props = {
 
 type TileProps = {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   badge?: number;
   onPress: () => void;
 };
@@ -58,9 +58,13 @@ function ClusterTile({ title, subtitle, badge, onPress }: TileProps) {
           </View>
         ) : null}
       </View>
-      <Text style={[styles.subtitle, { color: designTokens.textSecondary }]} numberOfLines={2}>
-        {subtitle}
-      </Text>
+      {subtitle ? (
+        <Text style={[styles.subtitle, { color: designTokens.textSecondary }]} numberOfLines={2}>
+          {subtitle}
+        </Text>
+      ) : (
+        <View style={styles.subtitleSpacer} />
+      )}
     </Pressable>
   );
 }
@@ -92,12 +96,14 @@ export function SmartClustersCarousel({
       contentContainerStyle={styles.scrollContent}
       style={styles.scroll}
     >
-      <ClusterTile
-        title={t('timeline.smartClusters.newTitle')}
-        subtitle={t('timeline.smartClusters.newSubtitle', { count: newCount })}
-        badge={newCount}
-        onPress={onPressNew}
-      />
+      {newCount > 0 ? (
+        <ClusterTile
+          title={t('timeline.smartClusters.newTitle')}
+          subtitle={t('timeline.smartClusters.newSubtitle', { count: newCount })}
+          badge={newCount}
+          onPress={onPressNew}
+        />
+      ) : null}
       {shopCount > 0 ? (
         <ClusterTile
           title={t('timeline.ideaBank.shopTitle')}
@@ -117,12 +123,18 @@ export function SmartClustersCarousel({
       ) : null}
       <ClusterTile
         title={t('timeline.smartClusters.projectsTitle')}
-        subtitle={t('timeline.smartClusters.projectsSubtitle', { count: projectsCount })}
+        subtitle={
+          projectsCount > 0
+            ? t('timeline.smartClusters.projectsSubtitle', { count: projectsCount })
+            : undefined
+        }
         onPress={onPressProjects}
       />
       <ClusterTile
         title={t('timeline.smartClusters.listsTitle')}
-        subtitle={t('timeline.smartClusters.listsSubtitle', { count: listsCount })}
+        subtitle={
+          listsCount > 0 ? t('timeline.smartClusters.listsSubtitle', { count: listsCount }) : undefined
+        }
         onPress={onPressLists}
       />
     </ScrollView>
@@ -142,6 +154,7 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 },
   title: { flex: 1, fontSize: 15, fontWeight: '800', lineHeight: 18 },
   subtitle: { fontSize: 12, fontWeight: '600', marginTop: 4, opacity: 0.92 },
+  subtitleSpacer: { minHeight: 16 },
   badge: {
     minWidth: 22,
     height: 22,

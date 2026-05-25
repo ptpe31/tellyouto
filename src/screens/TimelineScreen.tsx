@@ -23,10 +23,12 @@ import {
   bulkTrankilV2TaskChildStatsByParentIds,
   getLatestDailySummaryForDate,
   getTrankilV2IntentionById,
+  getTrankilV2SmartClusterCounts,
   insertDailySummary,
   listIntentionsForPass3Cleanup,
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
+  listTrankilV2NewInboxToday,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
   listTrankilV2UnorganizedIntentions,
@@ -74,7 +76,7 @@ import { getBestOrphanCluster } from '../services/clusterEngine';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { formatYmdLocal } from '../services/TimeSorter';
-import { shouldShowUndatedOrphanInTodayView, createdYmdFromMs } from '../utils/timeFormat';
+import { createdYmdFromMs } from '../utils/timeFormat';
 import { buildDailyRoadmapPayload, runDailyRoadmapGeminiHtml } from '../services/dailyRoadmapPass3';
 import { ensureGeminiRemoteModelInitialized } from '../services/geminiRemoteModelSteering';
 import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOverlay';
@@ -379,6 +381,12 @@ export function TimelineScreen() {
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
   const [ideaBankMode, setIdeaBankMode] = useState<'default' | 'inbox'>('default');
   const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
+  const [smartClusterCounts, setSmartClusterCounts] = useState({
+    newToday: 0,
+    projectsToday: 0,
+    listsToday: 0,
+  });
+  const [inboxTodayRows, setInboxTodayRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [dailyRoadmapSummary, setDailyRoadmapSummary] = useState<{
     id: string;
@@ -711,12 +719,20 @@ export function TimelineScreen() {
     await flushPendingCommits();
     setLoading(true);
     try {
-      const b = await fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0);
+      const { anchor } = resolveAnchor(timeNav, customPickedDate);
+      const ymd = toYmd(anchor);
+      const [b, counts, inboxRaw] = await Promise.all([
+        fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0),
+        getTrankilV2SmartClusterCounts(ymd),
+        listTrankilV2NewInboxToday(ymd),
+      ]);
       setUnorganizedTodo(b.unorganizedTodo);
       setPrimaryRows(b.primary);
       setPrimaryHasMore(b.primaryHasMore);
       setArchivedRows(b.archived);
       setArchivedHasMore(b.archivedHasMore);
+      setSmartClusterCounts(counts);
+      setInboxTodayRows(inboxRaw.map(mapTrankilIntentionToTimelineItemRow));
     } finally {
       setLoading(false);
       void refreshDailyRoadmapSummary();
@@ -1112,17 +1128,7 @@ export function TimelineScreen() {
 
   const activeCluster = useMemo(() => getBestOrphanCluster(nonShopOrphans), [nonShopOrphans]);
 
-  const inboxTodayItems = useMemo(() => {
-    const todayYmd = toYmd(anchorDate);
-    return hiddenUnorganizedForIdeaBank.filter((r) => {
-      const createdYmd = createdYmdFromMs(Number(r.created_at));
-      return createdYmd === todayYmd;
-    });
-  }, [anchorDate, hiddenUnorganizedForIdeaBank]);
-
-  /** Compteurs mock — requêtes SQLite dédiées à brancher ultérieurement. */
-  const activeProjectsCount = 3;
-  const listsAddsCount = 2;
+  const inboxTodayItems = inboxTodayRows;
 
   const ideaBankModalItems = useMemo(() => {
     if (ideaBankMode === 'inbox') return inboxTodayItems;
@@ -1141,16 +1147,16 @@ export function TimelineScreen() {
 
   const smartClusterProps = useMemo(
     () => ({
-      newCount: inboxTodayItems.length,
+      newCount: smartClusterCounts.newToday,
       shopCount: shopOrphans.length,
       cluster:
         activeCluster && activeCluster.count >= 2
           ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
           : null,
-      projectsCount: activeProjectsCount,
-      listsCount: listsAddsCount,
+      projectsCount: smartClusterCounts.projectsToday,
+      listsCount: smartClusterCounts.listsToday,
     }),
-    [activeCluster, activeProjectsCount, inboxTodayItems.length, listsAddsCount, shopOrphans.length],
+    [activeCluster, shopOrphans.length, smartClusterCounts],
   );
 
   const dayTitle = useCallback(
@@ -1184,7 +1190,8 @@ export function TimelineScreen() {
         const dueYmd = normalizeDueDateLocal(r.due_date);
         let effectiveYmd: string | null = dueYmd;
         if (!effectiveYmd && isTodayView) {
-          if (shouldShowUndatedOrphanInTodayView(Number(r.created_at), todayYmd)) {
+          const createdYmd = createdYmdFromMs(Number(r.created_at));
+          if (createdYmd && createdYmd !== todayYmd) {
             effectiveYmd = todayYmd;
           }
         }

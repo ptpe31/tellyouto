@@ -924,6 +924,7 @@ export async function listTrankilV2TimelineItemsByDate(
 
 /**
  * « Aujourd’hui » : journée courante + tâches « sans pression » non déjà présentes (fusion SQL + tri).
+ * Exclut du flux les intentions créées le jour J sans échéance explicite (sas « Nouveau »).
  */
 export async function listTrankilV2MergedTodayTimelineWithLowPressure(
   selectedDateYmd: string,
@@ -1031,6 +1032,10 @@ WITH dated AS (
       AND i.type IN ('NOTE', 'AUDIO', 'LIST', 'PROJECT')
       ${reserved}
       ${ctx}
+      AND NOT (
+        (i.due_date IS NULL OR trim(i.due_date) = '')
+        AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+      )
   ) z
   WHERE z.effective_date = ?
 ),
@@ -1069,6 +1074,10 @@ lowp AS (
     ${reserved}
     ${ctx}
     AND NOT EXISTS (SELECT 1 FROM dated d WHERE d.id = i.id)
+    AND NOT (
+      (i.due_date IS NULL OR trim(i.due_date) = '')
+      AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+    )
 )
 SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode, remind_to_leave
 FROM (
@@ -1094,7 +1103,9 @@ LIMIT ? OFFSET ?`;
     status,
     status,
     selectedDateYmd,
+    selectedDateYmd,
     status,
+    selectedDateYmd,
     selectedDateYmd,
     ymdCompact,
     lim,
@@ -1857,6 +1868,143 @@ function formatYmdLocalForQuota(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function resolveLocalTodayYmd(ymd?: string): string {
+  const raw = String(ymd ?? '').trim();
+  if (raw) return raw;
+  return formatYmdLocalForQuota(new Date());
+}
+
+const INTENTION_SYSTEM_RESERVED_SQL = `
+  AND trim(i.title) != 'System Ready'
+  AND i.id NOT LIKE 'system_ready_%'`;
+
+const INTENTION_NO_DUE_DATE_SQL = `(i.due_date IS NULL OR trim(i.due_date) = '')`;
+
+const INTENTION_ACTIVE_TODO_SQL = `
+  i.status = 'TODO'
+  AND COALESCE(i.is_archived, 0) = 0`;
+
+/** Compte les intentions créées aujourd’hui (local) sans échéance — sas « Nouveau ». */
+export async function countNewIntentionsToday(todayYmd?: string): Promise<number> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions i
+     WHERE ${INTENTION_ACTIVE_TODO_SQL}
+       ${INTENTION_SYSTEM_RESERVED_SQL}
+       AND ${INTENTION_NO_DUE_DATE_SQL}
+       AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?`,
+    [ymd],
+  );
+  return Number(row?.n ?? 0);
+}
+
+/** Liste les intentions du sas « Nouveau » (créées aujourd’hui, sans échéance). */
+export async function listTrankilV2NewInboxToday(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions i
+     WHERE ${INTENTION_ACTIVE_TODO_SQL}
+       ${INTENTION_SYSTEM_RESERVED_SQL}
+       AND ${INTENTION_NO_DUE_DATE_SQL}
+       AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+     ORDER BY i.created_at DESC`,
+    [ymd],
+  );
+}
+
+/** Projets touchés aujourd’hui (création ou mise à jour locale). */
+export async function countActiveProjectsToday(todayYmd?: string): Promise<number> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions i
+     WHERE i.type = 'PROJECT'
+       AND COALESCE(i.is_archived, 0) = 0
+       AND i.status != 'ARCHIVED'
+       ${INTENTION_SYSTEM_RESERVED_SQL}
+       AND (
+         date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+         OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
+       )`,
+    [ymd, ymd],
+  );
+  return Number(row?.n ?? 0);
+}
+
+/** Listes touchées aujourd’hui (création ou mise à jour locale). */
+export async function countActiveListsToday(todayYmd?: string): Promise<number> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions i
+     WHERE i.type = 'LIST'
+       AND COALESCE(i.is_archived, 0) = 0
+       AND i.status != 'ARCHIVED'
+       ${INTENTION_SYSTEM_RESERVED_SQL}
+       AND (
+         date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+         OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
+       )`,
+    [ymd, ymd],
+  );
+  return Number(row?.n ?? 0);
+}
+
+export type TrankilV2SmartClusterCounts = {
+  newToday: number;
+  projectsToday: number;
+  listsToday: number;
+};
+
+/** Snapshot des compteurs carrousel Smart Clusters (1 round-trip SQL). */
+export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise<TrankilV2SmartClusterCounts> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    new_today: number;
+    projects_today: number;
+    lists_today: number;
+  }>(
+    `SELECT
+       (SELECT COUNT(*) FROM intentions i
+        WHERE ${INTENTION_ACTIVE_TODO_SQL}
+          ${INTENTION_SYSTEM_RESERVED_SQL}
+          AND ${INTENTION_NO_DUE_DATE_SQL}
+          AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?) AS new_today,
+       (SELECT COUNT(*) FROM intentions i
+        WHERE i.type = 'PROJECT'
+          AND COALESCE(i.is_archived, 0) = 0
+          AND i.status != 'ARCHIVED'
+          ${INTENTION_SYSTEM_RESERVED_SQL}
+          AND (
+            date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+            OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
+          )) AS projects_today,
+       (SELECT COUNT(*) FROM intentions i
+        WHERE i.type = 'LIST'
+          AND COALESCE(i.is_archived, 0) = 0
+          AND i.status != 'ARCHIVED'
+          ${INTENTION_SYSTEM_RESERVED_SQL}
+          AND (
+            date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+            OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
+          )) AS lists_today`,
+    [ymd, ymd, ymd, ymd, ymd],
+  );
+  return {
+    newToday: Number(row?.new_today ?? 0),
+    projectsToday: Number(row?.projects_today ?? 0),
+    listsToday: Number(row?.lists_today ?? 0),
+  };
 }
 
 async function ensureFreeDailyCaptureResetForDb(db: SQLite.SQLiteDatabase): Promise<void> {
