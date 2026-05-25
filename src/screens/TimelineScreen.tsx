@@ -80,6 +80,7 @@ import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOve
 import { useAIProgressInertia } from '../hooks/useAIProgressInertia';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicRaised } from '../theme/neumorphism';
+import { useDesignTokens } from '../hooks/useDesignTokens';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 
 /**
@@ -298,8 +299,13 @@ function takePage<T>(rows: T[], pageSize: number): { slice: T[]; hasMore: boolea
 type TimelineFlatItem =
   | { kind: 'section'; id: string; titleText: string }
   | { kind: 'roadmapLink'; id: string }
-  | { kind: 'ideaBankRow'; id: string; count: number }
-  | { kind: 'ideaBankClusterRow'; id: string; categoryId: string; count: number }
+  | {
+      kind: 'ideaBankDashboardRow';
+      id: string;
+      shopCount: number;
+      cluster: { categoryId: string; count: number } | null;
+      bankCount: number;
+    }
   | {
       kind: 'card';
       id: string;
@@ -310,12 +316,14 @@ type TimelineFlatItem =
 function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
   const out: TimelineFlatItem[] = [];
   for (const e of entries) {
-    if (e.kind === 'ideaBank') {
-      out.push({ kind: 'ideaBankRow', id: 'ideaBank', count: e.count });
-      continue;
-    }
-    if (e.kind === 'ideaBankCluster') {
-      out.push({ kind: 'ideaBankClusterRow', id: 'ideaBankCluster', categoryId: e.categoryId, count: e.count });
+    if (e.kind === 'ideaBankDashboard') {
+      out.push({
+        kind: 'ideaBankDashboardRow',
+        id: 'ideaBankDashboard',
+        shopCount: e.shopCount,
+        cluster: e.cluster,
+        bankCount: e.bankCount,
+      });
       continue;
     }
     out.push({ kind: 'section', id: `sec-${e.id}`, titleText: e.titleText });
@@ -339,7 +347,7 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
         ? SECTION_HEADER_H
         : it.kind === 'roadmapLink'
           ? ROADMAP_LINK_H
-        : it.kind === 'ideaBankRow' || it.kind === 'ideaBankClusterRow'
+        : it.kind === 'ideaBankDashboardRow'
           ? IDEA_BANK_H
           : CARD_ROW_H;
     const cur = { length: len, offset: off };
@@ -357,25 +365,21 @@ type RowSection = {
   rowVariant?: 'default' | 'noPressure';
 };
 
-type IdeaBankEntry = {
-  kind: 'ideaBank';
-  listKey: 'ideaBank';
-  count: number;
+type IdeaBankDashboardEntry = {
+  kind: 'ideaBankDashboard';
+  shopCount: number;
+  cluster: { categoryId: string; count: number } | null;
+  bankCount: number;
 };
 
-type IdeaBankClusterEntry = {
-  kind: 'ideaBankCluster';
-  categoryId: string;
-  count: number;
-};
-
-type ListEntry = RowSection | IdeaBankEntry | IdeaBankClusterEntry;
+type ListEntry = RowSection | IdeaBankDashboardEntry;
 
 /** Écran onglet Timeline : projection des intentions et interactions (done différé, détail, filtres). */
 export function TimelineScreen() {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const theme = useTheme();
+  const designTokens = useDesignTokens();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const route = useRoute<RouteProp<AppTabParamList, 'Timeline'>>();
@@ -1091,7 +1095,17 @@ export function TimelineScreen() {
     return [...m.values()];
   }, [hiddenUnorganizedForIdeaBank, undatedTodoInPool]);
 
-  const activeCluster = useMemo(() => getBestOrphanCluster(orphanClusterPool), [orphanClusterPool]);
+  const shopOrphans = useMemo(
+    () => orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) === 'SHOP'),
+    [orphanClusterPool],
+  );
+
+  const nonShopOrphans = useMemo(
+    () => orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) !== 'SHOP'),
+    [orphanClusterPool],
+  );
+
+  const activeCluster = useMemo(() => getBestOrphanCluster(nonShopOrphans), [nonShopOrphans]);
 
   const ideaBankModalItems = useMemo(() => {
     if (!ideaBankCategoryFilter) return hiddenUnorganizedForIdeaBank;
@@ -1162,19 +1176,22 @@ export function TimelineScreen() {
     }
 
     const out: ListEntry[] = [];
-    if (
-      contextBubble === 'ALL' &&
-      statusFilter === 'TODO' &&
-      activeCluster &&
-      activeCluster.count >= 2
-    ) {
-      out.push({
-        kind: 'ideaBankCluster',
-        categoryId: activeCluster.categoryId,
-        count: activeCluster.count,
-      });
-    } else if (contextBubble === 'ALL' && statusFilter === 'TODO' && hiddenUnorganizedForIdeaBank.length > 0) {
-      out.push({ kind: 'ideaBank', listKey: 'ideaBank', count: hiddenUnorganizedForIdeaBank.length });
+    if (contextBubble === 'ALL' && statusFilter === 'TODO') {
+      const shopCount = shopOrphans.length;
+      const cluster =
+        activeCluster && activeCluster.count >= 2
+          ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
+          : null;
+      const bankCount = hiddenUnorganizedForIdeaBank.length;
+
+      if (shopCount > 0 || cluster || (!cluster && bankCount > 0)) {
+        out.push({
+          kind: 'ideaBankDashboard',
+          shopCount,
+          cluster,
+          bankCount,
+        });
+      }
     }
     for (const [ymd, rows] of [...groups.entries()]) {
       out.push({
@@ -1192,6 +1209,7 @@ export function TimelineScreen() {
     dayTitle,
     filteredPool,
     hiddenUnorganizedForIdeaBank.length,
+    shopOrphans.length,
     statusFilter,
     timeNav,
   ]);
@@ -1322,51 +1340,81 @@ export function TimelineScreen() {
           </View>
         );
       }
-      if (item.kind === 'ideaBankRow') {
+      if (item.kind === 'ideaBankDashboardRow') {
+        const hasShop = item.shopCount > 0;
+        const hasCluster = item.cluster !== null;
+        const showBankFallback = !hasCluster && item.bankCount > 0;
+
+        if (!hasShop && !hasCluster && !showBankFallback) return null;
+
         return (
-          <View style={[styles.section, { paddingHorizontal: 16 }]}>
-            <Pressable
-              onPress={() => {
-                setIdeaBankCategoryFilter(null);
-                setIdeaBankOpen(true);
-              }}
-              style={[
-                neumorphicRaised(theme),
-                styles.ideaBankPressable,
-                { borderWidth: 1, borderColor: theme.colors.outlineVariant },
-              ]}
-            >
-              <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
-                {item.count} {t('timeline.ideaBank.button')}
-              </Text>
-            </Pressable>
-          </View>
-        );
-      }
-      if (item.kind === 'ideaBankClusterRow') {
-        const catKey = `category.${item.categoryId}`;
-        const catLabel = i18n.exists(catKey) ? t(catKey) : item.categoryId;
-        return (
-          <View style={[styles.section, { paddingHorizontal: 16 }]}>
-            <Pressable
-              onPress={() => {
-                setIdeaBankCategoryFilter(item.categoryId);
-                setIdeaBankOpen(true);
-              }}
-              style={[
-                neumorphicRaised(theme),
-                styles.ideaBankPressable,
-                styles.ideaBankPressableColumn,
-                { borderWidth: 1, borderColor: theme.colors.outlineVariant },
-              ]}
-            >
-              <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
-                {t('timeline.ideaBank.clusterNudge')}
-              </Text>
-              <Text style={[styles.ideaBankClusterSubtitle, { color: theme.colors.onSurfaceVariant }]}>
-                {t('timeline.ideaBank.clusterSubtitle', { count: item.count, category: catLabel })}
-              </Text>
-            </Pressable>
+          <View style={[styles.section, { paddingHorizontal: 16, flexDirection: 'row', gap: 12 }]}>
+            {hasShop && (
+              <Pressable
+                onPress={() => {
+                  setIdeaBankCategoryFilter('SHOP');
+                  setIdeaBankOpen(true);
+                }}
+                style={[
+                  neumorphicRaised(theme),
+                  styles.ideaBankPressable,
+                  styles.ideaBankPressableColumn,
+                  { flex: 1, borderWidth: 1, borderColor: theme.colors.outlineVariant },
+                ]}
+              >
+                <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
+                  {t('timeline.ideaBank.shopTitle')}
+                </Text>
+                <Text style={[styles.ideaBankClusterSubtitle, { color: theme.colors.onSurfaceVariant }]}>
+                  {t('timeline.ideaBank.shopSubtitle', { count: item.shopCount })}
+                </Text>
+              </Pressable>
+            )}
+
+            {hasCluster && (
+              <Pressable
+                onPress={() => {
+                  setIdeaBankCategoryFilter(item.cluster!.categoryId);
+                  setIdeaBankOpen(true);
+                }}
+                style={[
+                  neumorphicRaised(theme),
+                  styles.ideaBankPressable,
+                  styles.ideaBankPressableColumn,
+                  { flex: 1, borderWidth: 1, borderColor: theme.colors.outlineVariant },
+                ]}
+              >
+                <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
+                  {t('timeline.ideaBank.clusterNudge')}
+                </Text>
+                <Text style={[styles.ideaBankClusterSubtitle, { color: theme.colors.onSurfaceVariant }]}>
+                  {t('timeline.ideaBank.clusterSubtitle', {
+                    count: item.cluster!.count,
+                    category: i18n.exists(`category.${item.cluster!.categoryId}`)
+                      ? t(`category.${item.cluster!.categoryId}`)
+                      : item.cluster!.categoryId,
+                  })}
+                </Text>
+              </Pressable>
+            )}
+
+            {showBankFallback && (
+              <Pressable
+                onPress={() => {
+                  setIdeaBankCategoryFilter(null);
+                  setIdeaBankOpen(true);
+                }}
+                style={[
+                  neumorphicRaised(theme),
+                  styles.ideaBankPressable,
+                  { flex: 1, borderWidth: 1, borderColor: theme.colors.outlineVariant },
+                ]}
+              >
+                <Text style={[styles.ideaBankLabel, { color: theme.colors.onSurface }]}>
+                  {item.bankCount} {t('timeline.ideaBank.button')}
+                </Text>
+              </Pressable>
+            )}
           </View>
         );
       }
@@ -1427,7 +1475,7 @@ export function TimelineScreen() {
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.root, { backgroundColor: designTokens.backgroundColor }]}>
       <Pass3CleanupSasOverlay
         visible={pass3SasOpen}
         theme={theme}
@@ -1581,6 +1629,7 @@ export function TimelineScreen() {
         status={statusFilter}
         anchorDate={anchorDate}
         onChanged={reload}
+        title={ideaBankCategoryFilter === 'SHOP' ? t('timeline.ideaBank.shopTitle') : undefined}
       />
     </View>
   );

@@ -30,6 +30,7 @@ import {
   replanProjectMilestonesFromStartDate,
 } from '../services/projectMilestonesModel';
 import { generateSmartTitle } from '../services/smartTitle';
+import { useDesignTokens } from '../hooks/useDesignTokens';
 import { formatCreationSubtitle } from '../utils/timeFormat';
 
 type Props = {
@@ -39,6 +40,7 @@ type Props = {
   status: TrankilIntentStatus;
   anchorDate: Date;
   onChanged: () => void;
+  title?: string;
 };
 
 function pad2(n: number): string {
@@ -75,9 +77,10 @@ function isProjectWithoutStartDate(row: TrankilV2TimelineItemRow): boolean {
   return !getProjectStartDateFromMetadataJson(row.metadata_json);
 }
 
-export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onChanged }: Props) {
+export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onChanged, title }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
+  const designTokens = useDesignTokens();
   const insets = useSafeAreaInsets();
   const [scheduleForId, setScheduleForId] = useState<string | null>(null);
   const [scheduleMode, setScheduleMode] = useState<'due' | 'projectStart'>('due');
@@ -194,24 +197,27 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
           <View
             style={[
               styles.sheet,
+              designTokens.cardShadowStyle,
               {
-                backgroundColor: theme.colors.surface,
+                backgroundColor: designTokens.cardBackground,
                 borderColor: theme.colors.outlineVariant,
+                borderTopLeftRadius: designTokens.borderRadius,
+                borderTopRightRadius: designTokens.borderRadius,
                 paddingBottom: insets.bottom + 16,
               },
             ]}
           >
             <View style={styles.sheetHeader}>
-              <Text style={[styles.sheetTitle, { color: theme.colors.onSurface }]}>
-                {t('timeline.ideaBank.title')}
+              <Text style={[styles.sheetTitle, { color: designTokens.textPrimary }]}>
+                {title || t('timeline.ideaBank.title')}
               </Text>
               <Pressable onPress={onClose} hitSlop={12}>
-                <Text style={{ color: theme.colors.primary, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>
+                <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>
               </Pressable>
             </View>
 
             {items.length === 0 ? (
-              <Text style={{ color: theme.colors.onSurfaceVariant, paddingHorizontal: 4 }}>
+              <Text style={{ color: designTokens.textSecondary, paddingHorizontal: 4 }}>
                 {t('timeline.ideaBank.empty')}
               </Text>
             ) : (
@@ -228,48 +234,58 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                     >
                       <View
                         style={[
+                          designTokens.cardShadowStyle,
                           styles.rowCard,
                           {
-                            backgroundColor: theme.colors.elevation.level1,
+                            borderRadius: designTokens.borderRadius,
                             borderColor: theme.colors.outlineVariant,
                           },
                         ]}
                       >
-                        <Text style={[styles.rowTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+                        <Text style={[styles.rowTitle, { color: designTokens.textPrimary }]} numberOfLines={2}>
                           {title}
                         </Text>
-                        <Text style={[styles.createdHint, { color: theme.colors.onSurfaceVariant }]}>
+                        <Text style={[styles.createdHint, { color: designTokens.textSecondary }]}>
                           {createdLine}
                         </Text>
                         <View style={styles.rowActions}>
                           {status === 'TODO' ? (
                             <Pressable
-                              style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
+                              style={[
+                                styles.iconBtn,
+                                { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
+                              ]}
                               onPress={() => void onMarkDone(row.id)}
                             >
-                              <Check size={18} color={theme.colors.primary} />
-                              <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
+                              <Check size={18} color={designTokens.accentColor} />
+                              <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
                                 {t('timeline.ideaBank.done')}
                               </Text>
                             </Pressable>
                           ) : null}
                           <Pressable
-                            style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
+                            style={[
+                              styles.iconBtn,
+                              { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
+                            ]}
                             onPress={() => openScheduleForRow(row)}
                           >
                             <CalendarDays size={18} color={theme.colors.secondary} />
-                            <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
+                            <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
                               {isProjectWithoutStartDate(row)
                                 ? t('cluster.planProjectStart')
                                 : t('timeline.ideaBank.schedule')}
                             </Text>
                           </Pressable>
                           <Pressable
-                            style={[styles.iconBtn, { borderColor: theme.colors.outline }]}
+                            style={[
+                              styles.iconBtn,
+                              { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
+                            ]}
                             onPress={() => onDelete(row.id)}
                           >
                             <Trash2 size={18} color={theme.colors.error} />
-                            <Text style={[styles.iconBtnLabel, { color: theme.colors.onSurface }]}>
+                            <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
                               {t('timeline.ideaBank.remove')}
                             </Text>
                           </Pressable>
@@ -283,7 +299,7 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
 
             {items.length > 0 ? (
               <Pressable
-                style={[styles.clearAllBtn, { borderColor: theme.colors.error }]}
+                style={[styles.clearAllBtn, { borderColor: theme.colors.error, borderRadius: designTokens.borderRadius * 0.5 }]}
                 onPress={onClearAll}
               >
                 <Text style={{ color: theme.colors.error, fontWeight: '700', textAlign: 'center' }}>
@@ -299,23 +315,25 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
         <Pressable style={styles.scheduleOverlay} onPress={() => setScheduleForId(null)}>
           <Pressable
             style={[
+              designTokens.cardShadowStyle,
               styles.scheduleSheet,
               {
-                backgroundColor: theme.colors.surface,
+                backgroundColor: designTokens.cardBackground,
                 borderColor: theme.colors.outlineVariant,
+                borderRadius: designTokens.borderRadius,
                 maxHeight: '70%',
               },
             ]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.scheduleTitle, { color: theme.colors.onSurface }]}>
+            <Text style={[styles.scheduleTitle, { color: designTokens.textPrimary }]}>
               {scheduleMode === 'projectStart'
                 ? t('cluster.planProjectStart')
                 : t('timeline.ideaBank.scheduleTitle')}
             </Text>
             {schedulingRow ? (
               <Text
-                style={[styles.scheduleSubtitle, { color: theme.colors.onSurfaceVariant }]}
+                style={[styles.scheduleSubtitle, { color: designTokens.textSecondary }]}
                 numberOfLines={2}
               >
                 {formatLineTitle(resolveDisplayTitle(schedulingRow), t)}
@@ -338,12 +356,13 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                     style={[
                       styles.dateChip,
                       {
-                        backgroundColor: theme.colors.surfaceVariant,
+                        backgroundColor: designTokens.cardBackground,
                         borderColor: theme.colors.outline,
+                        borderRadius: designTokens.borderRadius * 0.5,
                       },
                     ]}
                   >
-                    <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 11, fontWeight: '600' }}>
+                    <Text style={{ color: designTokens.textSecondary, fontSize: 11, fontWeight: '600' }}>
                       {ymd}
                     </Text>
                   </Pressable>

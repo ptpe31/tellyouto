@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { useDesignTokens } from '../hooks/useDesignTokens';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { generateSmartTitle } from '../services/smartTitle';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
@@ -144,6 +145,7 @@ export function IntentionCard({
 }: Props) {
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
+  const designTokens = useDesignTokens();
   const isProUser = spectrum.isProUser;
   const meta = useMemo(() => safeParseJsonObject(row.metadata_json), [row.metadata_json]);
   const trip = useMemo(() => getTripMetaFromRoot(meta), [meta]);
@@ -276,7 +278,7 @@ export function IntentionCard({
 
   const categoryIcon = useMemo(() => getCategoryIcon(row.category_id, row.type), [row.category_id, row.type]);
   const circleIcon = pendingLocalDone ? 'check' : tripIcon ?? categoryIcon;
-  const iconColor = pendingLocalDone ? '#065f46' : theme.colors.primary;
+  const iconColor = pendingLocalDone ? '#065f46' : designTokens.accentColor;
 
   const titleOpacity = pendingLocalDone ? 0.5 : 1;
   const pendingAiLabel =
@@ -297,8 +299,9 @@ export function IntentionCard({
       accessibilityRole="button"
       accessibilityLabel={titleText}
       style={[
+        designTokens.cardShadowStyle,
         styles.card,
-        { backgroundColor: theme.colors.surface },
+        { borderRadius: designTokens.borderRadius },
         showTripFooter || showTripCapsule ? styles.cardTrip : null,
       ]}
     >
@@ -315,18 +318,18 @@ export function IntentionCard({
 
         <View style={styles.textCol}>
           <View style={styles.titleRow}>
-            <Text style={[styles.title, { color: theme.colors.onSurface, opacity: titleOpacity }]} numberOfLines={2}>
+            <Text style={[styles.title, { color: designTokens.textPrimary, opacity: titleOpacity }]} numberOfLines={2}>
               {titleText}
             </Text>
           </View>
           {pendingAiLabel || subtitle ? (
             <View style={styles.subtitleRow}>
               {pendingAiLabel ? (
-                <Text style={[styles.pendingChip, { color: theme.colors.primary }]} numberOfLines={1}>
+                <Text style={[styles.pendingChip, { color: designTokens.accentColor }]} numberOfLines={1}>
                   {pendingAiLabel}
                 </Text>
               ) : (
-                <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+                <Text style={[styles.subtitle, { color: designTokens.textSecondary }]} numberOfLines={1}>
                   {subtitle}
                 </Text>
               )}
@@ -375,7 +378,7 @@ export function IntentionCard({
                 },
               ]}
             >
-              <Text style={[styles.tripSetupBtnText, { color: theme.colors.primary }]} numberOfLines={2}>
+              <Text style={[styles.tripSetupBtnText, { color: designTokens.accentColor }]} numberOfLines={2}>
                 {footerLabel}
               </Text>
             </Pressable>

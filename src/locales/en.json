@@ -572,6 +572,8 @@
       "button": "tasks in the jar",
       "clusterNudge": "Shall we move these forward?",
       "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "To buy",
+      "shopSubtitle": "{{count}} items",
       "done": "Done",
       "schedule": "Schedule",
       "remove": "Remove",

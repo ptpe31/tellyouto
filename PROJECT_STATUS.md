@@ -13,6 +13,7 @@
 - **Pass 1 — Few-Shot JSON universel (mai 2026)** : `buildOneTapPass1SystemInstruction(now)` + `buildOneTapPass1UserContent(..., now)` — SI proxy (règles LIST/TASK différenciées + **6** few-shots multilingues FR/EN/ES) + user (`NOW` / `TZ` / `SEED` / `INPUT`) ; `maxOutputTokens: 2048` ; modèle RC **`gemini_pass1_model_id`**. Détail complet : **SPEC.md § 2**.
 - **Pass 2 LIST/PROJECT (mai 2026)** : `geminiEnrichGenericList` — prompt inline `PASS2_*_INLINE_PROMPT` + `Transcription:` · **sans** `systemInstruction` · `temperature: 0.18` · `maxOutputTokens: 2048` · modèle RC **`gemini-pro-latest`** (défaut compilé) · chaîne fallback proxy `[override, …shortlist]`. Unités naturelles préservées (`sachets`, `pincées`, `g`…) ; `unités` → affichage quantité seule. Détail : **SPEC.md § Prompt Pass 2**.
 - **Pass 3 / Expert** : même steering `gemini_pass2_model_id` ; warmup proxy cible **Pass 1** uniquement ; RC `[GEMINI-RC]` (mobile : défauts compilés, fetch réseau ignoré — Option A) ; re-fetch avant Pass 2 si source ≠ `remote` (**web**).
+- **Thèmes dynamiques (mai 2026)** : **TalkThemeRegistry** + showroom AsyncStorage (`@trankil_debug_theme_variant`) — 6 variantes interchangeables à la volée depuis **Debug** (🎨 EXPLORATION GRAPHIQUE) ; `useDesignTokens()` réactif ; rollback = **Actuel (TellYouTo)**. Migrés : Timeline, TalkDebug, Debug, micro, `IntentionCard`, `IdeaBankModal`, `IntentionDetailSheet`. Détail : **SPEC.md § Architecture UI — 0)**.
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents ; sur **TalkDebug**, l’**overlay de progression** ([`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) + événements `CAPTURE_PIPELINE_PROGRESS`) couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline). **Correction STT optionnelle** : crayon → barre validation **Poubelle / Check** au-dessus du clavier (`translateY` + listeners clavier) → `transcript` final vers Gemini ; logs `transcript_manual_edit` / `[MIC] ✏️`.
 
 ---
@@ -49,7 +50,7 @@ Fichiers : `src/navigation/*`
 
 Fichiers : `src/context/*` ; assemblés dans `App.tsx`.
 
-- `ThemeContext` : thèmes Paper / couleurs.
+- `ThemeContext` : thèmes Paper / couleurs + **variantes design** (`TalkThemeRegistry`, `applyDesignVariantToPaperTheme`).
 - `LanguageContext` : i18n / locale.
 - `DebugUnlockContext` : gating d’options debug.
 - `AllyContext` : couche “assistant/ally” (UX).
@@ -60,7 +61,68 @@ Fichiers : `src/context/*` ; assemblés dans `App.tsx`.
 - `FocusProtectionContext` : protections UX (focus / distraction).
 - `IntentionContext` (**le cœur**) : orchestration de capture, OneTap (A/B), offline queue, bulk séquentiel, zoom projet.
 
-### 1.4 Services (domain)
+### 1.4 Thème & design tokens (`src/theme/`)
+
+Architecture **Thèmes Découplés** — permet de tester 5 directions visuelles sans toucher à la logique métier.
+
+| Fichier | Rôle |
+|---------|------|
+| [`TalkThemeRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/TalkThemeRegistry.ts) | Palettes par variante, `getDesignTokens`, AsyncStorage `readPersistedDesignVariant` / `persistDesignVariant` |
+| [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Showroom **🎨 EXPLORATION GRAPHIQUE** — sélecteur 6 variantes (persistant) |
+| [`colors.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/colors.ts) | Palette TellYouTo (Teal `#008080`, Orange `#FF8C00`, Off-white `#F5F5F0`) |
+| [`paperTheme.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/paperTheme.ts) | `createTellYouToLightTheme` / `createTellYouToDarkTheme` (MD3) |
+| [`neumorphism.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/neumorphism.ts) | `neumorphicRaised` / `neumorphicInset` — composants **non encore migrés** |
+| [`index.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/index.ts) | Ré-exports publics |
+| [`useDesignTokens.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useDesignTokens.ts) | Hook : `useDesignTokens()` → `DesignTokens` selon variante + schéma clair/sombre |
+
+**Variantes disponibles** (`DesignVariant`) :
+
+| Clé | Label | Notes |
+|-----|-------|-------|
+| `CURRENT` | Actuel (TellYouTo) | Défaut — calqué sur `palette` + `paperTheme` ; **rollback sûr** |
+| `ZEN_NEUMORPHIC` | Zen Neumorphique | Sable / gris perle, ombres soft |
+| `CYBER_MINIMALIST` | Cyber-Minimaliste | Noir `#000`, accent néon `#00FFD5`, radius 12 |
+| `BENTO_MODERN` | Bento / Apple Style | Cards blanches, radius 24, accent `#0071E3` |
+| `NORDIC_FOREST` | Nordic Forest | Sauge / sapin / crème |
+| `SUNSET_PASTEL` | Sunset Pastel | Violet / pêche / corail pastel |
+
+**Comment basculer un design** :
+
+1. Onglet **Debug** → section **🎨 EXPLORATION GRAPHIQUE (TEST THÈMES)** (sous « Vider la base »).
+2. Taper une variante — changement **immédiat** sur toute l’app (persisté AsyncStorage).
+
+**Rollback** : retaper **Actuel (TellYouTo)** → zéro régression visuelle.
+
+**Tokens consommables** (structure identique pour chaque variante) :
+
+- `backgroundColor`, `cardBackground`, `textPrimary`, `textSecondary`, `accentColor`, `borderRadius`
+- `shadowStyle` (relief raised), `cardShadowStyle` (relief inset)
+
+**Intégration ThemeContext** : si variante ≠ `CURRENT`, `ThemeContext` fusionne les tokens dans `paperTheme.colors` (`primary`, `background`, `surface`, `onSurface`, etc.) — les composants Paper héritent du nouveau look sans migration.
+
+**Composants déjà migrés** (mai 2026) :
+
+- [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) — fond racine.
+- [`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) — fond + Phoenix + bouton Envoyer.
+- [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) — fond, titres, panneau showroom.
+- [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) — micro Timeline.
+- [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) — cartes Timeline.
+- [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) — Tirelire / modale.
+- [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) — sheet + CTA principaux.
+
+**Migration progressive recommandée** pour les autres composants :
+
+```typescript
+import { useDesignTokens } from '../hooks/useDesignTokens';
+
+const designTokens = useDesignTokens();
+// style={{ backgroundColor: designTokens.backgroundColor }}
+// style={[designTokens.shadowStyle, styles.carte]}
+```
+
+Contrat SPEC complet : **SPEC.md § Architecture UI — 0) Architecture de Thèmes Découplés**.
+
+### 1.5 Services (domain)
 
 Repères dans `src/services/*` :
 
@@ -505,4 +567,5 @@ Fichier **hors SPEC** : journal de travail pour la **suppression progressive** d
 13. `src/services/traffic/sentinelTripMission.ts` (cancel / reset mission)
 14. `src/services/NotificationService.ts` + `src/utils/formatDepartureCapsule.ts` + `dossier_de_soumission.md` (notifications Contrat de Départ)
 15. [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) (registre code mort / retraits feature)
+16. `src/theme/TalkThemeRegistry.ts` + `src/hooks/useDesignTokens.ts` (variantes visuelles / rollback `CURRENT`)
 

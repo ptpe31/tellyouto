@@ -78,6 +78,7 @@ import {
 import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { useDesignTokens } from '../hooks/useDesignTokens';
 import { AIUniversalProgressOverlay } from './AIUniversalProgressOverlay';
 import {
   AI_PROGRESS_REVEAL_HOLD_MS,
@@ -545,6 +546,7 @@ export function IntentionDetailSheet({
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
+  const designTokens = useDesignTokens();
   const isProUser = spectrum.isProUser;
   const peekCapturePhase = peekCapturePhaseProp ?? 'idle';
   const rawPeek = Math.round(Number(peekHeightPx));
@@ -1229,8 +1231,8 @@ export function IntentionDetailSheet({
       case 'pro_inactive':
         return {
           mode: 'contained' as const,
-          buttonColor: theme.colors.primary,
-          textColor: theme.colors.onPrimary,
+          buttonColor: designTokens.accentColor,
+          textColor: '#FFFFFF',
           borderColor: undefined,
           borderWidth: 0,
           opacity: 1,
@@ -1272,7 +1274,7 @@ export function IntentionDetailSheet({
           icon: undefined,
         };
     }
-  }, [theme.colors, tripSurveillanceSubmitting, tripSurveillanceUiState]);
+  }, [designTokens.accentColor, theme.colors, tripSurveillanceSubmitting, tripSurveillanceUiState]);
 
   const elasticDepartureCapsuleModel = useMemo(() => {
     if (!isTrip || !isProUser || tripIsAllDay) return null;
@@ -1992,17 +1994,18 @@ export function IntentionDetailSheet({
           onPress={() => void onPressUnlockPass2FromTimeline()}
           style={({ pressed }) => [
             styles.pass2FooterBtn,
-            neumorphicRaised(theme),
+            designTokens.shadowStyle,
             {
-              backgroundColor: categoryTabBackground,
+              backgroundColor: designTokens.accentColor,
+              borderRadius: designTokens.borderRadius * 0.75,
               opacity: pressed && !pass2Running ? 0.9 : 1,
             },
           ]}
         >
           {pass2Running ? (
-            <ActivityIndicator size="small" color={theme.colors.onSurface} />
+            <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
-            <Text style={[styles.pass2FooterBtnText, { color: theme.colors.onSurface }]} numberOfLines={1}>
+            <Text style={[styles.pass2FooterBtnText, { color: '#FFFFFF' }]} numberOfLines={1}>
               {pass2MutationButtonLabel}
             </Text>
           )}
@@ -2010,13 +2013,14 @@ export function IntentionDetailSheet({
       </Animated.View>
     );
   }, [
-    categoryTabBackground,
+    designTokens.accentColor,
+    designTokens.borderRadius,
+    designTokens.shadowStyle,
     onPressUnlockPass2FromTimeline,
     pass2CtaOpacity,
     pass2MutationButtonLabel,
     pass2Running,
     showPass2FooterCta,
-    theme,
   ]);
 
   const onPressPass2 = async () => {
@@ -2665,7 +2669,9 @@ export function IntentionDetailSheet({
           style={[
             styles.sheet,
             {
-              backgroundColor: theme.colors.surface,
+              backgroundColor: designTokens.cardBackground,
+              borderTopLeftRadius: designTokens.borderRadius,
+              borderTopRightRadius: designTokens.borderRadius,
               paddingBottom: Math.max(insets.bottom, 12),
               height: sheetTargetHeight,
               opacity: sheetOpacity,
@@ -2726,13 +2732,15 @@ export function IntentionDetailSheet({
           >
           {isValidationView ? (
             <View style={styles.validationWrap}>
-              <Text style={[styles.validationTitle, { color: theme.colors.onSurface }]} numberOfLines={2}>
+              <Text style={[styles.validationTitle, { color: designTokens.textPrimary }]} numberOfLines={2}>
                 {validationTitle || t('timeline.untitled')}
               </Text>
               <View style={styles.validationFooter}>
                 {showPass2FooterCta ? (
                   <Button
                     mode="contained"
+                    buttonColor={designTokens.accentColor}
+                    textColor="#FFFFFF"
                     disabled={pass2Running || !row || row.id === 'peek_pending'}
                     onPress={() => void onPressPeekValidationPrimary()}
                   >

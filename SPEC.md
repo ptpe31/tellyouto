@@ -875,6 +875,112 @@ Composants principaux :
 
 Cette section définit les contrats UI pour la refonte de la Timeline afin de passer d’un pilotage “fonctionnel/dense” à une interface Neumorphique épurée (référence “Image 1”), sans perte de logique, de données, ni de garanties UX.
 
+### 0) Architecture de Thèmes Découplés (TalkThemeRegistry)
+
+**Objectif** : proposer plusieurs directions visuelles interchangeables **sans modifier la logique métier** des composants (Timeline, Sheets, capture micro, etc.), avec **rollback instantané** vers le design actuel.
+
+**Principe** : les couleurs, radius et ombres sont centralisés dans un registre de tokens ; les composants consomment une API identique (`DesignTokens`) quel que soit le thème actif. La logique SQLite, navigation, capture OneTap et comportements UX restent inchangés.
+
+#### Fichiers
+
+| Fichier | Rôle |
+|---------|------|
+| [`TalkThemeRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/TalkThemeRegistry.ts) | Registre des variantes, tokens, fusion Paper MD3 |
+| [`colors.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/colors.ts) | Palette TellYouTo d’origine (Teal / Orange / Off-white) |
+| [`paperTheme.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/paperTheme.ts) | Thèmes React Native Paper light/dark |
+| [`neumorphism.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/neumorphism.ts) | Helpers legacy `neumorphicRaised` / `neumorphicInset` (composants non migrés) |
+| [`useDesignTokens.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useDesignTokens.ts) | Hook React — tokens du design actif selon le schéma clair/sombre |
+| [`ThemeContext.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/ThemeContext.tsx) | Hydrate `designVariant` depuis AsyncStorage ; `setDesignVariant` ; fusion Paper MD3 |
+| [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Showroom **🎨 EXPLORATION GRAPHIQUE** — sélecteur 6 variantes |
+
+#### Contrôle global, showroom dynamique & rollback
+
+**Showroom runtime (mai 2026)** : la variante active n’est plus une constante figée — elle est **persistée** dans AsyncStorage (`@trankil_debug_theme_variant`) et exposée par `ThemeContext` :
+
+| API | Rôle |
+|-----|------|
+| `readPersistedDesignVariant()` / `persistDesignVariant()` | Lecture / écriture AsyncStorage ([`TalkThemeRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/TalkThemeRegistry.ts)) |
+| `ThemeContext.designVariant` | Variante courante (réactive) |
+| `ThemeContext.setDesignVariant(variant)` | Change la variante + persiste + re-render global |
+| `useDesignTokens()` | Tokens du design actif (s’abonne à `designVariant` + clair/sombre) |
+
+**Défaut** : si aucune valeur stockée → `DEFAULT_DESIGN_VARIANT = 'CURRENT'` (filet de sécurité 0 % régression).
+
+**UI Showroom** : onglet **Debug** → section **🎨 EXPLORATION GRAPHIQUE (TEST THÈMES)** (sous « Vider la base ») — grille de 6 boutons tactiles ; bascule **instantanée** sans recompiler. Le panneau consomme lui-même les tokens (`cardBackground`, `cardShadowStyle`, `accentColor`).
+
+**Rollback** : sélectionner **Actuel (TellYouTo)** dans le showroom Debug → retour exact au design d’origine. En mode `CURRENT`, `applyDesignVariantToPaperTheme` reste un **no-op** et les tokens reproduisent `palette` + `paperTheme.ts`.
+
+| Valeur | Ambiance |
+|--------|----------|
+| `CURRENT` | Design TellYouTo actuel — **0 % régression** (palette `colors.ts` + `paperTheme.ts`) |
+| `ZEN_NEUMORPHIC` | Évolution neumorphique : sable, gris perle, ombres douces sculptées |
+| `CYBER_MINIMALIST` | Noir OLED, lignes fines, accent néon menthe (`#00FFD5`) |
+| `BENTO_MODERN` | Cards blanches, radius 24, style Apple Shortcuts / Linear |
+| `NORDIC_FOREST` | Vert sauge, sapin, crème/lin — focus organique |
+| `SUNSET_PASTEL` | Violet crépuscule, pêche, corail pastel — bien-être créatif |
+
+#### Structure de tokens (identique pour tous les thèmes)
+
+```typescript
+type DesignTokens = {
+  variant: DesignVariant;
+  backgroundColor: string;   // fond principal (écran)
+  cardBackground: string;    // fond tuiles / cartes / intentions
+  textPrimary: string;
+  textSecondary: string;
+  accentColor: string;       // micro, CTA principaux
+  borderRadius: number;
+  shadowStyle: ViewStyle;    // relief « raised » (boutons, dock)
+  cardShadowStyle: ViewStyle; // relief « inset » (cartes, micro inner)
+};
+```
+
+#### Utilisation dans un composant (migration progressive)
+
+1. Importer le hook :
+
+```typescript
+import { useDesignTokens } from '../hooks/useDesignTokens';
+
+const designTokens = useDesignTokens();
+```
+
+2. Remplacer les styles en dur par les tokens (sans toucher à la logique) :
+
+```typescript
+// Fond d’écran
+<View style={{ backgroundColor: designTokens.backgroundColor }} />
+
+// Carte / bouton neumorphique
+<View style={[designTokens.shadowStyle, styles.maCarte]} />
+
+// Accent (micro, liens)
+<Mic color={designTokens.accentColor} />
+```
+
+3. Les composants déjà branchés sur `theme.colors.*` (React Native Paper) bénéficient **automatiquement** des variantes ≠ `CURRENT` via `ThemeContext` — aucune migration requise pour eux tant que la variante est active.
+
+#### Composants migrés (mai 2026)
+
+| Composant | Tokens consommés |
+|-----------|------------------|
+| [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) | `backgroundColor` (fond racine) |
+| [`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) | `backgroundColor`, Phoenix (`textPrimary`, `cardBackground`, `accentColor`) |
+| [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Fond scroll, titres, panneau showroom (`cardShadowStyle`, `cardBackground`, `accentColor`) |
+| [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) | `shadowStyle`, `cardShadowStyle`, `accentColor` (variante Timeline) |
+| [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) | `cardShadowStyle`, `cardBackground`, `textPrimary/Secondary`, `accentColor`, `borderRadius` |
+| [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) | Fond modale, cartes rows, textes, arrondis dynamiques |
+| [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | Fond sheet, CTA Pass 2 / validation peek, bouton surveillance TRIP (`accentColor`) |
+
+**Composants candidats** (migration future) : `PilotStatusHeader`, `DealerBoard`, `IntentionCard` pied TRIP (badges métier inchangés).
+
+#### Contraintes contractuelles
+
+- **Ne pas** modifier la logique métier lors d’une migration visuelle (SQLite, capture, filtres, undo 3 s, etc.).
+- **Ne pas** supprimer `neumorphism.ts` tant que des composants non migrés l’utilisent encore.
+- Les variantes ≠ `CURRENT` sont des **prototypes visuels** : validation produit requise avant bascule production.
+- Le mode clair/sombre système (`ThemeContext.resolvedTheme`) reste actif ; `CURRENT` s’adapte light/dark via `currentPalette()`.
+
 ### 1) Standard de Design Neumorphique (Image 1)
 
 - Identité visuelle : l’interface utilise exclusivement un style Neumorphique (reliefs doux, ombres portées, surfaces claires), avec une dominante d’ombres type `#F0F0F3` (et variantes de thème) via les helpers neumorphiques existants (ex. `neumorphicRaised`).

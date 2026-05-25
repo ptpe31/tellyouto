@@ -47,6 +47,13 @@ import {
   type DebugUserTierOverride,
 } from '../services/debugUserTierOverride';
 import { neumorphicRaised } from '../theme/neumorphism';
+import { useAppTheme } from '../context/ThemeContext';
+import { useDesignTokens } from '../hooks/useDesignTokens';
+import {
+  ALL_DESIGN_VARIANTS,
+  DESIGN_VARIANT_LABELS,
+  type DesignVariant,
+} from '../theme/TalkThemeRegistry';
 
 /**
  * Onglet **Debug** : reset / vidage SQLite, comptages, steering Gemini (Remote Config, health check, cache),
@@ -59,6 +66,8 @@ import { neumorphicRaised } from '../theme/neumorphism';
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { designVariant, setDesignVariant } = useAppTheme();
+  const designTokens = useDesignTokens();
   const { spectrum, setProUser } = useUserSpectrum();
   const [busy, setBusy] = useState<
     'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | null
@@ -225,6 +234,13 @@ export function DebugScreen() {
       { text: t('debug.clearDbConfirm'), style: 'destructive', onPress: () => void runClearDatabases() },
     ]);
   }, [runClearDatabases, t]);
+
+  const onSelectDesignVariant = useCallback(
+    (variant: DesignVariant) => {
+      void setDesignVariant(variant);
+    },
+    [setDesignVariant],
+  );
 
   /** Force un refresh Remote Config / shortlist modèles Gemini. */
   const onRefreshRemoteGeminiModel = useCallback(async () => {
@@ -403,13 +419,13 @@ export function DebugScreen() {
 
   return (
     <ScrollView
-      style={[styles.flex, { backgroundColor: theme.colors.background }]}
+      style={[styles.flex, { backgroundColor: designTokens.backgroundColor }]}
       contentContainerStyle={styles.pad}
     >
-      <Text style={[styles.heroTitle, { color: theme.colors.onBackground }]}>
+      <Text style={[styles.heroTitle, { color: designTokens.textPrimary }]}>
         {t('debug.pilotTitle')}
       </Text>
-      <Text style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>{t('debug.note')}</Text>
+      <Text style={[styles.note, { color: designTokens.textSecondary }]}>{t('debug.note')}</Text>
 
       <View style={styles.section}>
         <View style={styles.iaCachePanel}>
@@ -613,6 +629,62 @@ export function DebugScreen() {
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant }]}>
           {t('debug.clearDbHelp')}
         </Text>
+
+        <View
+          style={[
+            designTokens.cardShadowStyle,
+            styles.themeShowroomPanel,
+            {
+              borderRadius: designTokens.borderRadius,
+              backgroundColor: designTokens.cardBackground,
+              borderColor: designTokens.accentColor,
+            },
+          ]}
+        >
+          <Text style={[styles.themeShowroomTitle, { color: designTokens.textPrimary }]}>
+            🎨 EXPLORATION GRAPHIQUE (TEST THÈMES)
+          </Text>
+          <Text style={[styles.themeShowroomHint, { color: designTokens.textSecondary }]}>
+            Bascule instantanée — variante persistée localement. Rollback : « Actuel (TellYouTo) ».
+          </Text>
+          <View style={styles.themeVariantGrid}>
+            {ALL_DESIGN_VARIANTS.map((variant) => {
+              const selected = designVariant === variant;
+              return (
+                <Pressable
+                  key={variant}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => onSelectDesignVariant(variant)}
+                  style={({ pressed }) => [
+                    styles.themeVariantBtn,
+                    {
+                      borderRadius: designTokens.borderRadius * 0.5,
+                      borderColor: selected ? designTokens.accentColor : designTokens.textSecondary,
+                      backgroundColor: selected
+                        ? `${designTokens.accentColor}22`
+                        : designTokens.backgroundColor,
+                    },
+                    { opacity: pressed ? 0.88 : 1 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.themeVariantBtnLabel,
+                      { color: selected ? designTokens.accentColor : designTokens.textPrimary },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {DESIGN_VARIANT_LABELS[variant]}
+                  </Text>
+                  <Text style={[styles.themeVariantBtnCode, { color: designTokens.textSecondary }]}>
+                    {variant}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       </View>
 
       {busy !== null && (
@@ -704,5 +776,44 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#2C3E50',
     fontFamily: 'monospace',
+  },
+  themeShowroomPanel: {
+    marginTop: 20,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  themeShowroomTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  themeShowroomHint: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  themeVariantGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  themeVariantBtn: {
+    width: '48%',
+    minWidth: 140,
+    flexGrow: 1,
+    borderWidth: 1.5,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  themeVariantBtnLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  themeVariantBtnCode: {
+    marginTop: 4,
+    fontSize: 10,
+    fontFamily: 'monospace',
+    opacity: 0.85,
   },
 });

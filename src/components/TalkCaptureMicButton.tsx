@@ -30,7 +30,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
 import { VoiceMeteringWaveform } from '../components/VoiceMeteringWaveform';
-import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
+import { useDesignTokens } from '../hooks/useDesignTokens';
 import { cleanTranscriptText } from '../services/smartTitle';
 import { alertNativeModuleMissing, isLikelyMissingNativeModuleError } from '../utils/nativeModuleErrorAlert';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
@@ -139,6 +139,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   const intentionFlow = useOptionalIntentionContext();
   const { t, i18n } = useTranslation();
   const theme = useTheme();
+  const designTokens = useDesignTokens();
   const insets = useSafeAreaInsets();
   const keyboardToolbarLift = useRef(new Animated.Value(0)).current;
   const [phase, setPhase] = useState<'idle' | 'recording' | 'success' | 'pipeline_wait'>('idle');
@@ -837,14 +838,14 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
           onPress={() => void startRecording()}
           disabled={disabled}
           style={({ pressed }) => [
-            neumorphicRaised(theme),
+            designTokens.shadowStyle,
             styles.micOuter,
             compact ? styles.micOuterCompact : null,
             { opacity: disabled ? 0.45 : pressed ? 0.9 : 1 },
           ]}
         >
-          <View style={[neumorphicInset(theme), styles.micInner]}>
-            <Mic size={compact ? 22 : 26} color={theme.colors.primary} />
+          <View style={[designTokens.cardShadowStyle, styles.micInner]}>
+            <Mic size={compact ? 22 : 26} color={designTokens.accentColor} />
           </View>
         </Pressable>
         {compact ? null : (
@@ -858,7 +859,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     const canvasH = Math.round(Dimensions.get('window').height * 0.4);
     const accent = successTone === 'offline' ? '#FFB300' : '#4CAF50';
     return (
-      <View style={[styles.recordingCard, neumorphicInset(theme), compact && styles.recordingCardCompact]}>
+      <View style={[styles.recordingCard, designTokens.cardShadowStyle, compact && styles.recordingCardCompact]}>
         <View style={styles.waveRow}>
           {waveHeights.map((h, idx) => (
             <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused ? 8 : h }]} />
@@ -878,7 +879,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
 
   return (
     <Animated.View style={[styles.captureRecordingWrap, { transform: [{ translateY: keyboardToolbarLift }] }]}>
-      <View style={[styles.recordingCard, neumorphicInset(theme), compact && styles.recordingCardCompact]}>
+      <View style={[styles.recordingCard, designTokens.cardShadowStyle, compact && styles.recordingCardCompact]}>
         <View style={styles.waveRow}>
           {waveHeights.map((h, idx) => (
             <View key={`bar-${idx}`} style={[styles.waveBar, { height: isPaused || isEditingTranscription ? 8 : h }]} />

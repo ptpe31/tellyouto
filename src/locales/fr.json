@@ -572,6 +572,8 @@
       "button": "tâches dans la tirelire",
       "clusterNudge": "On le fait avancer ?",
       "clusterSubtitle": "{{count}} · {{category}}",
+      "shopTitle": "À acheter",
+      "shopSubtitle": "{{count}} articles",
       "done": "Fait",
       "schedule": "Planifier",
       "remove": "Retirer",

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import {
   PaperProvider,
@@ -8,6 +8,13 @@ import {
   createTellYouToDarkTheme,
   createTellYouToLightTheme,
 } from '../theme/paperTheme';
+import {
+  applyDesignVariantToPaperTheme,
+  DEFAULT_DESIGN_VARIANT,
+  persistDesignVariant,
+  readPersistedDesignVariant,
+  type DesignVariant,
+} from '../theme/TalkThemeRegistry';
 import { AppToastHost } from '../components/AppToastHost';
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -16,8 +23,11 @@ type ThemeContextValue = {
   mode: ThemeMode;
   resolvedTheme: 'light' | 'dark';
   paperTheme: MD3Theme;
+  designVariant: DesignVariant;
+  designVariantHydrated: boolean;
   setMode: (m: ThemeMode) => void;
   toggleLightDark: () => void;
+  setDesignVariant: (variant: DesignVariant) => Promise<void>;
 };
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -25,17 +35,36 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const system = useColorScheme();
   const [mode, setMode] = useState<ThemeMode>('system');
+  const [designVariant, setDesignVariantState] = useState<DesignVariant>(DEFAULT_DESIGN_VARIANT);
+  const [designVariantHydrated, setDesignVariantHydrated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void readPersistedDesignVariant().then((variant) => {
+      if (cancelled) return;
+      setDesignVariantState(variant);
+      setDesignVariantHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const resolvedTheme: 'light' | 'dark' =
     mode === 'system' ? (system === 'dark' ? 'dark' : 'light') : mode;
 
-  const paperTheme = useMemo(
-    () =>
+  const paperTheme = useMemo(() => {
+    const base =
       resolvedTheme === 'dark'
         ? createTellYouToDarkTheme()
-        : createTellYouToLightTheme(),
-    [resolvedTheme],
-  );
+        : createTellYouToLightTheme();
+    return applyDesignVariantToPaperTheme(base, designVariant);
+  }, [designVariant, resolvedTheme]);
+
+  const setDesignVariant = useCallback(async (variant: DesignVariant) => {
+    await persistDesignVariant(variant);
+    setDesignVariantState(variant);
+  }, []);
 
   const toggleLightDark = useCallback(() => {
     setMode((m) => {
@@ -49,10 +78,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       mode,
       resolvedTheme,
       paperTheme,
+      designVariant,
+      designVariantHydrated,
       setMode,
       toggleLightDark,
+      setDesignVariant,
     }),
-    [mode, resolvedTheme, paperTheme, toggleLightDark],
+    [designVariant, designVariantHydrated, mode, paperTheme, resolvedTheme, setDesignVariant, toggleLightDark],
   );
 
   return (

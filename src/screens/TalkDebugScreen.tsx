@@ -46,6 +46,7 @@ import { formatYmdLocal } from '../services/TimeSorter';
 import { resolveSpeechLangForSession } from '../utils/speechLocale';
 import type { AppTabParamList } from '../navigation/types';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
+import { useDesignTokens } from '../hooks/useDesignTokens';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import {
   AI_PROGRESS_FINAL_SPRINT_MS,
@@ -153,6 +154,7 @@ export function TalkDebugScreen() {
   const [passProVisible, setPassProVisible] = useState(false);
   const insets = useSafeAreaInsets();
   const theme = useTheme();
+  const designTokens = useDesignTokens();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const isFocused = useIsFocused();
   const isFocusedRef = useRef(isFocused);
@@ -733,7 +735,7 @@ export function TalkDebugScreen() {
   }, [i18n.language, intentionFlow, phoenixInput]);
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: designTokens.backgroundColor }]}>
       <PassProModal
         visible={passProVisible}
         onDismiss={() => setPassProVisible(false)}
@@ -764,19 +766,34 @@ export function TalkDebugScreen() {
             value={phoenixInput}
             onChangeText={setPhoenixInput}
             placeholder="Tape ton intention ici..."
-            placeholderTextColor="rgba(226,232,240,0.55)"
-            style={styles.phoenixInput}
+            placeholderTextColor={designTokens.textSecondary}
+            style={[
+              styles.phoenixInput,
+              {
+                color: designTokens.textPrimary,
+                backgroundColor: designTokens.cardBackground,
+                borderColor: designTokens.textSecondary,
+                borderRadius: designTokens.borderRadius * 0.75,
+              },
+            ]}
             editable={!phoenixSubmitting}
             returnKeyType="send"
             onSubmitEditing={() => void onSubmitPhoenix()}
           />
           <TouchableOpacity
-            style={[styles.phoenixSendBtn, phoenixSubmitting ? styles.disabled : null]}
+            style={[
+              styles.phoenixSendBtn,
+              {
+                backgroundColor: designTokens.accentColor,
+                borderRadius: designTokens.borderRadius * 0.75,
+              },
+              phoenixSubmitting ? styles.disabled : null,
+            ]}
             onPress={() => void onSubmitPhoenix()}
             disabled={phoenixSubmitting}
             activeOpacity={0.8}
           >
-            <Text style={styles.phoenixSendText}>Envoyer</Text>
+            <Text style={[styles.phoenixSendText, { color: '#FFFFFF' }]}>Envoyer</Text>
           </TouchableOpacity>
         </View>
         <PilotStatusHeader
@@ -851,30 +868,24 @@ export function TalkDebugScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#111827' },
+  root: { flex: 1 },
   headerSafe: { paddingHorizontal: 16, paddingBottom: 8 },
   phoenixRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 10 },
   phoenixInput: {
     flex: 1,
-    color: '#e2e8f0',
     fontSize: 15,
     borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.55)',
-    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: 'rgba(15,23,42,0.55)',
     fontWeight: '700',
   },
   phoenixSendBtn: {
-    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#008080',
     borderWidth: 1,
-    borderColor: 'rgba(236,254,255,0.35)',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
-  phoenixSendText: { color: '#ecfeff', fontSize: 14, fontWeight: '900' },
+  phoenixSendText: { fontSize: 14, fontWeight: '900' },
   middleSpacer: { flex: 1, minHeight: 0 },
   captureDock: { paddingHorizontal: 20, paddingTop: 10, minHeight: 120 },
   disabled: { opacity: 0.5 },
