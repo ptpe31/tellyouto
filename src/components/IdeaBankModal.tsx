@@ -41,7 +41,7 @@ type Props = {
   anchorDate: Date;
   onChanged: () => void;
   title?: string;
-  /** `inbox` : intentions du jour non traitées (Smart Clusters « Nouveau »). */
+  /** `inbox` : toutes les captures du jour (Smart Clusters « Inbox »). */
   mode?: 'default' | 'inbox';
 };
 
@@ -212,7 +212,7 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
             <View style={styles.sheetHeader}>
               <Text style={[styles.sheetTitle, { color: designTokens.textPrimary }]}>
                 {title ||
-                  (mode === 'inbox' ? t('timeline.smartClusters.newTitle') : t('timeline.ideaBank.title'))}
+                  (mode === 'inbox' ? t('timeline.smartClusters.inbox') : t('timeline.ideaBank.title'))}
               </Text>
               <Pressable onPress={onClose} hitSlop={12}>
                 <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>

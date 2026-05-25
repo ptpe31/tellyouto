@@ -592,6 +592,8 @@
       "cancel": "Cancel"
     },
     "smartClusters": {
+      "inbox": "Inbox",
+      "inboxSubtitle": "{{count}} today",
       "newTitle": "⚡ New",
       "newSubtitle": "{{count}} to sort",
       "projectsTitle": "📁 Projects",

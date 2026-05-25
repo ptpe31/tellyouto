@@ -11,7 +11,7 @@ export const SMART_CLUSTER_TILE_W = 148;
 export const SMART_CLUSTER_TILE_H = 92;
 
 export type SmartClusterDebugContents = {
-  new: SmartClusterDebugEntry[];
+  inbox: SmartClusterDebugEntry[];
   shop: SmartClusterDebugEntry[];
   cluster: SmartClusterDebugEntry[];
   projects: SmartClusterDebugEntry[];
@@ -19,12 +19,12 @@ export type SmartClusterDebugContents = {
 };
 
 type Props = {
-  newCount: number;
+  inboxCount: number;
   shopCount: number;
   cluster: { categoryId: string; count: number } | null;
   projectsCount: number;
   listsCount: number;
-  onPressNew: () => void;
+  onPressInbox: () => void;
   onPressShop: () => void;
   onPressCluster: () => void;
   onPressProjects: () => void;
@@ -89,12 +89,12 @@ function ClusterTile({ title, subtitle, badge, onPress }: TileProps) {
 
 /** Carrousel horizontal « Smart Clusters » (Tableau de bord tactique Timeline). */
 export function SmartClustersCarousel({
-  newCount,
+  inboxCount,
   shopCount,
   cluster,
   projectsCount,
   listsCount,
-  onPressNew,
+  onPressInbox,
   onPressShop,
   onPressCluster,
   onPressProjects,
@@ -102,7 +102,7 @@ export function SmartClustersCarousel({
   debugContents,
 }: Props) {
   const { t, i18n } = useTranslation();
-  const debug = debugContents ?? { new: [], shop: [], cluster: [], projects: [], lists: [] };
+  const debug = debugContents ?? { inbox: [], shop: [], cluster: [], projects: [], lists: [] };
 
   const clusterCategoryLabel =
     cluster && i18n.exists(`category.${cluster.categoryId}`)
@@ -116,12 +116,12 @@ export function SmartClustersCarousel({
       contentContainerStyle={styles.scrollContent}
       style={styles.scroll}
     >
-      {newCount > 0 ? (
+      {inboxCount > 0 ? (
         <ClusterTile
-          title={t('timeline.smartClusters.newTitle')}
-          subtitle={t('timeline.smartClusters.newSubtitle', { count: newCount })}
-          badge={newCount}
-          onPress={pressWithClusterDebug('Nouveau', debug.new, onPressNew)}
+          title={t('timeline.smartClusters.inbox')}
+          subtitle={t('timeline.smartClusters.inboxSubtitle', { count: inboxCount })}
+          badge={inboxCount}
+          onPress={pressWithClusterDebug('Inbox', debug.inbox, onPressInbox)}
         />
       ) : null}
       {shopCount > 0 ? (

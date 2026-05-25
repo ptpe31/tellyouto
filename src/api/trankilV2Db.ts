@@ -923,8 +923,7 @@ export async function listTrankilV2TimelineItemsByDate(
 }
 
 /**
- * « Aujourd’hui » : journée courante + tâches « sans pression » non déjà présentes (fusion SQL + tri).
- * Exclut du flux les intentions créées le jour J sans échéance explicite (sas « Nouveau »).
+ * Feuille de route « Aujourd’hui » : items traités (échéance du jour ou épinglé), hors Inbox brut.
  */
 export async function listTrankilV2MergedTodayTimelineWithLowPressure(
   selectedDateYmd: string,
@@ -937,8 +936,10 @@ export async function listTrankilV2MergedTodayTimelineWithLowPressure(
   const ymdCompact = selectedDateYmd.replace(/-/g, '');
   const lim = Math.max(1, Math.min(500, Math.floor(Number(paging.limit ?? TIMELINE_PAGE_SIZE))));
   const off = Math.max(0, Math.floor(Number(paging.offset ?? 0)));
+  const execParams = [selectedDateYmd, ymdCompact, selectedDateYmd] as const;
   await initTrankilV2Schema();
   const db = await getDb();
+  const roadmap = intentionExecutionRoadmapSql(selectedDateYmd);
   const sql = `
 WITH dated AS (
   SELECT * FROM (
@@ -962,7 +963,11 @@ WITH dated AS (
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
       i.transport_mode AS transport_mode,
       COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
-      i.due_date AS effective_date,
+      COALESCE(i.is_pinned, 0) AS is_pinned,
+      CASE
+        WHEN COALESCE(i.is_pinned, 0) = 1 AND (i.due_date IS NULL OR trim(i.due_date) = '') THEN ?
+        ELSE substr(trim(COALESCE(i.due_date, '')), 1, 10)
+      END AS effective_date,
       1 AS section_order
     FROM intentions i
     WHERE i.status = ?
@@ -971,6 +976,7 @@ WITH dated AS (
       AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
       ${reserved}
       ${ctx}
+      ${roadmap}
     UNION ALL
     SELECT
       i.id AS id,
@@ -992,7 +998,11 @@ WITH dated AS (
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
       i.transport_mode AS transport_mode,
       COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
-      i.due_date AS effective_date,
+      COALESCE(i.is_pinned, 0) AS is_pinned,
+      CASE
+        WHEN COALESCE(i.is_pinned, 0) = 1 AND (i.due_date IS NULL OR trim(i.due_date) = '') THEN ?
+        ELSE substr(trim(COALESCE(i.due_date, '')), 1, 10)
+      END AS effective_date,
       2 AS section_order
     FROM intentions i
     LEFT JOIN intentions p ON p.id = i.parent_id AND p.type = 'PROJECT'
@@ -1003,6 +1013,7 @@ WITH dated AS (
       AND trim(i.parent_id) != ''
       ${reserved}
       ${ctx}
+      ${roadmap}
     UNION ALL
     SELECT
       i.id AS id,
@@ -1024,7 +1035,11 @@ WITH dated AS (
       COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
       i.transport_mode AS transport_mode,
       COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
-      COALESCE(i.due_date, date(datetime(i.created_at / 1000, 'unixepoch', 'localtime'))) AS effective_date,
+      COALESCE(i.is_pinned, 0) AS is_pinned,
+      CASE
+        WHEN COALESCE(i.is_pinned, 0) = 1 AND (i.due_date IS NULL OR trim(i.due_date) = '') THEN ?
+        ELSE substr(trim(COALESCE(i.due_date, '')), 1, 10)
+      END AS effective_date,
       3 AS section_order
     FROM intentions i
     WHERE i.status = ?
@@ -1032,59 +1047,12 @@ WITH dated AS (
       AND i.type IN ('NOTE', 'AUDIO', 'LIST', 'PROJECT')
       ${reserved}
       ${ctx}
-      AND NOT (
-        (i.due_date IS NULL OR trim(i.due_date) = '')
-        AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
-      )
+      ${roadmap}
   ) z
   WHERE z.effective_date = ?
-),
-lowp AS (
-  SELECT
-    i.id AS id,
-    i.type AS type,
-    i.status AS status,
-    i.due_date AS due_date,
-    i.created_at AS created_at,
-    i.updated_at AS updated_at,
-    i.is_dirty AS is_dirty,
-    i.content_raw AS content_raw,
-    i.parent_id AS parent_id,
-    NULL AS project_title,
-    i.title AS display_title,
-    'TASK_HABIT' AS section,
-    COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
-    i.category_id AS category_id,
-    i.suggested_tags AS suggested_tags,
-    i.metadata_json AS metadata_json,
-    COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
-    i.transport_mode AS transport_mode,
-    COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
-    NULL AS effective_date,
-    1 AS section_order
-  FROM intentions i
-  WHERE i.status = ?
-    AND COALESCE(i.is_archived, 0) = 0
-    AND i.type = 'TASK'
-    AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
-    AND (
-      (i.due_date IS NULL OR trim(i.due_date) = '')
-      OR (instr(i.suggested_tags, '"a_trier"') > 0)
-    )
-    ${reserved}
-    ${ctx}
-    AND NOT EXISTS (SELECT 1 FROM dated d WHERE d.id = i.id)
-    AND NOT (
-      (i.due_date IS NULL OR trim(i.due_date) = '')
-      AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
-    )
 )
-SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode, remind_to_leave
-FROM (
-  SELECT * FROM dated
-  UNION ALL
-  SELECT * FROM lowp
-) u
+SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode, remind_to_leave, is_pinned
+FROM dated u
 ORDER BY u.section_order ASC,
   CASE WHEN u.type = 'HABIT' THEN 0 ELSE 1 END,
   CASE
@@ -1099,12 +1067,15 @@ ORDER BY u.section_order ASC,
   u.created_at DESC
 LIMIT ? OFFSET ?`;
   return db.getAllAsync<TrankilV2TimelineItemRow>(sql, [
-    status,
-    status,
-    status,
-    selectedDateYmd,
     selectedDateYmd,
     status,
+    ...execParams,
+    selectedDateYmd,
+    status,
+    ...execParams,
+    selectedDateYmd,
+    status,
+    ...execParams,
     selectedDateYmd,
     selectedDateYmd,
     ymdCompact,
@@ -1889,69 +1860,137 @@ const INTENTION_IS_SHOP_SQL = `${INTENTION_CATEGORY_ID_NORM_SQL} = 'SHOP'`;
 
 const INTENTION_NOT_SHOP_SQL = `${INTENTION_CATEGORY_ID_NORM_SQL} != 'SHOP'`;
 
+/** Item trié / planifié (hors sas Inbox brut du jour). */
+const INTENTION_IS_PROCESSED_SQL = `(
+  COALESCE(i.is_organized, 0) = 1
+  OR COALESCE(i.is_pinned, 0) = 1
+  OR (i.due_date IS NOT NULL AND trim(i.due_date) != '')
+)`;
+
+const INTENTION_CREATED_ON_LOCAL_YMD_SQL = `date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?`;
+
+/** Encore dans l'Inbox du jour : capturé aujourd'hui, sans échéance, non épinglé. */
+const INTENTION_INBOX_ONLY_TODAY_SQL = `(
+  ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}
+  AND (i.due_date IS NULL OR trim(i.due_date) = '')
+  AND COALESCE(i.is_pinned, 0) = 0
+)`;
+
+function intentionDueOnLocalYmdSql(alias = 'i'): string {
+  return `(
+    substr(trim(COALESCE(${alias}.due_date, '')), 1, 10) = ?
+    OR replace(substr(trim(COALESCE(${alias}.due_date, '')), 1, 10), '-', '') = ?
+  )`;
+}
+
+/** Feuille de route : échéance du jour ou épinglé, et item traité (hors Inbox brut). */
+function intentionExecutionRoadmapSql(selectedDateYmd: string): string {
+  const ymdCompact = selectedDateYmd.replace(/-/g, '');
+  return `
+    AND (
+      COALESCE(i.is_pinned, 0) = 1
+      OR ${intentionDueOnLocalYmdSql('i')}
+    )
+    AND ${INTENTION_IS_PROCESSED_SQL}
+    AND NOT ${INTENTION_INBOX_ONLY_TODAY_SQL}`;
+}
+
 const INTENTION_ACTIVE_TODO_SQL = `
   i.status = 'TODO'
   AND COALESCE(i.is_archived, 0) = 0`;
 
-/** Pool « À acheter » : SHOP sans échéance (TASK ou LIST). */
-const SHOP_CLUSTER_WHERE = `
+const INBOX_TODAY_WHERE = `
   ${INTENTION_ACTIVE_TODO_SQL}
   ${INTENTION_SYSTEM_RESERVED_SQL}
-  AND ${INTENTION_NO_DUE_DATE_SQL}
+  AND ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}`;
+
+/** Raccourci « À acheter » : toutes les intentions SHOP actives. */
+const SHOP_SHORTCUT_WHERE = `
+  ${INTENTION_ACTIVE_TODO_SQL}
+  ${INTENTION_SYSTEM_RESERVED_SQL}
   AND ${INTENTION_IS_SHOP_SQL}`;
 
-/** Compte les intentions créées aujourd’hui (local) sans échéance — sas « Nouveau » (hors SHOP). */
+/** Raccourci « Listes » : toutes les intentions LIST actives. */
+const LIST_SHORTCUT_WHERE = `
+  i.type = 'LIST'
+  AND COALESCE(i.is_archived, 0) = 0
+  AND i.status != 'ARCHIVED'
+  ${INTENTION_SYSTEM_RESERVED_SQL}`;
+
+/** @deprecated Alias — préférer {@link countInboxToday}. */
 export async function countNewIntentionsToday(todayYmd?: string): Promise<number> {
+  return countInboxToday(todayYmd);
+}
+
+/** Compte l'Inbox du jour (toutes captures d'aujourd'hui). */
+export async function countInboxToday(todayYmd?: string): Promise<number> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();
   const db = await getDb();
   const row = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM intentions i
-     WHERE ${INTENTION_ACTIVE_TODO_SQL}
-       ${INTENTION_SYSTEM_RESERVED_SQL}
-       AND ${INTENTION_NO_DUE_DATE_SQL}
-       AND ${INTENTION_NOT_SHOP_SQL}
-       AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?`,
+    `SELECT COUNT(*) AS n FROM intentions i WHERE ${INBOX_TODAY_WHERE}`,
     [ymd],
   );
   return Number(row?.n ?? 0);
 }
 
-/** Liste les intentions du sas « Nouveau » (créées aujourd’hui, sans échéance, hors SHOP). */
+/** @deprecated Alias — préférer {@link listTrankilV2InboxToday}. */
 export async function listTrankilV2NewInboxToday(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
+  return listTrankilV2InboxToday(todayYmd);
+}
+
+/** Inbox : toutes les intentions créées aujourd'hui (sas de saisie rapide). */
+export async function listTrankilV2InboxToday(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();
   const db = await getDb();
   return db.getAllAsync<TrankilV2IntentionRow>(
     `SELECT * FROM intentions i
-     WHERE ${INTENTION_ACTIVE_TODO_SQL}
-       ${INTENTION_SYSTEM_RESERVED_SQL}
-       AND ${INTENTION_NO_DUE_DATE_SQL}
-       AND ${INTENTION_NOT_SHOP_SQL}
-       AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+     WHERE ${INBOX_TODAY_WHERE}
      ORDER BY i.created_at DESC`,
     [ymd],
   );
 }
 
-/** Compte le cluster « À acheter » (category SHOP, sans date — inclut les LIST SHOP). */
+/** Compte le raccourci « À acheter » (category SHOP). */
 export async function countShopClusterIntentions(): Promise<number> {
   await initTrankilV2Schema();
   const db = await getDb();
   const row = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM intentions i WHERE ${SHOP_CLUSTER_WHERE}`,
+    `SELECT COUNT(*) AS n FROM intentions i WHERE ${SHOP_SHORTCUT_WHERE}`,
   );
   return Number(row?.n ?? 0);
 }
 
-/** Liste le cluster « À acheter » (TASK/LIST en category SHOP, sans échéance). */
+/** Raccourci « À acheter » — toutes les intentions SHOP actives. */
 export async function listTrankilV2ShopClusterIntentions(): Promise<TrankilV2IntentionRow[]> {
   await initTrankilV2Schema();
   const db = await getDb();
   return db.getAllAsync<TrankilV2IntentionRow>(
     `SELECT * FROM intentions i
-     WHERE ${SHOP_CLUSTER_WHERE}
+     WHERE ${SHOP_SHORTCUT_WHERE}
      ORDER BY i.created_at DESC`,
+  );
+}
+
+/** Compte le raccourci « Listes » (type LIST). */
+export async function countListClusterIntentions(): Promise<number> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions i WHERE ${LIST_SHORTCUT_WHERE}`,
+  );
+  return Number(row?.n ?? 0);
+}
+
+/** Raccourci « Listes » — toutes les intentions LIST actives. */
+export async function listTrankilV2ListClusterIntentions(): Promise<TrankilV2IntentionRow[]> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions i
+     WHERE ${LIST_SHORTCUT_WHERE}
+     ORDER BY COALESCE(NULLIF(i.updated_at, 0), i.created_at) DESC`,
   );
 }
 
@@ -1985,17 +2024,6 @@ const ACTIVE_PROJECTS_TODAY_WHERE = `
     OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
   )`;
 
-const ACTIVE_LISTS_TODAY_WHERE = `
-  i.type = 'LIST'
-  AND COALESCE(i.is_archived, 0) = 0
-  AND i.status != 'ARCHIVED'
-  ${INTENTION_SYSTEM_RESERVED_SQL}
-  AND ${INTENTION_NOT_SHOP_SQL}
-  AND (
-    date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
-    OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
-  )`;
-
 /** Projets touchés aujourd’hui — id + titre (debug carrousel / stress tests). */
 export async function listActiveProjectsToday(
   todayYmd?: string,
@@ -2011,43 +2039,33 @@ export async function listActiveProjectsToday(
   );
 }
 
-/** Listes touchées aujourd’hui — id + titre (debug carrousel / stress tests). */
+const ACTIVE_LISTS_TODAY_WHERE = `
+  i.type = 'LIST'
+  AND COALESCE(i.is_archived, 0) = 0
+  AND i.status != 'ARCHIVED'
+  ${INTENTION_SYSTEM_RESERVED_SQL}
+  AND (
+    date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
+    OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
+  )`;
+
+/** @deprecated Alias — préférer {@link listTrankilV2ListClusterIntentions}. */
 export async function listActiveListsToday(
   todayYmd?: string,
 ): Promise<Array<{ id: string; title: string }>> {
-  const ymd = resolveLocalTodayYmd(todayYmd);
-  await initTrankilV2Schema();
-  const db = await getDb();
-  return db.getAllAsync<{ id: string; title: string }>(
-    `SELECT i.id AS id, i.title AS title FROM intentions i
-     WHERE ${ACTIVE_LISTS_TODAY_WHERE}
-     ORDER BY COALESCE(NULLIF(i.updated_at, 0), i.created_at) DESC`,
-    [ymd, ymd],
-  );
+  const rows = await listTrankilV2ListClusterIntentions();
+  return rows.map((r) => ({ id: r.id, title: r.title }));
 }
 
-/** Listes touchées aujourd’hui (création ou mise à jour locale). */
-export async function countActiveListsToday(todayYmd?: string): Promise<number> {
-  const ymd = resolveLocalTodayYmd(todayYmd);
-  await initTrankilV2Schema();
-  const db = await getDb();
-  const row = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM intentions i
-     WHERE i.type = 'LIST'
-       AND COALESCE(i.is_archived, 0) = 0
-       AND i.status != 'ARCHIVED'
-       ${INTENTION_SYSTEM_RESERVED_SQL}
-       AND ${INTENTION_NOT_SHOP_SQL}
-       AND (
-         date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
-         OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
-       )`,
-    [ymd, ymd],
-  );
-  return Number(row?.n ?? 0);
+/** @deprecated Alias — préférer {@link countListClusterIntentions}. */
+export async function countActiveListsToday(_todayYmd?: string): Promise<number> {
+  return countListClusterIntentions();
 }
 
 export type TrankilV2SmartClusterCounts = {
+  /** Inbox du jour (captures d'aujourd'hui). */
+  inboxToday: number;
+  /** @deprecated Alias — {@link inboxToday}. */
   newToday: number;
   shopCount: number;
   projectsToday: number;
@@ -2060,19 +2078,14 @@ export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise
   await initTrankilV2Schema();
   const db = await getDb();
   const row = await db.getFirstAsync<{
-    new_today: number;
+    inbox_today: number;
     shop_count: number;
     projects_today: number;
     lists_today: number;
   }>(
     `SELECT
-       (SELECT COUNT(*) FROM intentions i
-        WHERE ${INTENTION_ACTIVE_TODO_SQL}
-          ${INTENTION_SYSTEM_RESERVED_SQL}
-          AND ${INTENTION_NO_DUE_DATE_SQL}
-          AND ${INTENTION_NOT_SHOP_SQL}
-          AND date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?) AS new_today,
-       (SELECT COUNT(*) FROM intentions i WHERE ${SHOP_CLUSTER_WHERE}) AS shop_count,
+       (SELECT COUNT(*) FROM intentions i WHERE ${INBOX_TODAY_WHERE}) AS inbox_today,
+       (SELECT COUNT(*) FROM intentions i WHERE ${SHOP_SHORTCUT_WHERE}) AS shop_count,
        (SELECT COUNT(*) FROM intentions i
         WHERE i.type = 'PROJECT'
           AND COALESCE(i.is_archived, 0) = 0
@@ -2082,20 +2095,13 @@ export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise
             date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
             OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
           )) AS projects_today,
-       (SELECT COUNT(*) FROM intentions i
-        WHERE i.type = 'LIST'
-          AND COALESCE(i.is_archived, 0) = 0
-          AND i.status != 'ARCHIVED'
-          ${INTENTION_SYSTEM_RESERVED_SQL}
-          AND ${INTENTION_NOT_SHOP_SQL}
-          AND (
-            date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?
-            OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
-          )) AS lists_today`,
-    [ymd, ymd, ymd, ymd, ymd],
+       (SELECT COUNT(*) FROM intentions i WHERE ${LIST_SHORTCUT_WHERE}) AS lists_today`,
+    [ymd, ymd, ymd],
   );
+  const inboxToday = Number(row?.inbox_today ?? 0);
   return {
-    newToday: Number(row?.new_today ?? 0),
+    inboxToday,
+    newToday: inboxToday,
     shopCount: Number(row?.shop_count ?? 0),
     projectsToday: Number(row?.projects_today ?? 0),
     listsToday: Number(row?.lists_today ?? 0),

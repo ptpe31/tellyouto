@@ -28,10 +28,10 @@ import {
   listIntentionsForPass3Cleanup,
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
-  listTrankilV2NewInboxToday,
+  listTrankilV2InboxToday,
+  listTrankilV2ListClusterIntentions,
   listTrankilV2ShopClusterIntentions,
   listActiveProjectsToday,
-  listActiveListsToday,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
   listTrankilV2UnorganizedIntentions,
@@ -80,7 +80,6 @@ import { getBestOrphanCluster } from '../services/clusterEngine';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { formatYmdLocal } from '../services/TimeSorter';
-import { createdYmdFromMs } from '../utils/timeFormat';
 import { buildDailyRoadmapPayload, runDailyRoadmapGeminiHtml } from '../services/dailyRoadmapPass3';
 import { ensureGeminiRemoteModelInitialized } from '../services/geminiRemoteModelSteering';
 import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOverlay';
@@ -386,7 +385,7 @@ export function TimelineScreen() {
   const [ideaBankMode, setIdeaBankMode] = useState<'default' | 'inbox'>('default');
   const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
   const [smartClusterCounts, setSmartClusterCounts] = useState({
-    newToday: 0,
+    inboxToday: 0,
     shopCount: 0,
     projectsToday: 0,
     listsToday: 0,
@@ -732,10 +731,10 @@ export function TimelineScreen() {
       const [b, counts, inboxRaw, shopRaw, projectsRaw, listsRaw] = await Promise.all([
         fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0),
         getTrankilV2SmartClusterCounts(ymd),
-        listTrankilV2NewInboxToday(ymd),
+        listTrankilV2InboxToday(ymd),
         listTrankilV2ShopClusterIntentions(),
         listActiveProjectsToday(ymd),
-        listActiveListsToday(ymd),
+        listTrankilV2ListClusterIntentions(),
       ]);
       setUnorganizedTodo(b.unorganizedTodo);
       setPrimaryRows(b.primary);
@@ -746,7 +745,7 @@ export function TimelineScreen() {
       setInboxTodayRows(inboxRaw.map(mapTrankilIntentionToTimelineItemRow));
       setShopClusterRows(shopRaw.map(mapTrankilIntentionToTimelineItemRow));
       setProjectsTodayDebug(projectsRaw);
-      setListsTodayDebug(listsRaw);
+      setListsTodayDebug(listsRaw.map((r) => ({ id: r.id, title: r.title })));
     } finally {
       setLoading(false);
       void refreshDailyRoadmapSummary();
@@ -1158,7 +1157,7 @@ export function TimelineScreen() {
 
   const smartClusterProps = useMemo(
     () => ({
-      newCount: smartClusterCounts.newToday,
+      inboxCount: smartClusterCounts.inboxToday,
       shopCount: smartClusterCounts.shopCount,
       cluster:
         activeCluster && activeCluster.count >= 2
@@ -1182,7 +1181,7 @@ export function TimelineScreen() {
     const clusterCategoryId =
       activeCluster && activeCluster.count >= 2 ? activeCluster.categoryId : null;
     return {
-      new: inboxTodayItems.map(toEntry),
+      inbox: inboxTodayItems.map(toEntry),
       shop: shopClusterRows.map(toEntry),
       cluster: clusterCategoryId
         ? orphanClusterPool
@@ -1231,11 +1230,8 @@ export function TimelineScreen() {
       .map((r) => {
         const dueYmd = normalizeDueDateLocal(r.due_date);
         let effectiveYmd: string | null = dueYmd;
-        if (!effectiveYmd && isTodayView) {
-          const createdYmd = createdYmdFromMs(Number(r.created_at));
-          if (createdYmd && createdYmd !== todayYmd) {
-            effectiveYmd = todayYmd;
-          }
+        if (!effectiveYmd && isTodayView && (r.is_pinned ?? 0) === 1) {
+          effectiveYmd = todayYmd;
         }
         if (!effectiveYmd) return null;
         const sortMs = (() => {
@@ -1491,7 +1487,7 @@ export function TimelineScreen() {
       <SmartClustersCarousel
         {...smartClusterProps}
         debugContents={clusterDebugContents}
-        onPressNew={openIdeaBankInbox}
+        onPressInbox={openIdeaBankInbox}
         onPressShop={openIdeaBankShop}
         onPressCluster={openIdeaBankCluster}
         onPressProjects={() => {
@@ -1657,7 +1653,7 @@ export function TimelineScreen() {
           ideaBankCategoryFilter === 'SHOP'
             ? t('timeline.ideaBank.shopTitle')
             : ideaBankMode === 'inbox'
-              ? t('timeline.smartClusters.newTitle')
+              ? t('timeline.smartClusters.inbox')
               : undefined
         }
       />
