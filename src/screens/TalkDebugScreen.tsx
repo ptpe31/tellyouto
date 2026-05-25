@@ -22,7 +22,6 @@ import {
 } from '../api/trankilV2Db';
 import {
   CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH_EVENT_NAME,
-  CAPTURE_PIPELINE_SPRINT_COMPLETE_EVENT_NAME,
   INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
   INTENTION_PEEK_SNAPSHOT_EVENT_NAME,
   INTENTIONS_CHANGED_EVENT_NAME,
@@ -36,6 +35,7 @@ import {
 } from '../utils/capturePeekLayout';
 import { getIntentionColor } from '../utils/intentionColorHash';
 import { mapTrankilIntentionToTimelineItemRow, type TrankilV2TimelineItemRow } from '../api';
+import { resolveTalkDebugSuggestionsBottomOffset, TALK_DEBUG_MIC_DOCK_MIN_HEIGHT } from '../constants/captureOverlayLayout';
 import { useCapturePresentation } from '../context/CapturePresentationContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { DealerBoard } from '../components/DealerBoard';
@@ -320,15 +320,10 @@ export function TalkDebugScreen() {
         applyPeekFirstSavePayload(payload);
       },
     );
-    const subSprint = DeviceEventEmitter.addListener(CAPTURE_PIPELINE_SPRINT_COMPLETE_EVENT_NAME, () => {
-      if (!isFocusedRef.current) return;
-      setSelectedIntentionIndex(0);
-    });
     return () => {
       subSnap.remove();
       subFirstSave.remove();
       subDeferred.remove();
-      subSprint.remove();
     };
   }, [applyPeekFirstSavePayload, isPipelineOverlayVisible, pipelineOverlayVisibleRef]);
 
@@ -437,10 +432,10 @@ export function TalkDebugScreen() {
 
       <IntentionSuggestionsBanner
         visible={!captureRecordingActive && !isPipelineOverlayVisible}
-        bottomOffset={112}
+        bottomOffset={resolveTalkDebugSuggestionsBottomOffset()}
       />
 
-      <View style={[styles.bottomSpacer, { paddingBottom: Math.max(insets.bottom, 10) }]} />
+      <View style={styles.bottomSpacer} />
 
       <DealerBoard
         selectedIntentionIndex={selectedIntentionIndex}
@@ -470,6 +465,6 @@ const styles = StyleSheet.create({
   },
   phoenixSendText: { fontSize: 14, fontWeight: '900' },
   middleSpacer: { flex: 1, minHeight: 0 },
-  bottomSpacer: { minHeight: 120 },
+  bottomSpacer: { minHeight: TALK_DEBUG_MIC_DOCK_MIN_HEIGHT },
   disabled: { opacity: 0.5 },
 });

@@ -732,6 +732,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
 
   if (isTalkDebug) {
     const canvasH = Math.round(Dimensions.get('window').height * 0.4);
+    const transcriptMaxH = Math.min(Math.round(Dimensions.get('window').height * 0.3), 220);
     const accent = successTone === 'offline' ? '#FFB300' : '#4CAF50';
     if (phase === 'idle' || phase === 'pipeline_wait') {
       return (
@@ -785,7 +786,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
             ref={(ref) => {
               liveScrollRef.current = ref;
             }}
-            style={tdStyles.captureTranscriptScroll}
+            style={[tdStyles.captureTranscriptScroll, { maxHeight: transcriptMaxH }]}
             contentContainerStyle={tdStyles.liveTranscriptContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -1011,7 +1012,7 @@ const styles = StyleSheet.create({
 
 const tdStyles = StyleSheet.create({
   captureRecordingWrap: { width: '100%' },
-  captureTranscriptShell: { width: '100%', position: 'relative', marginBottom: 14 },
+  captureTranscriptShell: { width: '100%', position: 'relative', marginBottom: 10 },
   captureTranscriptScroll: { width: '100%' },
   liveTranscriptContent: { paddingHorizontal: 10, paddingVertical: 8 },
   liveTranscript: { color: '#BDC3C7', fontSize: 16, textAlign: 'center', paddingHorizontal: 10, lineHeight: 22 },
@@ -1026,13 +1027,12 @@ const tdStyles = StyleSheet.create({
   },
   transcriptFadeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 16 },
   transcriptFadeBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 16 },
-  pilotRowDocked: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginTop: 4 },
+  pilotRowDocked: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20 },
   ctrlBtn: { width: 52, height: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f766e' },
   ctrlBtnPrimary: { width: 72, height: 72, borderRadius: 999, backgroundColor: '#008080' },
-  micShell: { alignSelf: 'center', width: '100%', alignItems: 'center', gap: 10, marginBottom: 8 },
+  micShell: { alignSelf: 'center', width: '100%', alignItems: 'center', gap: 10 },
   micBtn: {
     alignSelf: 'center',
-    marginBottom: 8,
     width: 72,
     height: 72,
     borderRadius: 999,

@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 
 import {
   CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH_EVENT_NAME,
-  CAPTURE_PIPELINE_SPRINT_COMPLETE_EVENT_NAME,
 } from '../constants/intentionEvents';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { CAPTURE_PIPELINE_PROGRESS_EVENT, type CapturePipelineProgressPayload } from '../utils/captureFlowLog';
@@ -95,7 +94,6 @@ export function useCapturePipelineOverlay({
     pendingRevealAfter100TimeoutRef.current = setTimeout(() => {
       pendingRevealAfter100TimeoutRef.current = null;
       onPipelineSprintCompleteRef.current?.();
-      DeviceEventEmitter.emit(CAPTURE_PIPELINE_SPRINT_COMPLETE_EVENT_NAME);
       beginDashboardHideRef.current(`reveal hold ${AI_PROGRESS_REVEAL_HOLD_MS}ms after 100%`);
       closePipelineOverlayCoreRef.current();
       queueMicrotask(() => micRef.current?.exitPipelineWaitToIdle());
