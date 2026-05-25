@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 export const TAB_BAR_CORE_HEIGHT = Platform.select({ ios: 49, android: 56, default: 49 }) ?? 49;
 
 /** Espace entre le dock capture global et le haut de la tab bar. */
-export const CAPTURE_OVERLAY_TAB_GAP = 8;
+export const CAPTURE_OVERLAY_TAB_GAP = 80;
 
 /** Zone minimale du micro Talk au repos (bouton 72 + marges). */
 export const TALK_DEBUG_MIC_DOCK_MIN_HEIGHT = 88;
