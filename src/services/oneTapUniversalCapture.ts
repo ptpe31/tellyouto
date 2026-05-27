@@ -601,6 +601,23 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
       });
       continue;
     }
+    if (type === 'PROJECT') {
+      const title = String(r.title ?? r.content ?? '').trim();
+      if (!title) continue;
+      const baseCountRaw = Number(r.baseCount ?? 1);
+      const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
+      const unitLabel = typeof r.unitLabel === 'string' ? r.unitLabel.trim().slice(0, 40) : 'etape';
+      out.push({
+        type: 'PROJECT',
+        title,
+        baseCount,
+        unitLabel: unitLabel || 'etape',
+        items: r.items,
+        category,
+        ...contextField,
+      });
+      continue;
+    }
   }
   return out;
 }
@@ -977,13 +994,14 @@ function mergeIntentArrayIntoOneTapSkeleton(
     const ctx = typeof rawIntent.context === 'string' ? normalizeOneTapContextTag(rawIntent.context) : '';
     if (ctx) contextTag = ctx;
     if (type === 'LIST' || type === 'PROJECT') {
-      const listTitle = typeof rawIntent.title === 'string' ? rawIntent.title.trim() : '';
+      const listTitle = String(rawIntent.title ?? rawIntent.content ?? '').trim();
       const baseCountRaw = Number((rawIntent as { baseCount?: unknown }).baseCount ?? 1);
       const baseCount = Number.isFinite(baseCountRaw) ? Math.max(1, Math.round(baseCountRaw)) : 1;
+      const defaultUnitLabel = type === 'PROJECT' ? 'etape' : 'personne';
       const unitLabel =
         typeof (rawIntent as { unitLabel?: unknown }).unitLabel === 'string'
-          ? String((rawIntent as { unitLabel: string }).unitLabel).trim().slice(0, 40) || 'personne'
-          : 'personne';
+          ? String((rawIntent as { unitLabel: string }).unitLabel).trim().slice(0, 40) || defaultUnitLabel
+          : defaultUnitLabel;
       const itemsObj = coerceListItems(rawIntent.items, baseCount);
       const itemsStr = itemsObj.length ? [] : coerceItemsArray(rawIntent.items);
       out.list = {
