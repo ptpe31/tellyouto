@@ -44,6 +44,11 @@ import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 import { aiLogTokensFromHttpMeta, isAiLoggingEnabled, logAiInteraction } from '../utils/logAiInteraction';
 import { applyPass1DueFields, parsePass1DueDateTime } from '../utils/pass1DueDateParse';
+import {
+  cadenceDescriptionFromRule,
+  coerceRecurrenceRule,
+  type HabitRecurrenceRule,
+} from '../utils/habitRecurrenceRule';
 import { getDebugUserTierOverrideCached } from './debugUserTierOverride';
 import { DEBUG_MODE_DOUANE } from './oneTapPersist';
 import { getActivePass1ModelId } from './geminiRemoteModelSteering';
@@ -339,6 +344,7 @@ export type OneTapIntentJson = {
   notes?: string;
   due?: string;
   recurrence?: string;
+  recurrence_rule?: unknown;
   preferredTime?: string;
   title?: string;
   items?: ListItemDraft[] | unknown;
@@ -370,7 +376,8 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
     const type = String(it.type ?? '').trim().toUpperCase();
     if (type === 'HABIT' || type === 'RECURRING_TASK') {
       const recurrence = String(it.recurrence ?? '').trim();
-      return { ...it, incomplete: !recurrence };
+      const hasRule = it.recurrence_rule != null && typeof it.recurrence_rule === 'object';
+      return { ...it, incomplete: !recurrence && !hasRule };
     }
     if (type === 'TRIP') {
       const addr = String(it.address ?? '').trim();
@@ -580,7 +587,18 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
       if (!content) continue;
       const recurrence = typeof r.recurrence === 'string' ? r.recurrence.trim() : '';
       const preferredTime = typeof r.preferredTime === 'string' ? r.preferredTime.trim() : '';
-      out.push({ type: 'HABIT', content, recurrence, ...(preferredTime ? { preferredTime } : {}), category, ...contextField });
+      const due = typeof r.due === 'string' ? r.due.trim() : '';
+      const recurrence_rule = r.recurrence_rule;
+      out.push({
+        type: 'HABIT',
+        content,
+        recurrence,
+        ...(due ? { due } : {}),
+        ...(preferredTime ? { preferredTime } : {}),
+        ...(recurrence_rule != null ? { recurrence_rule } : {}),
+        category,
+        ...contextField,
+      });
       continue;
     }
   }
@@ -617,6 +635,8 @@ function wireLineFromSkeleton(s: OneTapUniversalResult): string {
     if (g) parts.push(`G:${g}`);
   }
   if (s.predictedType === 'HABIT' || s.predictedType === 'RECURRING_TASK') {
+    const h = typeof d.preferredTimeHm === 'string' ? d.preferredTimeHm.trim() : '';
+    if (h) parts.push(`H:${h}`);
     const c =
       typeof d.cadenceDescription === 'string' ? d.cadenceDescription.trim().slice(0, 120) : '';
     if (c) parts.push(`C:${c.replace(/\|/g, ' ')}`);
@@ -1005,13 +1025,25 @@ function mergeIntentArrayIntoOneTapSkeleton(
     if (type === 'HABIT') {
       const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
       if (content) title = content.slice(0, 200);
-      const rec = typeof rawIntent.recurrence === 'string' ? rawIntent.recurrence.trim() : '';
-      if (rec) {
-        out.cadenceDescription = rec.slice(0, 500);
-        out.recurrence = { summary: rec.slice(0, 500) };
+      const skData = skeleton.data as Record<string, unknown>;
+      const rule = coerceRecurrenceRule({
+        recurrence_rule: rawIntent.recurrence_rule,
+        recurrence: typeof rawIntent.recurrence === 'string' ? rawIntent.recurrence.trim() : '',
+        preferredTime: typeof rawIntent.preferredTime === 'string' ? rawIntent.preferredTime.trim() : '',
+        due: typeof rawIntent.due === 'string' ? rawIntent.due.trim() : '',
+        skeletonPreferredTimeHm: typeof skData.preferredTimeHm === 'string' ? skData.preferredTimeHm : '',
+        skeletonCadence: typeof skData.cadenceDescription === 'string' ? skData.cadenceDescription : '',
+      });
+      if (rule) {
+        out.recurrence_rule = rule as HabitRecurrenceRule;
+        out.cadenceDescription = cadenceDescriptionFromRule(rule);
+        out.recurrence = {
+          summary: rule.raw_phrase ?? out.cadenceDescription,
+          frequency: rule.frequency.toLowerCase(),
+          ...(rule.byWeekday != null ? { byWeekday: rule.byWeekday } : {}),
+        };
+        if (rule.time_target) out.preferredTimeHm = rule.time_target;
       }
-      const pref = typeof rawIntent.preferredTime === 'string' ? rawIntent.preferredTime.trim() : '';
-      if (pref && /^\d{1,2}:\d{2}$/.test(pref)) out.preferredTimeHm = normalizeWireHm(pref) ?? pref;
     }
     if (type === 'TRIP') {
       const dest = typeof rawIntent.destination === 'string' ? rawIntent.destination.trim() : '';
@@ -1358,11 +1390,11 @@ RULES:
 - CONTEXT: one UPPERCASE token (${contextHints} or custom). null if truly unknown.
 - CONTENT: pure action title — strip ALL time/date words. Fix typos. Start Uppercase.
 - TRIP: any movement → type=TRIP. Trigger words: ${tripTriggerList}. Use field "destination" + "arrivalDue".
-- HABIT: any recurrence → type=HABIT, field "recurrence".
+- HABIT: any recurrence → type=HABIT. Use "recurrence_rule" object (NOT "due"). Fields: frequency (MINUTELY|HOURLY|DAILY|WEEKLY|MONTHLY), interval (>=1), time_target ("HH:mm" if time mentioned), byWeekday (1=Mon..7=Sun, weekly only), dayOfMonth (monthly only), duration_minutes (minutely windows), raw_phrase (verbatim recurrence fragment).
 - LIST: ONLY for complex shopping, recipes, project materials, or explicit requests for a multi-item inventory (e.g., "fournitures scolaires", "party supplies"). → type=LIST, fields "title" + "baseCount".
 - PROJECT: any multi-step objective → type=PROJECT, field "content".
 - TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"). → type=TASK, field "content".
-- due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned.
+- due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned. Never use "due" on HABIT — put clock time in recurrence_rule.time_target.
 
 EXAMPLES — input language = output language, dates are computed from NOW above:
 Input: "Acheter de la colle"
@@ -1383,8 +1415,14 @@ Output: {"intents":[{"type":"LIST","title":"Ski trip packing","baseCount":1,"cat
 Input: "Meeting with John in 2h"
 Output: {"intents":[{"type":"TASK","content":"Meeting with John","due":"${inTwoHoursFmt}","category":"WORK","context":"BUREAU"}]}
 
+Input: "Faire la vaisselle tous les jours a 15h"
+Output: {"intents":[{"type":"HABIT","content":"Faire la vaisselle","category":"PERSO","context":"MAISON","recurrence_rule":{"frequency":"DAILY","interval":1,"time_target":"15:00","raw_phrase":"tous les jours a 15h"}}]}
+
+Input: "Yoga every Monday at 8am"
+Output: {"intents":[{"type":"HABIT","content":"Yoga","category":"HEALTH","context":"MAISON","recurrence_rule":{"frequency":"WEEKLY","interval":1,"byWeekday":1,"time_target":"08:00","raw_phrase":"every Monday at 8am"}}]}
+
 Reply ONLY with a single raw JSON object. No markdown. No explanation. No text before or after.
-Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…"}]}`;
+Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","recurrence_rule":{…}}]}`;
 }
 
 // LEGACY PROMPT (Bullet-Pipe) — kept for rollback reference.

@@ -28,6 +28,7 @@ import { cancelOneTapUniversalReminders, scheduleOneTapUniversalReminders } from
 import { buildTravelMetadataFromOneTap } from '../../src_v2/services/travel/engine';
 import { buildProjectMilestonesMetadataPatch, ensureProjectMilestoneUids } from './projectMilestonesModel';
 import { NOTE_FALLBACK_LABEL } from './timelineIntentionVisibility';
+import { coerceRecurrenceRule } from '../utils/habitRecurrenceRule';
 import { parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 
@@ -77,6 +78,29 @@ function str(d: Record<string, unknown>, key: string): string | null {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
   return s.length ? s : null;
+}
+
+function buildHabitMetadataFields(data: Record<string, unknown>, categoryTag: string) {
+  const rule =
+    (data.recurrence_rule && typeof data.recurrence_rule === 'object'
+      ? data.recurrence_rule
+      : coerceRecurrenceRule({
+          recurrence_rule: data.recurrence_rule,
+          recurrence: str(data, 'cadenceDescription') ?? undefined,
+          preferredTime: str(data, 'preferredTimeHm') ?? undefined,
+          skeletonCadence: str(data, 'cadenceDescription') ?? undefined,
+        })) ?? undefined;
+  return {
+    source: 'one_tap_universal',
+    categoryTag,
+    cadenceDescription: str(data, 'cadenceDescription'),
+    preferredTimeHm: str(data, 'preferredTimeHm'),
+    ...(rule ? { recurrence_rule: rule } : {}),
+    notes: str(data, 'notes'),
+    destination_name: str(data, 'destination_name') ?? undefined,
+    location_address: str(data, 'location_address') ?? undefined,
+    remind_to_leave: Boolean(data.remind_to_leave) ? true : undefined,
+  };
 }
 
 function resolveOneTapTemporalFields(data: Record<string, unknown>): {
@@ -354,16 +378,7 @@ async function materializeOneTapIntentionRow(params: {
         due_date: null,
         content_raw: raw,
         metadata_json: JSON.stringify(
-          {
-            source: 'one_tap_universal',
-            categoryTag: draft.categoryTag,
-            cadenceDescription: str(draft.data, 'cadenceDescription'),
-            preferredTimeHm: str(draft.data, 'preferredTimeHm'),
-            notes: str(draft.data, 'notes'),
-            destination_name: str(draft.data, 'destination_name') ?? undefined,
-            location_address: str(draft.data, 'location_address') ?? undefined,
-            remind_to_leave: Boolean(draft.data.remind_to_leave) ? true : undefined,
-          },
+          buildHabitMetadataFields(draft.data as Record<string, unknown>, draft.categoryTag),
           null,
           2,
         ),
@@ -1337,16 +1352,39 @@ export async function persistOneTapDraftVentilated(params: {
           const content = String(r.content ?? '').trim() || draft.title;
           const rec = typeof r.recurrence === 'string' ? r.recurrence.trim() : '';
           const pref = typeof r.preferredTime === 'string' ? r.preferredTime.trim() : '';
+          const due = typeof r.due === 'string' ? r.due.trim() : '';
+          const rule = coerceRecurrenceRule({
+            recurrence_rule: r.recurrence_rule,
+            recurrence: rec,
+            preferredTime: pref,
+            due,
+            skeletonPreferredTimeHm: str(draft.data as Record<string, unknown>, 'preferredTimeHm') ?? undefined,
+            skeletonCadence: str(draft.data as Record<string, unknown>, 'cadenceDescription') ?? undefined,
+            transcript,
+          });
+          const habitData: Record<string, unknown> = {
+            ...(rec && !rule ? { cadenceDescription: rec.slice(0, 500), recurrence: { summary: rec.slice(0, 500) } } : {}),
+            ...(pref && !rule?.time_target ? { preferredTimeHm: pref } : {}),
+            ...(rule
+              ? {
+                  recurrence_rule: rule,
+                  cadenceDescription: rule.raw_phrase ?? rec,
+                  preferredTimeHm: rule.time_target ?? pref,
+                  recurrence: {
+                    summary: rule.raw_phrase ?? rec,
+                    frequency: rule.frequency.toLowerCase(),
+                    ...(rule.byWeekday != null ? { byWeekday: rule.byWeekday } : {}),
+                  },
+                }
+              : {}),
+          };
           const habitDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
             contextTag,
             title: content.slice(0, 200) || draft.title,
             predictedType: 'HABIT',
-            data: {
-              ...(rec ? { cadenceDescription: rec.slice(0, 500), recurrence: { summary: rec.slice(0, 500) } } : {}),
-              ...(pref ? { preferredTimeHm: pref } : {}),
-            },
+            data: habitData,
           };
           const pr = await persistAndDualWrite({
             deps,

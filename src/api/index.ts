@@ -51,6 +51,7 @@ export {
   mapTrankilIntentionToTimelineItemRow,
   cleanOldArchives,
   listTrankilV2UnorganizedIntentions,
+  listActiveHabitsForHub,
   markTrankilV2IntentionDone,
   toggleIntentionDone,
   archiveIntention,

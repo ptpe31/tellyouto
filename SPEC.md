@@ -139,11 +139,11 @@ RULES:
 - CONTEXT: one UPPERCASE token (BUREAU EXTERIEUR CANAPE MAISON or custom). null if truly unknown.
 - CONTENT: pure action title — strip ALL time/date words. Fix typos. Start Uppercase.
 - TRIP: any movement → type=TRIP. Trigger words: <TRIP_TRIGGER_TERMS EN+FR+extra>. Use field "destination" + "arrivalDue".
-- HABIT: any recurrence → type=HABIT, field "recurrence".
+- HABIT: any recurrence → type=HABIT. Use **recurrence_rule** object (never `due` on HABIT). Fields: `frequency` (MINUTELY|HOURLY|DAILY|WEEKLY|MONTHLY), `interval` (≥1), `time_target` ("HH:mm" if time mentioned), `byWeekday` (1=Mon..7=Sun, weekly), `dayOfMonth` (monthly), `duration_minutes` (minutely windows), `raw_phrase` (verbatim recurrence fragment).
 - LIST: ONLY for complex shopping, recipes, project materials, or explicit requests for a multi-item inventory (e.g., "fournitures scolaires", "party supplies"). → type=LIST, fields "title" + "baseCount".
 - PROJECT: any multi-step objective → type=PROJECT, field "content".
 - TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"). → type=TASK, field "content".
-- due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned.
+- due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned. **Never on HABIT** — clock time goes in `recurrence_rule.time_target`.
 ```
 
 **6 exemples few-shot** (multilingues FR/EN/ES — langue d'entrée = langue de sortie ; dates calculées depuis `now`) :
@@ -156,15 +156,17 @@ RULES:
 | `"Courses pour le barbecue de samedi"` | `LIST` · `title:"Barbecue"` · `baseCount:1` · `SHOP` · `EXTERIEUR` |
 | `"Packing list for the ski trip"` | `LIST` · `title:"Ski trip packing"` · `baseCount:1` · `TRAVEL` · `MAISON` |
 | `"Meeting with John in 2h"` | `TASK` · `content:"Meeting with John"` · `due:"<now+2h>"` · `WORK` · `BUREAU` |
+| `"Faire la vaisselle tous les jours a 15h"` | `HABIT` · `content:"Faire la vaisselle"` · `recurrence_rule:{frequency:"DAILY",interval:1,time_target:"15:00",raw_phrase:"tous les jours a 15h"}` · `PERSO` · `MAISON` |
+| `"Yoga every Monday at 8am"` | `HABIT` · `content:"Yoga"` · `recurrence_rule:{frequency:"WEEKLY",interval:1,byWeekday:1,time_target:"08:00"}` · `HEALTH` · `MAISON` |
 
 Clôture :
 
 ```
 Reply ONLY with a single raw JSON object. No markdown. No explanation. No text before or after.
-Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…"}]}
+Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","recurrence_rule":{…}}]}
 ```
 
-> Les clés `title`, `baseCount`, `destination`, `arrivalDue`, `recurrence` sont apprises via les **exemples**, pas listées dans le schéma minimal (évite fusion littérale sur Lite).
+> Les clés `title`, `baseCount`, `destination`, `arrivalDue`, `recurrence_rule` sont apprises via les **exemples**, pas listées dans le schéma minimal (évite fusion littérale sur Lite).
 
 ##### 2.c) Corps utilisateur
 
@@ -186,10 +188,38 @@ INPUT: """<transcript max 12 000c>"""
 | `TRIP` | `destination`, `arrivalDue?` | logistique |
 | `LIST` | `title`, `baseCount` | inventaire multi-items, recette, fournitures — coquille vide · Pass 2 manuel |
 | `PROJECT` | `content` | jalons Pass 2 manuel |
-| `HABIT` | `content`, `recurrence` | |
+| `HABIT` | `content`, `recurrence_rule` | blob structuré dans `metadata_json` · pas de `due_date` SQLite · coercition défensive si Gemini renvoie encore `recurrence`+`due` ([`coerceRecurrenceRule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/habitRecurrenceRule.ts)) |
 | `NOTE` | `content` | |
 
 Hiérarchie spec (non répétée dans le prompt) : `PROJECT` → `LIST` → `HABIT` → `TRIP` → `TASK`.
+
+##### 2.e) Habitudes — `recurrence_rule` + évaluation JIT (Living Hub)
+
+**Principe** : pas de colonne SQLite dédiée ni de moteur RRULE global à la capture. Gemini remplit un blob **`metadata_json.recurrence_rule`** ; la persistance est un **pass-through** ([`buildHabitMetadataFields`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts)). Le calcul « est-ce actif aujourd’hui ? » se fait **juste-à-temps** à l’affichage.
+
+**Contrat `recurrence_rule`** (exemple) :
+
+```json
+{
+  "frequency": "DAILY",
+  "interval": 1,
+  "time_target": "15:00",
+  "raw_phrase": "tous les jours a 15h"
+}
+```
+
+Fréquences : `MINUTELY` · `HOURLY` · `DAILY` · `WEEKLY` · `MONTHLY` (+ `byWeekday`, `dayOfMonth`, `duration_minutes` selon le cas).
+
+**Modules** :
+
+| Rôle | Fichier |
+|------|---------|
+| Coercition défensive (legacy `recurrence` + `due` → rule) | [`habitRecurrenceRule.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/habitRecurrenceRule.ts) |
+| Évaluateur JIT (`isHabitActiveForDate`) | [`habitRecurrenceEvaluator.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts) |
+| Injection virtuelle hub (bloc temporal / home_routine) | [`buildLivingHubBlocks.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) |
+| Source SQL habitudes actives | [`listActiveHabitsForHub`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) |
+
+**Hors scope immédiat** : rappels expo-notifications / `alarmManager` / expansion calendrier — consommeront la même rule plus tard.
 
 #### 3) Traitement de sortie (Douane & normalisation)
 

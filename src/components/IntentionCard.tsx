@@ -231,7 +231,14 @@ export function IntentionCard({
     const rootDueIso = str(meta, 'dueDateTime');
     const rootYmd = str(meta, 'dueDateYmd');
     const rootHm = parseHm(str(meta, 'dueTimeHm'));
-    const habitHm = parseHm(str(meta, 'preferredTimeHm'));
+    const recRule =
+      meta?.recurrence_rule &&
+      typeof meta.recurrence_rule === 'object' &&
+      !Array.isArray(meta.recurrence_rule)
+        ? (meta.recurrence_rule as Record<string, unknown>)
+        : null;
+    const habitHm =
+      parseHm(str(recRule ?? {}, 'time_target')) ?? (meta ? parseHm(str(meta, 'preferredTimeHm')) : null);
 
     const tripArrivalIso = str(trip, 'arrivalDue');
     const tripDueIso = str(trip, 'dueDateTime');
@@ -248,6 +255,9 @@ export function IntentionCard({
       baseParsed?.date ??
       null;
     if (!dueRef) {
+      if (row.type === 'HABIT' && habitHm) {
+        return `${t('horizons.today')} • ${habitHm}`;
+      }
       return formatCreationSubtitle(Number(row.created_at), t, loc, now);
     }
     const dueKey = formatYmdLocal(dueRef);

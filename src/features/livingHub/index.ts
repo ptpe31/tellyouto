@@ -9,8 +9,14 @@ export {
   type TimelineLayoutMode,
 } from './timelineLayoutRegistry';
 
-export { buildLivingHubBlocks, type HubBlock, type HubBlockId } from './buildLivingHubBlocks';
+export { buildLivingHubBlocks, type HubBlock, type HubBlockId, type BuildLivingHubBlocksOptions } from './buildLivingHubBlocks';
 export { parseRowTemporalMeta, type RowTemporalMeta } from './parseRowTemporalMeta';
+export {
+  isHabitActiveForDate,
+  isHabitRowActiveForDate,
+  resolveHabitTimeTarget,
+  type HabitRecurrenceRule,
+} from './habitRecurrenceEvaluator';
 export { LivingHubBlockShell } from './LivingHubBlockShell';
 
 import { useAppTheme } from '../../context/ThemeContext';

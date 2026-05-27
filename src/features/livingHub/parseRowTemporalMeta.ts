@@ -33,7 +33,7 @@ function extractHmFromIso(raw: unknown): string | null {
   return `${m[1]}:${m[2]}`;
 }
 
-/** Heuristique MVP : horaire strict si timeMarker, dueTimeHm, trip ou ISO datetime dans metadata_json. */
+/** Heuristique MVP : horaire strict si timeMarker, dueTimeHm, trip, preferredTimeHm, recurrence_rule.time_target ou ISO datetime. */
 export function parseRowTemporalMeta(row: TrankilV2TimelineItemRow): RowTemporalMeta {
   const meta = parseMetadataJson(row.metadata_json);
   const timeMarkerRaw = String(meta?.timeMarker ?? '').trim().toUpperCase();
@@ -41,9 +41,15 @@ export function parseRowTemporalMeta(row: TrankilV2TimelineItemRow): RowTemporal
     timeMarkerRaw === 'EXACT_TIME' ? 'EXACT_TIME' : timeMarkerRaw === 'ALL_DAY' ? 'ALL_DAY' : null;
 
   const trip = meta?.trip && typeof meta.trip === 'object' ? (meta.trip as Record<string, unknown>) : null;
+  const recRule =
+    meta?.recurrence_rule && typeof meta.recurrence_rule === 'object' && !Array.isArray(meta.recurrence_rule)
+      ? (meta.recurrence_rule as Record<string, unknown>)
+      : null;
   const dueTimeHm =
     normalizeHm(meta?.dueTimeHm) ??
     normalizeHm(trip?.dueTimeHm) ??
+    normalizeHm(recRule?.time_target) ??
+    normalizeHm(meta?.preferredTimeHm) ??
     extractHmFromIso(meta?.dueDateTime) ??
     extractHmFromIso(trip?.dueDateTime) ??
     extractHmFromIso(row.due_date);

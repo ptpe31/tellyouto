@@ -307,6 +307,15 @@ Points notables :
 - ventilation multi-intentions : `resolveVentilatedIntentTags` propage `category` + `context` par intent avant `persistAndDualWrite`
 - insertion : `insertTrankilV2Intention(...)` — écrit `category_id` + `context_tag` ; log `[DATABASE] ✅ Intention sauvée avec succès | Category: … | Context: …`
 - mutations `metadata_json` : via `patchMetadata(...)` (merge sécurisé, attendu par SPEC)
+- **HABIT** : `due_date = null` ; `metadata_json` inclut `recurrence_rule` (structuré Pass 1) + champs legacy `cadenceDescription` / `preferredTimeHm` pour rétrocompat · coercition [`coerceRecurrenceRule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/habitRecurrenceRule.ts) si Gemini renvoie encore `recurrence` + `due`
+
+#### Habitudes — Living Hub JIT (mai 2026)
+
+- **Capture** : prompt Pass 1 étendu (`recurrence_rule` structurée, interdit `due` sur HABIT) · seed Path A inclut `H:` pour l’heure habituelle.
+- **Persistance** : pass-through JSON dans `metadata_json` — pas de logique métier à l’écriture.
+- **Affichage** : [`listActiveHabitsForHub`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) → [`isHabitRowActiveForDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts) → injection dans [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) (mode `EMAIL_HUB` sur Timeline).
+- **Carte** : `IntentionCard` affiche `time_target` / `preferredTimeHm` pour les HABIT sans `due_date`.
+- **À venir** : rappels / alarmes / filtres calendrier « demain · cette semaine » sur le même evaluateur.
 
 #### Pass 2 (LIST / PROJECT)
 

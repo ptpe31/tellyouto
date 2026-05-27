@@ -1,4 +1,5 @@
 import type { TrankilV2TimelineItemRow } from '../../api';
+import { isHabitRowActiveForDate, resolveHabitTimeTarget } from './habitRecurrenceEvaluator';
 import { parseRowTemporalMeta } from './parseRowTemporalMeta';
 
 export type HubBlockId = 'home_routine' | 'temporal' | 'residual';
@@ -10,6 +11,11 @@ export type HubBlock = {
   emptyI18nKey: string;
   items: TrankilV2TimelineItemRow[];
   previewTitles: string[];
+};
+
+export type BuildLivingHubBlocksOptions = {
+  activeHabits?: TrankilV2TimelineItemRow[];
+  targetDate?: Date;
 };
 
 function normalizeCategoryId(raw: unknown): string {
@@ -33,6 +39,22 @@ function pickPreviewTitles(rows: TrankilV2TimelineItemRow[], max: number): strin
   return out;
 }
 
+function parseMetadataJson(raw: string | null | undefined): Record<string, unknown> | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  try {
+    const v = JSON.parse(s) as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function habitHasStrictTime(row: TrankilV2TimelineItemRow): boolean {
+  const meta = parseMetadataJson(row.metadata_json);
+  return Boolean(resolveHabitTimeTarget(meta));
+}
+
 function isHomeRoutineRow(row: TrankilV2TimelineItemRow): boolean {
   if (row.section === 'PROJECT_SUBTASK') return false;
   if (normalizeCategoryId(row.category_id) !== 'HOME') return false;
@@ -42,6 +64,13 @@ function isHomeRoutineRow(row: TrankilV2TimelineItemRow): boolean {
 
 function isTemporalRow(row: TrankilV2TimelineItemRow): boolean {
   return parseRowTemporalMeta(row).hasStrictTime;
+}
+
+function temporalSortKey(row: TrankilV2TimelineItemRow): string {
+  const meta = parseMetadataJson(row.metadata_json);
+  const habitHm = resolveHabitTimeTarget(meta);
+  if (habitHm) return habitHm;
+  return parseRowTemporalMeta(row).dueTimeHm ?? '99:99';
 }
 
 const BLOCK_DEFS: Record<
@@ -77,16 +106,43 @@ function makeBlock(id: HubBlockId, items: TrankilV2TimelineItemRow[]): HubBlock 
   };
 }
 
+function mergeActiveHabitsForHub(
+  rows: TrankilV2TimelineItemRow[],
+  opts?: BuildLivingHubBlocksOptions,
+): TrankilV2TimelineItemRow[] {
+  const habits = opts?.activeHabits ?? [];
+  if (!habits.length) return rows;
+  const targetDate = opts?.targetDate ?? new Date();
+  const existingIds = new Set(rows.map((r) => r.id));
+  const injected: TrankilV2TimelineItemRow[] = [];
+  for (const habit of habits) {
+    if (existingIds.has(habit.id)) continue;
+    if (!isHabitRowActiveForDate(habit.metadata_json, targetDate, Number(habit.created_at))) continue;
+    injected.push(habit);
+  }
+  return [...rows, ...injected];
+}
+
 /**
  * Partitionne les intentions « aujourd'hui » en 3 blocs email (MVP).
  * Chaque ligne appartient à exactement un bloc.
+ * Les habitudes actives (recurrence_rule) peuvent être injectées virtuellement via `activeHabits`.
  */
-export function buildLivingHubBlocks(rows: TrankilV2TimelineItemRow[]): HubBlock[] {
+export function buildLivingHubBlocks(
+  rows: TrankilV2TimelineItemRow[],
+  opts?: BuildLivingHubBlocksOptions,
+): HubBlock[] {
+  const mergedRows = mergeActiveHabitsForHub(rows, opts);
   const temporal: TrankilV2TimelineItemRow[] = [];
   const homeRoutine: TrankilV2TimelineItemRow[] = [];
   const residual: TrankilV2TimelineItemRow[] = [];
 
-  for (const row of rows) {
+  for (const row of mergedRows) {
+    if (row.type === 'HABIT') {
+      if (habitHasStrictTime(row)) temporal.push(row);
+      else homeRoutine.push(row);
+      continue;
+    }
     if (isTemporalRow(row)) {
       temporal.push(row);
     } else if (isHomeRoutineRow(row)) {
@@ -95,6 +151,8 @@ export function buildLivingHubBlocks(rows: TrankilV2TimelineItemRow[]): HubBlock
       residual.push(row);
     }
   }
+
+  temporal.sort((a, b) => temporalSortKey(a).localeCompare(temporalSortKey(b)));
 
   const blocks = [
     makeBlock('temporal', temporal),

@@ -35,6 +35,7 @@ import {
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
   listTrankilV2UnorganizedIntentions,
+  listActiveHabitsForHub,
   mapTrankilIntentionToTimelineItemRow,
   syncNativeRailAlarmsAfterIntentionWrite,
   TIMELINE_PAGE_SIZE,
@@ -406,6 +407,7 @@ export function TimelineScreen() {
     listsToday: 0,
   });
   const [inboxTodayRows, setInboxTodayRows] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [activeHabitRows, setActiveHabitRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [shopClusterRows, setShopClusterRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [projectsTodayDebug, setProjectsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
   const [listsTodayDebug, setListsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
@@ -743,13 +745,14 @@ export function TimelineScreen() {
     try {
       const { anchor } = resolveAnchor(timeNav, customPickedDate);
       const ymd = toYmd(anchor);
-      const [b, counts, inboxRaw, shopRaw, projectsRaw, listsRaw] = await Promise.all([
+      const [b, counts, inboxRaw, shopRaw, projectsRaw, listsRaw, habitsRaw] = await Promise.all([
         fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0),
         getTrankilV2SmartClusterCounts(ymd),
         listTrankilV2InboxToday(ymd),
         listTrankilV2ShopClusterIntentions(),
         listActiveProjectsToday(ymd),
         listTrankilV2ListClusterIntentions(),
+        listActiveHabitsForHub({ context: sqlContextFromBubble(contextBubble) }),
       ]);
       setUnorganizedTodo(b.unorganizedTodo);
       setPrimaryRows(b.primary);
@@ -759,6 +762,7 @@ export function TimelineScreen() {
       setSmartClusterCounts(counts);
       setInboxTodayRows(inboxRaw.map(mapTrankilIntentionToTimelineItemRow));
       setShopClusterRows(shopRaw.map(mapTrankilIntentionToTimelineItemRow));
+      setActiveHabitRows(habitsRaw.map(mapTrankilIntentionToTimelineItemRow));
       setProjectsTodayDebug(projectsRaw);
       setListsTodayDebug(listsRaw.map((r) => ({ id: r.id, title: r.title })));
     } finally {
@@ -1303,8 +1307,11 @@ export function TimelineScreen() {
     if (!hubEligible) return null;
     const todayYmd = toYmd(anchorDate);
     const todayEntry = listEntries.find((e) => e.id === todayYmd);
-    return buildLivingHubBlocks(todayEntry?.rows ?? []);
-  }, [anchorDate, hubEligible, listEntries]);
+    return buildLivingHubBlocks(todayEntry?.rows ?? [], {
+      activeHabits: activeHabitRows,
+      targetDate: anchorDate,
+    });
+  }, [activeHabitRows, anchorDate, hubEligible, listEntries]);
 
   const flatRowIds = useMemo(() => {
     const ids = new Set<string>();

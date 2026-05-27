@@ -1349,6 +1349,32 @@ export async function rebuildTrankilV2IntentionsTableForDebug(): Promise<void> {
   if (check?.title === 'System Ready') console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
 }
 
+/** Habitudes actives avec signaux de récurrence (Living Hub JIT). */
+export async function listActiveHabitsForHub(opts?: {
+  context?: TimelineSqlContext;
+}): Promise<TrankilV2IntentionRow[]> {
+  const ctx = timelineContextWhere(opts?.context ?? 'ALL', 'intentions');
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions
+     WHERE status = 'TODO'
+       AND COALESCE(is_archived, 0) = 0
+       AND type = 'HABIT'
+       AND (parent_id IS NULL OR trim(parent_id) = '')
+       AND trim(title) != 'System Ready'
+       AND id NOT LIKE 'system_ready_%'
+       AND (
+         metadata_json LIKE '%recurrence_rule%'
+         OR metadata_json LIKE '%cadenceDescription%'
+         OR metadata_json LIKE '%preferredTimeHm%'
+       )
+       ${ctx}
+     ORDER BY created_at DESC
+     LIMIT 200`,
+  );
+}
+
 /** Vrac Timeline : brouillon sans étiquette ni date, actif, non archivé (`is_organized = 0`). */
 export async function listTrankilV2UnorganizedIntentions(opts?: {
   paging?: TimelinePaging;
