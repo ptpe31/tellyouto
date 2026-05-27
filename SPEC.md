@@ -1106,26 +1106,32 @@ const designTokens = useDesignTokens();
 - **Stockage** : `INSERT` dans `daily_summaries` ; ouverture du rapport en WebView ; **Partager / Imprimer** : PDF via `expo-print` puis partage natif `expo-sharing` (hors web).
 - **Accès secondaire** : sous le sticky header **Aujourd’hui**, lien dédié (`roadmapLink`) pour ouvrir le dernier rapport du jour ou inviter à générer via l’imprimante.
 
-#### 2.b) Sélecteur de cluster tactique (Tirelire / orphelines)
+#### 2.b) Box — stock d’idées sans date (remplace le nudge cluster orphelin)
 
-- **Objectif** : mettre en avant **un** groupe d’intentions **sans échéance** (`due_date` vide / null), statut **TODO**, regroupées par **`category_id`** normalisé (codes domaine v34), pour inciter à les traiter via la Tirelire sans lister toutes les orphelines en tête de liste.
-- **Service** : [`clusterEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) — [`getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) :
-  - **Priorité 1** : plus grand nombre d’items dans un même `category_id`.
-  - **Priorité 2** : en cas d’égalité, groupe contenant l’intention la plus ancienne (`created_at` minimal).
-  - Retour : `{ categoryId, count, representativeItems, items }` ; log **`[CLUSTER-ENGINE] 🎯 Cluster sélectionné : …`**
-- **Pool Timeline** : [TimelineScreen.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) fusionne la **tirelire cachée** (`hiddenUnorganizedForIdeaBank`) et les TODO **sans date** déjà visibles dans le fil courant (`filteredPool`) pour alimenter le moteur (cohérence avec les `category_id` renseignés par Pass 1).
-- **Affichage** : vue **Aujourd’hui**, contexte **ALL**, **TODO** — si le cluster gagnant a **`count >= 2`**, une **seule** carte neumorphique remplace la ligne « N tâches dans la tirelire » ; texte i18n **`timeline.ideaBank.clusterNudge`** (ex. « On le fait avancer ? ») + sous-titre **`timeline.ideaBank.clusterSubtitle`** (`{{count}} · {{category}}` avec libellé `category.*`).
-- **Action** : tap sur la carte ouvre [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) avec **filtrage** sur le `categoryId` du cluster ; la ligne tirelire **classique** subsiste si le cluster n’atteint pas le seuil ou si les conditions de filtre ne s’appliquent pas.
-- **Planifier un projet orphelin** : pour une intention **`PROJECT`** sans `metadata_json.project.start_date`, le bouton **Planifier** affiche i18n **`cluster.planProjectStart`** (« Planifier le début ») et ouvre le sélecteur de date de la modal. À la validation :
-  - persistance via **`patchMetadata`** : `project.start_date` (`YYYY-MM-DD`) + recalcul des `pivot_date` des jalons via **`replanProjectMilestonesFromStartDate`** ([`projectMilestonesModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectMilestonesModel.ts), même algorithme que le replan de la fiche projet) ;
-  - **`updateTrankilV2IntentionTemporal`** : `due_date` = date choisie → sortie du pool orphelin (`due_date` vide) et ancrage sur la Timeline ;
-  - les autres types conservent le flux **Planifier** classique (`due_date` seule, libellé `timeline.ideaBank.schedule`).
+- **Objectif** : séparer l’**exécution du jour** (corps EMAIL_HUB) du **stock à froid** — toutes les intentions **TODO sans `due_date`**, hors **Inbox du jour**, hors catégorie **SHOP** et hors **HABIT** (→ vue Routines).
+- **SQL** : [`BOX_STOCK_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `listTrankilV2BoxStockIntentions`, `countBoxStockIntentions`, `bulkDeleteTrankilV2IntentionsByIds` ; compteur carrousel `boxCount` dans `getTrankilV2SmartClusterCounts`.
+- **Carrousel** : tuile **Box** (libellé hardcodé, sans i18n) dans [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) — ordre **Inbox · À acheter · Box · Routines · Projets** (nudge cluster orphelin et tuile Listes retirés).
+- **Vue catégories** : tap **Box** → [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) — même rendu bloc/catégorie que le corps hub (`buildLivingHubBlocks` sur `boxStockRows`).
+- **Focus modal** : tap bloc → ferme la vue Box puis [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) pré-filtrée (`ideaBankHubItems` = items du bloc) ; **Tout vider** ciblé par catégorie via la tirelire existante.
+- **Purge globale** : bouton **Tout supprimer** en bas de la vue Box → alerte native destructive (`timeline.box.*`) → `bulkDeleteTrankilV2IntentionsByIds` + `reload()`.
+- **i18n Box** : `timeline.box.clearAll|clearAllTitle|clearAllBody|clearAllConfirm|empty` ; libellé carrousel **Box** hardcodé (sans i18n).
+- **Legacy** : [`clusterEngine.getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) conservé en service mais **non branché** au carrousel.
+
+#### 2.b bis) Routines — bibliothèque d'habitudes (Le Gérer)
+
+- **Objectif** : séparer **faire** (hub Aujourd'hui — habitudes JIT via `isHabitRowActiveForDate`) et **gérer** (toutes les routines actives, quel que soit le jour).
+- **SQL** : [`ROUTINE_HABIT_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `listActiveHabitsForHub`, `countRoutineHabits`, compteur `routinesCount` ; séries via `getHabitCompletionDayKeysByIntentionIds` (`user_activity_logs`, `HABIT_DONE`).
+- **Carrousel** : tuile i18n **`timeline.smartClusters.routinesTitle`** (🔁 Routines).
+- **Vue catégories** : [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) `variant="routine"` — [`buildRoutineHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) + badge série 🔥 / ❄️ Pause ([`habitStreak.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitStreak.ts)).
+- **Interaction** : tap **ligne** → ferme la vue puis **`openDetail`** / [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) — **pas** de purge globale (contrairement à Box).
+- **i18n** : `timeline.smartClusters.routinesTitle|routinesSubtitle`, `timeline.routines.title|empty|streakFire|streakPause`.
+- **À venir** : bouton pause habitude dans la bottom sheet ; mini-calendrier série dans le détail.
 
 #### 2.c) Living Hub — disposition email (Debug)
 
 - **Objectif** : sous **Aujourd’hui**, remplacer la liste plate de cartes par un **récap email** groupé par **`category_id` Pass 1** (HOME, WORK, HEALTH, …) — miroir direct de la classification IA, sans blocs inventés (Éphéméride / Routine / Reste).
 - **Activation** : `timelineLayoutMode === 'EMAIL_HUB'` **et** mêmes filtres que Smart Clusters — vue **Aujourd’hui**, contexte **ALL**, statut **TODO** (`hubEligible` dans [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)).
-- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (Inbox, À acheter, Projets…) — l’Inbox reste un sas séparé, zéro double comptage.
+- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (**Inbox · À acheter · Box · Routines · Projets**) — l’Inbox reste un sas séparé, le stock sans date vit dans **Box**, les **HABIT** dans **Routines**, zéro double comptage.
 - **Agrégation** : [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) — `groupBy normalizeHubCategoryId(category_id)` sur le pool du jour ; **blocs vides masqués** ; tri catégories via [`hubCategoryRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) ; lignes avec heure inline + marqueur habitude 🔁 ([`formatHubItemLine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/formatHubItemLine.ts)).
 - **Habitudes JIT** : injection virtuelle des HABIT actives (`listActiveHabitsForHub` + [`isHabitRowActiveForDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts)) dans le groupBy catégorie.
 - **Focus modal** : tap bloc → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtré sur les items du bloc (`onEditItem` / `ideaBankHubItems`).

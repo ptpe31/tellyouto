@@ -602,11 +602,26 @@
       "close": "Fermer",
       "cancel": "Annuler"
     },
+    "box": {
+      "clearAll": "Tout supprimer",
+      "clearAllTitle": "Vider la Box ?",
+      "clearAllBody": "Vous êtes sur le point de supprimer définitivement vos {{count}} idées en attente. Cette action est irréversible.",
+      "clearAllConfirm": "Supprimer tout",
+      "empty": "Aucune idée en réserve."
+    },
+    "routines": {
+      "title": "Routines",
+      "empty": "Aucune routine active.",
+      "streakFire": "🔥 {{count}} j",
+      "streakPause": "❄️ Pause"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "{{count}} aujourd'hui",
       "newTitle": "⚡ Nouveau",
       "newSubtitle": "{{count}} à trier",
+      "routinesTitle": "🔁 Routines",
+      "routinesSubtitle": "({{count}} actives)",
       "projectsTitle": "📁 Projets",
       "projectsSubtitle": "({{count}} actifs)",
       "listsTitle": "📋 Listes",

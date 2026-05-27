@@ -1349,7 +1349,7 @@ export async function rebuildTrankilV2IntentionsTableForDebug(): Promise<void> {
   if (check?.title === 'System Ready') console.log('[DATABASE] ✨ Base de données reconstruite et fonctionnelle.');
 }
 
-/** Habitudes actives avec signaux de récurrence (Living Hub JIT). */
+/** Habitudes actives avec signaux de récurrence (Living Hub JIT + vue Routines). */
 export async function listActiveHabitsForHub(opts?: {
   context?: TimelineSqlContext;
 }): Promise<TrankilV2IntentionRow[]> {
@@ -1357,22 +1357,60 @@ export async function listActiveHabitsForHub(opts?: {
   await initTrankilV2Schema();
   const db = await getDb();
   return db.getAllAsync<TrankilV2IntentionRow>(
-    `SELECT * FROM intentions
-     WHERE status = 'TODO'
-       AND COALESCE(is_archived, 0) = 0
-       AND type = 'HABIT'
-       AND (parent_id IS NULL OR trim(parent_id) = '')
-       AND trim(title) != 'System Ready'
-       AND id NOT LIKE 'system_ready_%'
-       AND (
-         metadata_json LIKE '%recurrence_rule%'
-         OR metadata_json LIKE '%cadenceDescription%'
-         OR metadata_json LIKE '%preferredTimeHm%'
-       )
+    `SELECT * FROM intentions i
+     WHERE ${ROUTINE_HABIT_WHERE}
        ${ctx}
-     ORDER BY created_at DESC
+     ORDER BY i.created_at DESC
      LIMIT 200`,
   );
+}
+
+/** Compte les routines actives (carrousel). */
+export async function countRoutineHabits(): Promise<number> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions i WHERE ${ROUTINE_HABIT_WHERE}`,
+  );
+  return Number(row?.n ?? 0);
+}
+
+/** Jours locaux (YYYY-MM-DD) où une habitude a été cochée « Fait ». */
+export async function getHabitCompletionDayKeysByIntentionIds(
+  intentionIds: string[],
+): Promise<Map<string, string[]>> {
+  const idSet = new Set(intentionIds.map((id) => String(id || '').trim()).filter(Boolean));
+  if (idSet.size === 0) return new Map();
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ day_key: string; meta_json: string }>(
+    `SELECT day_key, meta_json FROM user_activity_logs
+     WHERE action_type = 'HABIT_DONE'
+     ORDER BY day_key DESC
+     LIMIT 4000`,
+  );
+  const acc = new Map<string, Set<string>>();
+  for (const row of rows) {
+    let intentionId = '';
+    try {
+      const meta = JSON.parse(String(row.meta_json ?? '{}')) as { intention_id?: string };
+      intentionId = String(meta.intention_id ?? '').trim();
+    } catch {
+      continue;
+    }
+    if (!intentionId || !idSet.has(intentionId)) continue;
+    const set = acc.get(intentionId) ?? new Set<string>();
+    set.add(String(row.day_key ?? '').trim());
+    acc.set(intentionId, set);
+  }
+  const out = new Map<string, string[]>();
+  for (const [id, days] of acc) {
+    out.set(
+      id,
+      [...days].sort((a, b) => b.localeCompare(a)),
+    );
+  }
+  return out;
 }
 
 /** Vrac Timeline : brouillon sans étiquette ni date, actif, non archivé (`is_organized = 0`). */
@@ -1944,6 +1982,30 @@ const LIST_SHORTCUT_WHERE = `
   AND i.status != 'ARCHIVED'
   ${INTENTION_SYSTEM_RESERVED_SQL}`;
 
+/** Stock « Box » : TODO sans date, hors Inbox du jour, hors SHOP et hors HABIT (param : ymd local). */
+const BOX_STOCK_WHERE = `
+  ${INTENTION_ACTIVE_TODO_SQL}
+  ${INTENTION_SYSTEM_RESERVED_SQL}
+  AND i.type != 'HABIT'
+  AND (i.due_date IS NULL OR trim(i.due_date) = '')
+  AND NOT (
+    ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}
+    AND NOT ${INTENTION_IS_PROCESSED_SQL}
+  )
+  AND NOT ${INTENTION_IS_SHOP_SQL}`;
+
+/** Routines actives : habitudes racine avec signaux de récurrence. */
+const ROUTINE_HABIT_WHERE = `
+  ${INTENTION_ACTIVE_TODO_SQL}
+  ${INTENTION_SYSTEM_RESERVED_SQL}
+  AND i.type = 'HABIT'
+  AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+  AND (
+    i.metadata_json LIKE '%recurrence_rule%'
+    OR i.metadata_json LIKE '%cadenceDescription%'
+    OR i.metadata_json LIKE '%preferredTimeHm%'
+  )`;
+
 /** @deprecated Alias — préférer {@link countInboxToday}. */
 export async function countNewIntentionsToday(todayYmd?: string): Promise<number> {
   return countInboxToday(todayYmd);
@@ -2029,6 +2091,44 @@ export async function listTrankilV2ShopClusterIntentions(): Promise<TrankilV2Int
      WHERE ${SHOP_SHORTCUT_WHERE}
      ORDER BY i.created_at DESC`,
   );
+}
+
+/** Compte le stock « Box » (idées TODO sans date, hors Inbox / SHOP). */
+export async function countBoxStockIntentions(todayYmd?: string): Promise<number> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM intentions i WHERE ${BOX_STOCK_WHERE}`,
+    [ymd],
+  );
+  return Number(row?.n ?? 0);
+}
+
+/** Stock « Box » — toutes les idées TODO sans date (hors Inbox du jour, hors SHOP). */
+export async function listTrankilV2BoxStockIntentions(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions i
+     WHERE ${BOX_STOCK_WHERE}
+     ORDER BY i.created_at DESC
+     LIMIT 500`,
+    [ymd],
+  );
+}
+
+/** Suppression bulk (purge Box). */
+export async function bulkDeleteTrankilV2IntentionsByIds(ids: string[]): Promise<void> {
+  const unique = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+  if (unique.length === 0) return;
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const placeholders = unique.map(() => '?').join(',');
+  await db.runAsync(`DELETE FROM intentions WHERE id IN (${placeholders})`, unique);
+  await syncAfterIntentionWrite('bulkDeleteTrankilV2IntentionsByIds');
+  notifyIntentionsChanged({ reason: 'box_clear_all' });
 }
 
 /** Compte le raccourci « Listes » (type LIST). */
@@ -2126,6 +2226,8 @@ export type TrankilV2SmartClusterCounts = {
   /** @deprecated Alias — {@link inboxToday}. */
   newToday: number;
   shopCount: number;
+  boxCount: number;
+  routinesCount: number;
   projectsToday: number;
   listsToday: number;
 };
@@ -2138,12 +2240,16 @@ export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise
   const row = await db.getFirstAsync<{
     inbox_today: number;
     shop_count: number;
+    box_count: number;
+    routines_count: number;
     projects_today: number;
     lists_today: number;
   }>(
     `SELECT
        (SELECT COUNT(*) FROM intentions i WHERE ${INBOX_TODAY_WHERE}) AS inbox_today,
        (SELECT COUNT(*) FROM intentions i WHERE ${SHOP_SHORTCUT_WHERE}) AS shop_count,
+       (SELECT COUNT(*) FROM intentions i WHERE ${BOX_STOCK_WHERE}) AS box_count,
+       (SELECT COUNT(*) FROM intentions i WHERE ${ROUTINE_HABIT_WHERE}) AS routines_count,
        (SELECT COUNT(*) FROM intentions i
         WHERE i.type = 'PROJECT'
           AND COALESCE(i.is_archived, 0) = 0
@@ -2154,13 +2260,15 @@ export async function getTrankilV2SmartClusterCounts(todayYmd?: string): Promise
             OR date(datetime(COALESCE(NULLIF(i.updated_at, 0), i.created_at) / 1000, 'unixepoch', 'localtime')) = ?
           )) AS projects_today,
        (SELECT COUNT(*) FROM intentions i WHERE ${LIST_SHORTCUT_WHERE}) AS lists_today`,
-    [ymd, ymd, ymd],
+    [ymd, ymd, ymd, ymd],
   );
   const inboxToday = Number(row?.inbox_today ?? 0);
   return {
     inboxToday,
     newToday: inboxToday,
     shopCount: Number(row?.shop_count ?? 0),
+    boxCount: Number(row?.box_count ?? 0),
+    routinesCount: Number(row?.routines_count ?? 0),
     projectsToday: Number(row?.projects_today ?? 0),
     listsToday: Number(row?.lists_today ?? 0),
   };

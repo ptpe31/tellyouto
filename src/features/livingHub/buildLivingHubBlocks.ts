@@ -1,5 +1,6 @@
 import type { TrankilV2TimelineItemRow } from '../../api';
 import { formatHubItemLine, hubItemSortKey, type HubItemLine } from './formatHubItemLine';
+import { formatRoutineItemLine, type RoutineHubItemLine } from './formatRoutineItemLine';
 import { isHabitRowActiveForDate } from './habitRecurrenceEvaluator';
 import {
   hubCategoryEmoji,
@@ -13,6 +14,7 @@ export type HubBlock = {
   emoji: string;
   items: TrankilV2TimelineItemRow[];
   lines: HubItemLine[];
+  routineLines?: RoutineHubItemLine[];
 };
 
 export type BuildLivingHubBlocksOptions = {
@@ -64,6 +66,50 @@ export function buildLivingHubBlocks(
       emoji: hubCategoryEmoji(categoryId),
       items: sorted,
       lines: sorted.map(formatHubItemLine),
+    });
+  }
+
+  return blocks.sort(
+    (a, b) =>
+      hubCategorySortIndex(a.categoryId) - hubCategorySortIndex(b.categoryId) ||
+      b.items.length - a.items.length,
+  );
+}
+
+export type BuildRoutineHubBlocksOptions = {
+  completionDaysById?: Map<string, string[]>;
+  targetDate?: Date;
+};
+
+/** Regroupe les routines actives par catégorie IA (vue « Gérer »). */
+export function buildRoutineHubBlocks(
+  rows: TrankilV2TimelineItemRow[],
+  opts?: BuildRoutineHubBlocksOptions,
+): HubBlock[] {
+  const referenceDate = opts?.targetDate ?? new Date();
+  const completionDaysById = opts?.completionDaysById ?? new Map<string, string[]>();
+  const groups = new Map<HubCategoryId, TrankilV2TimelineItemRow[]>();
+
+  for (const row of rows) {
+    const key = normalizeHubCategoryId(row.category_id);
+    const arr = groups.get(key) ?? [];
+    arr.push(row);
+    groups.set(key, arr);
+  }
+
+  const blocks: HubBlock[] = [];
+  for (const [categoryId, items] of groups) {
+    if (!items.length) continue;
+    const sorted = [...items].sort((a, b) => hubItemSortKey(a).localeCompare(hubItemSortKey(b)));
+    const routineLines = sorted.map((row) =>
+      formatRoutineItemLine(row, completionDaysById.get(row.id) ?? [], referenceDate),
+    );
+    blocks.push({
+      categoryId,
+      emoji: hubCategoryEmoji(categoryId),
+      items: sorted,
+      lines: routineLines,
+      routineLines,
     });
   }
 

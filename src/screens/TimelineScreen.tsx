@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { ClipboardList, Filter, Printer } from 'lucide-react-native';
 import {
   ActivityIndicator,
+  Alert,
   DeviceEventEmitter,
   FlatList,
   LayoutAnimation,
@@ -20,6 +21,7 @@ import { useTheme, type MD3Theme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  bulkDeleteTrankilV2IntentionsByIds,
   bulkTrankilV2TaskChildStatsByParentIds,
   getLatestDailySummaryForDate,
   getTrankilV2IntentionById,
@@ -29,6 +31,8 @@ import {
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2InboxToday,
+  getHabitCompletionDayKeysByIntentionIds,
+  listTrankilV2BoxStockIntentions,
   listTrankilV2ListClusterIntentions,
   listTrankilV2ShopClusterIntentions,
   listActiveProjectsToday,
@@ -77,7 +81,6 @@ import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import type { TripTimelineFooter } from '../utils/tripTimelineCard';
 import { useCapturePresentation } from '../context/CapturePresentationContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { getBestOrphanCluster } from '../services/clusterEngine';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { formatYmdLocal } from '../services/TimeSorter';
@@ -90,7 +93,9 @@ import { neumorphicRaised } from '../theme/neumorphism';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import {
   buildLivingHubBlocks,
+  buildRoutineHubBlocks,
   LivingHubBlockShell,
+  LivingHubCategoryModal,
   type HubBlock,
 } from '../features/livingHub';
 import { useAppTheme } from '../context/ThemeContext';
@@ -400,9 +405,15 @@ export function TimelineScreen() {
   const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
   const [ideaBankHubItems, setIdeaBankHubItems] = useState<TrankilV2TimelineItemRow[] | null>(null);
   const [ideaBankHubTitle, setIdeaBankHubTitle] = useState<string | undefined>(undefined);
+  const [boxViewOpen, setBoxViewOpen] = useState(false);
+  const [boxStockRows, setBoxStockRows] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [routinesViewOpen, setRoutinesViewOpen] = useState(false);
+  const [habitCompletionDaysById, setHabitCompletionDaysById] = useState<Record<string, string[]>>({});
   const [smartClusterCounts, setSmartClusterCounts] = useState({
     inboxToday: 0,
     shopCount: 0,
+    boxCount: 0,
+    routinesCount: 0,
     projectsToday: 0,
     listsToday: 0,
   });
@@ -745,11 +756,12 @@ export function TimelineScreen() {
     try {
       const { anchor } = resolveAnchor(timeNav, customPickedDate);
       const ymd = toYmd(anchor);
-      const [b, counts, inboxRaw, shopRaw, projectsRaw, listsRaw, habitsRaw] = await Promise.all([
+      const [b, counts, inboxRaw, shopRaw, boxRaw, projectsRaw, listsRaw, habitsRaw] = await Promise.all([
         fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0),
         getTrankilV2SmartClusterCounts(ymd),
         listTrankilV2InboxToday(ymd),
         listTrankilV2ShopClusterIntentions(),
+        listTrankilV2BoxStockIntentions(ymd),
         listActiveProjectsToday(ymd),
         listTrankilV2ListClusterIntentions(),
         listActiveHabitsForHub({ context: sqlContextFromBubble(contextBubble) }),
@@ -762,7 +774,13 @@ export function TimelineScreen() {
       setSmartClusterCounts(counts);
       setInboxTodayRows(inboxRaw.map(mapTrankilIntentionToTimelineItemRow));
       setShopClusterRows(shopRaw.map(mapTrankilIntentionToTimelineItemRow));
-      setActiveHabitRows(habitsRaw.map(mapTrankilIntentionToTimelineItemRow));
+      setBoxStockRows(filterTimelineVisibleRows(boxRaw.map(mapTrankilIntentionToTimelineItemRow)));
+      const habitRows = habitsRaw.map(mapTrankilIntentionToTimelineItemRow);
+      setActiveHabitRows(habitRows);
+      const completionDays = await getHabitCompletionDayKeysByIntentionIds(habitRows.map((r) => r.id));
+      const completionRecord: Record<string, string[]> = {};
+      for (const [id, days] of completionDays) completionRecord[id] = days;
+      setHabitCompletionDaysById(completionRecord);
       setProjectsTodayDebug(projectsRaw);
       setListsTodayDebug(listsRaw.map((r) => ({ id: r.id, title: r.title })));
     } finally {
@@ -1131,45 +1149,22 @@ export function TimelineScreen() {
     return filterTimelineVisibleRows(rows);
   }, [archivedRows, contextBubble, primaryRows]);
 
-  const hiddenUnorganizedForIdeaBank = useMemo(() => {
-    const visible = new Set(filteredPool.map((r) => r.id));
-    return unorganizedTodo.filter((r) => !visible.has(r.id));
-  }, [filteredPool, unorganizedTodo]);
-
-  const undatedTodoInPool = useMemo(
-    () => filteredPool.filter((r) => r.status === 'TODO' && !normalizeDueDateLocal(r.due_date)),
-    [filteredPool],
-  );
-
-  const orphanClusterPool = useMemo(() => {
-    const m = new Map<string, TrankilV2TimelineItemRow>();
-    for (const r of hiddenUnorganizedForIdeaBank) m.set(r.id, r);
-    for (const r of undatedTodoInPool) m.set(r.id, r);
-    return [...m.values()];
-  }, [hiddenUnorganizedForIdeaBank, undatedTodoInPool]);
-
-  const nonShopOrphans = useMemo(
-    () => orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) !== 'SHOP'),
-    [orphanClusterPool],
-  );
-
-  const activeCluster = useMemo(() => getBestOrphanCluster(nonShopOrphans), [nonShopOrphans]);
-
   const inboxTodayItems = inboxTodayRows;
 
   const ideaBankModalItems = useMemo(() => {
     if (ideaBankHubItems) return ideaBankHubItems;
     if (ideaBankMode === 'inbox') return inboxTodayItems;
     if (ideaBankCategoryFilter === 'SHOP') return shopClusterRows;
-    if (!ideaBankCategoryFilter) return hiddenUnorganizedForIdeaBank;
-    return orphanClusterPool.filter((r) => normalizeCategoryId(r.category_id) === ideaBankCategoryFilter);
+    if (ideaBankCategoryFilter) {
+      return boxStockRows.filter((r) => normalizeCategoryId(r.category_id) === ideaBankCategoryFilter);
+    }
+    return boxStockRows;
   }, [
-    hiddenUnorganizedForIdeaBank,
+    boxStockRows,
     ideaBankCategoryFilter,
     ideaBankHubItems,
     ideaBankMode,
     inboxTodayItems,
-    orphanClusterPool,
     shopClusterRows,
   ]);
 
@@ -1178,18 +1173,25 @@ export function TimelineScreen() {
 
   const hubEligible = smartClusterVisible && timelineLayoutMode === 'EMAIL_HUB';
 
+  const boxBlocks = useMemo(() => buildLivingHubBlocks(boxStockRows), [boxStockRows]);
+
+  const routineBlocks = useMemo(() => {
+    const completionDaysById = new Map(Object.entries(habitCompletionDaysById));
+    return buildRoutineHubBlocks(activeHabitRows, {
+      completionDaysById,
+      targetDate: anchorDate,
+    });
+  }, [activeHabitRows, anchorDate, habitCompletionDaysById]);
+
   const smartClusterProps = useMemo(
     () => ({
       inboxCount: smartClusterCounts.inboxToday,
       shopCount: smartClusterCounts.shopCount,
-      cluster:
-        activeCluster && activeCluster.count >= 2
-          ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
-          : null,
+      boxCount: smartClusterCounts.boxCount,
+      routinesCount: smartClusterCounts.routinesCount,
       projectsCount: smartClusterCounts.projectsToday,
-      listsCount: smartClusterCounts.listsToday,
     }),
-    [activeCluster, smartClusterCounts],
+    [smartClusterCounts],
   );
 
   const clusterDebugContents = useMemo((): SmartClusterDebugContents => {
@@ -1201,27 +1203,14 @@ export function TimelineScreen() {
       id: row.id,
       title: String(row.title ?? '').trim() || row.id,
     });
-    const clusterCategoryId =
-      activeCluster && activeCluster.count >= 2 ? activeCluster.categoryId : null;
     return {
       inbox: inboxTodayItems.map(toEntry),
       shop: shopClusterRows.map(toEntry),
-      cluster: clusterCategoryId
-        ? orphanClusterPool
-            .filter((r) => normalizeCategoryId(r.category_id) === clusterCategoryId)
-            .map(toEntry)
-        : [],
+      box: boxStockRows.map(toEntry),
+      routines: activeHabitRows.map(toEntry),
       projects: projectsTodayDebug.map(toEntryFromIdTitle),
-      lists: listsTodayDebug.map(toEntryFromIdTitle),
     };
-  }, [
-    activeCluster,
-    inboxTodayItems,
-    listsTodayDebug,
-    orphanClusterPool,
-    projectsTodayDebug,
-    shopClusterRows,
-  ]);
+  }, [activeHabitRows, boxStockRows, inboxTodayItems, projectsTodayDebug, shopClusterRows]);
 
   const dayTitle = useCallback(
     (ymd: string): string => {
@@ -1438,6 +1427,51 @@ export function TimelineScreen() {
     [t],
   );
 
+  const openBoxBlock = useCallback(
+    (block: HubBlock) => {
+      setBoxViewOpen(false);
+      openHubBlock(block);
+    },
+    [openHubBlock],
+  );
+
+  const openBoxView = useCallback(() => {
+    setBoxViewOpen(true);
+  }, []);
+
+  const openRoutinesView = useCallback(() => {
+    setRoutinesViewOpen(true);
+  }, []);
+
+  const onPressRoutineLine = useCallback(
+    (rowId: string) => {
+      const row = activeHabitRows.find((r) => r.id === rowId);
+      if (!row) return;
+      setRoutinesViewOpen(false);
+      openDetail(row);
+    },
+    [activeHabitRows, openDetail],
+  );
+
+  const onClearBoxGlobal = useCallback(() => {
+    if (boxStockRows.length === 0) return;
+    Alert.alert(t('timeline.box.clearAllTitle'), t('timeline.box.clearAllBody', { count: boxStockRows.length }), [
+      { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
+      {
+        text: t('timeline.box.clearAllConfirm'),
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            await bulkDeleteTrankilV2IntentionsByIds(boxStockRows.map((r) => r.id));
+            await syncNativeRailAlarmsAfterIntentionWrite('boxClearAll');
+            setBoxViewOpen(false);
+            reload();
+          })();
+        },
+      },
+    ]);
+  }, [boxStockRows, reload, t]);
+
   const renderTimelineFlatItem = useCallback(
     ({ item }: { item: TimelineFlatItem }) => {
       if (item.kind === 'section') {
@@ -1540,19 +1574,6 @@ export function TimelineScreen() {
     setIdeaBankOpen(true);
   }, []);
 
-  const openIdeaBankCluster = useCallback(() => {
-    const cluster =
-      activeCluster && activeCluster.count >= 2
-        ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
-        : null;
-    if (!cluster) return;
-    setIdeaBankHubItems(null);
-    setIdeaBankHubTitle(undefined);
-    setIdeaBankMode('default');
-    setIdeaBankCategoryFilter(cluster.categoryId);
-    setIdeaBankOpen(true);
-  }, [activeCluster]);
-
   const smartClustersHeader = useMemo(() => {
     if (!smartClusterVisible) return null;
     return (
@@ -1561,20 +1582,19 @@ export function TimelineScreen() {
         debugContents={clusterDebugContents}
         onPressInbox={openIdeaBankInbox}
         onPressShop={openIdeaBankShop}
-        onPressCluster={openIdeaBankCluster}
+        onPressBox={openBoxView}
+        onPressRoutines={openRoutinesView}
         onPressProjects={() => {
-          if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
-        }}
-        onPressLists={() => {
           if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
         }}
       />
     );
   }, [
-    openIdeaBankCluster,
+    clusterDebugContents,
+    openBoxView,
     openIdeaBankInbox,
     openIdeaBankShop,
-    clusterDebugContents,
+    openRoutinesView,
     smartClusterProps,
     smartClusterVisible,
   ]);
@@ -1710,6 +1730,38 @@ export function TimelineScreen() {
           onChange={onDatePicked}
         />
       ) : null}
+
+      <LivingHubCategoryModal
+        visible={boxViewOpen}
+        title="Box"
+        blocks={boxBlocks}
+        totalCount={boxStockRows.length}
+        designTokens={designTokens}
+        accentColor={theme.colors.primary}
+        errorColor={theme.colors.error}
+        onClose={() => setBoxViewOpen(false)}
+        onPressBlock={openBoxBlock}
+        onClearAll={onClearBoxGlobal}
+        clearAllLabel={t('timeline.box.clearAll')}
+        emptyMessage={t('timeline.box.empty')}
+        closeLabel={t('timeline.ideaBank.close')}
+        variant="default"
+      />
+
+      <LivingHubCategoryModal
+        visible={routinesViewOpen}
+        title={t('timeline.routines.title')}
+        blocks={routineBlocks}
+        totalCount={activeHabitRows.length}
+        designTokens={designTokens}
+        accentColor={theme.colors.primary}
+        errorColor={theme.colors.error}
+        onClose={() => setRoutinesViewOpen(false)}
+        onPressLine={onPressRoutineLine}
+        emptyMessage={t('timeline.routines.empty')}
+        closeLabel={t('timeline.ideaBank.close')}
+        variant="routine"
+      />
 
       <IdeaBankModal
         visible={ideaBankOpen}

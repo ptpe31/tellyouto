@@ -13,23 +13,22 @@ export const SMART_CLUSTER_TILE_H = 92;
 export type SmartClusterDebugContents = {
   inbox: SmartClusterDebugEntry[];
   shop: SmartClusterDebugEntry[];
-  cluster: SmartClusterDebugEntry[];
+  box: SmartClusterDebugEntry[];
+  routines: SmartClusterDebugEntry[];
   projects: SmartClusterDebugEntry[];
-  lists: SmartClusterDebugEntry[];
 };
 
 type Props = {
   inboxCount: number;
   shopCount: number;
-  cluster: { categoryId: string; count: number } | null;
+  boxCount: number;
+  routinesCount: number;
   projectsCount: number;
-  listsCount: number;
   onPressInbox: () => void;
   onPressShop: () => void;
-  onPressCluster: () => void;
+  onPressBox: () => void;
+  onPressRoutines: () => void;
   onPressProjects: () => void;
-  onPressLists: () => void;
-  /** Snapshots id/titre pour logs stress-test (voir `clusterDebugLog.ts`). */
   debugContents?: SmartClusterDebugContents;
 };
 
@@ -87,27 +86,22 @@ function ClusterTile({ title, subtitle, badge, onPress }: TileProps) {
   );
 }
 
-/** Carrousel horizontal « Smart Clusters » (Tableau de bord tactique Timeline). */
+/** Carrousel horizontal « Smart Clusters » (Inbox · Shop · Box · Routines · Projets). */
 export function SmartClustersCarousel({
   inboxCount,
   shopCount,
-  cluster,
+  boxCount,
+  routinesCount,
   projectsCount,
-  listsCount,
   onPressInbox,
   onPressShop,
-  onPressCluster,
+  onPressBox,
+  onPressRoutines,
   onPressProjects,
-  onPressLists,
   debugContents,
 }: Props) {
-  const { t, i18n } = useTranslation();
-  const debug = debugContents ?? { inbox: [], shop: [], cluster: [], projects: [], lists: [] };
-
-  const clusterCategoryLabel =
-    cluster && i18n.exists(`category.${cluster.categoryId}`)
-      ? t(`category.${cluster.categoryId}`)
-      : cluster?.categoryId ?? '';
+  const { t } = useTranslation();
+  const debug = debugContents ?? { inbox: [], shop: [], box: [], routines: [], projects: [] };
 
   return (
     <ScrollView
@@ -131,20 +125,22 @@ export function SmartClustersCarousel({
           onPress={pressWithClusterDebug('À acheter', debug.shop, onPressShop)}
         />
       ) : null}
-      {cluster && cluster.count >= 2 ? (
-        <ClusterTile
-          title={t('timeline.ideaBank.clusterNudge')}
-          subtitle={t('timeline.ideaBank.clusterSubtitle', {
-            count: cluster.count,
-            category: clusterCategoryLabel,
-          })}
-          onPress={pressWithClusterDebug(
-            `On le fait avancer ? (${clusterCategoryLabel})`,
-            debug.cluster,
-            onPressCluster,
-          )}
-        />
-      ) : null}
+      <ClusterTile
+        title="Box"
+        subtitle={boxCount > 0 ? `${boxCount} idées` : undefined}
+        badge={boxCount > 0 ? boxCount : undefined}
+        onPress={pressWithClusterDebug('Box', debug.box, onPressBox)}
+      />
+      <ClusterTile
+        title={t('timeline.smartClusters.routinesTitle')}
+        subtitle={
+          routinesCount > 0
+            ? t('timeline.smartClusters.routinesSubtitle', { count: routinesCount })
+            : undefined
+        }
+        badge={routinesCount > 0 ? routinesCount : undefined}
+        onPress={pressWithClusterDebug('Routines', debug.routines, onPressRoutines)}
+      />
       <ClusterTile
         title={t('timeline.smartClusters.projectsTitle')}
         subtitle={
@@ -153,13 +149,6 @@ export function SmartClustersCarousel({
             : undefined
         }
         onPress={pressWithClusterDebug('Projets', debug.projects, onPressProjects)}
-      />
-      <ClusterTile
-        title={t('timeline.smartClusters.listsTitle')}
-        subtitle={
-          listsCount > 0 ? t('timeline.smartClusters.listsSubtitle', { count: listsCount }) : undefined
-        }
-        onPress={pressWithClusterDebug('Listes', debug.lists, onPressLists)}
       />
     </ScrollView>
   );
