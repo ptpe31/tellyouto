@@ -828,6 +828,10 @@
     "oneTapPerfT3": "T3: {{ms}} ms",
     "oneTapPerfGemini": "Gemini: {{ms}} ms",
     "oneTapPerfTotal": "Total from T1: {{ms}} ms",
+    "timelineLayoutTitle": "Timeline layout",
+    "timelineLayoutHint": "Switch between current cards and email hub. Rollback: Current cards. Works with all themes above.",
+    "timelineLayoutCurrent": "Current cards",
+    "timelineLayoutEmailHub": "Email hub",
     "trafficLaunchElastic": "Start elastic jump simulation",
     "trafficMonitorTitle": "Traffic monitoring (simulation)",
     "trafficSimulatedTime": "Simulated time: {{time}}",
@@ -1544,6 +1548,15 @@
         "description": "Balanced profile with strong execution and regular engagement."
       }
     }
+  },
+  "livingHub": {
+    "homeRoutineTitle": "Home routine",
+    "homeRoutineEmpty": "No household chores planned today",
+    "temporalTitle": "Time schedule",
+    "temporalEmpty": "No strict times today",
+    "residualTitle": "Remaining items",
+    "residualEmpty": "Nothing else to handle — clear skies!",
+    "moreItems": "+ {{count}} more"
   },
   "horizons": {
     "rearbitrate": "To re-arbitrate",

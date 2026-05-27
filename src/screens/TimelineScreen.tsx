@@ -87,6 +87,12 @@ import { useAIProgressInertia } from '../hooks/useAIProgressInertia';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicRaised } from '../theme/neumorphism';
 import { useDesignTokens } from '../hooks/useDesignTokens';
+import {
+  buildLivingHubBlocks,
+  LivingHubBlockShell,
+  type HubBlock,
+} from '../features/livingHub';
+import { useAppTheme } from '../context/ThemeContext';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 
 /**
@@ -304,6 +310,7 @@ function takePage<T>(rows: T[], pageSize: number): { slice: T[]; hasMore: boolea
 type TimelineFlatItem =
   | { kind: 'section'; id: string; titleText: string }
   | { kind: 'roadmapLink'; id: string }
+  | { kind: 'hubBlock'; id: string; block: HubBlock }
   | {
       kind: 'card';
       id: string;
@@ -311,10 +318,13 @@ type TimelineFlatItem =
       rowVariant: 'default' | 'noPressure';
     };
 
-function flattenForVirtualList(entries: ListEntry[]): TimelineFlatItem[] {
+function flattenForVirtualList(entries: ListEntry[], options?: { skipTodayYmd?: string }): TimelineFlatItem[] {
   const out: TimelineFlatItem[] = [];
   for (const e of entries) {
     out.push({ kind: 'section', id: `sec-${e.id}`, titleText: e.titleText });
+    if (options?.skipTodayYmd && e.id === options.skipTodayYmd) {
+      continue;
+    }
     for (const r of e.rows) {
       out.push({
         kind: 'card',
@@ -335,7 +345,9 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
         ? SECTION_HEADER_H
         : it.kind === 'roadmapLink'
           ? ROADMAP_LINK_H
-          : CARD_ROW_H;
+          : it.kind === 'hubBlock'
+            ? CARD_ROW_H
+            : CARD_ROW_H;
     const cur = { length: len, offset: off };
     off += len;
     return cur;
@@ -361,6 +373,7 @@ export function TimelineScreen() {
     useCapturePresentation();
   const theme = useTheme();
   const designTokens = useDesignTokens();
+  const { timelineLayoutMode } = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const route = useRoute<RouteProp<AppTabParamList, 'Timeline'>>();
@@ -384,6 +397,8 @@ export function TimelineScreen() {
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
   const [ideaBankMode, setIdeaBankMode] = useState<'default' | 'inbox'>('default');
   const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
+  const [ideaBankHubItems, setIdeaBankHubItems] = useState<TrankilV2TimelineItemRow[] | null>(null);
+  const [ideaBankHubTitle, setIdeaBankHubTitle] = useState<string | undefined>(undefined);
   const [smartClusterCounts, setSmartClusterCounts] = useState({
     inboxToday: 0,
     shopCount: 0,
@@ -1139,6 +1154,7 @@ export function TimelineScreen() {
   const inboxTodayItems = inboxTodayRows;
 
   const ideaBankModalItems = useMemo(() => {
+    if (ideaBankHubItems) return ideaBankHubItems;
     if (ideaBankMode === 'inbox') return inboxTodayItems;
     if (ideaBankCategoryFilter === 'SHOP') return shopClusterRows;
     if (!ideaBankCategoryFilter) return hiddenUnorganizedForIdeaBank;
@@ -1146,6 +1162,7 @@ export function TimelineScreen() {
   }, [
     hiddenUnorganizedForIdeaBank,
     ideaBankCategoryFilter,
+    ideaBankHubItems,
     ideaBankMode,
     inboxTodayItems,
     orphanClusterPool,
@@ -1154,6 +1171,8 @@ export function TimelineScreen() {
 
   const smartClusterVisible =
     timeNav === 'TODAY' && contextBubble === 'ALL' && statusFilter === 'TODO';
+
+  const hubEligible = smartClusterVisible && timelineLayoutMode === 'EMAIL_HUB';
 
   const smartClusterProps = useMemo(
     () => ({
@@ -1280,6 +1299,13 @@ export function TimelineScreen() {
     timeNav,
   ]);
 
+  const hubBlocks = useMemo(() => {
+    if (!hubEligible) return null;
+    const todayYmd = toYmd(anchorDate);
+    const todayEntry = listEntries.find((e) => e.id === todayYmd);
+    return buildLivingHubBlocks(todayEntry?.rows ?? []);
+  }, [anchorDate, hubEligible, listEntries]);
+
   const flatRowIds = useMemo(() => {
     const ids = new Set<string>();
     for (const e of listEntries) {
@@ -1298,8 +1324,12 @@ export function TimelineScreen() {
   }, [listEntries]);
 
   const flatListItems = useMemo(() => {
-    const base = flattenForVirtualList(listEntries);
+    const todayYmd = toYmd(anchorDate);
     const todayLabel = t('horizons.today');
+    const base = flattenForVirtualList(
+      listEntries,
+      hubEligible ? { skipTodayYmd: todayYmd } : undefined,
+    );
     const out: TimelineFlatItem[] = [];
     let inserted = false;
     for (const it of base) {
@@ -1313,11 +1343,16 @@ export function TimelineScreen() {
         it.titleText === todayLabel
       ) {
         out.push({ kind: 'roadmapLink', id: 'daily-roadmap-under-today' });
+        if (hubEligible && hubBlocks) {
+          for (const block of hubBlocks) {
+            out.push({ kind: 'hubBlock', id: `hub-${block.id}`, block });
+          }
+        }
         inserted = true;
       }
     }
     return out;
-  }, [contextBubble, listEntries, t, timeNav]);
+  }, [anchorDate, contextBubble, hubBlocks, hubEligible, listEntries, t, timeNav]);
 
   const flatListLayouts = useMemo(() => buildFlatListLayouts(flatListItems), [flatListItems]);
 
@@ -1385,6 +1420,17 @@ export function TimelineScreen() {
     return () => sub.remove();
   }, [loadPack]);
 
+  const openHubBlock = useCallback(
+    (block: HubBlock) => {
+      setIdeaBankMode('default');
+      setIdeaBankCategoryFilter(null);
+      setIdeaBankHubItems(block.items);
+      setIdeaBankHubTitle(t(block.titleI18nKey));
+      setIdeaBankOpen(true);
+    },
+    [t],
+  );
+
   const renderTimelineFlatItem = useCallback(
     ({ item }: { item: TimelineFlatItem }) => {
       if (item.kind === 'section') {
@@ -1403,6 +1449,17 @@ export function TimelineScreen() {
                 {hasSaved ? t('timeline.roadmap.linkOpenSaved') : t('timeline.roadmap.linkGenerate')}
               </Text>
             </Pressable>
+          </View>
+        );
+      }
+      if (item.kind === 'hubBlock') {
+        return (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
+            <LivingHubBlockShell
+              block={item.block}
+              designTokens={designTokens}
+              onPress={() => openHubBlock(item.block)}
+            />
           </View>
         );
       }
@@ -1446,7 +1503,9 @@ export function TimelineScreen() {
     [
       anchorDate,
       dailyRoadmapSummary,
+      designTokens,
       handleToggleRowComplete,
+      openHubBlock,
       openSavedDailyRoadmap,
       openDetail,
       handleTripFooterPress,
@@ -1459,12 +1518,16 @@ export function TimelineScreen() {
   );
 
   const openIdeaBankInbox = useCallback(() => {
+    setIdeaBankHubItems(null);
+    setIdeaBankHubTitle(undefined);
     setIdeaBankMode('inbox');
     setIdeaBankCategoryFilter(null);
     setIdeaBankOpen(true);
   }, []);
 
   const openIdeaBankShop = useCallback(() => {
+    setIdeaBankHubItems(null);
+    setIdeaBankHubTitle(undefined);
     setIdeaBankMode('default');
     setIdeaBankCategoryFilter('SHOP');
     setIdeaBankOpen(true);
@@ -1476,6 +1539,8 @@ export function TimelineScreen() {
         ? { categoryId: activeCluster.categoryId, count: activeCluster.count }
         : null;
     if (!cluster) return;
+    setIdeaBankHubItems(null);
+    setIdeaBankHubTitle(undefined);
     setIdeaBankMode('default');
     setIdeaBankCategoryFilter(cluster.categoryId);
     setIdeaBankOpen(true);
@@ -1543,8 +1608,10 @@ export function TimelineScreen() {
           childStats,
           pendingLocalDone,
           dailyRoadmapSummary,
+          hubEligible,
+          timelineLayoutMode,
         }}
-        getItemLayout={getItemLayout}
+        getItemLayout={hubEligible ? undefined : getItemLayout}
         removeClippedSubviews={RPlatform.OS === 'android'}
         initialNumToRender={12}
         maxToRenderPerBatch={12}
@@ -1642,6 +1709,8 @@ export function TimelineScreen() {
         onClose={() => {
           setIdeaBankCategoryFilter(null);
           setIdeaBankMode('default');
+          setIdeaBankHubItems(null);
+          setIdeaBankHubTitle(undefined);
           setIdeaBankOpen(false);
         }}
         items={ideaBankModalItems}
@@ -1650,11 +1719,12 @@ export function TimelineScreen() {
         onChanged={reload}
         mode={ideaBankMode}
         title={
-          ideaBankCategoryFilter === 'SHOP'
+          ideaBankHubTitle ??
+          (ideaBankCategoryFilter === 'SHOP'
             ? t('timeline.ideaBank.shopTitle')
             : ideaBankMode === 'inbox'
               ? t('timeline.smartClusters.inbox')
-              : undefined
+              : undefined)
         }
       />
     </View>

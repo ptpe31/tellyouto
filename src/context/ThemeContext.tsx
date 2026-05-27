@@ -9,6 +9,12 @@ import {
   createTellYouToLightTheme,
 } from '../theme/paperTheme';
 import {
+  DEFAULT_TIMELINE_LAYOUT_MODE,
+  persistTimelineLayoutMode,
+  readPersistedTimelineLayoutMode,
+  type TimelineLayoutMode,
+} from '../features/livingHub/timelineLayoutRegistry';
+import {
   applyDesignVariantToPaperTheme,
   DEFAULT_DESIGN_VARIANT,
   persistDesignVariant,
@@ -25,9 +31,12 @@ type ThemeContextValue = {
   paperTheme: MD3Theme;
   designVariant: DesignVariant;
   designVariantHydrated: boolean;
+  timelineLayoutMode: TimelineLayoutMode;
+  timelineLayoutHydrated: boolean;
   setMode: (m: ThemeMode) => void;
   toggleLightDark: () => void;
   setDesignVariant: (variant: DesignVariant) => Promise<void>;
+  setTimelineLayoutMode: (mode: TimelineLayoutMode) => Promise<void>;
 };
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -37,14 +46,22 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>('system');
   const [designVariant, setDesignVariantState] = useState<DesignVariant>(DEFAULT_DESIGN_VARIANT);
   const [designVariantHydrated, setDesignVariantHydrated] = useState(false);
+  const [timelineLayoutMode, setTimelineLayoutModeState] = useState<TimelineLayoutMode>(
+    DEFAULT_TIMELINE_LAYOUT_MODE,
+  );
+  const [timelineLayoutHydrated, setTimelineLayoutHydrated] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    void readPersistedDesignVariant().then((variant) => {
-      if (cancelled) return;
-      setDesignVariantState(variant);
-      setDesignVariantHydrated(true);
-    });
+    void Promise.all([readPersistedDesignVariant(), readPersistedTimelineLayoutMode()]).then(
+      ([variant, layoutMode]) => {
+        if (cancelled) return;
+        setDesignVariantState(variant);
+        setDesignVariantHydrated(true);
+        setTimelineLayoutModeState(layoutMode);
+        setTimelineLayoutHydrated(true);
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -66,6 +83,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setDesignVariantState(variant);
   }, []);
 
+  const setTimelineLayoutMode = useCallback(async (mode: TimelineLayoutMode) => {
+    await persistTimelineLayoutMode(mode);
+    setTimelineLayoutModeState(mode);
+  }, []);
+
   const toggleLightDark = useCallback(() => {
     setMode((m) => {
       if (m === 'system') return system === 'dark' ? 'light' : 'dark';
@@ -80,11 +102,25 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       paperTheme,
       designVariant,
       designVariantHydrated,
+      timelineLayoutMode,
+      timelineLayoutHydrated,
       setMode,
       toggleLightDark,
       setDesignVariant,
+      setTimelineLayoutMode,
     }),
-    [designVariant, designVariantHydrated, mode, paperTheme, resolvedTheme, setDesignVariant, toggleLightDark],
+    [
+      designVariant,
+      designVariantHydrated,
+      mode,
+      paperTheme,
+      resolvedTheme,
+      setDesignVariant,
+      setTimelineLayoutMode,
+      timelineLayoutHydrated,
+      timelineLayoutMode,
+      toggleLightDark,
+    ],
   );
 
   return (

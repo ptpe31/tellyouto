@@ -50,6 +50,10 @@ import { neumorphicRaised } from '../theme/neumorphism';
 import { useAppTheme } from '../context/ThemeContext';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import {
+  ALL_TIMELINE_LAYOUT_MODES,
+  type TimelineLayoutMode,
+} from '../features/livingHub/timelineLayoutRegistry';
+import {
   ALL_DESIGN_VARIANTS,
   DESIGN_VARIANT_LABELS,
   type DesignVariant,
@@ -66,7 +70,7 @@ import {
 export function DebugScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { designVariant, setDesignVariant } = useAppTheme();
+  const { designVariant, setDesignVariant, timelineLayoutMode, setTimelineLayoutMode } = useAppTheme();
   const designTokens = useDesignTokens();
   const { spectrum, setProUser } = useUserSpectrum();
   const [busy, setBusy] = useState<
@@ -240,6 +244,19 @@ export function DebugScreen() {
       void setDesignVariant(variant);
     },
     [setDesignVariant],
+  );
+
+  const onSelectTimelineLayoutMode = useCallback(
+    (mode: TimelineLayoutMode) => {
+      void setTimelineLayoutMode(mode);
+    },
+    [setTimelineLayoutMode],
+  );
+
+  const timelineLayoutLabel = useCallback(
+    (mode: TimelineLayoutMode) =>
+      mode === 'EMAIL_HUB' ? t('debug.timelineLayoutEmailHub') : t('debug.timelineLayoutCurrent'),
+    [t],
   );
 
   /** Force un refresh Remote Config / shortlist modèles Gemini. */
@@ -685,6 +702,62 @@ export function DebugScreen() {
             })}
           </View>
         </View>
+
+        <View
+          style={[
+            designTokens.cardShadowStyle,
+            styles.themeShowroomPanel,
+            {
+              borderRadius: designTokens.borderRadius,
+              backgroundColor: designTokens.cardBackground,
+              borderColor: designTokens.accentColor,
+            },
+          ]}
+        >
+          <Text style={[styles.themeShowroomTitle, { color: designTokens.textPrimary }]}>
+            {t('debug.timelineLayoutTitle')}
+          </Text>
+          <Text style={[styles.themeShowroomHint, { color: designTokens.textSecondary }]}>
+            {t('debug.timelineLayoutHint')}
+          </Text>
+          <View style={styles.timelineLayoutRow}>
+            {ALL_TIMELINE_LAYOUT_MODES.map((mode) => {
+              const selected = timelineLayoutMode === mode;
+              return (
+                <Pressable
+                  key={mode}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => onSelectTimelineLayoutMode(mode)}
+                  style={({ pressed }) => [
+                    styles.timelineLayoutBtn,
+                    {
+                      borderRadius: designTokens.borderRadius * 0.5,
+                      borderColor: selected ? designTokens.accentColor : designTokens.textSecondary,
+                      backgroundColor: selected
+                        ? `${designTokens.accentColor}22`
+                        : designTokens.backgroundColor,
+                    },
+                    { opacity: pressed ? 0.88 : 1 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.themeVariantBtnLabel,
+                      { color: selected ? designTokens.accentColor : designTokens.textPrimary },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {timelineLayoutLabel(mode)}
+                  </Text>
+                  <Text style={[styles.themeVariantBtnCode, { color: designTokens.textSecondary }]}>
+                    {mode}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       </View>
 
       {busy !== null && (
@@ -815,5 +888,18 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: 'monospace',
     opacity: 0.85,
+  },
+  timelineLayoutRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  timelineLayoutBtn: {
+    width: '48%',
+    minWidth: 140,
+    flexGrow: 1,
+    borderWidth: 1.5,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
 });
