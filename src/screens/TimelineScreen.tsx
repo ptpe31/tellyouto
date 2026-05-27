@@ -1733,6 +1733,7 @@ export function TimelineScreen() {
               ? t('timeline.smartClusters.inbox')
               : undefined)
         }
+        onEditItem={openDetail}
       />
     </View>
   );

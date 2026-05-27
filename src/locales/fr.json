@@ -590,6 +590,7 @@
       "shopSubtitle": "{{count}} articles",
       "done": "Fait",
       "schedule": "Planifier",
+      "edit": "Modifier",
       "remove": "Retirer",
       "removeConfirmTitle": "Retirer cette tâche ?",
       "removeConfirmBody": "Elle sera supprimée définitivement de ton téléphone.",

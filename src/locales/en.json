@@ -590,6 +590,7 @@
       "shopSubtitle": "{{count}} items",
       "done": "Done",
       "schedule": "Schedule",
+      "edit": "Edit",
       "remove": "Remove",
       "removeConfirmTitle": "Remove this task?",
       "removeConfirmBody": "It will be permanently deleted from your device.",

@@ -1,4 +1,4 @@
-import { CalendarDays, Check, Trash2 } from 'lucide-react-native';
+import { CalendarDays, Check, Pencil, Trash2 } from 'lucide-react-native';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -45,6 +45,8 @@ type Props = {
   title?: string;
   /** `inbox` : toutes les captures du jour (Smart Clusters « Inbox »). */
   mode?: 'default' | 'inbox';
+  /** Ferme la tirelire puis ouvre l’édition (IntentionDetailSheet côté parent). */
+  onEditItem: (row: TrankilV2TimelineItemRow) => void;
 };
 
 function pad2(n: number): string {
@@ -81,7 +83,17 @@ function isProjectWithoutStartDate(row: TrankilV2TimelineItemRow): boolean {
   return !getProjectStartDateFromMetadataJson(row.metadata_json);
 }
 
-export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onChanged, title, mode = 'default' }: Props) {
+export function IdeaBankModal({
+  visible,
+  onClose,
+  items,
+  status,
+  anchorDate,
+  onChanged,
+  title,
+  mode = 'default',
+  onEditItem,
+}: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   const designTokens = useDesignTokens();
@@ -229,6 +241,14 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
   const removeActionLabel = mode === 'inbox' ? t('inbox.action.remove') : t('timeline.ideaBank.remove');
   const clearAllActionLabel = mode === 'inbox' ? t('inbox.action.removeAll') : t('timeline.ideaBank.clearAll');
 
+  const onEdit = useCallback(
+    (row: TrankilV2TimelineItemRow) => {
+      onClose();
+      onEditItem(row);
+    },
+    [onClose, onEditItem],
+  );
+
   const schedulingRow = useMemo(
     () => (scheduleForId ? items.find((r) => r.id === scheduleForId) : null),
     [items, scheduleForId],
@@ -320,6 +340,18 @@ export function IdeaBankModal({ visible, onClose, items, status, anchorDate, onC
                               {isProjectWithoutStartDate(row)
                                 ? t('cluster.planProjectStart')
                                 : t('timeline.ideaBank.schedule')}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            style={[
+                              styles.iconBtn,
+                              { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
+                            ]}
+                            onPress={() => onEdit(row)}
+                          >
+                            <Pencil size={18} color={designTokens.accentColor} />
+                            <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
+                              {t('timeline.ideaBank.edit')}
                             </Text>
                           </Pressable>
                           <Pressable
