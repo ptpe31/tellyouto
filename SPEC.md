@@ -216,7 +216,7 @@ Fréquences : `MINUTELY` · `HOURLY` · `DAILY` · `WEEKLY` · `MONTHLY` (+ `byW
 |------|---------|
 | Coercition défensive (legacy `recurrence` + `due` → rule) | [`habitRecurrenceRule.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/habitRecurrenceRule.ts) |
 | Évaluateur JIT (`isHabitActiveForDate`) | [`habitRecurrenceEvaluator.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts) |
-| Injection virtuelle hub (bloc temporal / home_routine) | [`buildLivingHubBlocks.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) |
+| Injection virtuelle hub (groupBy `category_id` + habitudes JIT) | [`buildLivingHubBlocks.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) |
 | Source SQL habitudes actives | [`listActiveHabitsForHub`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) |
 
 **Hors scope immédiat** : rappels expo-notifications / `alarmManager` / expansion calendrier — consommeront la même rule plus tard.
@@ -950,6 +950,8 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 **UI Showroom** : onglet **Debug** → section **🎨 EXPLORATION GRAPHIQUE (TEST THÈMES)** (sous « Vider la base ») — grille de 6 boutons tactiles ; bascule **instantanée** sans recompiler. Le panneau consomme lui-même les tokens (`cardBackground`, `cardShadowStyle`, `accentColor`).
 
+**Disposition Timeline (Debug, orthogonal aux skins)** : panneau **Disposition Timeline** sous le showroom — `CURRENT` (cartes plate) vs `EMAIL_HUB` (hub email) ; persisté `@trankil_debug_timeline_layout` via [`timelineLayoutRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/timelineLayoutRegistry.ts) + `ThemeContext.timelineLayoutMode`. Rollback = **Cartes actuelles**.
+
 **Rollback** : sélectionner **Actuel (TellYouTo)** dans le showroom Debug → retour exact au design d’origine. En mode `CURRENT`, `applyDesignVariantToPaperTheme` reste un **no-op** et les tokens reproduisent `palette` + `paperTheme.ts`.
 
 | Valeur | Ambiance |
@@ -1012,7 +1014,7 @@ const designTokens = useDesignTokens();
 | [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Fond scroll, titres, panneau showroom (`cardShadowStyle`, `cardBackground`, `accentColor`) |
 | [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) | `shadowStyle`, `cardShadowStyle`, `accentColor` (variante Timeline) |
 | [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) | `cardShadowStyle`, `cardBackground`, `textPrimary/Secondary`, `accentColor`, `borderRadius` |
-| [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) | Fond modale, cartes rows, textes, arrondis dynamiques |
+| [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) | Fond modale, cartes rows, arrondis dynamiques ; **actions icône seule** (40×40, libellés commentés en source — visuel validé, nettoyage étape 2) |
 | [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | Fond sheet, CTA Pass 2 / validation peek, bouton surveillance TRIP (`accentColor`) |
 
 **Composants candidats** (migration future) : `PilotStatusHeader`, `DealerBoard`, `IntentionCard` pied TRIP (badges métier inchangés).
@@ -1118,6 +1120,24 @@ const designTokens = useDesignTokens();
   - persistance via **`patchMetadata`** : `project.start_date` (`YYYY-MM-DD`) + recalcul des `pivot_date` des jalons via **`replanProjectMilestonesFromStartDate`** ([`projectMilestonesModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectMilestonesModel.ts), même algorithme que le replan de la fiche projet) ;
   - **`updateTrankilV2IntentionTemporal`** : `due_date` = date choisie → sortie du pool orphelin (`due_date` vide) et ancrage sur la Timeline ;
   - les autres types conservent le flux **Planifier** classique (`due_date` seule, libellé `timeline.ideaBank.schedule`).
+
+#### 2.c) Living Hub — disposition email (Debug)
+
+- **Objectif** : sous **Aujourd’hui**, remplacer la liste plate de cartes par un **récap email** groupé par **`category_id` Pass 1** (HOME, WORK, HEALTH, …) — miroir direct de la classification IA, sans blocs inventés (Éphéméride / Routine / Reste).
+- **Activation** : `timelineLayoutMode === 'EMAIL_HUB'` **et** mêmes filtres que Smart Clusters — vue **Aujourd’hui**, contexte **ALL**, statut **TODO** (`hubEligible` dans [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)).
+- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (Inbox, À acheter, Projets…) — l’Inbox reste un sas séparé, zéro double comptage.
+- **Agrégation** : [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) — `groupBy normalizeHubCategoryId(category_id)` sur le pool du jour ; **blocs vides masqués** ; tri catégories via [`hubCategoryRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) ; lignes avec heure inline + marqueur habitude 🔁 ([`formatHubItemLine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/formatHubItemLine.ts)).
+- **Habitudes JIT** : injection virtuelle des HABIT actives (`listActiveHabitsForHub` + [`isHabitRowActiveForDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts)) dans le groupBy catégorie.
+- **Focus modal** : tap bloc → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtré sur les items du bloc (`onEditItem` / `ideaBankHubItems`).
+- **Performance** : `getItemLayout` **désactivé** quand `hubEligible` (hauteurs variables des blocs email).
+- **Rollback code** : supprimer `src/features/livingHub/` + branche `hubEligible` ; défaut `CURRENT` = zéro régression.
+
+#### 2.d) Tirelire — actions par ligne (Inbox / hub / cluster)
+
+- **Rangée d’actions** (par intention, statut TODO) : **[Fait ✓] [Planifier 📅] [Modifier ✏️] [Retirer 🗑️]** — boutons **icône seule** 40×40 (`styles.iconBtnIconOnly`) pour tenir sur **une ligne** ; libellés i18n (`timeline.ideaBank.done|schedule|edit|remove`) **commentés en source** (visuel validé mai 2026 — suppression commentaires = étape 2).
+- **Accessibilité** : `accessibilityLabel` conservé sur chaque `Pressable` (VoiceOver / TalkBack).
+- **Modifier** : prop **`onEditItem(row)`** — séquence **`onClose()`** (ferme la tirelire) puis délégation parent **`openDetail(row)`** → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) plein écran (catégorie, titre, Pass 2, persistance SQLite) — **pas** de modale sur modale.
+- **Planifier projet orphelin** : inchangé — icône calendrier ; si `PROJECT` sans `start_date`, ouvre le sélecteur **Planifier le début** (`cluster.planProjectStart`).
 
 ### 3) Séquençage du Flux (Grouping Logic)
 

@@ -316,55 +316,79 @@ export function IdeaBankModal({
                         <View style={styles.rowActions}>
                           {status === 'TODO' ? (
                             <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={t('timeline.ideaBank.done')}
                               style={[
                                 styles.iconBtn,
+                                styles.iconBtnIconOnly,
                                 { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
                               ]}
                               onPress={() => void onMarkDone(row.id)}
                             >
                               <Check size={18} color={designTokens.accentColor} />
+                              {/* preview icones seules — étape 2: supprimer si validé
                               <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
                                 {t('timeline.ideaBank.done')}
                               </Text>
+                              */}
                             </Pressable>
                           ) : null}
                           <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              isProjectWithoutStartDate(row)
+                                ? t('cluster.planProjectStart')
+                                : t('timeline.ideaBank.schedule')
+                            }
                             style={[
                               styles.iconBtn,
+                              styles.iconBtnIconOnly,
                               { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
                             ]}
                             onPress={() => openScheduleForRow(row)}
                           >
                             <CalendarDays size={18} color={theme.colors.secondary} />
+                            {/* preview icones seules — étape 2: supprimer si validé
                             <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
                               {isProjectWithoutStartDate(row)
                                 ? t('cluster.planProjectStart')
                                 : t('timeline.ideaBank.schedule')}
                             </Text>
+                            */}
                           </Pressable>
                           <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={t('timeline.ideaBank.edit')}
                             style={[
                               styles.iconBtn,
+                              styles.iconBtnIconOnly,
                               { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
                             ]}
                             onPress={() => onEdit(row)}
                           >
                             <Pencil size={18} color={designTokens.accentColor} />
+                            {/* preview icones seules — étape 2: supprimer si validé
                             <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
                               {t('timeline.ideaBank.edit')}
                             </Text>
+                            */}
                           </Pressable>
                           <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={removeActionLabel}
                             style={[
                               styles.iconBtn,
+                              styles.iconBtnIconOnly,
                               { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
                             ]}
                             onPress={() => onDelete(row.id)}
                           >
                             <Trash2 size={18} color={theme.colors.error} />
+                            {/* preview icones seules — étape 2: supprimer si validé
                             <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
                               {removeActionLabel}
                             </Text>
+                            */}
                           </Pressable>
                         </View>
                       </View>
@@ -495,6 +519,14 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 10,
+  },
+  /** Preview icones seules — compact pour tenir sur une ligne. */
+  iconBtnIconOnly: {
+    width: 40,
+    height: 40,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    justifyContent: 'center',
   },
   iconBtnLabel: { fontSize: 12, fontWeight: '600' },
   clearAllBtn: {
