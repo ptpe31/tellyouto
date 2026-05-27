@@ -1352,7 +1352,7 @@ export function TimelineScreen() {
         out.push({ kind: 'roadmapLink', id: 'daily-roadmap-under-today' });
         if (hubEligible && hubBlocks) {
           for (const block of hubBlocks) {
-            out.push({ kind: 'hubBlock', id: `hub-${block.id}`, block });
+            out.push({ kind: 'hubBlock', id: `hub-${block.categoryId}`, block });
           }
         }
         inserted = true;
@@ -1432,7 +1432,7 @@ export function TimelineScreen() {
       setIdeaBankMode('default');
       setIdeaBankCategoryFilter(null);
       setIdeaBankHubItems(block.items);
-      setIdeaBankHubTitle(t(block.titleI18nKey));
+      setIdeaBankHubTitle(t(`category.${block.categoryId}`, { defaultValue: block.categoryId }));
       setIdeaBankOpen(true);
     },
     [t],

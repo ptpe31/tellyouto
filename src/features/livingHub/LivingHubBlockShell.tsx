@@ -11,11 +11,15 @@ type Props = {
   onPress: () => void;
 };
 
-/** Bloc thématique style email — titre, compteur, 2 puces prioritaires. */
+function formatTimeHm(hm: string): string {
+  const [h, m] = hm.split(':');
+  return `${h}h${m}`;
+}
+
+/** Bloc catégorie IA — lignes avec heure et marqueur habitude inline. */
 export function LivingHubBlockShell({ block, designTokens, onPress }: Props) {
   const { t } = useTranslation();
-  const count = block.items.length;
-  const isEmpty = count === 0;
+  const categoryLabel = t(`category.${block.categoryId}`, { defaultValue: block.categoryId }).toUpperCase();
 
   return (
     <Pressable
@@ -35,36 +39,29 @@ export function LivingHubBlockShell({ block, designTokens, onPress }: Props) {
       <View style={styles.headerRow}>
         <Text style={styles.emoji}>{block.emoji}</Text>
         <Text style={[styles.title, { color: designTokens.textPrimary }]} numberOfLines={2}>
-          {t(block.titleI18nKey)}
+          {categoryLabel}
         </Text>
-        {!isEmpty ? (
-          <View style={[styles.countBadge, { backgroundColor: `${designTokens.accentColor}22` }]}>
-            <Text style={[styles.countText, { color: designTokens.accentColor }]}>{count}</Text>
-          </View>
-        ) : null}
+        <View style={[styles.countBadge, { backgroundColor: `${designTokens.accentColor}22` }]}>
+          <Text style={[styles.countText, { color: designTokens.accentColor }]}>{block.items.length}</Text>
+        </View>
       </View>
 
-      {isEmpty ? (
-        <Text style={[styles.emptyText, { color: designTokens.textSecondary }]}>
-          {t(block.emptyI18nKey)}
-        </Text>
-      ) : (
-        <View style={styles.previewStack}>
-          {block.previewTitles.map((title) => (
-            <View key={title} style={styles.previewRow}>
+      <View style={styles.lineStack}>
+        {block.lines.map((line) => {
+          const prefix = line.timeHm ? `${formatTimeHm(line.timeHm)} • ` : '';
+          const habitSuffix = line.isHabit ? ' 🔁' : '';
+          return (
+            <View key={line.rowId} style={styles.lineRow}>
               <Text style={[styles.bullet, { color: designTokens.accentColor }]}>•</Text>
-              <Text style={[styles.previewText, { color: designTokens.textPrimary }]} numberOfLines={1}>
-                {title}
+              <Text style={[styles.lineText, { color: designTokens.textPrimary }]} numberOfLines={2}>
+                {prefix}
+                {line.title}
+                {habitSuffix}
               </Text>
             </View>
-          ))}
-          {count > block.previewTitles.length ? (
-            <Text style={[styles.moreText, { color: designTokens.textSecondary }]}>
-              {t('livingHub.moreItems', { count: count - block.previewTitles.length })}
-            </Text>
-          ) : null}
-        </View>
-      )}
+          );
+        })}
+      </View>
     </Pressable>
   );
 }
@@ -88,6 +85,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '800',
+    letterSpacing: 0.3,
   },
   countBadge: {
     minWidth: 26,
@@ -101,32 +99,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  emptyText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontStyle: 'italic',
-  },
-  previewStack: {
-    gap: 4,
-    paddingLeft: 28,
-  },
-  previewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  lineStack: {
     gap: 6,
+    paddingLeft: 4,
+  },
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingLeft: 24,
   },
   bullet: {
     fontSize: 14,
     fontWeight: '800',
+    lineHeight: 20,
   },
-  previewText: {
+  lineText: {
     flex: 1,
     fontSize: 13,
-    lineHeight: 18,
-  },
-  moreText: {
-    fontSize: 12,
-    marginTop: 2,
-    paddingLeft: 14,
+    lineHeight: 20,
   },
 });

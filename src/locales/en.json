@@ -1549,15 +1549,6 @@
       }
     }
   },
-  "livingHub": {
-    "homeRoutineTitle": "Home routine",
-    "homeRoutineEmpty": "No household chores planned today",
-    "temporalTitle": "Time schedule",
-    "temporalEmpty": "No strict times today",
-    "residualTitle": "Remaining items",
-    "residualEmpty": "Nothing else to handle — clear skies!",
-    "moreItems": "+ {{count}} more"
-  },
   "horizons": {
     "rearbitrate": "To re-arbitrate",
     "today": "Today",

@@ -1549,15 +1549,6 @@
       }
     }
   },
-  "livingHub": {
-    "homeRoutineTitle": "Routine & Maison",
-    "homeRoutineEmpty": "Aucune tâche ménagère prévue aujourd'hui",
-    "temporalTitle": "Éphéméride temporelle",
-    "temporalEmpty": "Aucun horaire strict aujourd'hui",
-    "residualTitle": "Reste à charge",
-    "residualEmpty": "Rien d'autre à traiter — ciel dégagé !",
-    "moreItems": "+ {{count}} autre(s)"
-  },
   "horizons": {
     "rearbitrate": "A re-arbitrer",
     "today": "Aujourd'hui",
