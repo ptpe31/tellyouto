@@ -16,7 +16,6 @@ type Props = {
   errorColor: string;
   onClose: () => void;
   onPressBlock?: (block: HubBlock) => void;
-  onPressLine?: (rowId: string) => void;
   onClearAll?: () => void;
   clearAllLabel?: string;
   emptyMessage: string;
@@ -35,7 +34,6 @@ export function LivingHubCategoryModal({
   errorColor,
   onClose,
   onPressBlock,
-  onPressLine,
   onClearAll,
   clearAllLabel,
   emptyMessage,
@@ -77,7 +75,6 @@ export function LivingHubCategoryModal({
                     designTokens={designTokens}
                     variant={variant}
                     onPress={onPressBlock ? () => onPressBlock(block) : undefined}
-                    onPressLine={onPressLine}
                   />
                 </View>
               ))}

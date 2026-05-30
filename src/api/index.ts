@@ -54,6 +54,7 @@ export {
   listActiveHabitsForHub,
   getHabitCompletionDayKeysByIntentionIds,
   markTrankilV2IntentionDone,
+  logTrankilV2HabitOccurrence,
   toggleIntentionDone,
   archiveIntention,
   listIntentionsForPass3Cleanup,

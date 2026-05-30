@@ -4,13 +4,13 @@ import { useTranslation } from 'react-i18next';
 
 import type { DesignTokens } from '../../theme/TalkThemeRegistry';
 import type { HubBlock } from './buildLivingHubBlocks';
+import { HabitStreakCompact } from './HabitStreakCompact';
 import type { RoutineHubItemLine } from './formatRoutineItemLine';
 
 type Props = {
   block: HubBlock;
   designTokens: DesignTokens;
   onPress?: () => void;
-  onPressLine?: (rowId: string) => void;
   variant?: 'default' | 'routine';
 };
 
@@ -19,27 +19,34 @@ function formatTimeHm(hm: string): string {
   return `${h}h${m}`;
 }
 
-function RoutineStreakBadge({ line }: { line: RoutineHubItemLine }) {
-  const { t } = useTranslation();
-  if (line.streak.kind === 'fire') {
-    return (
-      <Text style={styles.streakFire} numberOfLines={1}>
-        {t('timeline.routines.streakFire', { count: line.streak.days })}
-      </Text>
-    );
-  }
-  if (line.streak.kind === 'pause') {
-    return (
-      <Text style={styles.streakPause} numberOfLines={1}>
-        {t('timeline.routines.streakPause')}
-      </Text>
-    );
-  }
-  return null;
+function RoutineLinePreview({ line, designTokens }: { line: RoutineHubItemLine; designTokens: DesignTokens }) {
+  return (
+    <View style={styles.routineItem}>
+      <View style={[styles.lineRow, styles.routineLineRow]}>
+        <Text style={[styles.bullet, { color: designTokens.accentColor }]}>•</Text>
+        <View style={styles.routineLineBody}>
+          <Text style={[styles.lineText, { color: designTokens.textPrimary }]} numberOfLines={2}>
+            {line.title}
+            <Text style={[styles.cadenceText, { color: designTokens.textSecondary }]}>
+              {' '}
+              • {line.cadenceLabel}
+            </Text>
+          </Text>
+          {line.trackStreak && line.streakData ? (
+            <HabitStreakCompact
+              data={line.streakData}
+              accentColor={designTokens.accentColor}
+              mutedColor={`${designTokens.textSecondary}33`}
+            />
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
 }
 
 /** Bloc catégorie IA — lignes avec heure et marqueur habitude inline. */
-export function LivingHubBlockShell({ block, designTokens, onPress, onPressLine, variant = 'default' }: Props) {
+export function LivingHubBlockShell({ block, designTokens, onPress, variant = 'default' }: Props) {
   const { t } = useTranslation();
   const categoryLabel = t(`category.${block.categoryId}`, { defaultValue: block.categoryId }).toUpperCase();
   const isRoutine = variant === 'routine';
@@ -59,26 +66,7 @@ export function LivingHubBlockShell({ block, designTokens, onPress, onPressLine,
 
       <View style={styles.lineStack}>
         {isRoutine
-          ? routineLines.map((line) => (
-              <Pressable
-                key={line.rowId}
-                accessibilityRole="button"
-                onPress={() => onPressLine?.(line.rowId)}
-                style={({ pressed }) => [styles.lineRow, styles.routineLineRow, pressed ? styles.linePressed : null]}
-              >
-                <Text style={[styles.bullet, { color: designTokens.accentColor }]}>•</Text>
-                <View style={styles.routineLineBody}>
-                  <Text style={[styles.lineText, { color: designTokens.textPrimary }]} numberOfLines={2}>
-                    {line.title}
-                    <Text style={[styles.cadenceText, { color: designTokens.textSecondary }]}>
-                      {' '}
-                      • {line.cadenceLabel}
-                    </Text>
-                  </Text>
-                </View>
-                <RoutineStreakBadge line={line} />
-              </Pressable>
-            ))
+          ? routineLines.map((line) => <RoutineLinePreview key={line.rowId} line={line} designTokens={designTokens} />)
           : block.lines.map((line) => {
               const prefix = line.timeHm ? `${formatTimeHm(line.timeHm)} • ` : '';
               const habitSuffix = line.isHabit ? ' 🔁' : '';
@@ -96,6 +84,27 @@ export function LivingHubBlockShell({ block, designTokens, onPress, onPressLine,
       </View>
     </>
   );
+
+  if (isRoutine && onPress) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          designTokens.cardShadowStyle,
+          styles.shell,
+          {
+            borderRadius: designTokens.borderRadius,
+            backgroundColor: designTokens.cardBackground,
+            borderColor: `${designTokens.accentColor}55`,
+            opacity: pressed ? 0.92 : 1,
+          },
+        ]}
+      >
+        {shellContent}
+      </Pressable>
+    );
+  }
 
   if (isRoutine) {
     return (
@@ -169,22 +178,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   lineStack: {
-    gap: 6,
+    gap: 8,
     paddingLeft: 4,
+  },
+  routineItem: {
+    paddingLeft: 20,
   },
   lineRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
-    paddingLeft: 24,
+    paddingLeft: 4,
   },
   routineLineRow: {
-    alignItems: 'center',
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  linePressed: {
-    opacity: 0.88,
+    alignItems: 'flex-start',
+    paddingVertical: 2,
   },
   routineLineBody: {
     flex: 1,
@@ -193,6 +201,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     lineHeight: 20,
+    marginTop: 1,
   },
   lineText: {
     flex: 1,
@@ -202,16 +211,5 @@ const styles = StyleSheet.create({
   cadenceText: {
     fontSize: 12,
     fontWeight: '600',
-  },
-  streakFire: {
-    fontSize: 12,
-    fontWeight: '800',
-    marginLeft: 4,
-  },
-  streakPause: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 4,
-    opacity: 0.85,
   },
 });

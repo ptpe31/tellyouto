@@ -3,26 +3,17 @@ import {
   cadenceDescriptionFromRule,
   parseRecurrenceRuleFromMetadata,
 } from '../../utils/habitRecurrenceRule';
-import { resolveHabitStreakDisplay, type HabitStreakDisplay } from './habitStreak';
+import { isTrackStreakEnabled, parseIntentionMetadata } from '../../utils/intentionMetadata';
 import { formatHubItemLine, type HubItemLine } from './formatHubItemLine';
+import { getHabitStreakData, type HabitStreakData } from './getHabitStreakData';
 
 export type RoutineHubItemLine = HubItemLine & {
   cadenceLabel: string;
-  streak: HabitStreakDisplay;
+  trackStreak: boolean;
+  streakData: HabitStreakData | null;
 };
 
-function parseMetadataJson(raw: string | null | undefined): Record<string, unknown> | null {
-  const s = String(raw ?? '').trim();
-  if (!s) return null;
-  try {
-    const v = JSON.parse(s) as unknown;
-    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveCadenceLabel(meta: Record<string, unknown> | null): string {
+function resolveCadenceLabel(meta: ReturnType<typeof parseIntentionMetadata>): string {
   const rule = parseRecurrenceRuleFromMetadata(meta);
   if (rule) return cadenceDescriptionFromRule(rule);
   const legacy = String(meta?.cadenceDescription ?? '').trim();
@@ -30,18 +21,21 @@ function resolveCadenceLabel(meta: Record<string, unknown> | null): string {
   return 'Récurrent';
 }
 
-/** Ligne routine : titre, cadence et badge série. */
+/** Ligne routine : titre, cadence et semainier compact (si opt-in). */
 export function formatRoutineItemLine(
   row: TrankilV2TimelineItemRow,
-  completionDayKeys: string[],
-  referenceDate = new Date(),
+  _completionDayKeys: string[],
+  _referenceDate = new Date(),
 ): RoutineHubItemLine {
   const base = formatHubItemLine(row);
-  const meta = parseMetadataJson(row.metadata_json);
-  const rule = parseRecurrenceRuleFromMetadata(meta);
+  const meta = parseIntentionMetadata(row.metadata_json);
+  const trackStreak = isTrackStreakEnabled(meta);
   return {
     ...base,
     cadenceLabel: resolveCadenceLabel(meta),
-    streak: resolveHabitStreakDisplay(rule, completionDayKeys, Number(row.created_at), referenceDate),
+    trackStreak,
+    streakData: trackStreak ? getHabitStreakData(row.id) : null,
   };
 }
+
+export { resolveCadenceLabel };

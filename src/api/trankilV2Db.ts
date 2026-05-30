@@ -3548,6 +3548,42 @@ export async function markTrankilV2IntentionDone(id: string): Promise<void> {
   notifyIntentionsChanged({ id, reason: 'mark_done' });
 }
 
+/**
+ * Historise une occurrence d'habitude pour un jour local (sans clôturer l'intention).
+ * Idempotent : ignore si déjà enregistré pour ce jour.
+ */
+export async function logTrankilV2HabitOccurrence(
+  intentionId: string,
+  opts?: { dayKey?: string; source?: string },
+): Promise<void> {
+  const id = String(intentionId || '').trim();
+  if (!id) return;
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ type: TrankilIntentType; status: TrankilIntentStatus }>(
+    `SELECT type, status FROM intentions WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  if (!row || row.type !== 'HABIT' || row.status === 'ARCHIVED') return;
+
+  const now = Date.now();
+  const dayKey = String(opts?.dayKey || localDayKeyFromMs(now)).trim();
+  const existingDays = await getHabitCompletionDayKeysByIntentionIds([id]);
+  if (existingDays.get(id)?.includes(dayKey)) return;
+
+  void insertUserActivityLog({
+    action_type: 'HABIT_DONE',
+    points_delta: 0,
+    day_key: dayKey,
+    created_at: now,
+    meta_json: JSON.stringify({
+      intention_id: id,
+      source: opts?.source ?? 'logTrankilV2HabitOccurrence',
+    }),
+  }).catch(() => undefined);
+  notifyIntentionsChanged({ id, reason: 'habit_occurrence' });
+}
+
 /** Bascule TODO ⟷ DONE (hors archives), avec horodatage `done_at`. */
 export async function toggleIntentionDone(id: string): Promise<void> {
   await initTrankilV2Schema();

@@ -1,8 +1,10 @@
+import * as Haptics from 'expo-haptics';
 import { CalendarDays, Check, Pencil, Trash2 } from 'lucide-react-native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
+  LayoutAnimation,
   Modal,
   Pressable,
   ScrollView,
@@ -16,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   bulkMarkTrankilV2InboxRemoved,
   deleteTrankilV2IntentionById,
+  logTrankilV2HabitOccurrence,
   markTrankilV2IntentionDone,
   markTrankilV2IntentionRemovedFromInbox,
   patchMetadata,
@@ -24,6 +27,7 @@ import {
   type TrankilV2TimelineItemRow,
 } from '../api';
 import { syncNativeRailAlarmsAfterIntentionWrite } from '../api/intentionHardwareSync';
+import { Platform as RPlatform } from '../utils/rnPlatform';
 import { IntentInteractionWrapper } from './IntentInteractionWrapper';
 import {
   buildProjectMilestonesMetadataPatch,
@@ -34,6 +38,9 @@ import {
 import { generateSmartTitle } from '../services/smartTitle';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { formatCreationSubtitle } from '../utils/timeFormat';
+import { HabitStreakCompact, getHabitStreakData } from '../features/livingHub';
+import { resolveCadenceLabel } from '../features/livingHub/formatRoutineItemLine';
+import { isTrackStreakEnabled, parseIntentionMetadata } from '../utils/intentionMetadata';
 
 type Props = {
   visible: boolean;
@@ -83,6 +90,24 @@ function isProjectWithoutStartDate(row: TrankilV2TimelineItemRow): boolean {
   return !getProjectStartDateFromMetadataJson(row.metadata_json);
 }
 
+async function safeSuccessHaptic(): Promise<void> {
+  try {
+    if (RPlatform.OS === 'web') return;
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function safeMediumHaptic(): Promise<void> {
+  try {
+    if (RPlatform.OS === 'web') return;
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function IdeaBankModal({
   visible,
   onClose,
@@ -100,6 +125,10 @@ export function IdeaBankModal({
   const insets = useSafeAreaInsets();
   const [scheduleForId, setScheduleForId] = useState<string | null>(null);
   const [scheduleMode, setScheduleMode] = useState<'due' | 'projectStart'>('due');
+  const [pendingLocalDone, setPendingLocalDone] = useState<Set<string>>(() => new Set());
+  const pendingLocalDoneRef = useRef<Set<string>>(new Set());
+  const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const pendingRowsRef = useRef<Map<string, TrankilV2TimelineItemRow>>(new Map());
 
   const scheduleDates = useMemo(() => {
     const out: Date[] = [];
@@ -113,14 +142,107 @@ export function IdeaBankModal({
     onChanged();
   }, [onChanged]);
 
-  const onMarkDone = useCallback(
-    async (id: string) => {
-      await markTrankilV2IntentionDone(id);
-      await syncNativeRailAlarmsAfterIntentionWrite('ideaBankMarkDone');
+  const syncPendingSet = useCallback((next: Set<string>) => {
+    pendingLocalDoneRef.current = next;
+    setPendingLocalDone(next);
+  }, []);
+
+  const finalizeDone = useCallback(
+    async (row: TrankilV2TimelineItemRow) => {
+      if (!pendingLocalDoneRef.current.has(row.id)) return;
+
+      const tm = pendingTimeoutsRef.current.get(row.id);
+      if (tm) clearTimeout(tm);
+      pendingTimeoutsRef.current.delete(row.id);
+      pendingRowsRef.current.delete(row.id);
+
+      const next = new Set(pendingLocalDoneRef.current);
+      next.delete(row.id);
+      syncPendingSet(next);
+
+      const isHabit = row.type === 'HABIT';
+      if (!isHabit) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+
+      if (isHabit) {
+        await logTrankilV2HabitOccurrence(row.id, {
+          dayKey: toYmd(anchorDate),
+          source: 'ideaBankMarkDone',
+        });
+        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankHabitOccurrence');
+      } else {
+        await markTrankilV2IntentionDone(row.id);
+        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankMarkDone');
+      }
       await refresh();
     },
-    [refresh],
+    [anchorDate, refresh, syncPendingSet],
   );
+
+  const cancelPendingCommit = useCallback(
+    (rowId: string) => {
+      const tm = pendingTimeoutsRef.current.get(rowId);
+      if (tm) clearTimeout(tm);
+      pendingTimeoutsRef.current.delete(rowId);
+      pendingRowsRef.current.delete(rowId);
+      if (!pendingLocalDoneRef.current.has(rowId)) return;
+      const next = new Set(pendingLocalDoneRef.current);
+      next.delete(rowId);
+      syncPendingSet(next);
+    },
+    [syncPendingSet],
+  );
+
+  const schedulePendingCommit = useCallback(
+    (row: TrankilV2TimelineItemRow) => {
+      pendingRowsRef.current.set(row.id, row);
+      const next = new Set(pendingLocalDoneRef.current);
+      next.add(row.id);
+      syncPendingSet(next);
+      const tm = setTimeout(() => {
+        pendingTimeoutsRef.current.delete(row.id);
+        void finalizeDone(row);
+      }, 3000);
+      pendingTimeoutsRef.current.set(row.id, tm);
+    },
+    [finalizeDone, syncPendingSet],
+  );
+
+  const handleToggleDone = useCallback(
+    async (row: TrankilV2TimelineItemRow) => {
+      if (pendingLocalDoneRef.current.has(row.id)) {
+        await safeMediumHaptic();
+        cancelPendingCommit(row.id);
+        return;
+      }
+      await safeSuccessHaptic();
+      schedulePendingCommit(row);
+    },
+    [cancelPendingCommit, schedulePendingCommit],
+  );
+
+  const flushPendingCommits = useCallback(async () => {
+    const rows = [...pendingRowsRef.current.values()];
+    for (const row of rows) {
+      await finalizeDone(row);
+    }
+  }, [finalizeDone]);
+
+  useEffect(() => {
+    if (visible) return;
+    void flushPendingCommits();
+  }, [flushPendingCommits, visible]);
+
+  useEffect(() => {
+    return () => {
+      for (const tm of pendingTimeoutsRef.current.values()) {
+        clearTimeout(tm);
+      }
+      pendingTimeoutsRef.current.clear();
+      pendingRowsRef.current.clear();
+    };
+  }, []);
 
   const onSetDue = useCallback(
     async (id: string, ymd: string) => {
@@ -290,6 +412,12 @@ export function IdeaBankModal({
                 {items.map((row) => {
                   const title = formatLineTitle(resolveDisplayTitle(row), t);
                   const createdLine = formatCreationSubtitle(Number(row.created_at), t, i18n.language);
+                  const meta = parseIntentionMetadata(row.metadata_json);
+                  const isHabit = row.type === 'HABIT';
+                  const cadenceLabel = isHabit ? resolveCadenceLabel(meta) : null;
+                  const trackStreak = isHabit && isTrackStreakEnabled(meta);
+                  const streakData = trackStreak ? getHabitStreakData(row.id) : null;
+                  const isPending = pendingLocalDone.has(row.id);
                   return (
                     <IntentInteractionWrapper
                       key={row.id}
@@ -304,12 +432,33 @@ export function IdeaBankModal({
                           {
                             borderRadius: designTokens.borderRadius,
                             borderColor: theme.colors.outlineVariant,
+                            opacity: isPending ? 0.5 : 1,
                           },
                         ]}
                       >
-                        <Text style={[styles.rowTitle, { color: designTokens.textPrimary }]} numberOfLines={2}>
+                        <Text
+                          style={[
+                            styles.rowTitle,
+                            { color: designTokens.textPrimary },
+                            isPending ? styles.rowTitleDone : null,
+                          ]}
+                          numberOfLines={2}
+                        >
                           {title}
+                          {cadenceLabel ? (
+                            <Text style={[styles.habitCadence, { color: designTokens.textSecondary }]}>
+                              {' '}
+                              • {cadenceLabel}
+                            </Text>
+                          ) : null}
                         </Text>
+                        {trackStreak && streakData ? (
+                          <HabitStreakCompact
+                            data={streakData}
+                            accentColor={designTokens.accentColor}
+                            mutedColor={`${designTokens.textSecondary}33`}
+                          />
+                        ) : null}
                         <Text style={[styles.createdHint, { color: designTokens.textSecondary }]}>
                           {createdLine}
                         </Text>
@@ -321,11 +470,18 @@ export function IdeaBankModal({
                               style={[
                                 styles.iconBtn,
                                 styles.iconBtnIconOnly,
-                                { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
+                                {
+                                  borderColor: isPending ? designTokens.accentColor : theme.colors.outline,
+                                  borderRadius: designTokens.borderRadius * 0.5,
+                                  backgroundColor: isPending ? designTokens.accentColor : 'transparent',
+                                },
                               ]}
-                              onPress={() => void onMarkDone(row.id)}
+                              onPress={() => void handleToggleDone(row)}
                             >
-                              <Check size={18} color={designTokens.accentColor} />
+                              <Check
+                                size={18}
+                                color={isPending ? '#ffffff' : designTokens.accentColor}
+                              />
                               {/* preview icones seules — étape 2: supprimer si validé
                               <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
                                 {t('timeline.ideaBank.done')}
@@ -509,6 +665,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   rowTitle: { fontSize: 15, fontWeight: '600' },
+  rowTitleDone: { textDecorationLine: 'line-through' },
+  habitCadence: { fontSize: 13, fontWeight: '600' },
   createdHint: { fontSize: 11, marginTop: 4 },
   rowActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   iconBtn: {

@@ -12,7 +12,8 @@ export {
 export { buildLivingHubBlocks, buildRoutineHubBlocks, type HubBlock, type BuildLivingHubBlocksOptions, type BuildRoutineHubBlocksOptions } from './buildLivingHubBlocks';
 export { formatHubItemLine, hubItemSortKey, type HubItemLine } from './formatHubItemLine';
 export { formatRoutineItemLine, type RoutineHubItemLine } from './formatRoutineItemLine';
-export { resolveHabitStreakDisplay, type HabitStreakDisplay } from './habitStreak';
+export { HabitStreakCompact } from './HabitStreakCompact';
+export { getHabitStreakData, type HabitOccurrenceState, type HabitStreakData } from './getHabitStreakData';
 export {
   HUB_CATEGORY_EMOJI,
   HUB_CATEGORY_ORDER,

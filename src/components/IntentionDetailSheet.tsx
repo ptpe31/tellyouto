@@ -625,6 +625,18 @@ export function IntentionDetailSheet({
     },
     [],
   );
+
+  const onToggleTrackStreak = useCallback(
+    async (enabled: boolean) => {
+      if (!row) return;
+      const root = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json) ?? {};
+      const nextJson = JSON.stringify({ ...root, track_streak: enabled });
+      metadataJsonLiveRef.current = nextJson;
+      setMetadataJsonLive(nextJson);
+      await patchMetadataIfSheetUnfrozen(row.id, { track_streak: enabled }, { silent: true });
+    },
+    [patchMetadataIfSheetUnfrozen, row],
+  );
   const [originLat, setOriginLat] = useState<number | null>(null);
   const [originLng, setOriginLng] = useState<number | null>(null);
   const [arrivalLat, setArrivalLat] = useState<number | null>(null);
@@ -725,6 +737,11 @@ export function IntentionDetailSheet({
   const isTrip = Boolean(trip);
   const isProject = Boolean(row && row.type === 'PROJECT');
   const isList = Boolean(row && row.type === 'LIST');
+  const isHabit = Boolean(row && row.type === 'HABIT');
+  const trackStreakEnabled = useMemo(() => {
+    const m = meta as Record<string, unknown> | null;
+    return m?.track_streak === true;
+  }, [meta]);
   const isGenerating = Boolean(meta && (meta as Record<string, unknown>).is_generating);
   const categoryTabLabel = useMemo(() => {
     const key = categoryLabelKey(row?.category_id);
@@ -3049,6 +3066,33 @@ export function IntentionDetailSheet({
                       ) : null}
                     </View>
                   ) : null}
+                </>
+              ) : null}
+
+              {isHabit && sheetPosition === 'full' && !isValidationView ? (
+                <>
+                  <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                  <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                    {t('intentionDetail.labelEngagement')}
+                  </Text>
+                  <View style={styles.allDayRow}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={{ color: theme.colors.onSurface, fontWeight: '700', fontSize: 15 }}>
+                        {t('intentionDetail.trackStreak')}
+                      </Text>
+                      <Text
+                        style={{
+                          color: theme.colors.onSurfaceVariant,
+                          fontSize: 12,
+                          marginTop: 4,
+                          lineHeight: 16,
+                        }}
+                      >
+                        {t('intentionDetail.trackStreakHint')}
+                      </Text>
+                    </View>
+                    <Switch value={trackStreakEnabled} onValueChange={(v) => void onToggleTrackStreak(v)} />
+                  </View>
                 </>
               ) : null}
 

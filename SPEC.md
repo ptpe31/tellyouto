@@ -1014,7 +1014,7 @@ const designTokens = useDesignTokens();
 | [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Fond scroll, titres, panneau showroom (`cardShadowStyle`, `cardBackground`, `accentColor`) |
 | [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) | `shadowStyle`, `cardShadowStyle`, `accentColor` (variante Timeline) |
 | [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) | `cardShadowStyle`, `cardBackground`, `textPrimary/Secondary`, `accentColor`, `borderRadius` |
-| [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) | Fond modale, cartes rows, arrondis dynamiques ; **actions icône seule** (40×40, libellés commentés en source — visuel validé, nettoyage étape 2) |
+| [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) | Fond modale, cartes rows, arrondis dynamiques ; **actions icône seule** (40×40, libellés commentés en source — visuel validé, nettoyage étape 2) ; **Fait ✓** aligné Timeline (pending 3 s, haptique, UI optimiste, protection HABIT) |
 | [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | Fond sheet, CTA Pass 2 / validation peek, bouton surveillance TRIP (`accentColor`) |
 
 **Composants candidats** (migration future) : `PilotStatusHeader`, `DealerBoard`, `IntentionCard` pied TRIP (badges métier inchangés).
@@ -1120,10 +1120,11 @@ const designTokens = useDesignTokens();
 #### 2.b bis) Routines — bibliothèque d'habitudes (Le Gérer)
 
 - **Objectif** : séparer **faire** (hub Aujourd'hui — habitudes JIT via `isHabitRowActiveForDate`) et **gérer** (toutes les routines actives, quel que soit le jour).
-- **SQL** : [`ROUTINE_HABIT_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `listActiveHabitsForHub`, `countRoutineHabits`, compteur `routinesCount` ; séries via `getHabitCompletionDayKeysByIntentionIds` (`user_activity_logs`, `HABIT_DONE`).
+- **SQL** : [`ROUTINE_HABIT_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `listActiveHabitsForHub`, `countRoutineHabits`, compteur `routinesCount` ; séries via `getHabitCompletionDayKeysByIntentionIds` (`user_activity_logs`, `HABIT_DONE`) ; validation jour depuis la Tirelire via [`logTrankilV2HabitOccurrence`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) (idempotent, sans clôturer l’intention).
 - **Carrousel** : tuile i18n **`timeline.smartClusters.routinesTitle`** (🔁 Routines).
 - **Vue catégories** : [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) `variant="routine"` — [`buildRoutineHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) + badge série 🔥 / ❄️ Pause ([`habitStreak.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitStreak.ts)).
-- **Interaction** : tap **ligne** → ferme la vue puis **`openDetail`** / [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) — **pas** de purge globale (contrairement à Box).
+- **Focus modal** : tap bloc → ferme la vue Routines puis [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) pré-filtrée (`ideaBankHubItems` = habitudes du bloc) ; **Modifier ✏️** → `IntentionDetailSheet`.
+- **Interaction** : même cinématique que Box (bloc catégorie → tirelire) — **pas** de purge globale au niveau de la vue catégories.
 - **i18n** : `timeline.smartClusters.routinesTitle|routinesSubtitle`, `timeline.routines.title|empty|streakFire|streakPause`.
 - **À venir** : bouton pause habitude dans la bottom sheet ; mini-calendrier série dans le détail.
 
@@ -1145,6 +1146,43 @@ const designTokens = useDesignTokens();
 - **Modifier** : prop **`onEditItem(row)`** — séquence **`onClose()`** (ferme la tirelire) puis délégation parent **`openDetail(row)`** → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) plein écran (catégorie, titre, Pass 2, persistance SQLite) — **pas** de modale sur modale.
 - **Planifier projet orphelin** : inchangé — icône calendrier ; si `PROJECT` sans `start_date`, ouvre le sélecteur **Planifier le début** (`cluster.planProjectStart`).
 
+##### 2.d.1) Fait ✓ — alignement Timeline (« L’Alignement Pacifique »)
+
+**Objectif** : la Tirelire hérite de l’ADN serein de la Timeline (délai d’annulation 3 s, retours sensoriels, UI optimiste) sans réutiliser l’orbe neumorphique (`TaskCompletionOrb`) — le bouton ✓ carré 40×40 reste le contrôle d’action dans la rangée icônes.
+
+**État local** (portée modale, [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx)) :
+- `pendingLocalDone` : `Set<string>` (ids en attente de persistance) ;
+- `pendingTimeoutsRef` : timers 3000 ms par id ;
+- `pendingRowsRef` : snapshot `TrankilV2TimelineItemRow` pour le flush à la fermeture.
+
+**Tap ✓ (validation)** :
+1. Haptique succès (`safeSuccessHaptic`) ;
+2. Ajout immédiat de l’id au Set pending ;
+3. **UI optimiste** : carte `opacity: 0.5`, titre `textDecorationLine: 'line-through'` ; bouton ✓ fond `accentColor`, icône blanche ;
+4. Démarrage timer 3 s.
+
+**Re-tap ✓ (< 3 s, annulation)** :
+1. Haptique medium (`safeMediumHaptic`) ;
+2. `clearTimeout` + retrait du Set pending ;
+3. Restauration visuelle instantanée — **aucune écriture SQLite**.
+
+**Expiration timer (persistance réelle)** :
+1. Retrait du Set pending ;
+2. **`LayoutAnimation.configureNext(easeInEaseOut)`** uniquement si `row.type !== 'HABIT'` (sortie de liste pour tâches) ;
+3. Distinction type :
+   - **`TASK` / `PROJECT` / … (≠ HABIT)** → [`markTrankilV2IntentionDone`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) ; la ligne disparaît au `onChanged()` parent ;
+   - **`HABIT`** → [`logTrankilV2HabitOccurrence`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) avec `dayKey = anchorDate` (YYYY-MM-DD) — **interdit** d’appeler `markTrankilV2IntentionDone` (ne pas clôturer l’habitude) ; l’intention reste `TODO`, seule une entrée `HABIT_DONE` est ajoutée dans `user_activity_logs` (idempotent par jour) ;
+4. `syncNativeRailAlarmsAfterIntentionWrite` (`ideaBankMarkDone` ou `ideaBankHabitOccurrence`) ;
+5. `onChanged()` → `reload()` parent.
+
+**Fermeture / lifecycle** :
+- **`visible → false`** : `flushPendingCommits()` — finalise immédiatement toutes les validations en attente (même contrat que `TimelineScreen.flushPendingCommits` avant reload) ;
+- **Démontage** : cleanup des timeouts (sans persistance différée orpheline).
+
+**Handler** : `handleToggleDone(row)` remplace l’ancien appel direct `onMarkDone(id)`.
+
+**Suppression définitive d’une habitude** : uniquement via **🗑️ Retirer** (alerte destructive), jamais via ✓ Fait.
+
 ### 3) Séquençage du Flux (Grouping Logic)
 
 - Sticky Headers : la liste est organisée par groupes temporels (Today, Tomorrow, Week) et expose des séparateurs visuels persistants (sticky headers).
@@ -1154,7 +1192,9 @@ const designTokens = useDesignTokens();
 ### 4) Sanctuarisation du Moteur “Undo”
 
 - Règle d’or : le délai de persistance de 3 secondes (`pendingLocalDone`) est immuable.
-- Localisation du code : la logique d’undo doit rester au niveau du parent [TimelineScreen.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx#L460-L1014) (timers + refs) pour garantir l’intégrité en cas de scroll, virtualisation FlatList, regroupement/sticky headers, ou changement de filtres. Aucun composant de carte (ex. `IntentionCard`) ne doit embarquer de timers ni de persistance différée.
+- **Timeline (liste principale)** : la logique d’undo reste au niveau du parent [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) (timers + refs) pour garantir l’intégrité en cas de scroll, virtualisation FlatList, regroupement/sticky headers, ou changement de filtres. Aucun composant de carte (ex. `IntentionCard`) ne doit embarquer de timers ni de persistance différée.
+- **Tirelire ([`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx))** : exception autorisée — état `pendingLocalDone` **local à la modale** (même contrat 3 s / haptique / annulation re-tap), documenté en § 2.d.1. Ne pas dupliquer cette logique dans les cartes enfants ; la modale est le seul propriétaire des timers Tirelire.
+- **Parité API** : Timeline utilise `toggleIntentionDone` ; Tirelire utilise `markTrankilV2IntentionDone` (TODO→DONE) pour les tâches et `logTrankilV2HabitOccurrence` pour les habitudes — les deux chemins respectent le délai 3 s avant persistance.
 
 ### 5) Performance & Virtualisation
 

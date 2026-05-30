@@ -326,7 +326,7 @@ Points notables :
 #### Routines — bibliothèque d'habitudes (mai 2026)
 
 - **Carrousel** : tuile **🔁 Routines** (`routinesCount`) — vue « gérer » distincte du hub JIT « faire ».
-- **Vue** : `LivingHubCategoryModal` variant routine — lignes cliquables, cadence + badge série ; **sans** purge globale.
+- **Vue** : `LivingHubCategoryModal` variant routine — aperçu cadence + badge série ; tap bloc → `IdeaBankModal` ; **sans** purge globale.
 - **Séries** : `getHabitCompletionDayKeysByIntentionIds` + `resolveHabitStreakDisplay` (🔥 jours consécutifs / ❄️ Pause).
 
 #### Habitudes — Living Hub JIT (mai 2026)
@@ -429,7 +429,7 @@ Fichier : `src/services/CaptureProcessingService.ts`
 
 - [`SmartClustersCarousel.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) : tuiles **Inbox · À acheter · Box · Routines · Projets** ; compteurs via `getTrankilV2SmartClusterCounts` (`inboxToday`, `shopCount`, `boxCount`, `routinesCount`, `projectsToday`).
 - **Box** : [`BOX_STOCK_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — TODO sans date, hors Inbox jour, SHOP et **HABIT** ; [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) + [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) ; tap bloc → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) ; purge globale `bulkDeleteTrankilV2IntentionsByIds` (i18n `timeline.box.*`).
-- **Routines** : [`ROUTINE_HABIT_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — toutes les HABIT actives ; [`buildRoutineHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) + [`habitStreak.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitStreak.ts) (séries depuis `user_activity_logs` / `HABIT_DONE`) ; tap ligne → `IntentionDetailSheet` ; **sans** purge globale.
+- **Routines** : [`ROUTINE_HABIT_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — toutes les HABIT actives ; [`buildRoutineHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) + badges série en aperçu ; tap bloc catégorie → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) ; **sans** purge globale au niveau vue catégories.
 - **Legacy** : [`clusterEngine.getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) conservé mais **non branché** au carrousel.
 - **Planifier le début (PROJECT)** : dans [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx), si `type === 'PROJECT'` et pas de `project.start_date`, CTA **Planifier le début** (`cluster.planProjectStart`) ; `patchMetadata` + `updateTrankilV2IntentionTemporal({ due_date })`.
 - **Actions ligne IdeaBank** : icônes seules ✓ / 📅 / ✏️ / 🗑️ ; **Modifier** ferme la modale puis `openDetail` → `IntentionDetailSheet`.

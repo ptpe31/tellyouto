@@ -77,9 +77,52 @@ export type DesignTokens = {
   borderRadius: number;
   shadowStyle: ViewStyle;
   cardShadowStyle: ViewStyle;
+  /** Pastel color-blocking — carrousel Smart Clusters (Inbox · Shop · Box · Routines). */
+  carouselInboxBg: string;
+  carouselShopBg: string;
+  carouselBoxBg: string;
+  carouselRoutinesBg: string;
+  carouselTileTextPrimary: string;
+  carouselTileTextSecondary: string;
 };
 
-type TokenPalette = Omit<DesignTokens, 'variant' | 'shadowStyle' | 'cardShadowStyle'>;
+type TokenPalette = Omit<
+  DesignTokens,
+  'variant' | 'shadowStyle' | 'cardShadowStyle' | keyof CarouselTileTokenKeys
+>;
+
+type CarouselTileTokenKeys = {
+  carouselInboxBg: string;
+  carouselShopBg: string;
+  carouselBoxBg: string;
+  carouselRoutinesBg: string;
+  carouselTileTextPrimary: string;
+  carouselTileTextSecondary: string;
+};
+
+/** Material You — pastels carrousel Timeline (schéma clair). */
+const CAROUSEL_TILE_LIGHT: CarouselTileTokenKeys = {
+  carouselInboxBg: '#E8F0FE',
+  carouselShopBg: '#E6F4EA',
+  carouselBoxBg: '#FFF7E0',
+  carouselRoutinesBg: '#F3E8FD',
+  carouselTileTextPrimary: '#1F1F1F',
+  carouselTileTextSecondary: '#424242',
+};
+
+/** Pastels assombris pour lisibilité en schéma sombre. */
+const CAROUSEL_TILE_DARK: CarouselTileTokenKeys = {
+  carouselInboxBg: '#1E2D42',
+  carouselShopBg: '#1E3328',
+  carouselBoxBg: '#3A3218',
+  carouselRoutinesBg: '#2E2440',
+  carouselTileTextPrimary: '#F5F5F5',
+  carouselTileTextSecondary: '#B8B8B8',
+};
+
+function carouselTileTokens(colorScheme: 'light' | 'dark'): CarouselTileTokenKeys {
+  return colorScheme === 'dark' ? CAROUSEL_TILE_DARK : CAROUSEL_TILE_LIGHT;
+}
 
 type ShadowIntensity = 'soft' | 'standard' | 'flat' | 'card' | 'spatial';
 
@@ -211,6 +254,7 @@ function withShadows(
   return {
     variant,
     ...colors,
+    ...carouselTileTokens(colorScheme),
     shadowStyle: buildNeumorphicShadow(
       colors.cardBackground,
       colors.borderRadius,

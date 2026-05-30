@@ -37,6 +37,8 @@ type TileProps = {
   subtitle?: string;
   badge?: number;
   onPress: () => void;
+  tileBackground?: string;
+  useCarouselText?: boolean;
 };
 
 function pressWithClusterDebug(clusterLabel: string, items: SmartClusterDebugEntry[], onPress: () => void): () => void {
@@ -46,9 +48,11 @@ function pressWithClusterDebug(clusterLabel: string, items: SmartClusterDebugEnt
   };
 }
 
-function ClusterTile({ title, subtitle, badge, onPress }: TileProps) {
+function ClusterTile({ title, subtitle, badge, onPress, tileBackground, useCarouselText }: TileProps) {
   const theme = useTheme();
   const designTokens = useDesignTokens();
+  const titleColor = useCarouselText ? designTokens.carouselTileTextPrimary : designTokens.textPrimary;
+  const subtitleColor = useCarouselText ? designTokens.carouselTileTextSecondary : designTokens.textSecondary;
 
   return (
     <Pressable
@@ -59,14 +63,14 @@ function ClusterTile({ title, subtitle, badge, onPress }: TileProps) {
         {
           width: SMART_CLUSTER_TILE_W,
           height: SMART_CLUSTER_TILE_H,
-          backgroundColor: designTokens.cardBackground,
+          backgroundColor: tileBackground ?? designTokens.cardBackground,
           borderColor: theme.colors.outlineVariant,
           opacity: pressed ? 0.9 : 1,
         },
       ]}
     >
       <View style={styles.titleRow}>
-        <Text style={[styles.title, { color: designTokens.textPrimary }]} numberOfLines={2}>
+        <Text style={[styles.title, { color: titleColor }]} numberOfLines={2}>
           {title}
         </Text>
         {badge != null && badge > 0 ? (
@@ -76,7 +80,7 @@ function ClusterTile({ title, subtitle, badge, onPress }: TileProps) {
         ) : null}
       </View>
       {subtitle ? (
-        <Text style={[styles.subtitle, { color: designTokens.textSecondary }]} numberOfLines={2}>
+        <Text style={[styles.subtitle, { color: subtitleColor }]} numberOfLines={2}>
           {subtitle}
         </Text>
       ) : (
@@ -101,6 +105,7 @@ export function SmartClustersCarousel({
   debugContents,
 }: Props) {
   const { t } = useTranslation();
+  const designTokens = useDesignTokens();
   const debug = debugContents ?? { inbox: [], shop: [], box: [], routines: [], projects: [] };
 
   return (
@@ -115,6 +120,8 @@ export function SmartClustersCarousel({
           title={t('timeline.smartClusters.inbox')}
           subtitle={t('timeline.smartClusters.inboxSubtitle', { count: inboxCount })}
           badge={inboxCount}
+          tileBackground={designTokens.carouselInboxBg}
+          useCarouselText
           onPress={pressWithClusterDebug('Inbox', debug.inbox, onPressInbox)}
         />
       ) : null}
@@ -122,6 +129,8 @@ export function SmartClustersCarousel({
         <ClusterTile
           title={t('timeline.ideaBank.shopTitle')}
           subtitle={t('timeline.ideaBank.shopSubtitle', { count: shopCount })}
+          tileBackground={designTokens.carouselShopBg}
+          useCarouselText
           onPress={pressWithClusterDebug('À acheter', debug.shop, onPressShop)}
         />
       ) : null}
@@ -129,6 +138,8 @@ export function SmartClustersCarousel({
         title="Box"
         subtitle={boxCount > 0 ? `${boxCount} idées` : undefined}
         badge={boxCount > 0 ? boxCount : undefined}
+        tileBackground={designTokens.carouselBoxBg}
+        useCarouselText
         onPress={pressWithClusterDebug('Box', debug.box, onPressBox)}
       />
       <ClusterTile
@@ -139,6 +150,8 @@ export function SmartClustersCarousel({
             : undefined
         }
         badge={routinesCount > 0 ? routinesCount : undefined}
+        tileBackground={designTokens.carouselRoutinesBg}
+        useCarouselText
         onPress={pressWithClusterDebug('Routines', debug.routines, onPressRoutines)}
       />
       <ClusterTile

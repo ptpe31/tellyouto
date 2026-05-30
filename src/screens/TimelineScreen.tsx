@@ -1439,19 +1439,17 @@ export function TimelineScreen() {
     setBoxViewOpen(true);
   }, []);
 
+  const openRoutineBlock = useCallback(
+    (block: HubBlock) => {
+      setRoutinesViewOpen(false);
+      openHubBlock(block);
+    },
+    [openHubBlock],
+  );
+
   const openRoutinesView = useCallback(() => {
     setRoutinesViewOpen(true);
   }, []);
-
-  const onPressRoutineLine = useCallback(
-    (rowId: string) => {
-      const row = activeHabitRows.find((r) => r.id === rowId);
-      if (!row) return;
-      setRoutinesViewOpen(false);
-      openDetail(row);
-    },
-    [activeHabitRows, openDetail],
-  );
 
   const onClearBoxGlobal = useCallback(() => {
     if (boxStockRows.length === 0) return;
@@ -1757,7 +1755,7 @@ export function TimelineScreen() {
         accentColor={theme.colors.primary}
         errorColor={theme.colors.error}
         onClose={() => setRoutinesViewOpen(false)}
-        onPressLine={onPressRoutineLine}
+        onPressBlock={openRoutineBlock}
         emptyMessage={t('timeline.routines.empty')}
         closeLabel={t('timeline.ideaBank.close')}
         variant="routine"
