@@ -23,7 +23,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   bulkDeleteTrankilV2IntentionsByIds,
   bulkTrankilV2TaskChildStatsByParentIds,
-  getLatestDailySummaryForDate,
   getTrankilV2IntentionById,
   getTrankilV2SmartClusterCounts,
   insertDailySummary,
@@ -307,7 +306,6 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 }
 
 const SECTION_HEADER_H = 36;
-const ROADMAP_LINK_H = 40;
 const CARD_ROW_H = 120;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
@@ -325,7 +323,6 @@ function takePage<T>(rows: T[], pageSize: number): { slice: T[]; hasMore: boolea
 
 type TimelineFlatItem =
   | { kind: 'section'; id: string; titleText: string }
-  | { kind: 'roadmapLink'; id: string }
   | { kind: 'hubBlock'; id: string; block: HubBlock }
   | {
       kind: 'card';
@@ -359,11 +356,9 @@ function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offs
     const len =
       it.kind === 'section'
         ? SECTION_HEADER_H
-        : it.kind === 'roadmapLink'
-          ? ROADMAP_LINK_H
-          : it.kind === 'hubBlock'
-            ? CARD_ROW_H
-            : CARD_ROW_H;
+        : it.kind === 'hubBlock'
+          ? CARD_ROW_H
+          : CARD_ROW_H;
     const cur = { length: len, offset: off };
     off += len;
     return cur;
@@ -433,10 +428,6 @@ export function TimelineScreen() {
   const [projectsTodayDebug, setProjectsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
   const [listsTodayDebug, setListsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
-  const [dailyRoadmapSummary, setDailyRoadmapSummary] = useState<{
-    id: string;
-    content_html: string;
-  } | null>(null);
   const [pass3SasOpen, setPass3SasOpen] = useState(false);
   const [pass3CleanupRows, setPass3CleanupRows] = useState<Pass3CleanupRow[]>([]);
   const [pass3SynthOpen, setPass3SynthOpen] = useState(false);
@@ -749,16 +740,6 @@ export function TimelineScreen() {
     [],
   );
 
-  const refreshDailyRoadmapSummary = useCallback(async () => {
-    try {
-      const ymd = formatYmdLocal(new Date());
-      const row = await getLatestDailySummaryForDate(ymd);
-      setDailyRoadmapSummary(row);
-    } catch {
-      setDailyRoadmapSummary(null);
-    }
-  }, []);
-
   /** Recharge le « pack » courant (flush pending + `fetchTimelineSlice` offset 0). */
   const loadPack = useCallback(async () => {
     await flushPendingCommits();
@@ -795,9 +776,8 @@ export function TimelineScreen() {
       setListsTodayDebug(listsRaw.map((r) => ({ id: r.id, title: r.title })));
     } finally {
       setLoading(false);
-      void refreshDailyRoadmapSummary();
     }
-  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, refreshDailyRoadmapSummary, statusFilter, timeNav]);
+  }, [contextBubble, customPickedDate, fetchTimelineSlice, flushPendingCommits, statusFilter, timeNav]);
 
   /** Raccourci vers `loadPack` (après retry offline, événements globaux, etc.). */
   const reload = useCallback(() => {
@@ -814,16 +794,6 @@ export function TimelineScreen() {
       showAppToast(t('timeline.roadmap.synthError'));
     }
   }, [t]);
-
-  const openSavedDailyRoadmap = useCallback(() => {
-    const html = dailyRoadmapSummary?.content_html?.trim();
-    if (!html) {
-      void openDailyRoadmapPrinter();
-      return;
-    }
-    setPass3ReportHtml(html);
-    setPass3ReportOpen(true);
-  }, [dailyRoadmapSummary, openDailyRoadmapPrinter]);
 
   const handlePass3LaunchSynthesis = useCallback(
     async (overdueRows: TrankilV2IntentionRow[], orphanRows: TrankilV2IntentionRow[]) => {
@@ -851,8 +821,6 @@ export function TimelineScreen() {
       }
       try {
         await insertDailySummary({ summaryDateYmd: ymd, contentHtml: html });
-        const row = await getLatestDailySummaryForDate(ymd);
-        if (row) setDailyRoadmapSummary(row);
       } catch {
         /* ignore */
       }
@@ -1349,7 +1317,6 @@ export function TimelineScreen() {
         it.kind === 'section' &&
         it.titleText === todayLabel
       ) {
-        out.push({ kind: 'roadmapLink', id: 'daily-roadmap-under-today' });
         if (hubEligible && hubBlocks) {
           for (const block of hubBlocks) {
             out.push({ kind: 'hubBlock', id: `hub-${block.categoryId}`, block });
@@ -1490,18 +1457,6 @@ export function TimelineScreen() {
           </View>
         );
       }
-      if (item.kind === 'roadmapLink') {
-        const hasSaved = Boolean(dailyRoadmapSummary?.content_html?.trim());
-        return (
-          <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-            <PressableScale onPress={openSavedDailyRoadmap} hitSlop={8} hapticType="light">
-              <Text style={{ color: theme.colors.primary, fontWeight: '800', fontSize: 14 }}>
-                {hasSaved ? t('timeline.roadmap.linkOpenSaved') : t('timeline.roadmap.linkGenerate')}
-              </Text>
-            </PressableScale>
-          </View>
-        );
-      }
       if (item.kind === 'hubBlock') {
         return (
           <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
@@ -1552,11 +1507,9 @@ export function TimelineScreen() {
     },
     [
       anchorDate,
-      dailyRoadmapSummary,
       designTokens,
       handleToggleRowComplete,
       openHubBlock,
-      openSavedDailyRoadmap,
       openDetail,
       handleTripFooterPress,
       pendingLocalDone,
@@ -1643,7 +1596,6 @@ export function TimelineScreen() {
           customPickedDate,
           childStats,
           pendingLocalDone,
-          dailyRoadmapSummary,
           hubEligible,
           timelineLayoutMode,
         }}
