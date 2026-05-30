@@ -65,7 +65,10 @@ function ClusterTile({ title, subtitle, badge, onPress, tileBackground, useCarou
           height: SMART_CLUSTER_TILE_H,
           backgroundColor: tileBackground ?? designTokens.cardBackground,
           borderColor: theme.colors.outlineVariant,
-          opacity: pressed ? 0.9 : 1,
+        },
+        pressed && {
+          opacity: designTokens.pressedOpacity,
+          transform: [{ scale: designTokens.pressedScale }],
         },
       ]}
     >

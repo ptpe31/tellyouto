@@ -768,6 +768,16 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
   - **Masquage** : `micHidden: true` sur demande (futur écran sans capture).
 - **Quota free** : gate global (`beforeStartCapture`, `micLocked`, `PassProModal`) dans `GlobalCaptureOverlay` — protection identique quel que soit l’écran actif.
 
+##### Chronologie UX capture (harmonisation mai 2026)
+
+| Instant | Comportement |
+|---------|--------------|
+| **T=0 tap micro** | `PressableScale` + haptique **Light** ; phase **`preparing`** (spinner) pendant `beforeStart` / permissions |
+| **→ recording** | `LayoutAnimation.easeInEaseOut` ; toolbar avec `PressableScale` (`hapticType: none`, pressed tokens) |
+| **T=0 tap Envoyer** | `isSubmitting=true` → toolbar **disabled** ; **TalkDebug** : overlay + `pipeline_wait` **avant** `stopAndUnloadAsync` / NetInfo |
+| **Paint overlay** | Haptique **Success** synchronisée sur **T1** ([`useCapturePipelineOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useCapturePipelineOverlay.ts), double `rAF`) — plus à la fin du nettoyage audio |
+| **Timeline succès** | Haptique Success au paint écran validation (double `rAF`, hors TalkDebug) |
+
 #### Dashboard de progression OneTap (Talk — variante `talkDebug` + `dashboardPipelineHost`)
 
 - **Déclenchement** : après validation dictée (**stop** micro), [`TalkCaptureMicButton`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) en variante `talkDebug` avec **`dashboardPipelineHost`** (configuré par TalkDebug via `CapturePresentationContext`) passe en phase **`pipeline_wait`** et [`GlobalCaptureOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/GlobalCaptureOverlay.tsx) affiche [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) (`Modal` plein écran : fond opaque type slate, `BlurView`, carte centrale : titre d’étape, **barre 0–100 %** bleue / orange résilience, pourcentage lissé). La courbe est orchestrée par [`useCapturePipelineOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useCapturePipelineOverlay.ts) + [`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) (**inertie** ease-in-out **0→30 %** puis **30→60 %** sur **2×1,2 s**, **phase 3** asymptotique vers ~95 % en attendant l’IA, **sprint linéaire** **200 ms** jusqu’à 100 % après succès Gemini / fallback persistance).
@@ -975,10 +985,25 @@ type DesignTokens = {
   textSecondary: string;
   accentColor: string;       // micro, CTA principaux
   borderRadius: number;
+  /** Opacité au toucher (défaut 0.7) — `PressableScale` et styles pressed. */
+  pressedOpacity: number;
+  /** Scale au toucher (défaut 0.97). */
+  pressedScale: number;
   shadowStyle: ViewStyle;    // relief « raised » (boutons, dock)
   cardShadowStyle: ViewStyle; // relief « inset » (cartes, micro inner)
 };
 ```
+
+Constantes exportées : `PRESSED_OPACITY = 0.7`, `PRESSED_SCALE = 0.97` ([`TalkThemeRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/TalkThemeRegistry.ts)).
+
+#### Composants & utilitaires micro-interactions T=0 (mai 2026)
+
+| Fichier | Rôle |
+|---------|------|
+| [`PressableScale.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/common/PressableScale.tsx) | Sur-couche `Pressable` : `pressedOpacity` + `pressedScale` au `onPressIn` ; prop `hapticType?: 'light' \| 'medium' \| 'success' \| 'none'` (défaut `'light'`) |
+| [`haptics.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/haptics.ts) | `safeLightHaptic`, `safeMediumHaptic`, `safeSuccessHaptic`, `safeHaptic` — no-op web |
+
+**Contrat T=0** : le feedback haptique et visuel doit se déclencher **à l’instant du toucher** (`onPressIn`), **avant** toute promesse async (permissions, SQLite, Gemini).
 
 #### Utilisation dans un composant (migration progressive)
 
@@ -1009,15 +1034,17 @@ const designTokens = useDesignTokens();
 
 | Composant | Tokens consommés |
 |-----------|------------------|
-| [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) | `backgroundColor` (fond racine) |
+| [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) | `backgroundColor` ; liens roadmap / CTA jour vide → `PressableScale` ; `reload()` avec `LayoutAnimation` (300 ms) avant `loadPack` |
 | [`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) | `backgroundColor`, Phoenix (`textPrimary`, `cardBackground`, `accentColor`) |
 | [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Fond scroll, titres, panneau showroom (`cardShadowStyle`, `cardBackground`, `accentColor`) |
-| [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) | `shadowStyle`, `cardShadowStyle`, `accentColor` (variante Timeline) |
-| [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) | `cardShadowStyle`, `cardBackground`, `textPrimary/Secondary`, `accentColor`, `borderRadius` |
-| [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) | Fond modale, cartes rows, arrondis dynamiques ; **actions icône seule** (40×40, libellés commentés en source — visuel validé, nettoyage étape 2) ; **Fait ✓** aligné Timeline (pending 3 s, haptique, UI optimiste, protection HABIT) |
+| [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) | `shadowStyle`, `cardShadowStyle`, `accentColor` ; phase **`preparing`** + `PressableScale` ; overlay optimiste T=0 ; toolbar verrouillée `isSubmitting` |
+| [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) | `cardShadowStyle`, tokens texte ; corps carte `pressedOpacity` / `pressedScale` au tap |
+| [`SmartClustersCarousel.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) | Tuiles carrousel — feedback pressed tokens |
+| [`LivingHubBlockShell.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubBlockShell.tsx) | Blocs hub EMAIL_HUB — feedback pressed tokens |
+| [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) | Actions icône 40×40 + `PressableScale` ; **`busyRows`** anti double-clic SQLite ; cinématique **Éditer** (fermeture tirelire **320 ms** puis `onEditItem`) ; **Fait ✓** aligné Timeline (§ 2.d.1) |
 | [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | Fond sheet, CTA Pass 2 / validation peek, bouton surveillance TRIP (`accentColor`) |
 
-**Composants candidats** (migration future) : `PilotStatusHeader`, `DealerBoard`, `IntentionCard` pied TRIP (badges métier inchangés).
+**Composants candidats** (migration future) : `PilotStatusHeader`, `DealerBoard`, pied TRIP `IntentionCard` (badges métier inchangés).
 
 #### Contraintes contractuelles
 
@@ -1143,8 +1170,14 @@ const designTokens = useDesignTokens();
 
 - **Rangée d’actions** (par intention, statut TODO) : **[Fait ✓] [Planifier 📅] [Modifier ✏️] [Retirer 🗑️]** — boutons **icône seule** 40×40 (`styles.iconBtnIconOnly`) pour tenir sur **une ligne** ; libellés i18n (`timeline.ideaBank.done|schedule|edit|remove`) **commentés en source** (visuel validé mai 2026 — suppression commentaires = étape 2).
 - **Accessibilité** : `accessibilityLabel` conservé sur chaque `Pressable` (VoiceOver / TalkBack).
-- **Modifier** : prop **`onEditItem(row)`** — séquence **`onClose()`** (ferme la tirelire) puis délégation parent **`openDetail(row)`** → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) plein écran (catégorie, titre, Pass 2, persistance SQLite) — **pas** de modale sur modale.
+- **Modifier** : prop **`onEditItem(row)`** — séquence **`onClose()`** puis délai **`IDEA_BANK_SHEET_DISMISS_MS` (320 ms)** avant délégation parent **`openDetail(row)`** → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) (évite le flash modale sur modale).
 - **Planifier projet orphelin** : inchangé — icône calendrier ; si `PROJECT` sans `start_date`, ouvre le sélecteur **Planifier le début** (`cluster.planProjectStart`).
+
+##### 2.d.2) Verrouillage SQLite & feedback T=0 (mai 2026)
+
+- **`busyRows`** : `Set<string>` + ref miroir ; helpers `setRowBusy` / `setRowIdle` ; verrou sur **Planifier** (chip date), **Supprimer** (confirmation Alert) — `disabled` + mini `ActivityIndicator` sur la ligne pendant l’écriture.
+- **Feedback pressed** : rangée d’actions, **Fermer**, chips date → [`PressableScale`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/common/PressableScale.tsx) ou tokens `pressedOpacity` / `pressedScale`.
+- **Reload parent** : `onChanged()` → `TimelineScreen.reload()` avec `LayoutAnimation` 300 ms (§ Timeline reload).
 
 ##### 2.d.1) Fait ✓ — alignement Timeline (« L’Alignement Pacifique »)
 
@@ -1204,6 +1237,14 @@ const designTokens = useDesignTokens();
 - Priorité visuelle : le titre (ligne 1) utilise un maximum de 2 lignes avant `ellipsizeMode="tail"`.
 - Adaptation interne : si le titre prend 2 lignes, le padding vertical interne de la carte peut être réduit pour maintenir la hauteur totale à 105dp sans déborder.
 - Contrat de lisibilité : pour les titres qui dépassent cette capacité, l’utilisateur doit pouvoir consulter le texte complet via un appui long ou via une vue détaillée (ex. TalkDebugScreen).
+
+#### 5.d) Reload Timeline animé (§ Timeline reload)
+
+- **Déclencheurs** : `TimelineScreen.reload()` — appelé après mutations IdeaBank (`onChanged`), listener **`INTENTIONS_CHANGED`**, purge Box, etc.
+- **Précondition** : `flushPendingCommits()` si des validations « done » locales sont en attente (contrat undo 3 s inchangé).
+- **Animation** : `configureTimelineListReloadAnimation()` — `LayoutAnimation.configureNext` **300 ms**, `easeInEaseOut` sur **update** et **delete** (opacity sur suppressions).
+- **Ordre** : animation configurée **avant** `loadPack()` pour éviter un swap brutal de la FlatList.
+- **Android** : `UIManager.setLayoutAnimationEnabledExperimental(true)` au montage de l’écran (prérequis RN).
 
 ### 6) Contrat Visuel Timeline (Ligne 1 / Ligne 2)
 

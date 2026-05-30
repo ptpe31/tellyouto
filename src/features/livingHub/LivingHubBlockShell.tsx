@@ -45,6 +45,26 @@ function RoutineLinePreview({ line, designTokens }: { line: RoutineHubItemLine; 
   );
 }
 
+function hubShellStyle(
+  designTokens: DesignTokens,
+  base: {
+    borderRadius: number;
+    backgroundColor: string;
+    borderColor: string;
+  },
+  pressed: boolean,
+) {
+  return [
+    designTokens.cardShadowStyle,
+    styles.shell,
+    base,
+    pressed && {
+      opacity: designTokens.pressedOpacity,
+      transform: [{ scale: designTokens.pressedScale }],
+    },
+  ];
+}
+
 /** Bloc catégorie IA — lignes avec heure et marqueur habitude inline. */
 export function LivingHubBlockShell({ block, designTokens, onPress, variant = 'default' }: Props) {
   const { t } = useTranslation();
@@ -85,21 +105,18 @@ export function LivingHubBlockShell({ block, designTokens, onPress, variant = 'd
     </>
   );
 
+  const shellBaseStyle = {
+    borderRadius: designTokens.borderRadius,
+    backgroundColor: designTokens.cardBackground,
+    borderColor: `${designTokens.accentColor}55`,
+  };
+
   if (isRoutine && onPress) {
     return (
       <Pressable
         accessibilityRole="button"
         onPress={onPress}
-        style={({ pressed }) => [
-          designTokens.cardShadowStyle,
-          styles.shell,
-          {
-            borderRadius: designTokens.borderRadius,
-            backgroundColor: designTokens.cardBackground,
-            borderColor: `${designTokens.accentColor}55`,
-            opacity: pressed ? 0.92 : 1,
-          },
-        ]}
+        style={({ pressed }) => hubShellStyle(designTokens, shellBaseStyle, pressed)}
       >
         {shellContent}
       </Pressable>
@@ -128,16 +145,7 @@ export function LivingHubBlockShell({ block, designTokens, onPress, variant = 'd
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [
-        designTokens.cardShadowStyle,
-        styles.shell,
-        {
-          borderRadius: designTokens.borderRadius,
-          backgroundColor: designTokens.cardBackground,
-          borderColor: `${designTokens.accentColor}55`,
-          opacity: pressed ? 0.92 : 1,
-        },
-      ]}
+      style={({ pressed }) => hubShellStyle(designTokens, shellBaseStyle, pressed)}
     >
       {shellContent}
     </Pressable>

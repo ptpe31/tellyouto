@@ -66,6 +66,12 @@ export async function persistDesignVariant(variant: DesignVariant): Promise<void
   await AsyncStorage.setItem(DESIGN_VARIANT_STORAGE_KEY, variant);
 }
 
+/** Opacité universelle au toucher — appliquée via `PressableScale` et styles pressed. */
+export const PRESSED_OPACITY = 0.7;
+
+/** Échelle légère à l'enfoncement (transform scale). */
+export const PRESSED_SCALE = 0.97;
+
 /** Tokens identiques pour tous les thèmes — les composants consomment toujours la même API. */
 export type DesignTokens = {
   variant: DesignVariant;
@@ -75,6 +81,10 @@ export type DesignTokens = {
   textSecondary: string;
   accentColor: string;
   borderRadius: number;
+  /** Opacité au toucher (défaut 0.7). */
+  pressedOpacity: number;
+  /** Scale au toucher (défaut 0.97). */
+  pressedScale: number;
   shadowStyle: ViewStyle;
   cardShadowStyle: ViewStyle;
   /** Pastel color-blocking — carrousel Smart Clusters (Inbox · Shop · Box · Routines). */
@@ -88,7 +98,12 @@ export type DesignTokens = {
 
 type TokenPalette = Omit<
   DesignTokens,
-  'variant' | 'shadowStyle' | 'cardShadowStyle' | keyof CarouselTileTokenKeys
+  | 'variant'
+  | 'shadowStyle'
+  | 'cardShadowStyle'
+  | 'pressedOpacity'
+  | 'pressedScale'
+  | keyof CarouselTileTokenKeys
 >;
 
 type CarouselTileTokenKeys = {
@@ -255,6 +270,8 @@ function withShadows(
     variant,
     ...colors,
     ...carouselTileTokens(colorScheme),
+    pressedOpacity: PRESSED_OPACITY,
+    pressedScale: PRESSED_SCALE,
     shadowStyle: buildNeumorphicShadow(
       colors.cardBackground,
       colors.borderRadius,

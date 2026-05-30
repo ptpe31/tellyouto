@@ -308,11 +308,15 @@ export function IntentionCard({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={titleText}
-      style={[
+      style={({ pressed }) => [
         designTokens.cardShadowStyle,
         styles.card,
         { borderRadius: designTokens.borderRadius },
         showTripFooter || showTripCapsule ? styles.cardTrip : null,
+        pressed && {
+          opacity: designTokens.pressedOpacity,
+          transform: [{ scale: designTokens.pressedScale }],
+        },
       ]}
     >
       <View style={styles.row}>

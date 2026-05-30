@@ -1,10 +1,10 @@
 import { Audio } from 'expo-av';
-import * as Haptics from 'expo-haptics';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { Check, Lock, Mic, Pause, Pencil, Play, SendHorizontal, Trash2 } from 'lucide-react-native';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   DeviceEventEmitter,
@@ -14,7 +14,6 @@ import {
   LayoutAnimation,
   Linking,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,6 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
 
 import { VOICE_MEMO_LIGHT_RECORDING_OPTIONS } from '../audio/talkMemoRecording';
+import { PressableScale } from '../components/common/PressableScale';
 import { VoiceMeteringWaveform } from '../components/VoiceMeteringWaveform';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { cleanTranscriptText } from '../services/smartTitle';
@@ -42,6 +42,7 @@ import { warmGeminiProxySession } from '../services/geminiSemanticLab';
 import { CaptureTranscriptEditor } from './AIUniversalProgressOverlay';
 import { logCaptureFlow, notifyCapturePipelineProgress } from '../utils/captureFlowLog';
 import { isNetInfoConsideredOnline } from '../utils/offlineStability';
+import { safeSuccessHaptic } from '../utils/haptics';
 
 /**
  * Bouton micro + STT : enregistrement mémo, dictée, validation ; si `IntentionProvider` est monté,
@@ -68,6 +69,10 @@ if (RPlatform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimenta
 }
 
 function configureEditToolbarAnimation(): void {
+  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+}
+
+function configureCapturePhaseAnimation(): void {
   LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 }
 
@@ -142,8 +147,9 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   const designTokens = useDesignTokens();
   const insets = useSafeAreaInsets();
   const keyboardToolbarLift = useRef(new Animated.Value(0)).current;
-  const [phase, setPhase] = useState<'idle' | 'recording' | 'success' | 'pipeline_wait'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'preparing' | 'recording' | 'success' | 'pipeline_wait'>('idle');
   const [isRecording, setIsRecording] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rawTranscript, setRawTranscript] = useState('');
   const [isEditingTranscription, setIsEditingTranscription] = useState(false);
@@ -227,6 +233,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     setSuccessLabel('');
     setSuccessTone('online');
     setMeteringDb(-100);
+    setIsSubmitting(false);
   }, []);
 
   const resolveTranscriptForSubmit = useCallback((): { raw: string; originalStt: string } => {
@@ -237,7 +244,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   }, [editedTranscript, rawTranscript]);
 
   const startEditTranscription = useCallback(() => {
-    if (!isRecording || isEditingTranscription) return;
+    if (!isRecording || isEditingTranscription || isSubmitting) return;
     configureEditToolbarAnimation();
     const snapshot = String(rawTranscript || '');
     sttSnapshotRef.current = snapshot;
@@ -249,7 +256,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
         transcript_original: previewForMicLog(snapshot, 240),
       });
     }
-  }, [isEditingTranscription, isRecording, rawTranscript]);
+  }, [isEditingTranscription, isRecording, isSubmitting, rawTranscript]);
 
   const onEditedTranscriptChange = useCallback((value: string) => {
     setEditedTranscript(value);
@@ -297,18 +304,28 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
       onLockedPress?.();
       return;
     }
-    if (isRecording || disabled) return;
-    if (beforeStart) {
-      const ok = await beforeStart();
-      if (!ok) return;
-    }
+    if (isRecording || disabled || phase === 'preparing' || phase === 'pipeline_wait') return;
+
+    configureCapturePhaseAnimation();
+    setPhase('preparing');
     setRawTranscript('');
     setMeteringDb(-100);
     micTraceIdRef.current = newMicTraceId();
     sttLogGateRef.current = { lastLen: 0, firedStart: false };
+
     try {
+      if (beforeStart) {
+        const ok = await beforeStart();
+        if (!ok) {
+          setPhase('idle');
+          return;
+        }
+      }
       const ready = await ensureMicrophoneReady();
-      if (!ready) return;
+      if (!ready) {
+        setPhase('idle');
+        return;
+      }
       DeviceEventEmitter.emit(MICRO_CAPTURE_START_EVENT_NAME);
       onCaptureStart?.();
       intentionFlow?.startCapture();
@@ -340,6 +357,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
         interimResults: true,
         continuous: true,
       });
+      configureCapturePhaseAnimation();
       setIsRecording(true);
       setIsPaused(false);
       setPhase('recording');
@@ -352,9 +370,6 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
           /* warm best-effort */
         }
       })();
-      if (RPlatform.OS !== 'web') {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
     } catch (e) {
       resetInternal();
       if (isLikelyMissingNativeModuleError(e)) {
@@ -373,18 +388,22 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     intentionFlow,
     onLockedPress,
     onCaptureStart,
+    phase,
     resetInternal,
     t,
+    variant,
   ]);
 
   const stopRecording = useCallback(async () => {
-    if (!isRecording) return;
+    if (!isRecording || isSubmitting) return;
+    setIsSubmitting(true);
     setIsEditingTranscription(false);
     onProfilerStopRecordingT0?.();
     const dashboardEarly =
       variant === 'talkDebug' && dashboardPipelineHost && Boolean(intentionFlow);
     if (dashboardEarly) {
       onPipelineDashboardOpenImmediate?.({ traceId: micTraceIdRef.current?.trim() || '' });
+      setPhase('pipeline_wait');
     }
     let uri: string | null = null;
     let transcript = '';
@@ -398,86 +417,57 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
       }
       transcript = resolveTranscriptForSubmit().raw;
     } catch (e) {
+      setIsSubmitting(false);
+      if (dashboardEarly) {
+        onPipelineDashboardCancelImmediate?.();
+        setPhase('recording');
+      }
       if (isLikelyMissingNativeModuleError(e)) {
         alertNativeModuleMissing('nativeModule.contextTalkHomeSpeech', e);
       } else {
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
-    } finally {
-      setIsRecording(false);
-      setIsPaused(false);
-      const { originalStt } = resolveTranscriptForSubmit();
-      const cleaned = cleanTranscriptText(String(transcript || '')).trim();
-      if (__DEV__ && VERBOSE_DEBUG) {
-        const now = new Date();
-        console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
-        console.log(`********* MICRO CAPTURE STOP *********`);
-        console.log(`[MIC] 🧩 RAW (${String(transcript || '').trim().length}c) → CLEAN (${cleaned.length}c) | TRACE: ${micTraceIdRef.current || '—'}`);
-        console.log(`[MIC] ✨ CLEAN: "${previewForMicLog(cleaned, 240)}"`);
-        console.log(`[MIC] 🎧 AUDIO_URI: ${uri ? 'yes' : 'no'} | INTENTION_CTX: ${intentionFlow ? 'yes' : 'no'}`);
-      }
-      if (!cleaned) {
-        if (dashboardEarly) {
-          onPipelineDashboardCancelImmediate?.();
-        }
-        resetInternal();
-        Alert.alert(
-          t('talkDebug.captureTitle', { defaultValue: 'Capture' }),
-          t('talkDebug.oneTapEmptyTranscript', { defaultValue: 'Aucun texte détecté.' }),
-        );
-        return;
-      }
-      const net = await NetInfo.fetch();
-      const online = isNetInfoConsideredOnline(net);
-      if (__DEV__ && VERBOSE_DEBUG) {
-        console.log(
-          `[MIC] 🛰️ NETINFO: isConnected=${String(net.isConnected)} | isInternetReachable=${String(net.isInternetReachable)} | online=${String(online)}`,
-        );
-      }
-      const traceTrim = micTraceIdRef.current?.trim() || '';
+      return;
+    }
 
+    setIsRecording(false);
+    setIsPaused(false);
+    const { originalStt } = resolveTranscriptForSubmit();
+    const cleaned = cleanTranscriptText(String(transcript || '')).trim();
+    if (__DEV__ && VERBOSE_DEBUG) {
+      const now = new Date();
+      console.log(`********** ${now.toLocaleString('fr-FR')} **********`);
+      console.log(`********* MICRO CAPTURE STOP *********`);
+      console.log(`[MIC] 🧩 RAW (${String(transcript || '').trim().length}c) → CLEAN (${cleaned.length}c) | TRACE: ${micTraceIdRef.current || '—'}`);
+      console.log(`[MIC] ✨ CLEAN: "${previewForMicLog(cleaned, 240)}"`);
+      console.log(`[MIC] 🎧 AUDIO_URI: ${uri ? 'yes' : 'no'} | INTENTION_CTX: ${intentionFlow ? 'yes' : 'no'}`);
+    }
+    if (!cleaned) {
       if (dashboardEarly) {
-        notifyCapturePipelineProgress(traceTrim || undefined, 'mic_stop_audio_done', {
-          transcriptLen: cleaned.length,
-          hasAudio: Boolean(uri),
-          onlineAtMicStop: online,
-        });
-        setPhase('pipeline_wait');
-        if (intentionFlow) {
-          logCaptureFlow(traceTrim || undefined, 'mic_submit_invoke', {
-            transcriptLen: cleaned.length,
-            hasAudio: Boolean(uri),
-          });
-          void intentionFlow
-            .submitCapturePayload({
-              transcript: cleaned,
-              transcriptOriginal: userManuallyEditedRef.current ? originalStt : undefined,
-              audioUri: uri,
-              lang: sttLangRef.current,
-              traceId: micTraceIdRef.current,
-            })
-            .catch((e) => {
-              if (__DEV__ && VERBOSE_DEBUG) {
-                console.log(`[MIC] ❌ submitCapturePayload failed | TRACE: ${micTraceIdRef.current} | ${e instanceof Error ? e.message : String(e)}`);
-              }
-            });
-        }
-        await onCaptureEnd?.({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current });
-        if (RPlatform.OS !== 'web') {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
-        return;
+        onPipelineDashboardCancelImmediate?.();
       }
-
-      setPhase('success');
-      setSuccessTone(online ? 'online' : 'offline');
-      setSuccessLabel(
-        online
-          ? t('talkCapture.savedTimeline', { defaultValue: 'Intention enregistrée dans Timeline' })
-          : t('talkCapture.savedOfflinePending', {
-              defaultValue: 'Indisponibilité réseau : intention enregistrée pour traitement ultérieur',
-            }),
+      resetInternal();
+      Alert.alert(
+        t('talkDebug.captureTitle', { defaultValue: 'Capture' }),
+        t('talkDebug.oneTapEmptyTranscript', { defaultValue: 'Aucun texte détecté.' }),
       );
+      return;
+    }
+    const net = await NetInfo.fetch();
+    const online = isNetInfoConsideredOnline(net);
+    if (__DEV__ && VERBOSE_DEBUG) {
+      console.log(
+        `[MIC] 🛰️ NETINFO: isConnected=${String(net.isConnected)} | isInternetReachable=${String(net.isInternetReachable)} | online=${String(online)}`,
+      );
+    }
+    const traceTrim = micTraceIdRef.current?.trim() || '';
+
+    if (dashboardEarly) {
+      notifyCapturePipelineProgress(traceTrim || undefined, 'mic_stop_audio_done', {
+        transcriptLen: cleaned.length,
+        hasAudio: Boolean(uri),
+        onlineAtMicStop: online,
+      });
       if (intentionFlow) {
         logCaptureFlow(traceTrim || undefined, 'mic_submit_invoke', {
           transcriptLen: cleaned.length,
@@ -497,28 +487,72 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
             }
           });
       }
-      if (__DEV__ && VERBOSE_DEBUG) {
-        console.log(`[MIC] 📤 SUBMITTED → intentionFlow | TRACE: ${micTraceIdRef.current || '—'}`);
-      }
       await onCaptureEnd?.({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current });
-      if (RPlatform.OS !== 'web') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
+      return;
     }
+
+    configureCapturePhaseAnimation();
+    setPhase('success');
+    setSuccessTone(online ? 'online' : 'offline');
+    setSuccessLabel(
+      online
+        ? t('talkCapture.savedTimeline', { defaultValue: 'Intention enregistrée dans Timeline' })
+        : t('talkCapture.savedOfflinePending', {
+            defaultValue: 'Indisponibilité réseau : intention enregistrée pour traitement ultérieur',
+          }),
+    );
+    if (intentionFlow) {
+      logCaptureFlow(traceTrim || undefined, 'mic_submit_invoke', {
+        transcriptLen: cleaned.length,
+        hasAudio: Boolean(uri),
+      });
+      void intentionFlow
+        .submitCapturePayload({
+          transcript: cleaned,
+          transcriptOriginal: userManuallyEditedRef.current ? originalStt : undefined,
+          audioUri: uri,
+          lang: sttLangRef.current,
+          traceId: micTraceIdRef.current,
+        })
+        .catch((e) => {
+          if (__DEV__ && VERBOSE_DEBUG) {
+            console.log(`[MIC] ❌ submitCapturePayload failed | TRACE: ${micTraceIdRef.current} | ${e instanceof Error ? e.message : String(e)}`);
+          }
+        });
+    }
+    if (__DEV__ && VERBOSE_DEBUG) {
+      console.log(`[MIC] 📤 SUBMITTED → intentionFlow | TRACE: ${micTraceIdRef.current || '—'}`);
+    }
+    await onCaptureEnd?.({ transcript: cleaned, audioUri: uri, lang: sttLangRef.current });
   }, [
     dashboardPipelineHost,
     intentionFlow,
     isRecording,
+    isSubmitting,
     onCaptureEnd,
     onPipelineDashboardCancelImmediate,
     onPipelineDashboardOpenImmediate,
     onProfilerStopRecordingT0,
-    onPipelineWaitMicPress,
     resolveTranscriptForSubmit,
     resetInternal,
     t,
     variant,
   ]);
+
+  /** Timeline : haptique succès synchronisée au paint de l'écran de validation (double rAF). */
+  useEffect(() => {
+    if (phase !== 'success' || variant === 'talkDebug') return;
+    let cancelled = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        void safeSuccessHaptic();
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, variant]);
 
   useEffect(() => {
     if (phase !== 'success') return;
@@ -570,12 +604,12 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   }, [intentionFlow, onCaptureCancel, resetInternal]);
 
   const confirmEditAndSubmit = useCallback(() => {
-    if (!isRecording) return;
+    if (!isRecording || isSubmitting) return;
     configureEditToolbarAnimation();
     setIsEditingTranscription(false);
     Keyboard.dismiss();
     void stopRecording();
-  }, [isRecording, stopRecording]);
+  }, [isRecording, isSubmitting, stopRecording]);
 
   const cancelCaptureFromEditToolbar = useCallback(() => {
     configureEditToolbarAnimation();
@@ -583,7 +617,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
   }, [cancelRecording]);
 
   const togglePause = useCallback(async () => {
-    if (!isRecording) return;
+    if (!isRecording || isSubmitting) return;
     const rec = recRef.current;
     if (!rec) return;
     try {
@@ -607,7 +641,7 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
         Alert.alert(t('talkDebug.captureTitle'), e instanceof Error ? e.message : String(e));
       }
     }
-  }, [i18n.language, isPaused, isRecording, t]);
+  }, [i18n.language, isPaused, isRecording, isSubmitting, t]);
 
   useEffect(() => {
     return () => {
@@ -683,49 +717,69 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     btnStyle: StyleProp<ViewStyle>,
     sendBtnStyle?: StyleProp<ViewStyle>,
   ) => {
+    const toolbarDisabled = Boolean(disabled) || isSubmitting;
+
     if (isEditingTranscription) {
       const confirmSize = sendBtnStyle ? 26 : 22;
       return (
         <View style={[rowStyle, styles.validationToolbarRow, styles.validationToolbarDock]}>
-          <Pressable
+          <PressableScale
             style={btnStyle}
             onPress={cancelCaptureFromEditToolbar}
-            disabled={disabled}
+            disabled={toolbarDisabled}
+            hapticType="none"
             accessibilityLabel={t('talkCapture.cancelCaptureA11y', { defaultValue: 'Annuler la capture' })}
           >
             <Trash2 size={18} color="#fff" />
-          </Pressable>
-          <Pressable
+          </PressableScale>
+          <PressableScale
             style={[btnStyle, sendBtnStyle, styles.validationConfirmBtn]}
             onPress={confirmEditAndSubmit}
-            disabled={disabled}
+            disabled={toolbarDisabled}
+            hapticType="none"
             accessibilityLabel={t('talkCapture.confirmTranscriptA11y', { defaultValue: 'Valider la transcription' })}
           >
             <Check size={confirmSize} color="#fff" />
-          </Pressable>
+          </PressableScale>
         </View>
       );
     }
 
     return (
       <View style={rowStyle}>
-        <Pressable style={btnStyle} onPress={() => void cancelRecording()} disabled={disabled}>
+        <PressableScale
+          style={btnStyle}
+          onPress={() => void cancelRecording()}
+          disabled={toolbarDisabled}
+          hapticType="none"
+        >
           <Trash2 size={18} color="#fff" />
-        </Pressable>
-        <Pressable style={btnStyle} onPress={() => void togglePause()} disabled={disabled}>
+        </PressableScale>
+        <PressableScale
+          style={btnStyle}
+          onPress={() => void togglePause()}
+          disabled={toolbarDisabled}
+          hapticType="none"
+        >
           {isPaused ? <Play size={18} color="#fff" /> : <Pause size={18} color="#fff" />}
-        </Pressable>
-        <Pressable
+        </PressableScale>
+        <PressableScale
           style={btnStyle}
           onPress={startEditTranscription}
-          disabled={disabled}
+          disabled={toolbarDisabled}
+          hapticType="none"
           accessibilityLabel={t('talkCapture.editTranscriptA11y', { defaultValue: 'Corriger la transcription' })}
         >
           <Pencil size={18} color="#fff" />
-        </Pressable>
-        <Pressable style={sendBtnStyle ?? btnStyle} onPress={() => void stopRecording()} disabled={disabled}>
+        </PressableScale>
+        <PressableScale
+          style={sendBtnStyle ?? btnStyle}
+          onPress={() => void stopRecording()}
+          disabled={toolbarDisabled}
+          hapticType="none"
+        >
           <SendHorizontal size={sendBtnStyle ? 22 : 18} color="#fff" />
-        </Pressable>
+        </PressableScale>
       </View>
     );
   };
@@ -734,15 +788,16 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
     const canvasH = Math.round(Dimensions.get('window').height * 0.4);
     const transcriptMaxH = Math.min(Math.round(Dimensions.get('window').height * 0.3), 220);
     const accent = successTone === 'offline' ? '#FFB300' : '#4CAF50';
-    if (phase === 'idle' || phase === 'pipeline_wait') {
+    if (phase === 'idle' || phase === 'preparing' || phase === 'pipeline_wait') {
+      const micBusy = phase === 'preparing';
       return (
         <View style={tdStyles.micShell}>
           {locked && lockedHintText ? (
-            <Pressable style={tdStyles.micHintPress} onPress={onLockedPress} disabled={!onLockedPress}>
+            <PressableScale style={tdStyles.micHintPress} onPress={onLockedPress} disabled={!onLockedPress} hapticType="light">
               <Text style={tdStyles.micHintText}>{lockedHintText}</Text>
-            </Pressable>
+            </PressableScale>
           ) : null}
-          <Pressable
+          <PressableScale
             onPress={() => {
               if (phase === 'pipeline_wait') {
                 onPipelineWaitMicPress?.();
@@ -750,16 +805,26 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
               }
               void startRecording();
             }}
-            disabled={disabled && !locked}
-            style={[tdStyles.micBtn, locked ? tdStyles.micBtnLocked : null, disabled && !locked ? tdStyles.disabled : null]}
+            disabled={(disabled && !locked) || micBusy}
+            hapticType={phase === 'pipeline_wait' ? 'none' : 'light'}
+            style={[
+              tdStyles.micBtn,
+              locked ? tdStyles.micBtnLocked : null,
+              disabled && !locked ? tdStyles.disabled : null,
+              micBusy ? tdStyles.micBtnPreparing : null,
+            ]}
           >
-            <Mic size={24} color={locked ? '#e2e8f0' : '#fff'} />
-            {locked ? (
+            {micBusy ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Mic size={24} color={locked ? '#e2e8f0' : '#fff'} />
+            )}
+            {locked && !micBusy ? (
               <View style={tdStyles.micLockBadge}>
                 <Lock size={14} color="#fff" />
               </View>
             ) : null}
-          </Pressable>
+          </PressableScale>
         </View>
       );
     }
@@ -826,31 +891,39 @@ export const TalkCaptureMicButton = forwardRef<TalkCaptureMicButtonHandle | null
         {renderActionToolbar(
           tdStyles.pilotRowDocked,
           tdStyles.ctrlBtn,
-          [tdStyles.micBtn, tdStyles.ctrlBtnPrimary, disabled ? tdStyles.disabled : null],
+          [tdStyles.micBtn, tdStyles.ctrlBtnPrimary, disabled || isSubmitting ? tdStyles.disabled : null],
         )}
       </Animated.View>
     );
   }
 
-  if (phase === 'idle') {
+  if (phase === 'idle' || phase === 'preparing') {
+    const micBusy = phase === 'preparing';
     return (
       <View style={[styles.idleWrap, compact && styles.idleWrapCompact]}>
-        <Pressable
+        <PressableScale
           onPress={() => void startRecording()}
-          disabled={disabled}
-          style={({ pressed }) => [
+          disabled={disabled || micBusy}
+          hapticType="light"
+          style={[
             designTokens.shadowStyle,
             styles.micOuter,
             compact ? styles.micOuterCompact : null,
-            { opacity: disabled ? 0.45 : pressed ? 0.9 : 1 },
+            disabled ? { opacity: 0.45 } : micBusy ? styles.micOuterPreparing : null,
           ]}
         >
           <View style={[designTokens.cardShadowStyle, styles.micInner]}>
-            <Mic size={compact ? 22 : 26} color={designTokens.accentColor} />
+            {micBusy ? (
+              <ActivityIndicator size="small" color={designTokens.accentColor} />
+            ) : (
+              <Mic size={compact ? 22 : 26} color={designTokens.accentColor} />
+            )}
           </View>
-        </Pressable>
+        </PressableScale>
         {compact ? null : (
-          <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>{t('talkCapture.hintTap')}</Text>
+          <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>
+            {micBusy ? t('talkCapture.preparingMic', { defaultValue: 'Préparation du micro…' }) : t('talkCapture.hintTap')}
+          </Text>
         )}
       </View>
     );
@@ -941,6 +1014,7 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   micOuterCompact: { padding: 8 },
+  micOuterPreparing: { opacity: 0.82 },
   micInner: {
     width: 56,
     height: 56,
@@ -1043,6 +1117,7 @@ const tdStyles = StyleSheet.create({
   micHintPress: { maxWidth: 320, paddingHorizontal: 14, paddingVertical: 8 },
   micHintText: { color: 'rgba(226, 232, 240, 0.92)', fontSize: 12, lineHeight: 16, textAlign: 'center', fontWeight: '700' },
   micBtnLocked: { backgroundColor: '#475569' },
+  micBtnPreparing: { opacity: 0.82 },
   micLockBadge: {
     position: 'absolute',
     right: -6,

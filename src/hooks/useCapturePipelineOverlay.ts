@@ -8,6 +8,7 @@ import {
 } from '../constants/intentionEvents';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { CAPTURE_PIPELINE_PROGRESS_EVENT, type CapturePipelineProgressPayload } from '../utils/captureFlowLog';
+import { safeSuccessHaptic } from '../utils/haptics';
 import type { TalkCaptureMicButtonHandle } from '../components/TalkCaptureMicButton';
 import {
   AI_PROGRESS_FINAL_SPRINT_MS,
@@ -224,6 +225,7 @@ export function useCapturePipelineOverlay({
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         logBalletProfilerDelta('T1', 'dashboard overlay visible (post-commit paint)');
+        void safeSuccessHaptic();
       });
     });
   }, [logBalletProfilerDelta, pipelineModalVisible]);

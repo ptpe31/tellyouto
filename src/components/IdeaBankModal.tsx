@@ -3,6 +3,7 @@ import { CalendarDays, Check, Pencil, Trash2 } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  ActivityIndicator,
   Alert,
   LayoutAnimation,
   Modal,
@@ -28,6 +29,7 @@ import {
 } from '../api';
 import { syncNativeRailAlarmsAfterIntentionWrite } from '../api/intentionHardwareSync';
 import { Platform as RPlatform } from '../utils/rnPlatform';
+import { PressableScale } from './common/PressableScale';
 import { IntentInteractionWrapper } from './IntentInteractionWrapper';
 import {
   buildProjectMilestonesMetadataPatch,
@@ -90,6 +92,9 @@ function isProjectWithoutStartDate(row: TrankilV2TimelineItemRow): boolean {
   return !getProjectStartDateFromMetadataJson(row.metadata_json);
 }
 
+/** Durée approximative de l'animation slide de la tirelire (ms). */
+const IDEA_BANK_SHEET_DISMISS_MS = 320;
+
 async function safeSuccessHaptic(): Promise<void> {
   try {
     if (RPlatform.OS === 'web') return;
@@ -125,6 +130,9 @@ export function IdeaBankModal({
   const insets = useSafeAreaInsets();
   const [scheduleForId, setScheduleForId] = useState<string | null>(null);
   const [scheduleMode, setScheduleMode] = useState<'due' | 'projectStart'>('due');
+  const [busyRows, setBusyRows] = useState<Set<string>>(() => new Set());
+  const busyRowsRef = useRef<Set<string>>(new Set());
+  const pendingEditRowRef = useRef<TrankilV2TimelineItemRow | null>(null);
   const [pendingLocalDone, setPendingLocalDone] = useState<Set<string>>(() => new Set());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
   const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -141,6 +149,23 @@ export function IdeaBankModal({
   const refresh = useCallback(async () => {
     onChanged();
   }, [onChanged]);
+
+  const setRowBusy = useCallback((rowId: string): boolean => {
+    if (busyRowsRef.current.has(rowId)) return false;
+    const next = new Set(busyRowsRef.current);
+    next.add(rowId);
+    busyRowsRef.current = next;
+    setBusyRows(next);
+    return true;
+  }, []);
+
+  const setRowIdle = useCallback((rowId: string) => {
+    if (!busyRowsRef.current.has(rowId)) return;
+    const next = new Set(busyRowsRef.current);
+    next.delete(rowId);
+    busyRowsRef.current = next;
+    setBusyRows(next);
+  }, []);
 
   const syncPendingSet = useCallback((next: Set<string>) => {
     pendingLocalDoneRef.current = next;
@@ -232,7 +257,21 @@ export function IdeaBankModal({
   useEffect(() => {
     if (visible) return;
     void flushPendingCommits();
+    busyRowsRef.current = new Set();
+    setBusyRows(new Set());
   }, [flushPendingCommits, visible]);
+
+  /** Ouvre la feuille détail après la descente complète de la tirelire. */
+  useEffect(() => {
+    if (visible) return;
+    const row = pendingEditRowRef.current;
+    if (!row) return;
+    pendingEditRowRef.current = null;
+    const timer = setTimeout(() => {
+      onEditItem(row);
+    }, IDEA_BANK_SHEET_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [onEditItem, visible]);
 
   useEffect(() => {
     return () => {
@@ -246,66 +285,92 @@ export function IdeaBankModal({
 
   const onSetDue = useCallback(
     async (id: string, ymd: string) => {
-      await updateTrankilV2IntentionTemporal(id, { due_date: ymd });
-      await syncNativeRailAlarmsAfterIntentionWrite('ideaBankSchedule');
-      setScheduleForId(null);
-      await refresh();
+      if (!setRowBusy(id)) return;
+      try {
+        await updateTrankilV2IntentionTemporal(id, { due_date: ymd });
+        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankSchedule');
+        setScheduleForId(null);
+        await refresh();
+      } catch {
+        /* ignore */
+      } finally {
+        setRowIdle(id);
+      }
     },
-    [refresh],
+    [refresh, setRowBusy, setRowIdle],
   );
 
   const onPlanProjectStart = useCallback(
     async (id: string, startYmd: string) => {
-      const row = items.find((r) => r.id === id);
-      if (!row) return;
-      const payload = parseProjectMilestonesPayloadFromMetadataJson(row.metadata_json);
-      if (!payload) {
+      if (!setRowBusy(id)) return;
+      try {
+        const row = items.find((r) => r.id === id);
+        if (!row) return;
+        const payload = parseProjectMilestonesPayloadFromMetadataJson(row.metadata_json);
+        if (!payload) {
+          await updateTrankilV2IntentionTemporal(id, { due_date: startYmd });
+          await patchMetadata(id, { project: { start_date: startYmd } });
+          setScheduleForId(null);
+          await syncNativeRailAlarmsAfterIntentionWrite('ideaBankSchedule');
+          await refresh();
+          return;
+        }
+        const replanned = replanProjectMilestonesFromStartDate(payload, startYmd);
+        const metaPatch = {
+          project: { start_date: startYmd },
+          ...buildProjectMilestonesMetadataPatch(replanned),
+        };
+        await patchMetadata(id, metaPatch);
         await updateTrankilV2IntentionTemporal(id, { due_date: startYmd });
-        await patchMetadata(id, { project: { start_date: startYmd } });
         setScheduleForId(null);
-        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankSchedule');
+        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankPlanProjectStart');
         await refresh();
-        return;
+      } catch {
+        /* ignore */
+      } finally {
+        setRowIdle(id);
       }
-      const replanned = replanProjectMilestonesFromStartDate(payload, startYmd);
-      const metaPatch = {
-        project: { start_date: startYmd },
-        ...buildProjectMilestonesMetadataPatch(replanned),
-      };
-      await patchMetadata(id, metaPatch);
-      await updateTrankilV2IntentionTemporal(id, { due_date: startYmd });
-      setScheduleForId(null);
-      await syncNativeRailAlarmsAfterIntentionWrite('ideaBankPlanProjectStart');
-      await refresh();
     },
-    [items, refresh],
+    [items, refresh, setRowBusy, setRowIdle],
   );
 
   const openScheduleForRow = useCallback((row: TrankilV2TimelineItemRow) => {
+    if (busyRowsRef.current.has(row.id)) return;
     setScheduleMode(isProjectWithoutStartDate(row) ? 'projectStart' : 'due');
     setScheduleForId(row.id);
   }, []);
 
   const onRemoveFromInbox = useCallback(
     (id: string) => {
+      if (busyRowsRef.current.has(id)) return;
       Alert.alert(t('inbox.action.removeConfirmTitle'), t('inbox.action.removeConfirmBody'), [
         { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
         {
           text: t('inbox.action.remove'),
           style: 'destructive',
-          onPress: async () => {
-            await markTrankilV2IntentionRemovedFromInbox(id);
-            await syncNativeRailAlarmsAfterIntentionWrite('ideaBankInboxRemove');
-            await refresh();
+          onPress: () => {
+            void (async () => {
+              if (!setRowBusy(id)) return;
+              try {
+                await markTrankilV2IntentionRemovedFromInbox(id);
+                await syncNativeRailAlarmsAfterIntentionWrite('ideaBankInboxRemove');
+                await refresh();
+              } catch {
+                /* ignore */
+              } finally {
+                setRowIdle(id);
+              }
+            })();
           },
         },
       ]);
     },
-    [refresh, t],
+    [refresh, setRowBusy, setRowIdle, t],
   );
 
   const onDelete = useCallback(
     (id: string) => {
+      if (busyRowsRef.current.has(id)) return;
       if (mode === 'inbox') {
         onRemoveFromInbox(id);
         return;
@@ -315,15 +380,24 @@ export function IdeaBankModal({
         {
           text: t('timeline.ideaBank.remove'),
           style: 'destructive',
-          onPress: async () => {
-            await deleteTrankilV2IntentionById(id);
-            await syncNativeRailAlarmsAfterIntentionWrite('ideaBankDelete');
-            await refresh();
+          onPress: () => {
+            void (async () => {
+              if (!setRowBusy(id)) return;
+              try {
+                await deleteTrankilV2IntentionById(id);
+                await syncNativeRailAlarmsAfterIntentionWrite('ideaBankDelete');
+                await refresh();
+              } catch {
+                /* ignore */
+              } finally {
+                setRowIdle(id);
+              }
+            })();
           },
         },
       ]);
     },
-    [mode, onRemoveFromInbox, refresh, t],
+    [mode, onRemoveFromInbox, refresh, setRowBusy, setRowIdle, t],
   );
 
   const onClearAll = useCallback(() => {
@@ -365,10 +439,11 @@ export function IdeaBankModal({
 
   const onEdit = useCallback(
     (row: TrankilV2TimelineItemRow) => {
+      if (busyRowsRef.current.has(row.id)) return;
+      pendingEditRowRef.current = row;
       onClose();
-      onEditItem(row);
     },
-    [onClose, onEditItem],
+    [onClose],
   );
 
   const schedulingRow = useMemo(
@@ -398,9 +473,9 @@ export function IdeaBankModal({
                 {title ||
                   (mode === 'inbox' ? t('timeline.smartClusters.inbox') : t('timeline.ideaBank.title'))}
               </Text>
-              <Pressable onPress={onClose} hitSlop={12}>
+              <PressableScale onPress={onClose} hitSlop={12} hapticType="light">
                 <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>
-              </Pressable>
+              </PressableScale>
             </View>
 
             {items.length === 0 ? (
@@ -418,6 +493,7 @@ export function IdeaBankModal({
                   const trackStreak = isHabit && isTrackStreakEnabled(meta);
                   const streakData = trackStreak ? getHabitStreakData(row.id) : null;
                   const isPending = pendingLocalDone.has(row.id);
+                  const isRowBusy = busyRows.has(row.id);
                   return (
                     <IntentInteractionWrapper
                       key={row.id}
@@ -463,8 +539,11 @@ export function IdeaBankModal({
                           {createdLine}
                         </Text>
                         <View style={styles.rowActions}>
+                          {isRowBusy ? (
+                            <ActivityIndicator size="small" color={designTokens.accentColor} style={styles.rowBusySpinner} />
+                          ) : null}
                           {status === 'TODO' ? (
-                            <Pressable
+                            <PressableScale
                               accessibilityRole="button"
                               accessibilityLabel={t('timeline.ideaBank.done')}
                               style={[
@@ -476,20 +555,17 @@ export function IdeaBankModal({
                                   backgroundColor: isPending ? designTokens.accentColor : 'transparent',
                                 },
                               ]}
+                              disabled={isRowBusy}
+                              hapticType="none"
                               onPress={() => void handleToggleDone(row)}
                             >
                               <Check
                                 size={18}
                                 color={isPending ? '#ffffff' : designTokens.accentColor}
                               />
-                              {/* preview icones seules — étape 2: supprimer si validé
-                              <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
-                                {t('timeline.ideaBank.done')}
-                              </Text>
-                              */}
-                            </Pressable>
+                            </PressableScale>
                           ) : null}
-                          <Pressable
+                          <PressableScale
                             accessibilityRole="button"
                             accessibilityLabel={
                               isProjectWithoutStartDate(row)
@@ -501,18 +577,13 @@ export function IdeaBankModal({
                               styles.iconBtnIconOnly,
                               { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
                             ]}
+                            disabled={isRowBusy}
+                            hapticType="light"
                             onPress={() => openScheduleForRow(row)}
                           >
                             <CalendarDays size={18} color={theme.colors.secondary} />
-                            {/* preview icones seules — étape 2: supprimer si validé
-                            <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
-                              {isProjectWithoutStartDate(row)
-                                ? t('cluster.planProjectStart')
-                                : t('timeline.ideaBank.schedule')}
-                            </Text>
-                            */}
-                          </Pressable>
-                          <Pressable
+                          </PressableScale>
+                          <PressableScale
                             accessibilityRole="button"
                             accessibilityLabel={t('timeline.ideaBank.edit')}
                             style={[
@@ -520,16 +591,13 @@ export function IdeaBankModal({
                               styles.iconBtnIconOnly,
                               { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
                             ]}
+                            disabled={isRowBusy}
+                            hapticType="light"
                             onPress={() => onEdit(row)}
                           >
                             <Pencil size={18} color={designTokens.accentColor} />
-                            {/* preview icones seules — étape 2: supprimer si validé
-                            <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
-                              {t('timeline.ideaBank.edit')}
-                            </Text>
-                            */}
-                          </Pressable>
-                          <Pressable
+                          </PressableScale>
+                          <PressableScale
                             accessibilityRole="button"
                             accessibilityLabel={removeActionLabel}
                             style={[
@@ -537,15 +605,12 @@ export function IdeaBankModal({
                               styles.iconBtnIconOnly,
                               { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
                             ]}
+                            disabled={isRowBusy}
+                            hapticType="light"
                             onPress={() => onDelete(row.id)}
                           >
                             <Trash2 size={18} color={theme.colors.error} />
-                            {/* preview icones seules — étape 2: supprimer si validé
-                            <Text style={[styles.iconBtnLabel, { color: designTokens.textPrimary }]}>
-                              {removeActionLabel}
-                            </Text>
-                            */}
-                          </Pressable>
+                          </PressableScale>
                         </View>
                       </View>
                     </IntentInteractionWrapper>
@@ -599,11 +664,14 @@ export function IdeaBankModal({
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateChipsRow}>
               {scheduleDates.map((d) => {
                 const ymd = toYmd(d);
+                const scheduleRowBusy = scheduleForId ? busyRows.has(scheduleForId) : false;
                 return (
-                  <Pressable
+                  <PressableScale
                     key={ymd}
+                    disabled={!scheduleForId || scheduleRowBusy}
+                    hapticType="light"
                     onPress={() => {
-                      if (!scheduleForId) return;
+                      if (!scheduleForId || busyRowsRef.current.has(scheduleForId)) return;
                       if (scheduleMode === 'projectStart') {
                         void onPlanProjectStart(scheduleForId, ymd);
                       } else {
@@ -622,13 +690,13 @@ export function IdeaBankModal({
                     <Text style={{ color: designTokens.textSecondary, fontSize: 11, fontWeight: '600' }}>
                       {ymd}
                     </Text>
-                  </Pressable>
+                  </PressableScale>
                 );
               })}
             </ScrollView>
-            <Pressable onPress={() => setScheduleForId(null)} style={{ marginTop: 8 }}>
+            <PressableScale onPress={() => setScheduleForId(null)} style={{ marginTop: 8 }} hapticType="light">
               <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>{t('timeline.ideaBank.cancel')}</Text>
-            </Pressable>
+            </PressableScale>
           </Pressable>
         </Pressable>
       </Modal>
@@ -668,7 +736,8 @@ const styles = StyleSheet.create({
   rowTitleDone: { textDecorationLine: 'line-through' },
   habitCadence: { fontSize: 13, fontWeight: '600' },
   createdHint: { fontSize: 11, marginTop: 4 },
-  rowActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  rowActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' },
+  rowBusySpinner: { marginRight: 2 },
   iconBtn: {
     flexDirection: 'row',
     alignItems: 'center',

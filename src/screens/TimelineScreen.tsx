@@ -68,6 +68,7 @@ import {
   capturePeekPathBHeightPx,
   CAPTURE_SHEET_FULL_MAX_RATIO,
 } from '../utils/capturePeekLayout';
+import { PressableScale } from '../components/common/PressableScale';
 import { IdeaBankModal } from '../components/IdeaBankModal';
 import { SmartClustersCarousel, type SmartClusterDebugContents } from '../components/SmartClustersCarousel';
 import type { SmartClusterDebugEntry } from '../utils/clusterDebugLog';
@@ -111,6 +112,15 @@ import { Platform as RPlatform } from '../utils/rnPlatform';
 
 if (RPlatform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+/** Animation fluide lors du rafraîchissement de la FlatList (IdeaBank, INTENTIONS_CHANGED). */
+function configureTimelineListReloadAnimation(): void {
+  LayoutAnimation.configureNext({
+    duration: 300,
+    update: { type: LayoutAnimation.Types.easeInEaseOut },
+    delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+  });
 }
 
 /** Haptique succès (no-op sur web). */
@@ -791,6 +801,7 @@ export function TimelineScreen() {
 
   /** Raccourci vers `loadPack` (après retry offline, événements globaux, etc.). */
   const reload = useCallback(() => {
+    configureTimelineListReloadAnimation();
     void loadPack();
   }, [loadPack]);
 
@@ -1411,10 +1422,10 @@ export function TimelineScreen() {
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(INTENTIONS_CHANGED_EVENT_NAME, () => {
-      void loadPack();
+      reload();
     });
     return () => sub.remove();
-  }, [loadPack]);
+  }, [reload]);
 
   const openHubBlock = useCallback(
     (block: HubBlock) => {
@@ -1483,11 +1494,11 @@ export function TimelineScreen() {
         const hasSaved = Boolean(dailyRoadmapSummary?.content_html?.trim());
         return (
           <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-            <Pressable onPress={openSavedDailyRoadmap} hitSlop={8}>
+            <PressableScale onPress={openSavedDailyRoadmap} hitSlop={8} hapticType="light">
               <Text style={{ color: theme.colors.primary, fontWeight: '800', fontSize: 14 }}>
                 {hasSaved ? t('timeline.roadmap.linkOpenSaved') : t('timeline.roadmap.linkGenerate')}
               </Text>
-            </Pressable>
+            </PressableScale>
           </View>
         );
       }
@@ -1670,8 +1681,9 @@ export function TimelineScreen() {
                   <Text style={[styles.skyClearText, { color: theme.colors.onSurfaceVariant }]}>
                     {t('timeline.customDayEmpty')}
             </Text>
-                  <Pressable
+                  <PressableScale
                     onPress={navigateToAddTask}
+                    hapticType="light"
                     style={[
                       neumorphicRaised(theme),
                       styles.customEmptyCta,
@@ -1681,7 +1693,7 @@ export function TimelineScreen() {
                     <Text style={[styles.customEmptyCtaText, { color: theme.colors.primary }]}>
                       {t('timeline.customDayAddTask')}
             </Text>
-                  </Pressable>
+                  </PressableScale>
                 </View>
               ) : (
                 <Text style={[styles.skyClearText, { color: theme.colors.onSurfaceVariant }]}>
