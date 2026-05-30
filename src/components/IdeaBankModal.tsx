@@ -25,8 +25,12 @@ import {
 } from '../api';
 import { syncNativeRailAlarmsAfterIntentionWrite } from '../api/intentionHardwareSync';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
+import { rootNavigationRef } from '../navigation/rootNavigationRef';
+import { toggleTripSurveillanceForRow } from '../services/traffic/tripSurveillanceToggle';
+import { showAppToast } from '../services/appToast';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 import { PressableScale } from './common/PressableScale';
+import { IdeaBankTripItineraryBlock } from './IdeaBankTripItineraryBlock';
 import { generateSmartTitle } from '../services/smartTitle';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { formatCreationSubtitle } from '../utils/timeFormat';
@@ -35,9 +39,16 @@ import { resolveCadenceLabel } from '../features/livingHub/formatRoutineItemLine
 import { isTrackStreakEnabled, parseIntentionMetadata } from '../utils/intentionMetadata';
 import {
   formatPass2PillLabel,
+  isIdeaBankTripPillReady,
+  resolveIdeaBankTripPillLabel,
   resolvePass2FooterAction,
+  showIdeaBankTripPill,
   showPass2CardCta,
 } from '../utils/pass2IntentionCard';
+import { isTripAllDay } from '../utils/tripElasticDisplay';
+import { isTripReadyForIdeaBankSurveillance } from '../utils/tripItineraryDisplay';
+import { resolveTripSurveillanceUiState } from '../utils/tripSurveillanceButton';
+import { getTripMetaFromRoot } from '../utils/tripTimelineCard';
 import { TaskCompletionOrb } from './TaskCompletionOrb';
 
 type Props = {
@@ -54,6 +65,10 @@ type Props = {
   onEditItem: (row: TrankilV2TimelineItemRow) => void;
   /** Ferme la tirelire puis ouvre le détail avec déclenchement Pass 2. */
   onPass2Item?: (row: TrankilV2TimelineItemRow) => void;
+  /** Patch optimiste d'une ligne (timeline + état local tirelire). */
+  onPatchItem?: (id: string, patch: Partial<TrankilV2TimelineItemRow>) => void;
+  /** Ferme la tirelire puis ouvre la sheet trajet (adresse / heure manquante). */
+  onOpenTripSetup?: (row: TrankilV2TimelineItemRow) => void;
 };
 
 /** Diamètre intérieur orbe validation (hors padding néomorphique). */
@@ -81,6 +96,25 @@ function formatLineTitle(raw: string, t: (k: string) => string): string {
   if (!raw) return t('timeline.untitled');
   if (raw.startsWith('timeline.')) return t(raw);
   return raw;
+}
+
+function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  try {
+    const v = JSON.parse(s) as unknown;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    return v as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function mergeRowPatch(
+  row: TrankilV2TimelineItemRow,
+  patch: Partial<TrankilV2TimelineItemRow>,
+): TrankilV2TimelineItemRow {
+  return { ...row, ...patch };
 }
 
 /** Durée approximative de l'animation slide de la tirelire (ms). */
@@ -115,6 +149,8 @@ export function IdeaBankModal({
   mode = 'default',
   onEditItem,
   onPass2Item,
+  onPatchItem,
+  onOpenTripSetup,
 }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
@@ -124,6 +160,11 @@ export function IdeaBankModal({
   const insets = useSafeAreaInsets();
   const pendingEditRowRef = useRef<TrankilV2TimelineItemRow | null>(null);
   const pendingPass2RowRef = useRef<TrankilV2TimelineItemRow | null>(null);
+  const pendingTripSetupRowRef = useRef<TrankilV2TimelineItemRow | null>(null);
+  const [localItemPatches, setLocalItemPatches] = useState<Map<string, Partial<TrankilV2TimelineItemRow>>>(
+    () => new Map(),
+  );
+  const [tripPillBusyIds, setTripPillBusyIds] = useState<Set<string>>(() => new Set());
   const [pendingLocalDone, setPendingLocalDone] = useState<Set<string>>(() => new Set());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
   const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -132,6 +173,32 @@ export function IdeaBankModal({
   const refresh = useCallback(async () => {
     onChanged();
   }, [onChanged]);
+
+  useEffect(() => {
+    if (visible) {
+      setLocalItemPatches(new Map());
+    }
+  }, [visible, items]);
+
+  const resolveRow = useCallback(
+    (row: TrankilV2TimelineItemRow): TrankilV2TimelineItemRow => {
+      const patch = localItemPatches.get(row.id);
+      return patch ? mergeRowPatch(row, patch) : row;
+    },
+    [localItemPatches],
+  );
+
+  const applyLocalPatch = useCallback(
+    (id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
+      setLocalItemPatches((prev) => {
+        const next = new Map(prev);
+        next.set(id, { ...(next.get(id) ?? {}), ...patch });
+        return next;
+      });
+      onPatchItem?.(id, patch);
+    },
+    [onPatchItem],
+  );
 
   const syncPendingSet = useCallback((next: Set<string>) => {
     pendingLocalDoneRef.current = next;
@@ -228,6 +295,14 @@ export function IdeaBankModal({
   /** Ouvre la feuille détail après la descente complète de la tirelire. */
   useEffect(() => {
     if (visible) return;
+    const tripSetupRow = pendingTripSetupRowRef.current;
+    if (tripSetupRow && onOpenTripSetup) {
+      pendingTripSetupRowRef.current = null;
+      const timer = setTimeout(() => {
+        onOpenTripSetup(tripSetupRow);
+      }, IDEA_BANK_SHEET_DISMISS_MS);
+      return () => clearTimeout(timer);
+    }
     const pass2Row = pendingPass2RowRef.current;
     if (pass2Row && onPass2Item) {
       pendingPass2RowRef.current = null;
@@ -243,7 +318,7 @@ export function IdeaBankModal({
       onEditItem(row);
     }, IDEA_BANK_SHEET_DISMISS_MS);
     return () => clearTimeout(timer);
-  }, [onEditItem, onPass2Item, visible]);
+  }, [onEditItem, onOpenTripSetup, onPass2Item, visible]);
 
   useEffect(() => {
     return () => {
@@ -311,6 +386,77 @@ export function IdeaBankModal({
     [onClose, onPass2Item, openDetail],
   );
 
+  const openTripSetup = useCallback(
+    (row: TrankilV2TimelineItemRow) => {
+      if (onOpenTripSetup) {
+        pendingTripSetupRowRef.current = row;
+        onClose();
+        return;
+      }
+      openDetail(row);
+    },
+    [onClose, onOpenTripSetup, openDetail],
+  );
+
+  const handleTripPillPress = useCallback(
+    async (row: TrankilV2TimelineItemRow) => {
+      if (tripPillBusyIds.has(row.id)) return;
+
+      const meta = safeParseJsonObject(row.metadata_json);
+      const trip = getTripMetaFromRoot(meta);
+      const tripIsAllDay = Boolean(trip && isTripAllDay(meta, trip, row.due_date ?? null));
+      const canEnable = isTripReadyForIdeaBankSurveillance({
+        row,
+        meta,
+        trip,
+        isProUser,
+      });
+      const remindActive = Number(row.remind_to_leave) === 1;
+      const uiState = resolveTripSurveillanceUiState({
+        isProUser,
+        tripIsAllDay,
+        remindToLeaveEnabled: remindActive,
+        canEnableRemindToLeave: canEnable,
+      });
+
+      if (uiState === 'free_locked') {
+        if (rootNavigationRef.isReady()) {
+          rootNavigationRef.navigate('ProSubscription');
+        }
+        return;
+      }
+
+      if (uiState === 'pro_incomplete' || !canEnable) {
+        openTripSetup(row);
+        return;
+      }
+
+      setTripPillBusyIds((prev) => new Set(prev).add(row.id));
+      try {
+        const { result, patch } = await toggleTripSurveillanceForRow({ row, uiState });
+        if (result === 'incomplete') {
+          showAppToast(t('intentionDetail.surveillanceMissingInfo'));
+          openTripSetup(row);
+          return;
+        }
+        if (result === 'toggled_on') {
+          await safeSuccessHaptic();
+        }
+        if (patch) {
+          applyLocalPatch(row.id, patch);
+        }
+        void refresh();
+      } finally {
+        setTripPillBusyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(row.id);
+          return next;
+        });
+      }
+    },
+    [applyLocalPatch, isProUser, openTripSetup, refresh, t, tripPillBusyIds],
+  );
+
   const showCompleteOrb = status === 'TODO';
 
   return (
@@ -347,19 +493,54 @@ export function IdeaBankModal({
               {t('timeline.ideaBank.empty')}
             </Text>
           ) : (
-            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-              {items.map((row) => {
+            <ScrollView style={styles.list} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {items.map((sourceRow) => {
+                const row = resolveRow(sourceRow);
                 const lineTitle = formatLineTitle(resolveDisplayTitle(row), t);
                 const createdLine = formatCreationSubtitle(Number(row.created_at), t, i18n.language);
-                const meta = parseIntentionMetadata(row.metadata_json);
+                const metaRoot = safeParseJsonObject(row.metadata_json);
+                const habitMeta = parseIntentionMetadata(row.metadata_json);
+                const trip = getTripMetaFromRoot(metaRoot);
+                const isTripCard = Boolean(trip);
                 const isHabit = row.type === 'HABIT';
-                const cadenceLabel = isHabit ? resolveCadenceLabel(meta) : null;
-                const trackStreak = isHabit && isTrackStreakEnabled(meta);
+                const cadenceLabel = isHabit ? resolveCadenceLabel(habitMeta) : null;
+                const trackStreak = isHabit && isTrackStreakEnabled(habitMeta);
                 const streakData = trackStreak ? getHabitStreakData(row.id) : null;
                 const isPending = pendingLocalDone.has(row.id);
                 const pass2Action = resolvePass2FooterAction(row);
-                const showPass2Pill = showPass2CardCta(row);
+                const showPass2Pill = !isTripCard && showPass2CardCta(row);
                 const pass2Label = formatPass2PillLabel(pass2Action, t, isProUser);
+                const showTripPill = isTripCard && showIdeaBankTripPill(row, metaRoot);
+                const tripIsAllDay = Boolean(trip && isTripAllDay(metaRoot, trip, row.due_date ?? null));
+                const canEnableSurveillance = isTripReadyForIdeaBankSurveillance({
+                  row,
+                  meta: metaRoot,
+                  trip,
+                  isProUser,
+                });
+                const remindActive = Number(row.remind_to_leave) === 1;
+                const tripUiState = resolveTripSurveillanceUiState({
+                  isProUser,
+                  tripIsAllDay,
+                  remindToLeaveEnabled: remindActive,
+                  canEnableRemindToLeave: canEnableSurveillance,
+                });
+                const tripPillReady = isIdeaBankTripPillReady({
+                  row,
+                  meta: metaRoot,
+                  trip,
+                  isProUser,
+                  uiState: tripUiState,
+                });
+                const tripPillLabel = showTripPill
+                  ? resolveIdeaBankTripPillLabel({
+                      uiState: tripUiState,
+                      isProUser,
+                      isReady: tripPillReady,
+                      t,
+                    })
+                  : '';
+                const tripPillBusy = tripPillBusyIds.has(row.id);
 
                 return (
                   <View
@@ -427,6 +608,44 @@ export function IdeaBankModal({
                         ) : null}
                       </PressableScale>
                     </View>
+
+                    {isTripCard && trip ? (
+                      <IdeaBankTripItineraryBlock
+                        row={row}
+                        trip={trip}
+                        meta={metaRoot}
+                        textPrimary={designTokens.textPrimary}
+                        textSecondary={designTokens.textSecondary}
+                        onRequestArrivalSetup={openTripSetup}
+                      />
+                    ) : null}
+
+                    {showTripPill && tripPillLabel ? (
+                      <PressableScale
+                        style={[
+                          styles.pass2Pill,
+                          tripPillReady ? styles.pass2PillReady : null,
+                          tripUiState === 'pro_active' ? styles.pass2PillActive : null,
+                          {
+                            backgroundColor:
+                              tripUiState === 'pro_active'
+                                ? `${designTokens.accentColor}CC`
+                                : designTokens.accentColor,
+                            borderRadius: 999,
+                            opacity: tripPillBusy ? 0.65 : 1,
+                          },
+                        ]}
+                        hapticType="medium"
+                        disabled={tripPillBusy}
+                        onPress={() => void handleTripPillPress(row)}
+                        accessibilityRole="button"
+                        accessibilityLabel={tripPillLabel}
+                      >
+                        <Text style={styles.pass2PillText} numberOfLines={2}>
+                          {tripPillLabel}
+                        </Text>
+                      </PressableScale>
+                    ) : null}
 
                     {showPass2Pill && pass2Label ? (
                       <PressableScale
@@ -516,6 +735,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  pass2PillReady: {
+    shadowColor: '#FFFFFF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  pass2PillActive: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
   },
   pass2PillText: {
     color: '#FFFFFF',

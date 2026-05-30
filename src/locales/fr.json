@@ -594,7 +594,8 @@
       "scheduleTitle": "Choisir une date",
       "empty": "Aucune tâche sans date.",
       "close": "Fermer",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "tripFillAddress": "📍 Renseigner l'adresse"
     },
     "box": {
       "clearAll": "Tout supprimer",

@@ -54,6 +54,7 @@ import {
 } from '../services/traffic/sentinelReconciler';
 import { clearAllDepartureNotifications } from '../services/NotificationService';
 import { cancelTripMission, suspendTripMissionForAllDay } from '../services/traffic/sentinelTripMission';
+import { toggleTripSurveillanceForRow } from '../services/traffic/tripSurveillanceToggle';
 import { showAppToast } from '../services/appToast';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { isPass2UnlockedMeta } from '../utils/tripTimelineCard';
@@ -66,6 +67,7 @@ import {
   isTripReadyForScan,
   readValidTripCoords,
 } from '../utils/tripTripReadiness';
+import { hasTripArrivalAddress } from '../utils/tripItineraryDisplay';
 import { getLocationFavoriteByAlias, upsertLocationFavorite } from '../services/traffic/locationFavorites';
 import {
   buildListMetadataPatch,
@@ -115,6 +117,8 @@ type Props = {
   morphSheetContentOnIntentionChange?: boolean;
   /** Déclenche Pass 2 automatiquement à l’ouverture (ex. pilule IdeaBank). */
   autoTriggerPass2?: boolean;
+  /** Ouvre l’édition arrivée TRIP à l’ouverture (ex. tirelire → setup trajet). */
+  autoFocusTripArrivalEdit?: boolean;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -548,6 +552,7 @@ export function IntentionDetailSheet({
   intentionMixAccentColor,
   morphSheetContentOnIntentionChange,
   autoTriggerPass2 = false,
+  autoFocusTripArrivalEdit = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
@@ -2069,6 +2074,22 @@ export function IntentionDetailSheet({
     void onPressUnlockPass2FromTimeline();
   }, [autoTriggerPass2, onPressUnlockPass2FromTimeline, row, showPass2FooterCta, visible]);
 
+  const autoFocusTripArrivalEditConsumedRef = useRef(false);
+
+  useEffect(() => {
+    if (!visible) {
+      autoFocusTripArrivalEditConsumedRef.current = false;
+      return;
+    }
+    if (!autoFocusTripArrivalEdit || !row || autoFocusTripArrivalEditConsumedRef.current) return;
+    if (!isTrip || sheetPosition !== 'full') return;
+    const rootMeta = safeParseJsonObject(metadataJsonLiveRef.current ?? row.metadata_json);
+    const tMeta = getTripMeta(rootMeta);
+    if (hasTripArrivalAddress(row, tMeta, rootMeta)) return;
+    autoFocusTripArrivalEditConsumedRef.current = true;
+    setArrivalEditing(true);
+  }, [autoFocusTripArrivalEdit, isTrip, row, sheetPosition, visible]);
+
   const pass2FooterCtaNode = useMemo(() => {
     if (!showPass2FooterCta) return null;
     return (
@@ -2215,28 +2236,38 @@ export function IntentionDetailSheet({
     tripSurveillanceSubmittingRef.current = true;
     setTripSurveillanceSubmitting(true);
     try {
-      if (tripSurveillanceUiState === 'pro_active') {
+      const { result, patch } = await toggleTripSurveillanceForRow({
+        row,
+        uiState: tripSurveillanceUiState,
+      });
+      if (result === 'pro_redirect') {
+        redirectToProSubscription();
+        return;
+      }
+      if (result === 'incomplete') {
+        showAppToast(t('intentionDetail.surveillanceMissingInfo'));
+        return;
+      }
+      if (result === 'toggled_off') {
         setRemindToLeaveEnabled(false);
         setRemindToLeaveHydratedForRowId(row.id);
         remindHydratedRowIdRef.current = row.id;
-        await updateTrankilV2IntentionRemindToLeave(row.id, false);
-        await cancelTripMission(row.id);
-        onPatchRow?.(row.id, { remind_to_leave: 0 });
+        if (patch) onPatchRow?.(row.id, patch);
         return;
       }
-
-      setRemindToLeaveEnabled(true);
-      setRemindToLeaveHydratedForRowId(row.id);
-      remindHydratedRowIdRef.current = row.id;
-      await updateTrankilV2IntentionRemindToLeave(row.id, true, { silent: true });
-      onPatchRow?.(row.id, { remind_to_leave: 1 });
-      await trankilV2SqliteBarrier();
-      await reconcileSentinelForIntentionIdImmediate(row.id);
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME, {
-        source: 'trankil_v2',
-        id: row.id,
-        reason: 'user_edit',
-      });
+      if (result === 'toggled_on') {
+        setRemindToLeaveEnabled(true);
+        setRemindToLeaveHydratedForRowId(row.id);
+        remindHydratedRowIdRef.current = row.id;
+        if (patch) {
+          onPatchRow?.(row.id, patch);
+          if (patch.metadata_json) {
+            metadataJsonLiveRef.current = patch.metadata_json;
+            setMetadataJsonLive(patch.metadata_json);
+            setPass2UnlockOptimistic(true);
+          }
+        }
+      }
     } finally {
       tripSurveillanceBusyRef.current = false;
       tripSurveillanceSubmittingRef.current = false;

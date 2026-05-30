@@ -438,6 +438,7 @@ export function TimelineScreen() {
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
   const [autoTriggerPass2, setAutoTriggerPass2] = useState(false);
+  const [autoFocusTripArrivalEdit, setAutoFocusTripArrivalEdit] = useState(false);
   const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(() => capturePeekPathAHeightPx());
   const [peekCapturePhase, setPeekCapturePhase] = useState<'idle' | 'path_a' | 'path_b'>('idle');
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
@@ -487,6 +488,7 @@ export function TimelineScreen() {
   /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante (hub TRIP unifié). */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
     setAutoTriggerPass2(false);
+    setAutoFocusTripArrivalEdit(false);
     setPeekCapturePhase('idle');
     setDetailRow(r);
     setDetailPosition('full');
@@ -498,7 +500,18 @@ export function TimelineScreen() {
     setPeekCapturePhase('idle');
     setDetailRow(r);
     setDetailPosition('full');
+    setAutoFocusTripArrivalEdit(false);
     setAutoTriggerPass2(true);
+    setDetailOpen(true);
+  }, []);
+
+  /** Ouvre la sheet trajet avec édition arrivée (adresse / heure manquante depuis la tirelire). */
+  const openDetailWithTripSetup = useCallback((r: TrankilV2TimelineItemRow) => {
+    setAutoTriggerPass2(false);
+    setAutoFocusTripArrivalEdit(true);
+    setPeekCapturePhase('idle');
+    setDetailRow(r);
+    setDetailPosition('full');
     setDetailOpen(true);
   }, []);
 
@@ -519,9 +532,13 @@ export function TimelineScreen() {
 
   /** Met à jour une ligne dans les listes locales + détail si ouvert. */
   const patchRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
-    setPrimaryRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    setArchivedRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    setUnorganizedTodo((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    const apply = (rows: TrankilV2TimelineItemRow[]) =>
+      rows.map((r) => (r.id === id ? { ...r, ...patch } : r));
+    setPrimaryRows((prev) => apply(prev));
+    setArchivedRows((prev) => apply(prev));
+    setUnorganizedTodo((prev) => apply(prev));
+    setBoxStockRows((prev) => apply(prev));
+    setInboxTodayRows((prev) => apply(prev));
     setDetailRow((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
   }, []);
 
@@ -531,6 +548,7 @@ export function TimelineScreen() {
     setDetailRow(null);
     setDetailPosition('full');
     setAutoTriggerPass2(false);
+    setAutoFocusTripArrivalEdit(false);
     setDetailPeekHeightPx(capturePeekPathAHeightPx());
     setPeekCapturePhase('idle');
   }, []);
@@ -1681,6 +1699,7 @@ export function TimelineScreen() {
         peekCapturePhase={peekCapturePhase}
         captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
         autoTriggerPass2={autoTriggerPass2}
+        autoFocusTripArrivalEdit={autoFocusTripArrivalEdit}
       />
 
       <TimelineFilterModal
@@ -1762,6 +1781,8 @@ export function TimelineScreen() {
         }
         onEditItem={openDetail}
         onPass2Item={openDetailWithPass2}
+        onPatchItem={patchRow}
+        onOpenTripSetup={openDetailWithTripSetup}
       />
     </View>
   );

@@ -594,7 +594,8 @@
       "scheduleTitle": "Pick a date",
       "empty": "No undated tasks.",
       "close": "Close",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "tripFillAddress": "📍 Enter address"
     },
     "box": {
       "clearAll": "Delete all",
