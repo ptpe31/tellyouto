@@ -437,6 +437,7 @@ export function TimelineScreen() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
   const [detailPosition, setDetailPosition] = useState<'peek' | 'full'>('full');
+  const [autoTriggerPass2, setAutoTriggerPass2] = useState(false);
   const [detailPeekHeightPx, setDetailPeekHeightPx] = useState(() => capturePeekPathAHeightPx());
   const [peekCapturePhase, setPeekCapturePhase] = useState<'idle' | 'path_a' | 'path_b'>('idle');
   const peekSnapshotRef = useRef<{ categoryTag?: unknown; predictedType?: unknown; title?: unknown } | null>(null);
@@ -485,9 +486,19 @@ export function TimelineScreen() {
 
   /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante (hub TRIP unifié). */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
+    setAutoTriggerPass2(false);
     setPeekCapturePhase('idle');
     setDetailRow(r);
     setDetailPosition('full');
+    setDetailOpen(true);
+  }, []);
+
+  /** Ouvre le détail puis déclenche Pass 2 (pilule IdeaBank). */
+  const openDetailWithPass2 = useCallback((r: TrankilV2TimelineItemRow) => {
+    setPeekCapturePhase('idle');
+    setDetailRow(r);
+    setDetailPosition('full');
+    setAutoTriggerPass2(true);
     setDetailOpen(true);
   }, []);
 
@@ -519,6 +530,7 @@ export function TimelineScreen() {
     setDetailOpen(false);
     setDetailRow(null);
     setDetailPosition('full');
+    setAutoTriggerPass2(false);
     setDetailPeekHeightPx(capturePeekPathAHeightPx());
     setPeekCapturePhase('idle');
   }, []);
@@ -1668,6 +1680,7 @@ export function TimelineScreen() {
         validationMode
         peekCapturePhase={peekCapturePhase}
         captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
+        autoTriggerPass2={autoTriggerPass2}
       />
 
       <TimelineFilterModal
@@ -1748,6 +1761,7 @@ export function TimelineScreen() {
               : undefined)
         }
         onEditItem={openDetail}
+        onPass2Item={openDetailWithPass2}
       />
     </View>
   );

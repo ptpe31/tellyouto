@@ -113,6 +113,8 @@ type Props = {
   intentionMixAccentColor?: string | null;
   /** Fondu du corps de feuille lors du changement d’intention (N cartes). */
   morphSheetContentOnIntentionChange?: boolean;
+  /** Déclenche Pass 2 automatiquement à l’ouverture (ex. pilule IdeaBank). */
+  autoTriggerPass2?: boolean;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -545,6 +547,7 @@ export function IntentionDetailSheet({
   captureSheetMaxHeightRatio,
   intentionMixAccentColor,
   morphSheetContentOnIntentionChange,
+  autoTriggerPass2 = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
@@ -805,10 +808,11 @@ export function IntentionDetailSheet({
   const pass2FooterAction = useMemo((): 'trip' | 'list' | 'project' | null => {
     const type = String(row?.type ?? '').trim().toUpperCase();
     const cat = String(row?.category_id ?? '').trim().toUpperCase();
-    if (type === 'TASK' || type === 'HABIT') return null;
+    if (type === 'HABIT') return null;
     if (isTrip || type === 'TRIP' || cat === 'TRAVEL') return 'trip';
     if (type === 'LIST' || cat === 'SHOP') return 'list';
     if (type === 'PROJECT') return 'project';
+    if (type === 'TASK') return null;
     return null;
   }, [isTrip, row?.category_id, row?.type]);
 
@@ -2053,6 +2057,19 @@ export function IntentionDetailSheet({
     runPass2EnrichmentWithOptionalOverlay,
     unlockPass2ForDisplay,
   ]);
+
+  const autoTriggerPass2ConsumedRef = useRef(false);
+
+  useEffect(() => {
+    if (!visible) {
+      autoTriggerPass2ConsumedRef.current = false;
+      return;
+    }
+    if (!autoTriggerPass2 || !row || autoTriggerPass2ConsumedRef.current) return;
+    if (!showPass2FooterCta) return;
+    autoTriggerPass2ConsumedRef.current = true;
+    void onPressUnlockPass2FromTimeline();
+  }, [autoTriggerPass2, onPressUnlockPass2FromTimeline, row, showPass2FooterCta, visible]);
 
   const pass2FooterCtaNode = useMemo(() => {
     if (!showPass2FooterCta) return null;

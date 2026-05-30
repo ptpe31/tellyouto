@@ -1,9 +1,8 @@
 import * as Haptics from 'expo-haptics';
-import { CalendarDays, Check, Pencil, Trash2 } from 'lucide-react-native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BlurView } from 'expo-blur';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ActivityIndicator,
   Alert,
   LayoutAnimation,
   Modal,
@@ -21,28 +20,25 @@ import {
   deleteTrankilV2IntentionById,
   logTrankilV2HabitOccurrence,
   markTrankilV2IntentionDone,
-  markTrankilV2IntentionRemovedFromInbox,
-  patchMetadata,
-  updateTrankilV2IntentionTemporal,
   type TrankilIntentStatus,
   type TrankilV2TimelineItemRow,
 } from '../api';
 import { syncNativeRailAlarmsAfterIntentionWrite } from '../api/intentionHardwareSync';
+import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 import { PressableScale } from './common/PressableScale';
-import { IntentInteractionWrapper } from './IntentInteractionWrapper';
-import {
-  buildProjectMilestonesMetadataPatch,
-  getProjectStartDateFromMetadataJson,
-  parseProjectMilestonesPayloadFromMetadataJson,
-  replanProjectMilestonesFromStartDate,
-} from '../services/projectMilestonesModel';
 import { generateSmartTitle } from '../services/smartTitle';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { formatCreationSubtitle } from '../utils/timeFormat';
 import { HabitStreakCompact, getHabitStreakData } from '../features/livingHub';
 import { resolveCadenceLabel } from '../features/livingHub/formatRoutineItemLine';
 import { isTrackStreakEnabled, parseIntentionMetadata } from '../utils/intentionMetadata';
+import {
+  formatPass2PillLabel,
+  resolvePass2FooterAction,
+  showPass2CardCta,
+} from '../utils/pass2IntentionCard';
+import { TaskCompletionOrb } from './TaskCompletionOrb';
 
 type Props = {
   visible: boolean;
@@ -56,7 +52,13 @@ type Props = {
   mode?: 'default' | 'inbox';
   /** Ferme la tirelire puis ouvre l’édition (IntentionDetailSheet côté parent). */
   onEditItem: (row: TrankilV2TimelineItemRow) => void;
+  /** Ferme la tirelire puis ouvre le détail avec déclenchement Pass 2. */
+  onPass2Item?: (row: TrankilV2TimelineItemRow) => void;
 };
+
+/** Diamètre intérieur orbe validation (hors padding néomorphique). */
+const VALIDATION_ORB_SIZE = 34;
+const VALIDATION_ORB_OUTER = VALIDATION_ORB_SIZE + 8;
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -64,12 +66,6 @@ function pad2(n: number): string {
 
 function toYmd(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
-  next.setDate(next.getDate() + days);
-  return next;
 }
 
 function resolveDisplayTitle(row: TrankilV2TimelineItemRow): string {
@@ -85,11 +81,6 @@ function formatLineTitle(raw: string, t: (k: string) => string): string {
   if (!raw) return t('timeline.untitled');
   if (raw.startsWith('timeline.')) return t(raw);
   return raw;
-}
-
-function isProjectWithoutStartDate(row: TrankilV2TimelineItemRow): boolean {
-  if (String(row.type ?? '').trim().toUpperCase() !== 'PROJECT') return false;
-  return !getProjectStartDateFromMetadataJson(row.metadata_json);
 }
 
 /** Durée approximative de l'animation slide de la tirelire (ms). */
@@ -123,49 +114,24 @@ export function IdeaBankModal({
   title,
   mode = 'default',
   onEditItem,
+  onPass2Item,
 }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   const designTokens = useDesignTokens();
+  const { spectrum } = useUserSpectrum();
+  const isProUser = spectrum.isProUser;
   const insets = useSafeAreaInsets();
-  const [scheduleForId, setScheduleForId] = useState<string | null>(null);
-  const [scheduleMode, setScheduleMode] = useState<'due' | 'projectStart'>('due');
-  const [busyRows, setBusyRows] = useState<Set<string>>(() => new Set());
-  const busyRowsRef = useRef<Set<string>>(new Set());
   const pendingEditRowRef = useRef<TrankilV2TimelineItemRow | null>(null);
+  const pendingPass2RowRef = useRef<TrankilV2TimelineItemRow | null>(null);
   const [pendingLocalDone, setPendingLocalDone] = useState<Set<string>>(() => new Set());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
   const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingRowsRef = useRef<Map<string, TrankilV2TimelineItemRow>>(new Map());
 
-  const scheduleDates = useMemo(() => {
-    const out: Date[] = [];
-    for (let d = -3; d <= 60; d += 1) {
-      out.push(addDays(anchorDate, d));
-    }
-    return out;
-  }, [anchorDate]);
-
   const refresh = useCallback(async () => {
     onChanged();
   }, [onChanged]);
-
-  const setRowBusy = useCallback((rowId: string): boolean => {
-    if (busyRowsRef.current.has(rowId)) return false;
-    const next = new Set(busyRowsRef.current);
-    next.add(rowId);
-    busyRowsRef.current = next;
-    setBusyRows(next);
-    return true;
-  }, []);
-
-  const setRowIdle = useCallback((rowId: string) => {
-    if (!busyRowsRef.current.has(rowId)) return;
-    const next = new Set(busyRowsRef.current);
-    next.delete(rowId);
-    busyRowsRef.current = next;
-    setBusyRows(next);
-  }, []);
 
   const syncPendingSet = useCallback((next: Set<string>) => {
     pendingLocalDoneRef.current = next;
@@ -257,13 +223,19 @@ export function IdeaBankModal({
   useEffect(() => {
     if (visible) return;
     void flushPendingCommits();
-    busyRowsRef.current = new Set();
-    setBusyRows(new Set());
   }, [flushPendingCommits, visible]);
 
   /** Ouvre la feuille détail après la descente complète de la tirelire. */
   useEffect(() => {
     if (visible) return;
+    const pass2Row = pendingPass2RowRef.current;
+    if (pass2Row && onPass2Item) {
+      pendingPass2RowRef.current = null;
+      const timer = setTimeout(() => {
+        onPass2Item(pass2Row);
+      }, IDEA_BANK_SHEET_DISMISS_MS);
+      return () => clearTimeout(timer);
+    }
     const row = pendingEditRowRef.current;
     if (!row) return;
     pendingEditRowRef.current = null;
@@ -271,7 +243,7 @@ export function IdeaBankModal({
       onEditItem(row);
     }, IDEA_BANK_SHEET_DISMISS_MS);
     return () => clearTimeout(timer);
-  }, [onEditItem, visible]);
+  }, [onEditItem, onPass2Item, visible]);
 
   useEffect(() => {
     return () => {
@@ -282,123 +254,6 @@ export function IdeaBankModal({
       pendingRowsRef.current.clear();
     };
   }, []);
-
-  const onSetDue = useCallback(
-    async (id: string, ymd: string) => {
-      if (!setRowBusy(id)) return;
-      try {
-        await updateTrankilV2IntentionTemporal(id, { due_date: ymd });
-        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankSchedule');
-        setScheduleForId(null);
-        await refresh();
-      } catch {
-        /* ignore */
-      } finally {
-        setRowIdle(id);
-      }
-    },
-    [refresh, setRowBusy, setRowIdle],
-  );
-
-  const onPlanProjectStart = useCallback(
-    async (id: string, startYmd: string) => {
-      if (!setRowBusy(id)) return;
-      try {
-        const row = items.find((r) => r.id === id);
-        if (!row) return;
-        const payload = parseProjectMilestonesPayloadFromMetadataJson(row.metadata_json);
-        if (!payload) {
-          await updateTrankilV2IntentionTemporal(id, { due_date: startYmd });
-          await patchMetadata(id, { project: { start_date: startYmd } });
-          setScheduleForId(null);
-          await syncNativeRailAlarmsAfterIntentionWrite('ideaBankSchedule');
-          await refresh();
-          return;
-        }
-        const replanned = replanProjectMilestonesFromStartDate(payload, startYmd);
-        const metaPatch = {
-          project: { start_date: startYmd },
-          ...buildProjectMilestonesMetadataPatch(replanned),
-        };
-        await patchMetadata(id, metaPatch);
-        await updateTrankilV2IntentionTemporal(id, { due_date: startYmd });
-        setScheduleForId(null);
-        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankPlanProjectStart');
-        await refresh();
-      } catch {
-        /* ignore */
-      } finally {
-        setRowIdle(id);
-      }
-    },
-    [items, refresh, setRowBusy, setRowIdle],
-  );
-
-  const openScheduleForRow = useCallback((row: TrankilV2TimelineItemRow) => {
-    if (busyRowsRef.current.has(row.id)) return;
-    setScheduleMode(isProjectWithoutStartDate(row) ? 'projectStart' : 'due');
-    setScheduleForId(row.id);
-  }, []);
-
-  const onRemoveFromInbox = useCallback(
-    (id: string) => {
-      if (busyRowsRef.current.has(id)) return;
-      Alert.alert(t('inbox.action.removeConfirmTitle'), t('inbox.action.removeConfirmBody'), [
-        { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
-        {
-          text: t('inbox.action.remove'),
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              if (!setRowBusy(id)) return;
-              try {
-                await markTrankilV2IntentionRemovedFromInbox(id);
-                await syncNativeRailAlarmsAfterIntentionWrite('ideaBankInboxRemove');
-                await refresh();
-              } catch {
-                /* ignore */
-              } finally {
-                setRowIdle(id);
-              }
-            })();
-          },
-        },
-      ]);
-    },
-    [refresh, setRowBusy, setRowIdle, t],
-  );
-
-  const onDelete = useCallback(
-    (id: string) => {
-      if (busyRowsRef.current.has(id)) return;
-      if (mode === 'inbox') {
-        onRemoveFromInbox(id);
-        return;
-      }
-      Alert.alert(t('timeline.ideaBank.removeConfirmTitle'), t('timeline.ideaBank.removeConfirmBody'), [
-        { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
-        {
-          text: t('timeline.ideaBank.remove'),
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              if (!setRowBusy(id)) return;
-              try {
-                await deleteTrankilV2IntentionById(id);
-                await syncNativeRailAlarmsAfterIntentionWrite('ideaBankDelete');
-                await refresh();
-              } catch {
-                /* ignore */
-              } finally {
-                setRowIdle(id);
-              }
-            })();
-          },
-        },
-      ]);
-    },
-    [mode, onRemoveFromInbox, refresh, setRowBusy, setRowIdle, t],
-  );
 
   const onClearAll = useCallback(() => {
     if (items.length === 0) return;
@@ -434,83 +289,113 @@ export function IdeaBankModal({
     ]);
   }, [items, mode, onClose, refresh, t]);
 
-  const removeActionLabel = mode === 'inbox' ? t('inbox.action.remove') : t('timeline.ideaBank.remove');
   const clearAllActionLabel = mode === 'inbox' ? t('inbox.action.removeAll') : t('timeline.ideaBank.clearAll');
 
-  const onEdit = useCallback(
+  const openDetail = useCallback(
     (row: TrankilV2TimelineItemRow) => {
-      if (busyRowsRef.current.has(row.id)) return;
       pendingEditRowRef.current = row;
       onClose();
     },
     [onClose],
   );
 
-  const schedulingRow = useMemo(
-    () => (scheduleForId ? items.find((r) => r.id === scheduleForId) : null),
-    [items, scheduleForId],
+  const triggerPass2 = useCallback(
+    (row: TrankilV2TimelineItemRow) => {
+      if (!onPass2Item) {
+        openDetail(row);
+        return;
+      }
+      pendingPass2RowRef.current = row;
+      onClose();
+    },
+    [onClose, onPass2Item, openDetail],
   );
 
-  return (
-    <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-        <View style={[styles.overlay, { paddingTop: insets.top + 12 }]}>
-          <View
-            style={[
-              styles.sheet,
-              designTokens.cardShadowStyle,
-              {
-                backgroundColor: designTokens.cardBackground,
-                borderColor: theme.colors.outlineVariant,
-                borderTopLeftRadius: designTokens.borderRadius,
-                borderTopRightRadius: designTokens.borderRadius,
-                paddingBottom: insets.bottom + 16,
-              },
-            ]}
-          >
-            <View style={styles.sheetHeader}>
-              <Text style={[styles.sheetTitle, { color: designTokens.textPrimary }]}>
-                {title ||
-                  (mode === 'inbox' ? t('timeline.smartClusters.inbox') : t('timeline.ideaBank.title'))}
-              </Text>
-              <PressableScale onPress={onClose} hitSlop={12} hapticType="light">
-                <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>
-              </PressableScale>
-            </View>
+  const showCompleteOrb = status === 'TODO';
 
-            {items.length === 0 ? (
-              <Text style={{ color: designTokens.textSecondary, paddingHorizontal: 4 }}>
-                {t('timeline.ideaBank.empty')}
-              </Text>
-            ) : (
-              <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-                {items.map((row) => {
-                  const title = formatLineTitle(resolveDisplayTitle(row), t);
-                  const createdLine = formatCreationSubtitle(Number(row.created_at), t, i18n.language);
-                  const meta = parseIntentionMetadata(row.metadata_json);
-                  const isHabit = row.type === 'HABIT';
-                  const cadenceLabel = isHabit ? resolveCadenceLabel(meta) : null;
-                  const trackStreak = isHabit && isTrackStreakEnabled(meta);
-                  const streakData = trackStreak ? getHabitStreakData(row.id) : null;
-                  const isPending = pendingLocalDone.has(row.id);
-                  const isRowBusy = busyRows.has(row.id);
-                  return (
-                    <IntentInteractionWrapper
-                      key={row.id}
-                      intentionId={row.id}
-                      anchorDate={anchorDate}
-                      onMutation={refresh}
-                    >
-                      <View
-                        style={[
-                          designTokens.cardShadowStyle,
-                          styles.rowCard,
-                          {
-                            borderRadius: designTokens.borderRadius,
-                            borderColor: theme.colors.outlineVariant,
-                            opacity: isPending ? 0.5 : 1,
-                          },
-                        ]}
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={[styles.overlay, { paddingTop: insets.top + 12 }]}>
+        {RPlatform.OS !== 'web' ? (
+          <BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : null}
+        <View
+          style={[
+            styles.sheet,
+            designTokens.cardShadowStyle,
+            {
+              backgroundColor: designTokens.cardBackground,
+              borderColor: theme.colors.outlineVariant,
+              borderTopLeftRadius: designTokens.borderRadius,
+              borderTopRightRadius: designTokens.borderRadius,
+              paddingBottom: insets.bottom + 16,
+            },
+          ]}
+        >
+          <View style={styles.sheetHeader}>
+            <Text style={[styles.sheetTitle, { color: designTokens.textPrimary }]}>
+              {title ||
+                (mode === 'inbox' ? t('timeline.smartClusters.inbox') : t('timeline.ideaBank.title'))}
+            </Text>
+            <PressableScale onPress={onClose} hitSlop={12} hapticType="light">
+              <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>
+            </PressableScale>
+          </View>
+
+          {items.length === 0 ? (
+            <Text style={{ color: designTokens.textSecondary, paddingHorizontal: 4 }}>
+              {t('timeline.ideaBank.empty')}
+            </Text>
+          ) : (
+            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+              {items.map((row) => {
+                const lineTitle = formatLineTitle(resolveDisplayTitle(row), t);
+                const createdLine = formatCreationSubtitle(Number(row.created_at), t, i18n.language);
+                const meta = parseIntentionMetadata(row.metadata_json);
+                const isHabit = row.type === 'HABIT';
+                const cadenceLabel = isHabit ? resolveCadenceLabel(meta) : null;
+                const trackStreak = isHabit && isTrackStreakEnabled(meta);
+                const streakData = trackStreak ? getHabitStreakData(row.id) : null;
+                const isPending = pendingLocalDone.has(row.id);
+                const pass2Action = resolvePass2FooterAction(row);
+                const showPass2Pill = showPass2CardCta(row);
+                const pass2Label = formatPass2PillLabel(pass2Action, t, isProUser);
+
+                return (
+                  <View
+                    key={row.id}
+                    style={[
+                      designTokens.cardShadowStyle,
+                      styles.rowCard,
+                      {
+                        borderRadius: designTokens.borderRadius,
+                        borderColor: theme.colors.outlineVariant,
+                        opacity: isPending ? 0.5 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={styles.cardMainRow}>
+                      {showCompleteOrb ? (
+                        <TaskCompletionOrb
+                          theme={theme}
+                          size={VALIDATION_ORB_SIZE}
+                          progress={0}
+                          hasChildBreakdown={false}
+                          accentColor={designTokens.accentColor}
+                          pendingComplete={isPending}
+                          onPress={() => void handleToggleDone(row)}
+                          accessibilityLabel={t('timeline.a11yTaskComplete')}
+                        />
+                      ) : (
+                        <View style={{ width: VALIDATION_ORB_OUTER }} />
+                      )}
+
+                      <PressableScale
+                        style={styles.detailPressable}
+                        hapticType="light"
+                        onPress={() => openDetail(row)}
+                        accessibilityRole="button"
+                        accessibilityLabel={lineTitle}
                       >
                         <Text
                           style={[
@@ -520,7 +405,7 @@ export function IdeaBankModal({
                           ]}
                           numberOfLines={2}
                         >
-                          {title}
+                          {lineTitle}
                           {cadenceLabel ? (
                             <Text style={[styles.habitCadence, { color: designTokens.textSecondary }]}>
                               {' '}
@@ -528,6 +413,11 @@ export function IdeaBankModal({
                             </Text>
                           ) : null}
                         </Text>
+
+                        <Text style={[styles.createdHint, { color: designTokens.textSecondary }]}>
+                          {createdLine}
+                        </Text>
+
                         {trackStreak && streakData ? (
                           <HabitStreakCompact
                             data={streakData}
@@ -535,179 +425,54 @@ export function IdeaBankModal({
                             mutedColor={`${designTokens.textSecondary}33`}
                           />
                         ) : null}
-                        <Text style={[styles.createdHint, { color: designTokens.textSecondary }]}>
-                          {createdLine}
+                      </PressableScale>
+                    </View>
+
+                    {showPass2Pill && pass2Label ? (
+                      <PressableScale
+                        style={[
+                          styles.pass2Pill,
+                          {
+                            backgroundColor: designTokens.accentColor,
+                            borderRadius: 999,
+                          },
+                        ]}
+                        hapticType="medium"
+                        onPress={() => triggerPass2(row)}
+                        accessibilityRole="button"
+                        accessibilityLabel={pass2Label}
+                      >
+                        <Text style={styles.pass2PillText} numberOfLines={2}>
+                          ✨ {pass2Label}
                         </Text>
-                        <View style={styles.rowActions}>
-                          {isRowBusy ? (
-                            <ActivityIndicator size="small" color={designTokens.accentColor} style={styles.rowBusySpinner} />
-                          ) : null}
-                          {status === 'TODO' ? (
-                            <PressableScale
-                              accessibilityRole="button"
-                              accessibilityLabel={t('timeline.ideaBank.done')}
-                              style={[
-                                styles.iconBtn,
-                                styles.iconBtnIconOnly,
-                                {
-                                  borderColor: isPending ? designTokens.accentColor : theme.colors.outline,
-                                  borderRadius: designTokens.borderRadius * 0.5,
-                                  backgroundColor: isPending ? designTokens.accentColor : 'transparent',
-                                },
-                              ]}
-                              disabled={isRowBusy}
-                              hapticType="none"
-                              onPress={() => void handleToggleDone(row)}
-                            >
-                              <Check
-                                size={18}
-                                color={isPending ? '#ffffff' : designTokens.accentColor}
-                              />
-                            </PressableScale>
-                          ) : null}
-                          <PressableScale
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              isProjectWithoutStartDate(row)
-                                ? t('cluster.planProjectStart')
-                                : t('timeline.ideaBank.schedule')
-                            }
-                            style={[
-                              styles.iconBtn,
-                              styles.iconBtnIconOnly,
-                              { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
-                            ]}
-                            disabled={isRowBusy}
-                            hapticType="light"
-                            onPress={() => openScheduleForRow(row)}
-                          >
-                            <CalendarDays size={18} color={theme.colors.secondary} />
-                          </PressableScale>
-                          <PressableScale
-                            accessibilityRole="button"
-                            accessibilityLabel={t('timeline.ideaBank.edit')}
-                            style={[
-                              styles.iconBtn,
-                              styles.iconBtnIconOnly,
-                              { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
-                            ]}
-                            disabled={isRowBusy}
-                            hapticType="light"
-                            onPress={() => onEdit(row)}
-                          >
-                            <Pencil size={18} color={designTokens.accentColor} />
-                          </PressableScale>
-                          <PressableScale
-                            accessibilityRole="button"
-                            accessibilityLabel={removeActionLabel}
-                            style={[
-                              styles.iconBtn,
-                              styles.iconBtnIconOnly,
-                              { borderColor: theme.colors.outline, borderRadius: designTokens.borderRadius * 0.5 },
-                            ]}
-                            disabled={isRowBusy}
-                            hapticType="light"
-                            onPress={() => onDelete(row.id)}
-                          >
-                            <Trash2 size={18} color={theme.colors.error} />
-                          </PressableScale>
-                        </View>
-                      </View>
-                    </IntentInteractionWrapper>
-                  );
-                })}
-              </ScrollView>
-            )}
-
-            {items.length > 0 ? (
-              <Pressable
-                style={[styles.clearAllBtn, { borderColor: theme.colors.error, borderRadius: designTokens.borderRadius * 0.5 }]}
-                onPress={onClearAll}
-              >
-                <Text style={{ color: theme.colors.error, fontWeight: '700', textAlign: 'center' }}>
-                  {clearAllActionLabel}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={!!scheduleForId} animationType="fade" transparent onRequestClose={() => setScheduleForId(null)}>
-        <Pressable style={styles.scheduleOverlay} onPress={() => setScheduleForId(null)}>
-          <Pressable
-            style={[
-              designTokens.cardShadowStyle,
-              styles.scheduleSheet,
-              {
-                backgroundColor: designTokens.cardBackground,
-                borderColor: theme.colors.outlineVariant,
-                borderRadius: designTokens.borderRadius,
-                maxHeight: '70%',
-              },
-            ]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Text style={[styles.scheduleTitle, { color: designTokens.textPrimary }]}>
-              {scheduleMode === 'projectStart'
-                ? t('cluster.planProjectStart')
-                : t('timeline.ideaBank.scheduleTitle')}
-            </Text>
-            {schedulingRow ? (
-              <Text
-                style={[styles.scheduleSubtitle, { color: designTokens.textSecondary }]}
-                numberOfLines={2}
-              >
-                {formatLineTitle(resolveDisplayTitle(schedulingRow), t)}
-              </Text>
-            ) : null}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateChipsRow}>
-              {scheduleDates.map((d) => {
-                const ymd = toYmd(d);
-                const scheduleRowBusy = scheduleForId ? busyRows.has(scheduleForId) : false;
-                return (
-                  <PressableScale
-                    key={ymd}
-                    disabled={!scheduleForId || scheduleRowBusy}
-                    hapticType="light"
-                    onPress={() => {
-                      if (!scheduleForId || busyRowsRef.current.has(scheduleForId)) return;
-                      if (scheduleMode === 'projectStart') {
-                        void onPlanProjectStart(scheduleForId, ymd);
-                      } else {
-                        void onSetDue(scheduleForId, ymd);
-                      }
-                    }}
-                    style={[
-                      styles.dateChip,
-                      {
-                        backgroundColor: designTokens.cardBackground,
-                        borderColor: theme.colors.outline,
-                        borderRadius: designTokens.borderRadius * 0.5,
-                      },
-                    ]}
-                  >
-                    <Text style={{ color: designTokens.textSecondary, fontSize: 11, fontWeight: '600' }}>
-                      {ymd}
-                    </Text>
-                  </PressableScale>
+                      </PressableScale>
+                    ) : null}
+                  </View>
                 );
               })}
             </ScrollView>
-            <PressableScale onPress={() => setScheduleForId(null)} style={{ marginTop: 8 }} hapticType="light">
-              <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>{t('timeline.ideaBank.cancel')}</Text>
-            </PressableScale>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </>
+          )}
+
+          {items.length > 0 ? (
+            <Pressable
+              style={[styles.clearAllBtn, { borderColor: theme.colors.error, borderRadius: designTokens.borderRadius * 0.5 }]}
+              onPress={onClearAll}
+            >
+              <Text style={{ color: theme.colors.error, fontWeight: '700', textAlign: 'center' }}>
+                {clearAllActionLabel}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'flex-end',
   },
   sheet: {
@@ -732,54 +497,36 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
   },
+  cardMainRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  detailPressable: {
+    flex: 1,
+    minWidth: 0,
+  },
   rowTitle: { fontSize: 15, fontWeight: '600' },
   rowTitleDone: { textDecorationLine: 'line-through' },
   habitCadence: { fontSize: 13, fontWeight: '600' },
   createdHint: { fontSize: 11, marginTop: 4 },
-  rowActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' },
-  rowBusySpinner: { marginRight: 2 },
-  iconBtn: {
-    flexDirection: 'row',
+  pass2Pill: {
+    marginTop: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-  },
-  /** Preview icones seules — compact pour tenir sur une ligne. */
-  iconBtnIconOnly: {
-    width: 40,
-    height: 40,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
     justifyContent: 'center',
   },
-  iconBtnLabel: { fontSize: 12, fontWeight: '600' },
+  pass2PillText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   clearAllBtn: {
     marginTop: 12,
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 12,
-  },
-  scheduleOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  scheduleSheet: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-  },
-  scheduleTitle: { fontSize: 17, fontWeight: '700' },
-  scheduleSubtitle: { fontSize: 13, marginTop: 6, marginBottom: 10 },
-  dateChipsRow: { flexDirection: 'row', gap: 8, paddingVertical: 8 },
-  dateChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
   },
 });
