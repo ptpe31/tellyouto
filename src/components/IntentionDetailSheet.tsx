@@ -807,14 +807,12 @@ export function IntentionDetailSheet({
   /** Types éligibles au CTA Pass 2 dans le footer : TRIP, LIST, PROJECT uniquement. */
   const pass2FooterAction = useMemo((): 'trip' | 'list' | 'project' | null => {
     const type = String(row?.type ?? '').trim().toUpperCase();
-    const cat = String(row?.category_id ?? '').trim().toUpperCase();
     if (type === 'HABIT') return null;
-    if (isTrip || type === 'TRIP' || cat === 'TRAVEL') return 'trip';
-    if (type === 'LIST' || cat === 'SHOP') return 'list';
+    if (isTrip || type === 'TRIP') return 'trip';
+    if (type === 'LIST') return 'list';
     if (type === 'PROJECT') return 'project';
-    if (type === 'TASK') return null;
     return null;
-  }, [isTrip, row?.category_id, row?.type]);
+  }, [isTrip, row?.type]);
 
   const formatPass2CtaLabel = useCallback(
     (key: 'pass2.generateList' | 'pass2.generateSteps') => {

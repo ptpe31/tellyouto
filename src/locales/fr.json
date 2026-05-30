@@ -147,24 +147,15 @@
     "tripSurveillanceActive": "Surveillance active 🛡️",
     "surveillanceMissingInfo": "Ajoute une destination valide et une heure d’arrivée pour activer la surveillance.",
     "actionSetupTrip": "Configurer l'itinéraire",
-    "pass2List": "Générer la liste",
-    "pass2Project": "Générer le plan",
-    "pass2ProjectSteps": "Générer les étapes",
-    "pass2Trip": "📍 Préparer le trajet",
-    "pass2Habit": "🔄 Planifier la routine",
-    "pass2Task": "Préciser l'action",
-    "pass2EnrichDefault": "✨ Enrichir",
-    "pass2Steps": "✨ Générer des étapes",
     "pass2LockedSuffix": "🔒",
     "noteMemoSection": "Mémo",
     "finish": "Terminer"
   },
   "pass2": {
-    "generateSteps": "Générer les étapes",
-    "generateList": "Générer la liste",
-    "setupTrip": "Configurer l'itinéraire",
+    "generateSteps": "✨ Découper en étapes",
+    "generateList": "✨ Structurer la liste",
     "steps_loading": "Lecture...",
-    "list_loading": "création des items ...",
+    "list_loading": "création des items...",
     "finalizing": "Finalisation de la structure..."
   },
   "cluster": {

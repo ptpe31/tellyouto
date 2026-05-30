@@ -443,7 +443,7 @@ export function IdeaBankModal({
                         accessibilityLabel={pass2Label}
                       >
                         <Text style={styles.pass2PillText} numberOfLines={2}>
-                          ✨ {pass2Label}
+                          {pass2Label}
                         </Text>
                       </PressableScale>
                     ) : null}

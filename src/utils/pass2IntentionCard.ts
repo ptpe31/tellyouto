@@ -15,20 +15,27 @@ function safeParseJsonObject(raw: string | null | undefined): Record<string, unk
   }
 }
 
+/** Éligibilité CTA enrichissement : LIST, PROJECT, ou trajet structuré (aligné IntentionDetailSheet). */
+function isPass2EligibleRow(row: TrankilV2TimelineItemRow, meta: Record<string, unknown> | null): boolean {
+  const type = String(row.type ?? '').trim().toUpperCase();
+  if (type === 'HABIT') return false;
+  if (type === 'LIST' || type === 'PROJECT') return true;
+  if (type === 'TRIP') return true;
+  return Boolean(getTripMetaFromRoot(meta));
+}
+
 /** Types éligibles au CTA Pass 2 : TRIP, LIST, PROJECT (aligné IntentionDetailSheet). */
 export function resolvePass2FooterAction(row: TrankilV2TimelineItemRow): Pass2FooterAction {
   const type = String(row.type ?? '').trim().toUpperCase();
-  const cat = String(row.category_id ?? '').trim().toUpperCase();
   if (type === 'HABIT') return null;
 
   const meta = safeParseJsonObject(row.metadata_json);
   const trip = getTripMetaFromRoot(meta);
 
   // TRIP capturé en one-tap : type TASK + bloc `metadata.trip` (cf. oneTapPersist).
-  if (trip || type === 'TRIP' || cat === 'TRAVEL') return 'trip';
-  if (type === 'LIST' || cat === 'SHOP') return 'list';
+  if (trip || type === 'TRIP') return 'trip';
+  if (type === 'LIST') return 'list';
   if (type === 'PROJECT') return 'project';
-  if (type === 'TASK') return null;
   return null;
 }
 
@@ -36,12 +43,7 @@ export function showPass2CardCta(row: TrankilV2TimelineItemRow): boolean {
   if (!row?.id || row.id === 'peek_pending') return false;
   const meta = safeParseJsonObject(row.metadata_json);
   if (isPass2UnlockedMeta(meta)) return false;
-
-  const type = String(row.type ?? '').trim().toUpperCase();
-  const trip = getTripMetaFromRoot(meta);
-  // Aligné `showPass2FooterCta` dans IntentionDetailSheet (isProject || isList || isTrip).
-  if (type === 'PROJECT' || type === 'LIST' || Boolean(trip)) return true;
-  return resolvePass2FooterAction(row) !== null;
+  return isPass2EligibleRow(row, meta);
 }
 
 export function formatPass2PillLabel(

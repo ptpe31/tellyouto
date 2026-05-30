@@ -147,25 +147,16 @@
     "tripSurveillanceActive": "Monitoring active 🛡️",
     "surveillanceMissingInfo": "Add a valid destination and arrival time to enable monitoring.",
     "actionSetupTrip": "Set up itinerary",
-    "pass2List": "Generate list",
-    "pass2Project": "Generate plan",
-    "pass2ProjectSteps": "Generate steps",
-    "pass2Trip": "📍 Prepare the trip",
-    "pass2Habit": "🔄 Plan the routine",
-    "pass2Task": "Refine the action",
-    "pass2EnrichDefault": "✨ Enrich",
-    "pass2Steps": "✨ Generate steps",
     "pass2LockedSuffix": "🔒",
     "noteMemoSection": "Memo",
     "finish": "Finish"
   },
   "pass2": {
-    "generateSteps": "Generate steps",
-    "generateList": "Generate list",
-    "setupTrip": "Set up itinerary",
-    "steps_loading": "Reading…",
-    "list_loading": "Creating items…",
-    "finalizing": "Finalizing structure…"
+    "generateSteps": "✨ Break into steps",
+    "generateList": "✨ Structure the list",
+    "steps_loading": "Reading...",
+    "list_loading": "creating items...",
+    "finalizing": "Finalizing structure..."
   },
   "cluster": {
     "planProjectStart": "Schedule start"
