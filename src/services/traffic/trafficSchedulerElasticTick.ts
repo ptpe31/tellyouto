@@ -19,6 +19,8 @@ import { isTripAllDay, parseTripArrivalIso } from '../../utils/tripElasticDispla
 import { getForegroundOriginSnapshot } from './SentinelLocationService';
 import {
   buildContractTripPatch,
+  buildProbe1PromisePatch,
+  hasTripPromiseValidated,
   hasTripStandardDurationMin,
   patchTripElasticMetadata,
 } from './sentinelElasticTripMetadata';
@@ -252,6 +254,14 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
       shifted: false,
     });
 
+    const promisePatch = hasTripPromiseValidated(tripMeta)
+      ? {}
+      : buildProbe1PromisePatch({
+          departureTimeUnix,
+          durationMin: tPredMin,
+          validatedAtMs: nowMs,
+        });
+
     logTripMath({
       reason,
       alias: resolveTripMathAlias(tripMeta, task.destination),
@@ -266,10 +276,17 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
 
     await patchTripElasticMetadata(task.id, {
       ...metaPatch,
+      ...promisePatch,
       origin_lat: origin.lat,
       origin_lng: origin.lng,
       last_traffic_duration: trafficSec,
     });
+
+    if (Object.keys(promisePatch).length > 0) {
+      console.log(
+        `[TRIP-SENTINEL] 📌 Promise P1 persisted | id=${task.id} | departure_time=${promisePatch.promise_departure_time_unix} | duration_min=${promisePatch.promise_duration_min}`,
+      );
+    }
 
     patch.scanCount = 1;
     patch.scan1AtMs = nowMs;

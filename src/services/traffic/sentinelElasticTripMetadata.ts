@@ -27,6 +27,12 @@ export type TripElasticMetadataPatch = {
   elastic_anchor_end_ms?: number;
   elastic_anchor_duration_min?: number;
   probe3_skipped?: boolean;
+  /** Timestamp Unix `departure_time` utilisé par la PROBE1 initiale (promesse). */
+  promise_departure_time_unix?: number;
+  /** Durée trafic estimée (min) renvoyée par la PROBE1 initiale. */
+  promise_duration_min?: number;
+  /** Horodatage ms de création / figement de la promesse P1. */
+  promise_validated_at?: number;
 };
 
 function safeParseTrip(metaJson: string | null | undefined): Record<string, unknown> | null {
@@ -67,6 +73,27 @@ export function readTripOriginCoords(trip: Record<string, unknown> | null | unde
 export function tripMetadataNeedsGpsCatchup(trip: Record<string, unknown> | null | undefined): boolean {
   const { lat, lng } = readTripOriginCoords(trip);
   return lat == null || lng == null;
+}
+
+export function hasTripPromiseValidated(trip: Record<string, unknown> | null | undefined): boolean {
+  if (!trip) return false;
+  const at = Number(trip.promise_validated_at);
+  return Number.isFinite(at) && at > 0;
+}
+
+export function buildProbe1PromisePatch(input: {
+  departureTimeUnix: number;
+  durationMin: number;
+  validatedAtMs: number;
+}): Pick<
+  TripElasticMetadataPatch,
+  'promise_departure_time_unix' | 'promise_duration_min' | 'promise_validated_at'
+> {
+  return {
+    promise_departure_time_unix: Math.floor(Number(input.departureTimeUnix)),
+    promise_duration_min: Math.max(1, Math.round(Number(input.durationMin))),
+    promise_validated_at: Math.floor(Number(input.validatedAtMs)),
+  };
 }
 
 export function buildContractTripPatch(input: {
@@ -145,6 +172,15 @@ export async function patchTripElasticMetadata(
   if (patch.last_traffic_duration != null) tripPatch.last_traffic_duration = patch.last_traffic_duration;
   if (patch.next_probe_at_ms !== undefined) tripPatch.next_probe_at_ms = patch.next_probe_at_ms;
   if (patch.next_probe_reason !== undefined) tripPatch.next_probe_reason = patch.next_probe_reason;
+  if (patch.promise_departure_time_unix != null) {
+    tripPatch.promise_departure_time_unix = patch.promise_departure_time_unix;
+  }
+  if (patch.promise_duration_min != null) {
+    tripPatch.promise_duration_min = patch.promise_duration_min;
+  }
+  if (patch.promise_validated_at != null) {
+    tripPatch.promise_validated_at = patch.promise_validated_at;
+  }
   if (Object.keys(tripPatch).length === 0) return;
   console.log(`[TRIP-SENTINEL] 📝 Elastic metadata patch for ${id}:`, Object.keys(tripPatch).join(', '));
   await patchMetadata(id, { trip: tripPatch }, { silent: true });
