@@ -350,12 +350,16 @@ Objectif : préparer une synchronisation multi-appareil fiable (Firebase) en par
 
 - Interdiction d’un `UPDATE ... SET metadata_json = ?` qui écrase l’intégralité sans lecture préalable.
 - API canonique : `patchMetadata(id, partialObject, opts?: { fromSync?: boolean })` :
-  - démarre une transaction (`BEGIN IMMEDIATE`) ou un **SAVEPOINT unique** (`trankil_pm_N`, N incrémental) si une transaction est déjà ouverte sur la connexion partagée,
+  - démarre une transaction (`BEGIN IMMEDIATE`) ou un **SAVEPOINT unique** (`trankil_pm_N`, N incrémental) si une transaction **externe** est déjà ouverte sur la connexion partagée,
   - lit `metadata_json` actuel,
   - deep-merge avec `partialObject`,
   - écrit le JSON résultant + `updated_at` + `is_dirty` (1 si local, 0 si `fromSync=true`).
-- **Réentrance** : les savepoints portent un nom **unique par niveau d’imbrication** (plus de savepoint fixe `trankil_patch_metadata`) pour éviter `no such savepoint` quand PROBE1 Sentinel et patch UI concurrent appellent `patchMetadata` dans la même fenêtre transactionnelle.
-- Règle : toutes les features (IA, édition utilisateur, logistique, retry offline) passent par `patchMetadata`.
+- **Réentrance `patchMetadata`** (mai 2026) :
+  - si un `patchMetadata` parent est déjà en cours (`sqliteMetadataPatchInProgress > 0`) → **apply direct** dans la même transaction, **sans SAVEPOINT imbriqué** ;
+  - sinon, si une autre transaction explicite est ouverte → SAVEPOINT `trankil_pm_N` (N incrémental) ;
+  - si `SAVEPOINT` / `RELEASE` échoue après un apply réussi → log + continuation (évite `[TRIP-ERROR]` sur PROBE Sentinel) ;
+  - reset connexion SQLite (`resetTrankilV2RuntimeState`) → remise à zéro des compteurs transaction / savepoint / réentrance.
+- Règle : toutes les features (IA, édition utilisateur, logistique, retry offline, sondes Sentinel) passent par `patchMetadata`.
 
 #### 2.c.5) Timeline & tables futures
 
@@ -449,7 +453,7 @@ Conditions minimales « surveillable » :
 
 #### Formules mathématiques — Créneau élastique (Contrat de Départ)
 
-Stratégie **Pessimiste Prédictif auto-calibré** : marge de risque adaptative via ratio `D` (plus de paliers α fixes), ancrage unidirectionnel, hystérésis UI 5 min, PROBE3 conditionnel.
+Stratégie **Pessimiste Prédictif auto-calibré** + **Validateur de Promesse** (mai 2026) : marge de risque adaptative via ratio `D`, ancrage unidirectionnel, hystérésis UI 5 min, PROBE2 prédictif aligné sur P1 (Ghost Update), PROBE3 live conditionnel.
 
 Implémentation : [`elasticSlotEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/elasticSlotEngine.ts), orchestration [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts).
 
@@ -504,6 +508,14 @@ D = T_pred / max(T_ideal, 1)
 
 Persisté : `elastic_degradation_ratio` (= `D`), `elastic_predicted_duration_min`, `standard_duration_min` (= `T_ideal`). Champ legacy `elastic_prudence_alpha` = copie de `D` (lecture rétrocompat).
 
+**Promesse P1** (figée une seule fois à la PROBE1 réussie — [`sentinelElasticTripMetadata.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelElasticTripMetadata.ts)) :
+- `promise_departure_time_unix` — timestamp Unix `departure_time` de l’appel Distance Matrix PROBE1 ;
+- `promise_duration_min` — durée trafic prédictive (`T_pred`) renvoyée par PROBE1 ;
+- `promise_validated_at` — horodatage ms de figement ;
+- non réécrit si `hasTripPromiseValidated(trip)` ; purgé par `clearTripElasticProbeMetadata` (reset mission).
+
+Log : `[TRIP-SENTINEL] 📌 Promise P1 persisted`.
+
 ##### 2. Contrat de départ — Deadline ancre de confiance
 
 ```
@@ -513,7 +525,7 @@ Start_Relax (T_start) = Deadline − Relax × 60 000    (= Deadline − 15 min)
 
 À **PROBE1** : `T_used = T_pred`, `D` mesuré à l’instant → la deadline affichée intègre déjà le risque trafic constaté.
 
-**PROBE2 / PROBE3** (shifts) :
+**PROBE2 / PROBE3** (shifts — appliqués seulement si dérive > dead zone) :
 ```
 D_shift = max(D_PROBE1_stocké, T_live / T_ideal)
 Deadline_proposée = T_arr − (T_live × D_shift) × 60 000
@@ -529,7 +541,29 @@ T_start' = min(T_start_ancre, T_start_proposé)
 
 Le créneau **ne s’améliore jamais** visuellement quand le trafic se dégage ; il ne **recule** que si le trafic empire au-delà de la zone morte.
 
-##### 3. Hystérésis UI (PROBE2 / PROBE3)
+##### 3. Validateur de Promesse & hystérésis UI
+
+**PROBE2 — prédictif aligné P1** ([`executeProbe2Contract`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts)) :
+- Appel Distance Matrix avec le **même** `departure_time` que P1 (`promise_departure_time_unix`) — comparaison apple-to-apple, sans bruit horaire « live vs prédictif ».
+- Dérive promesse : `Δ_promise = |T_probe2 − promise_duration_min|`.
+- Log : `[PROBE2_PREDICTIVE] Ref: P1-duration=X min vs P2-duration=Y min`.
+
+**Ghost Update** (si promesse P1 présente) :
+
+```
+|Δ_promise| ≤ DEAD_ZONE (5 min)  →  UI_UPDATE: false
+  • pas de patch metadata contrat (`elastic_anchor_*`)
+  • pas de `displayedTOptimisteMs` / `stateVersion++`
+  • pas de `syncDepartureContractNotifications` (sticky + signaux)
+  • log [PROMISE_VALIDATED] Drift stable — Skip UI Update
+
+|Δ_promise| > 5 min  →  recalcul ancre + UI + sync sticky
+  • notification douce `sentinel.promiseDriftBody` (sans son) + capsule Unicode
+```
+
+**Legacy** (trajet sans promesse P1) : PROBE2 live + `Δ = T_live − elastic_anchor_duration_min` (comportement antérieur).
+
+**PROBE3** : reste **live** (`departure_time` absent / `now`) — garde-fou final ; hystérésis identique sur `elastic_anchor_duration_min` :
 
 ```
 Δ = D_live − elastic_anchor_duration_min
@@ -608,15 +642,16 @@ PROBE1 est toujours immédiat (`now`) à l’activation ou après reset destinat
 **Sondes API (max 2–3 appels Distance Matrix)** — dispatcher [`trafficSchedulerElasticTick.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/trafficSchedulerElasticTick.ts) :
 | Sonde | Rôle |
 |-------|------|
-| **PROBE1** | `departure_time` prédictif (≥ now+2 min) ; `T_ideal` + `T_pred` → `D` ; deadline ancre `T_arr − T_pred×D` |
-| **PROBE2** | Trafic live ; `D_shift = max(D₁, D_live)` ; hystérésis 5 min ; ancrage si `Δ > 5` |
-| **PROBE3** | Go/No-Go ; skip API si stable + `< 10 min` avant deadline ; sinon mesure live |
+| **PROBE1** | `departure_time` prédictif (≥ now+2 min) ; `T_ideal` + `T_pred` → `D` ; deadline ancre `T_arr − T_pred×D` ; **persiste la promesse** (`promise_*`) |
+| **PROBE2** | **Prédictif** (même `departure_time` que P1) ; compare `|T_p2 − promise_duration_min|` ; Ghost Update si `≤ 5 min` ; sinon shift + notif douce |
+| **PROBE3** | **Live** (`now`) ; Go/No-Go ; skip API si stable + `< 10 min` avant deadline ; sinon mesure live + hystérésis 5 min |
 
 **Planification** : zéro polling. Un `setTimeout` par TRIP sur `sentinel_trips.next_real_scan_at_ms` ([`TrafficSchedulerV4`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts)). Background OS ([`SentinelBackgroundService`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/SentinelBackgroundService.ts)) : tick **uniquement** si sonde échue.
 
 **Métadonnées trip** (`metadata_json.trip`) :
 - Affichage : `elastic_start_ms`, `elastic_end_ms`, `elastic_buffer_min`, `elastic_shifted`, `elastic_approximate`
 - Contrat : `elastic_degradation_ratio` (D), `elastic_predicted_duration_min`, `elastic_anchor_*`, `probe3_skipped` ; `elastic_prudence_alpha` = miroir de D (legacy)
+- Promesse : `promise_departure_time_unix`, `promise_duration_min`, `promise_validated_at` (PROBE1, lecture seule ensuite)
 - Technique : `standard_duration_min`, `origin_lat/lng`, `last_traffic_duration`, `next_probe_at_ms`, `next_probe_reason`
 
 **Cache Distance Matrix** ([`DistanceMatrixMapsService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/DistanceMatrixMapsService.ts)) :
@@ -685,7 +720,8 @@ Moteur : [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-tranki
 
 | Identifiant | Déclenchement | Son | Priorité | Ongoing (Android) |
 |-------------|---------------|-----|----------|-------------------|
-| `departure_sticky_{tripId}` | Chaque tick Sentinel après PROBE1+ (recalcul ancre) | Non | LOW (Android) / standard (iOS) | Oui (`sticky`) |
+| `departure_sticky_{tripId}` | Tick Sentinel après PROBE1+ **si** ancre / UI modifiée (PROBE2 Ghost Update → **pas** de resync) | Non | LOW (Android) / standard (iOS) | Oui (`sticky`) |
+| `sentinel_promise_drift_{tripId}_{ts}` | PROBE2 : dérive promesse `> 5 min` | Non | standard | Non |
 | `departure_signal_a_{tripId}` | `elastic_anchor_start_ms` | Oui | Time-Sensitive (iOS), HIGH (Android) | Non |
 | `departure_signal_b_{tripId}` | `endMs − safetyReminderOffset` si offset > 0 | Non | HIGH visuelle | Non |
 
@@ -698,7 +734,7 @@ Moteur : [`NotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-tranki
 - Action notif Sentinel « Lancer l'itinéraire » : [`TrafficNotificationService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficNotificationService.ts).
 - Fin de mission / annulation : [`TrafficSchedulerV4`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/TrafficSchedulerV4.ts) (`done`, `cancelTask`, `refreshTask` hors ACTIVE).
 
-**Sync** : `syncDepartureContractForIntention` appelé depuis `TrafficSchedulerV4.runTick` si `remind_to_leave === 1` et métadonnées `elastic_anchor_*` présentes.
+**Sync** : `syncDepartureContractForIntention` appelé depuis `TrafficSchedulerV4.runTick` si `remind_to_leave === 1`, sauf `skipDepartureNotificationSync` (Ghost Update PROBE2). Dérive promesse → `sendTripPromiseDriftSoftNotification` en plus du sticky si ancre recalculée.
 
 **Handler global** ([`notifications.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/notifications.ts)) : `shouldPlaySound` uniquement pour `kind === 'departure_signal_a'`.
 
