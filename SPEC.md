@@ -350,10 +350,11 @@ Objectif : préparer une synchronisation multi-appareil fiable (Firebase) en par
 
 - Interdiction d’un `UPDATE ... SET metadata_json = ?` qui écrase l’intégralité sans lecture préalable.
 - API canonique : `patchMetadata(id, partialObject, opts?: { fromSync?: boolean })` :
-  - démarre une transaction,
+  - démarre une transaction (`BEGIN IMMEDIATE`) ou un **SAVEPOINT unique** (`trankil_pm_N`, N incrémental) si une transaction est déjà ouverte sur la connexion partagée,
   - lit `metadata_json` actuel,
   - deep-merge avec `partialObject`,
   - écrit le JSON résultant + `updated_at` + `is_dirty` (1 si local, 0 si `fromSync=true`).
+- **Réentrance** : les savepoints portent un nom **unique par niveau d’imbrication** (plus de savepoint fixe `trankil_patch_metadata`) pour éviter `no such savepoint` quand PROBE1 Sentinel et patch UI concurrent appellent `patchMetadata` dans la même fenêtre transactionnelle.
 - Règle : toutes les features (IA, édition utilisateur, logistique, retry offline) passent par `patchMetadata`.
 
 #### 2.c.5) Timeline & tables futures
@@ -579,7 +580,7 @@ PROBE1 est toujours immédiat (`now`) à l’activation ou après reset destinat
 | Situation | Comportement |
 |-----------|--------------|
 | PROBE1 sans GPS origine | `D_std = DEFAULT_D_STD = 30`, `elastic_approximate: true`, retry GPS dans 3 min |
-| PROBE1 API en échec | retry PROBE1 dans 3 min, créneau non modifié |
+| PROBE1 API en échec | retry PROBE1 dans 3 min (max **3** tentatives via `probe1_retry_count` sur `sentinel_trips`) ; au plafond → mode **STATIC**, sondes stoppées, log `[TRIP-SENTINEL] ❌ PROBE1 retry ceiling` |
 | PROBE2 API en échec | créneau **inchangé**, retry PROBE2 dans 5 min |
 | PROBE3 API en échec | push `probe3Unavailable`, retry PROBE3 dans 2 min |
 
@@ -618,9 +619,30 @@ PROBE1 est toujours immédiat (`now`) à l’activation ou après reset destinat
 - Contrat : `elastic_degradation_ratio` (D), `elastic_predicted_duration_min`, `elastic_anchor_*`, `probe3_skipped` ; `elastic_prudence_alpha` = miroir de D (legacy)
 - Technique : `standard_duration_min`, `origin_lat/lng`, `last_traffic_duration`, `next_probe_at_ms`, `next_probe_reason`
 
-**Cache Distance Matrix** : clé inclut un bucket `departure_time` (5 min) pour ne pas servir le trafic « now » sur une requête prédictive PROBE1.
+**Cache Distance Matrix** ([`DistanceMatrixMapsService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/DistanceMatrixMapsService.ts)) :
+- Clé **grid-based** : lat/lng arrondis à **3 décimales** (~100 m) pour mutualiser les micro-variations GPS.
+- Bucket `departure_time` (5 min) pour ne pas servir le trafic « now » sur une requête prédictive PROBE1.
+- **TTL 15 min** : cache mémoire + persistance **AsyncStorage** (`@trankil/distance_matrix_cache/...`).
+- Logs audit : `[API-CALL] 💸 GOOGLE DISTANCE MATRIX | CACHE HIT (memory|storage)` ou `| NETWORK |`.
+- Compteurs : `api_calls_total` (réseau), `api_calls_avoided_cache` (hit cache).
 
-##### 8. UI — Capsule Contrat de Départ
+##### 8.a) Saisie d’adresse Hybrid-Ready (mai 2026)
+
+Architecture **hook + UI** (pattern wrapper) :
+
+| Couche | Fichier | Rôle |
+|--------|---------|------|
+| Feature flag | [`features.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/features.ts) | `ENABLE_AUTOCOMPLETE = false` (V1) |
+| Service | [`addressResolver.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/addressResolver.ts) | `resolveManual(text)` → Geocoding (1 appel/submit) ; `resolveFromPlaceId` → Place Details |
+| Hook | [`useAddressLogic.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAddressLogic.ts) | Debounce, session token, connexion API — renvoie props pour l’UI |
+| UI | [`AddressInput.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/AddressInput.tsx) | TextInput + bouton OK (V1) ; dropdown autocomplete si flag actif |
+| Intégration | [`AddressInputField.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/AddressInputField.tsx) | Drop-in (`GooglePlacesAutocompleteField` = re-export) |
+
+**V1 (défaut)** : **0 appel API** pendant la frappe ; **1 Geocoding** au clic OK (ou `returnKeyType=done`). Log : `[API-CALL] 💸 GOOGLE GEOCODING`.
+
+**V2 (dormant)** : activer `ENABLE_AUTOCOMPLETE = true` → Autocomplete debounce **500 ms**, seuil **≥ 4 caractères**, **session token** Places ; sélection → Place Details via `resolveFromPlaceId`.
+
+##### 8.b) UI — Capsule Contrat de Départ
 
 Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx), résolutions partagées [`tripElasticCapsuleModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), navigation [`tripNavigation.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripNavigation.ts).
 
@@ -1096,7 +1118,7 @@ const designTokens = useDesignTokens();
 
 **Sheet — hub TRIP unifié** : une seule Bottom Sheet pour tout TRIP ouvert depuis la Timeline (tap corps ou footer PRO setup) : mémo + timing + itinéraire + transport + **Big Button** `tripSurveillanceStart` / `tripSurveillanceActive` (remplace le switch `remind_to_leave`). Le bouton est grisé + toast si champs manquants ; FREE voit `tripSurveillanceStartLocked` → paywall au tap. Garde anti double-tap (`tripSurveillanceBusyRef`) pendant l’activation. Après sélection Places (`onSelect`), sync optimiste locale via `applyTripMetadataLocally` (met à jour `metadataJsonLive` + `onPatchRow` **avant** le reconcile) pour éviter un Big Button grisé alors que SQLite est à jour.
 
-**Champ arrivée** : placeholder i18n + triangle jaune si pas d’adresse SQLite ; **pas** de préremplissage automatique depuis favoris à l’ouverture de la sheet — l’adresse n’apparaît que si `location_address` est persistée ou choisie via autocomplete. Coords invalides (`null`, `0`) rejetées par [`readValidTripCoords`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts).
+**Champ arrivée** : placeholder i18n + triangle jaune si pas d’adresse SQLite ; **pas** de préremplissage automatique depuis favoris à l’ouverture de la sheet — l’adresse n’apparaît que si `location_address` est persistée ou validée via **OK Geocoding** (V1) / autocomplete (V2). Coords invalides (`null`, `0`) rejetées par [`readValidTripCoords`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripTripReadiness.ts).
 
 **Badge scan — rafraîchissement temporel** : libellé via [`tripProbeScheduleDisplay.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripProbeScheduleDisplay.ts) (`resolveProbeScheduleLabel`) ; miroir `trip.next_probe_at_ms` ; bascule C1→C2 quand `next_probe_at_ms ≤ now + 60 s` ; horloge locale [`useProbeScheduleClock`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) (tick 30 s, cleanup au démontage). **Pas de fallback** `Date.now()` comme fausse heure planifiée.
 
@@ -1284,7 +1306,7 @@ const designTokens = useDesignTokens();
   - Persistance : sauvegarde immédiate dans `metadata_json.memo`.
 - Bloc logique “haut de page” (toujours accessible avec clavier) :
   - Sous‑titre date/heure.
-  - Adresses (TRIP) en priorité : Départ (📍) + Arrivée (🏁) en champs autocomplétés.
+  - Adresses (TRIP) en priorité : Départ (📍) + Arrivée (🏁) via [`AddressInputField`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/AddressInputField.tsx) (TextInput + OK → Geocoding en V1).
   - Interaction : tap sur “Jour • Heure” ouvre un sélecteur natif Date/Heure (datetime) et persiste immédiatement dans `intentions.due_date`.
   - Option “Toute la journée” : switch qui masque l’horloge et persiste `metadata_json.is_all_day=1` + `due_date=YYYY-MM-DD`.
 
@@ -1320,17 +1342,17 @@ const designTokens = useDesignTokens();
 - Bloc adresses (juste au‑dessus du bouton “Lancer l’itinéraire”) :
   - **Point de départ** :
     - Valeur par défaut : “Ma position” / “Position actuelle”.
-    - Interaction : tap → champ éditable avec autocomplétion (Google Places) pour définir un autre départ.
+    - Interaction : tap → champ éditable [`AddressInputField`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/AddressInputField.tsx) — saisie manuelle + **OK** (Geocoding) ; autocomplete dormant (`ENABLE_AUTOCOMPLETE`).
     - Stockage : dans `metadata_json.trip.origin_address` (et champs associés place_id/lat/lng si disponibles).
   - **Point d’arrivée** :
     - Affichage : si une adresse exacte est connue (favori/validation), afficher l’adresse complète en couleur secondaire ; sinon afficher le nom de lieu extrait par l’IA (ex. `destination_name`) comme indicateur.
-    - Interaction : tap → autocomplétion (Google Places) pour valider/affiner l’adresse.
+    - Interaction : tap → [`AddressInputField`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/AddressInputField.tsx) pour valider/affiner l’adresse (OK Geocoding en V1).
     - Stockage : l’adresse d’arrivée validée est la source de vérité pour les sondes élastiques.
 - Recherche contextuelle (Saved information) :
   - À l’affichage, si `destination_name` correspond à un alias enregistré (ex. “Mami”), la vue doit résoudre l’adresse sauvegardée et l’utiliser comme arrivée par défaut.
   - Source : table locale de favoris (ex. `location_favorites`) ou autre stockage équivalent.
 - **Auto-apprentissage silencieux (favoris)** :
-  - Lors du `onSelect` Google Places sur le champ **Arrivée**, si `metadata_json.trip.destination_name` est renseigné (alias IA, ex. “Jean-Pierre”, “Travail”), exécuter en tâche de fond un `upsertLocationFavorite` (alias → `formattedAddress`, `lat`, `lng`) dans `location_favorites`.
+  - Lors du `onSelect` adresse (après Geocoding ou Place Details) sur le champ **Arrivée**, si `metadata_json.trip.destination_name` est renseigné (alias IA, ex. “Jean-Pierre”, “Travail”), exécuter en tâche de fond un `upsertLocationFavorite` (alias → `formattedAddress`, `lat`, `lng`) dans `location_favorites`.
   - **Aucune** alerte ni pop-up utilisateur ; échec silencieux (`catch` sans UI).
 - Indicateur carbone :
   - Walking/Bike : badge “Eco‑Friendly”.
@@ -2255,12 +2277,15 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 - Stockage local : expo-sqlite (intentions locales, cache), AsyncStorage
 - Réseau / état : @react-native-community/netinfo
 - Places / géoloc :
-  - Google Places côté client (autocomplete, détails)
+  - **V1 (prod)** : saisie manuelle + **Geocoding** au submit ([`addressResolver.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/addressResolver.ts)) — 0 appel pendant la frappe
+  - **V2 (dormant)** : Google Places autocomplete + Place Details si `ENABLE_AUTOCOMPLETE = true` ([`features.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/features.ts))
+  - Distance Matrix : [`DistanceMatrixMapsService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/DistanceMatrixMapsService.ts) — cache grid + AsyncStorage
 
 Variables d’environnement principales (Expo public) :
 - Firebase : `EXPO_PUBLIC_FIREBASE_*`
 - Proxy Gemini : `EXPO_PUBLIC_GEMINI_PROXY_URL`
-- Google Places : `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
+- Google Places / Geocoding : `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
+- Google Distance Matrix (optionnel, fallback clé Places) : `EXPO_PUBLIC_GOOGLE_DISTANCE_MATRIX_API_KEY`
 
 ### Backend (Firebase / Cloud)
 - Auth : Firebase Auth (dont mode anonyme) côté client + vérification côté serveur

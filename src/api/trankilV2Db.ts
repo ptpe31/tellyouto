@@ -173,6 +173,8 @@ let sqliteQueueTail: Promise<unknown> = Promise.resolve();
 let sqliteReentrantDepth = 0;
 /** > 0 lorsqu’un `BEGIN` explicite est ouvert sur la connexion partagée (évite BEGIN imbriqué). */
 let sqliteExplicitTransactionDepth = 0;
+/** Profondeur des SAVEPOINT `patchMetadata` — noms uniques pour éviter collision en réentrance. */
+let sqliteMetadataPatchSavepointDepth = 0;
 
 async function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> {
   if (sqliteReentrantDepth > 0) {
@@ -3325,15 +3327,21 @@ async function runMetadataPatchInSqliteTransaction(
   opts?: { fromSync?: boolean; silent?: boolean },
 ): Promise<void> {
   if (sqliteExplicitTransactionDepth > 0) {
-    await db.execAsync('SAVEPOINT trankil_patch_metadata;');
+    sqliteMetadataPatchSavepointDepth += 1;
+    const savepoint = `trankil_pm_${sqliteMetadataPatchSavepointDepth}`;
     try {
-      await applyMetadataJsonPatchOnDb(db, key, partialObject, opts);
-      await db.execAsync('RELEASE SAVEPOINT trankil_patch_metadata;');
-    } catch (e) {
+      await db.execAsync(`SAVEPOINT ${savepoint};`);
       try {
-        await db.execAsync('ROLLBACK TO SAVEPOINT trankil_patch_metadata;');
-      } catch {}
-      throw e;
+        await applyMetadataJsonPatchOnDb(db, key, partialObject, opts);
+        await db.execAsync(`RELEASE SAVEPOINT ${savepoint};`);
+      } catch (e) {
+        try {
+          await db.execAsync(`ROLLBACK TO SAVEPOINT ${savepoint};`);
+        } catch {}
+        throw e;
+      }
+    } finally {
+      sqliteMetadataPatchSavepointDepth -= 1;
     }
     return;
   }
