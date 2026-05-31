@@ -11,6 +11,7 @@ import {
   SENTINEL_NOTIFICATION_CHANNEL_ID,
   sendTripGoNoGoNotification,
   sendTripProbeUnavailableNotification,
+  sendTripPromiseDriftSoftNotification,
   TRIP_ACTION_LAUNCH_ROUTE,
   TRIP_NOTIFICATION_CATEGORY_ID,
   updateTripStickyFromSentinel,
@@ -37,6 +38,12 @@ export class SentinelNotificationManager {
     input: Parameters<typeof sendTripProbeUnavailableNotification>[0],
   ): Promise<void> {
     return sendTripProbeUnavailableNotification(input);
+  }
+
+  async sendPromiseDriftSoftPush(
+    input: Parameters<typeof sendTripPromiseDriftSoftNotification>[0],
+  ): Promise<void> {
+    return sendTripPromiseDriftSoftNotification(input);
   }
 
   async cancel(tripTaskId: string): Promise<void> {

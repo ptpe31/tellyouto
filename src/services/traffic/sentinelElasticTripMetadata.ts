@@ -96,6 +96,27 @@ export function buildProbe1PromisePatch(input: {
   };
 }
 
+/** Référence promesse P1 pour PROBE2 prédictif (même `departure_time` que P1). */
+export function readTripPromiseReference(
+  trip: Record<string, unknown> | null | undefined,
+): { departureTimeUnix: number; durationMin: number } | null {
+  if (!hasTripPromiseValidated(trip)) return null;
+  const departureTimeUnix = Number(trip!.promise_departure_time_unix);
+  const durationMin = Number(trip!.promise_duration_min);
+  if (
+    !Number.isFinite(departureTimeUnix) ||
+    departureTimeUnix <= 0 ||
+    !Number.isFinite(durationMin) ||
+    durationMin <= 0
+  ) {
+    return null;
+  }
+  return {
+    departureTimeUnix: Math.floor(departureTimeUnix),
+    durationMin: Math.round(durationMin),
+  };
+}
+
 export function buildContractTripPatch(input: {
   anchor: WindowAnchor;
   tIdealMin: number;

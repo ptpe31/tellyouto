@@ -23,7 +23,9 @@ import {
   hasTripPromiseValidated,
   hasTripStandardDurationMin,
   patchTripElasticMetadata,
+  readTripPromiseReference,
 } from './sentinelElasticTripMetadata';
+import { formatCapsule } from '../../utils/formatDepartureCapsule';
 import {
   computeBufferForTask,
   computeDepartInMinutesFromAnchor,
@@ -54,6 +56,10 @@ export type ElasticTickResult = {
   patch: Partial<TripTaskRowV4>;
   goNoGo: { variant: 'smooth' | 'leave_now'; departInMin: number } | null;
   probe3Unavailable: { destination: string } | null;
+  /** Ghost Update P2 : ne pas resynchroniser sticky / signaux contrat de départ. */
+  skipDepartureNotificationSync?: boolean;
+  /** Notification douce quand la dérive promesse dépasse la dead zone. */
+  promiseDriftSoftNotify?: { destination: string; capsule: string };
   trace: {
     displayedStartMs: number | null;
     displayedEndMs: number | null;
@@ -344,17 +350,41 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
     patch.status = 'ACTIVE';
     patch.modeSafety = false;
 
-    const { trafficSec } = await fetchTrafficWithAccounting(task, patch, mapsService);
-    const dLiveMin = Math.max(1, Math.round(trafficSec / 60));
+    const promiseRef = readTripPromiseReference(tripMeta);
+    const fetchOpts: FetchTrafficSampleOptions | undefined =
+      promiseRef != null ? { departureTimeUnix: promiseRef.departureTimeUnix } : undefined;
+
+    const { trafficSec } = await fetchTrafficWithAccounting(task, patch, mapsService, fetchOpts);
+    const p2DurationMin = Math.max(1, Math.round(trafficSec / 60));
     const bufferMin = computeBufferForTask(task, tripMeta);
     const tIdealMin = resolveIdealDurationMin(task, tripMeta);
+
+    let deltaMin: number;
+    let baselineMin: number;
+    if (promiseRef != null) {
+      baselineMin = promiseRef.durationMin;
+      deltaMin = Math.abs(p2DurationMin - promiseRef.durationMin);
+      console.log(
+        `[PROBE2_PREDICTIVE] Ref: P1-duration=${promiseRef.durationMin} min vs P2-duration=${p2DurationMin} min`,
+      );
+    } else {
+      ({ deltaMin, baselineMin } = resolveTrafficDeltaMin(p2DurationMin, tripMeta));
+    }
+
+    const uiUpdate = !isWithinTrafficDeadZone(deltaMin);
+    let skipDepartureNotificationSync = false;
+    let promiseDriftSoftNotify: ElasticTickResult['promiseDriftSoftNotify'];
+
+    if (promiseRef != null && !uiUpdate) {
+      console.log(`[PROMISE_VALIDATED] Drift stable (delta: ${deltaMin} min) - Skip UI Update`);
+      skipDepartureNotificationSync = true;
+    }
+
     const ratioD = resolveContractRatioD({
       storedRatioD: readStoredRatioD(tripMeta),
-      tLiveMin: dLiveMin,
+      tLiveMin: p2DurationMin,
       tIdealMin,
     });
-    const { deltaMin, baselineMin } = resolveTrafficDeltaMin(dLiveMin, tripMeta);
-    const uiUpdate = !isWithinTrafficDeadZone(deltaMin);
 
     const previousAnchor = readElasticWindowAnchor(tripMeta);
     let anchor = previousAnchor ?? {
@@ -367,7 +397,7 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
     if (uiUpdate) {
       const proposed = computeProposedWindowAnchor({
         arrivalMs: task.arrivalAtMs,
-        tUsedMin: dLiveMin,
+        tUsedMin: p2DurationMin,
         ratioD,
       });
       if (proposed) {
@@ -385,11 +415,22 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
           ...metaPatch,
           last_traffic_duration: trafficSec,
         });
+        if (promiseRef != null) {
+          promiseDriftSoftNotify = {
+            destination: task.destination,
+            capsule: formatCapsule({
+              startMs: anchor.startMs,
+              endMs: anchor.endMs,
+              nowMs,
+              ratioD,
+            }),
+          };
+        }
         if (shifted) {
           console.log(`[TRIP-SENTINEL] ⚠️ Contrat reculé for ${task.id}`);
         }
       }
-    } else {
+    } else if (promiseRef == null) {
       await patchTripElasticMetadata(task.id, { last_traffic_duration: trafficSec });
     }
 
@@ -397,7 +438,7 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
       reason,
       alias: resolveTripMathAlias(tripMeta, task.destination),
       targetArrivalMs: task.arrivalAtMs,
-      apiTrajetMin: dLiveMin,
+      apiTrajetMin: p2DurationMin,
       bufferMin,
       windowStartMs: anchor.startMs,
       windowEndMs: anchor.endMs,
@@ -410,7 +451,9 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
     patch.scan2AtMs = nowMs;
     patch.scan2DurationSec = trafficSec;
     patch.lastTrafficDuration = trafficSec;
-    patch.stateVersion = task.stateVersion + 1;
+    if (uiUpdate) {
+      patch.stateVersion = task.stateVersion + 1;
+    }
     applyDisplayedContractPatch(patch, anchor, uiUpdate);
     patch.vigilanceStatus = 'VIGILANCE_ORANGE';
 
@@ -431,8 +474,10 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
       patch,
       goNoGo: null,
       probe3Unavailable: null,
+      skipDepartureNotificationSync,
+      promiseDriftSoftNotify,
       trace: baseTrace(task, anchor.startMs, anchor.endMs, 'REAL'),
-      traceForce: true,
+      traceForce: uiUpdate,
       done: false,
     };
   } catch (err) {

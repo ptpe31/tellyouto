@@ -71,6 +71,8 @@
     "probe3Smooth": "Trafic fluide, vous pouvez partir dans {{minutes}} minutes.",
     "probe3LeaveNow": "Bouchons détectés, départ conseillé maintenant.",
     "probe3Unavailable": "Estimation indisponible, vérifiez le trafic manuellement.",
+    "promiseDriftTitle": "Trafic — {{destination}}",
+    "promiseDriftBody": "Le trafic a légèrement évolué. Votre créneau de départ est maintenant : {{capsule}}",
     "gateTitle": "Surveillance trajet",
     "gateBody": "Souhaitez-vous activer la surveillance pour {{destination}} ?",
     "surveillanceTitle": "Surveillance active",

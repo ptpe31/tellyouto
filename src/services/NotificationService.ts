@@ -48,7 +48,8 @@ export type TripNotificationPayload = {
     | 'departure_signal_b'
     | 'sentinel_trip'
     | 'trip_gonogo'
-    | 'trip_probe_unavail';
+    | 'trip_probe_unavail'
+    | 'trip_promise_drift';
   tripTaskId: string;
   destination: string;
   lat?: number;
@@ -621,6 +622,30 @@ export async function updateTripStickyFromSentinel(input: {
     body,
     data: payload,
     stickyZen: true,
+    playSound: false,
+    priorityHigh: false,
+  });
+}
+
+/** Dérive promesse PROBE2 — notification douce sans son (fenêtre recalculée). */
+export async function sendTripPromiseDriftSoftNotification(input: {
+  tripTaskId: string;
+  destination: string;
+  capsule: string;
+}): Promise<void> {
+  const n = getNotifications();
+  if (!n) return;
+
+  await postImmediateTripNotification(n, {
+    identifier: `sentinel_promise_drift_${input.tripTaskId}_${Date.now()}`,
+    title: i18n.t('sentinel.promiseDriftTitle', { destination: input.destination }),
+    body: i18n.t('sentinel.promiseDriftBody', { capsule: input.capsule }),
+    data: {
+      kind: 'trip_promise_drift',
+      tripTaskId: input.tripTaskId,
+      destination: input.destination,
+    },
+    stickyZen: false,
     playSound: false,
     priorityHigh: false,
   });

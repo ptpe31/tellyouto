@@ -107,6 +107,8 @@ type TickResult = {
   done: boolean;
   goNoGo?: { variant: 'smooth' | 'leave_now'; departInMin: number } | null;
   probe3Unavailable?: { destination: string } | null;
+  skipDepartureNotificationSync?: boolean;
+  promiseDriftSoftNotify?: { destination: string; capsule: string };
 };
 
 function fmtHm(ms: number): string {
@@ -230,7 +232,16 @@ export class TrafficSchedulerV4 {
       return;
     }
 
-    await this.syncDepartureNotifications(taskId, task.destination);
+    if (!result.skipDepartureNotificationSync) {
+      await this.syncDepartureNotifications(taskId, task.destination);
+    }
+    if (result.promiseDriftSoftNotify) {
+      await this.notificationManager.sendPromiseDriftSoftPush({
+        tripTaskId: taskId,
+        destination: result.promiseDriftSoftNotify.destination,
+        capsule: result.promiseDriftSoftNotify.capsule,
+      });
+    }
 
     const refreshed = await this.getTaskById(taskId);
     if (refreshed && refreshed.status === 'ACTIVE') await this.planNext(refreshed);
@@ -250,6 +261,8 @@ export class TrafficSchedulerV4 {
       ui: null,
       goNoGo: elastic.goNoGo,
       probe3Unavailable: elastic.probe3Unavailable,
+      skipDepartureNotificationSync: elastic.skipDepartureNotificationSync,
+      promiseDriftSoftNotify: elastic.promiseDriftSoftNotify,
       trace: elastic.trace,
       traceForce: elastic.traceForce,
       done: elastic.done,

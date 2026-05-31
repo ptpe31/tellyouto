@@ -71,6 +71,8 @@
     "probe3Smooth": "Traffic is clear — you can leave in {{minutes}} minutes.",
     "probe3LeaveNow": "Heavy traffic detected — leave now.",
     "probe3Unavailable": "Estimate unavailable — please check traffic manually.",
+    "promiseDriftTitle": "Traffic — {{destination}}",
+    "promiseDriftBody": "Traffic has changed slightly. Your departure window is now: {{capsule}}",
     "gateTitle": "Trip monitoring",
     "gateBody": "Activate monitoring for {{destination}}?",
     "surveillanceTitle": "Monitoring active",
