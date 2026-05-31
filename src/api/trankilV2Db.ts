@@ -175,6 +175,8 @@ let sqliteReentrantDepth = 0;
 let sqliteExplicitTransactionDepth = 0;
 /** Profondeur des SAVEPOINT `patchMetadata` — noms uniques pour éviter collision en réentrance. */
 let sqliteMetadataPatchSavepointDepth = 0;
+/** > 0 pendant un `patchMetadata` avec BEGIN ouvert sur la connexion (réentrance sans SAVEPOINT). */
+let sqliteMetadataPatchInProgress = 0;
 
 async function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> {
   if (sqliteReentrantDepth > 0) {
@@ -205,6 +207,10 @@ function resetTrankilV2RuntimeState(): void {
   currentDb = null;
   dbPromise = null;
   pragmasApplied = false;
+  sqliteReentrantDepth = 0;
+  sqliteExplicitTransactionDepth = 0;
+  sqliteMetadataPatchSavepointDepth = 0;
+  sqliteMetadataPatchInProgress = 0;
   // Ne pas réinitialiser schemaReady / schemaInitPromise : le schéma est sur disque,
   // un re-init complet pendant le retry provoque des DDL concurrents et prepareAsync reject.
   if (stale) {
@@ -3326,18 +3332,50 @@ async function runMetadataPatchInSqliteTransaction(
   partialObject: Record<string, unknown>,
   opts?: { fromSync?: boolean; silent?: boolean },
 ): Promise<void> {
+  // Réentrance depuis un patchMetadata parent déjà en transaction — pas de SAVEPOINT imbriqué.
+  if (sqliteMetadataPatchInProgress > 0) {
+    await applyMetadataJsonPatchOnDb(db, key, partialObject, opts);
+    return;
+  }
+
   if (sqliteExplicitTransactionDepth > 0) {
     sqliteMetadataPatchSavepointDepth += 1;
     const savepoint = `trankil_pm_${sqliteMetadataPatchSavepointDepth}`;
+    let savepointActive = false;
     try {
-      await db.execAsync(`SAVEPOINT ${savepoint};`);
+      try {
+        await db.execAsync(`SAVEPOINT ${savepoint};`);
+        savepointActive = true;
+      } catch (savepointErr) {
+        if (VERBOSE_DEBUG) {
+          console.warn(
+            `[SQL_TRACE] patchMetadata SAVEPOINT ${savepoint} unavailable — direct apply`,
+            savepointErr,
+          );
+        }
+        await applyMetadataJsonPatchOnDb(db, key, partialObject, opts);
+        return;
+      }
       try {
         await applyMetadataJsonPatchOnDb(db, key, partialObject, opts);
-        await db.execAsync(`RELEASE SAVEPOINT ${savepoint};`);
+        if (savepointActive) {
+          try {
+            await db.execAsync(`RELEASE SAVEPOINT ${savepoint};`);
+          } catch (releaseErr) {
+            if (VERBOSE_DEBUG) {
+              console.warn(
+                `[SQL_TRACE] patchMetadata RELEASE ${savepoint} skipped after apply`,
+                releaseErr,
+              );
+            }
+          }
+        }
       } catch (e) {
-        try {
-          await db.execAsync(`ROLLBACK TO SAVEPOINT ${savepoint};`);
-        } catch {}
+        if (savepointActive) {
+          try {
+            await db.execAsync(`ROLLBACK TO SAVEPOINT ${savepoint};`);
+          } catch {}
+        }
         throw e;
       }
     } finally {
@@ -3346,6 +3384,7 @@ async function runMetadataPatchInSqliteTransaction(
     return;
   }
 
+  sqliteMetadataPatchInProgress += 1;
   sqliteExplicitTransactionDepth += 1;
   try {
     await db.execAsync('BEGIN IMMEDIATE;');
@@ -3360,6 +3399,7 @@ async function runMetadataPatchInSqliteTransaction(
     }
   } finally {
     sqliteExplicitTransactionDepth -= 1;
+    sqliteMetadataPatchInProgress -= 1;
   }
 }
 
