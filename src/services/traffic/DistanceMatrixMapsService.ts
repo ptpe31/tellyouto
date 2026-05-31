@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { VERBOSE_DEBUG } from '../../config/verboseDebug';
 import type { MapsService, TrafficSample, TripTaskRowV4 } from './TrafficSchedulerV4';
 
@@ -6,9 +8,23 @@ type CacheEntry = {
   fetchedAtMs: number;
 };
 
+type PersistedCacheEntry = {
+  sample: TrafficSample;
+  fetchedAtMs: number;
+};
+
 export type FetchTrafficSampleOptions = {
   departureTimeUnix?: number;
 };
+
+const STORAGE_PREFIX = '@trankil/distance_matrix_cache/';
+const GRID_DECIMALS = 3;
+
+/** Arrondi grid ~100 m — variations GPS mineures partagent la même clé. */
+function roundGridCoord(value: number): number {
+  const factor = 10 ** GRID_DECIMALS;
+  return Math.round(Number(value) * factor) / factor;
+}
 
 function buildCacheKey(input: {
   originLat: number;
@@ -18,12 +34,48 @@ function buildCacheKey(input: {
   mode: string;
   departureTimeUnix?: number;
 }): string {
-  const r = (x: number) => Math.round(x * 10_000) / 10_000;
+  const r = roundGridCoord;
   const depart =
     input.departureTimeUnix != null && Number.isFinite(input.departureTimeUnix)
       ? `|d${Math.floor(input.departureTimeUnix / 300) * 300}`
       : '|now';
   return `${r(input.originLat)},${r(input.originLng)}|${r(input.destLat)},${r(input.destLng)}|${input.mode}${depart}`;
+}
+
+function storageKeyFor(cacheKey: string): string {
+  return `${STORAGE_PREFIX}${cacheKey}`;
+}
+
+async function readPersistedCache(
+  cacheKey: string,
+  nowMs: number,
+  ttlMs: number,
+): Promise<CacheEntry | null> {
+  try {
+    const raw = await AsyncStorage.getItem(storageKeyFor(cacheKey));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedCacheEntry;
+    if (!parsed?.sample || !Number.isFinite(parsed.fetchedAtMs)) return null;
+    if (nowMs - parsed.fetchedAtMs > ttlMs) {
+      void AsyncStorage.removeItem(storageKeyFor(cacheKey));
+      return null;
+    }
+    return { sample: parsed.sample, fetchedAtMs: parsed.fetchedAtMs };
+  } catch {
+    return null;
+  }
+}
+
+async function writePersistedCache(cacheKey: string, entry: CacheEntry): Promise<void> {
+  try {
+    const payload: PersistedCacheEntry = {
+      sample: entry.sample,
+      fetchedAtMs: entry.fetchedAtMs,
+    };
+    await AsyncStorage.setItem(storageKeyFor(cacheKey), JSON.stringify(payload));
+  } catch {
+    /* best-effort */
+  }
 }
 
 function getApiKey(): string {
@@ -40,7 +92,7 @@ function normalizeMode(mode: string | null | undefined): string {
 }
 
 export class DistanceMatrixMapsService implements MapsService {
-  private readonly cache = new Map<string, CacheEntry>();
+  private readonly memoryCache = new Map<string, CacheEntry>();
   private readonly ttlMs = 15 * 60 * 1000;
   private readonly timeoutMs = 8000;
 
@@ -80,16 +132,24 @@ export class DistanceMatrixMapsService implements MapsService {
         opts?.departureTimeUnix != null ? departureTimeUnix : undefined,
     });
 
-    const cached = this.cache.get(key);
-    if (cached && nowMs - cached.fetchedAtMs <= this.ttlMs) {
-      return { ...cached.sample, fromCache: true, cacheKey: key };
+    const memoryHit = this.memoryCache.get(key);
+    if (memoryHit && nowMs - memoryHit.fetchedAtMs <= this.ttlMs) {
+      console.log(`[API-CALL] 💸 GOOGLE DISTANCE MATRIX | CACHE HIT (memory) | key=${key}`);
+      return { ...memoryHit.sample, fromCache: true, cacheKey: key };
+    }
+
+    const storageHit = await readPersistedCache(key, nowMs, this.ttlMs);
+    if (storageHit) {
+      this.memoryCache.set(key, storageHit);
+      console.log(`[API-CALL] 💸 GOOGLE DISTANCE MATRIX | CACHE HIT (storage) | key=${key}`);
+      return { ...storageHit.sample, fromCache: true, cacheKey: key };
     }
 
     const apiKey = getApiKey();
     if (!apiKey) throw new Error('DistanceMatrixMapsService: missing api key');
 
     console.log(
-      `[API-CALL] 💸 GOOGLE DISTANCE MATRIX | Origins: ${originLat},${originLng} | Dest: ${destLat},${destLng} | Mode: ${mode} | Departure: ${departureTimeUnix}`,
+      `[API-CALL] 💸 GOOGLE DISTANCE MATRIX | NETWORK | Origins: ${originLat},${originLng} | Dest: ${destLat},${destLng} | Mode: ${mode} | Departure: ${departureTimeUnix} | key=${key}`,
     );
 
     const url =
@@ -131,7 +191,9 @@ export class DistanceMatrixMapsService implements MapsService {
         cacheKey: key,
         latencyMs,
       };
-      this.cache.set(key, { sample, fetchedAtMs: nowMs });
+      const entry: CacheEntry = { sample, fetchedAtMs: nowMs };
+      this.memoryCache.set(key, entry);
+      void writePersistedCache(key, entry);
       if (VERBOSE_DEBUG) {
         console.log('[SENTINEL_V4][distance_matrix]', { key, trafficDurationSec, latencyMs });
       }
@@ -140,4 +202,9 @@ export class DistanceMatrixMapsService implements MapsService {
       clearTimeout(timeout);
     }
   }
+}
+
+/** Exposé pour tests — clé grid-based 3 décimales. */
+export function buildDistanceMatrixCacheKeyForTest(input: Parameters<typeof buildCacheKey>[0]): string {
+  return buildCacheKey(input);
 }

@@ -4,15 +4,17 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { useTheme } from 'react-native-paper';
+import { IconButton, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -27,10 +29,15 @@ import { syncNativeRailAlarmsAfterIntentionWrite } from '../api/intentionHardwar
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { toggleTripSurveillanceForRow } from '../services/traffic/tripSurveillanceToggle';
+import { persistTripArrivalAddress, persistTripOriginAddress } from '../services/traffic/persistTripArrivalAddress';
 import { showAppToast } from '../services/appToast';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 import { PressableScale } from './common/PressableScale';
 import { IdeaBankTripItineraryBlock } from './IdeaBankTripItineraryBlock';
+import {
+  GooglePlacesAutocompleteField,
+  type GooglePlaceSelection,
+} from './traffic/GooglePlacesAutocompleteField';
 import { generateSmartTitle } from '../services/smartTitle';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { formatCreationSubtitle } from '../utils/timeFormat';
@@ -46,7 +53,12 @@ import {
   showPass2CardCta,
 } from '../utils/pass2IntentionCard';
 import { isTripAllDay } from '../utils/tripElasticDisplay';
-import { isTripReadyForIdeaBankSurveillance } from '../utils/tripItineraryDisplay';
+import {
+  hasTripArrivalAddress,
+  isTripReadyForIdeaBankSurveillance,
+  resolveTripArrivalLabel,
+  resolveTripOriginAddressRaw,
+} from '../utils/tripItineraryDisplay';
 import { resolveTripSurveillanceUiState } from '../utils/tripSurveillanceButton';
 import { getTripMetaFromRoot } from '../utils/tripTimelineCard';
 import { TaskCompletionOrb } from './TaskCompletionOrb';
@@ -120,6 +132,13 @@ function mergeRowPatch(
 /** Durée approximative de l'animation slide de la tirelire (ms). */
 const IDEA_BANK_SHEET_DISMISS_MS = 320;
 
+type TripAddressSearchKind = 'origin' | 'arrival';
+
+type TripAddressSearchTarget = {
+  row: TrankilV2TimelineItemRow;
+  kind: TripAddressSearchKind;
+};
+
 async function safeSuccessHaptic(): Promise<void> {
   try {
     if (RPlatform.OS === 'web') return;
@@ -165,6 +184,8 @@ export function IdeaBankModal({
     () => new Map(),
   );
   const [tripPillBusyIds, setTripPillBusyIds] = useState<Set<string>>(() => new Set());
+  const [searchTarget, setSearchTarget] = useState<TripAddressSearchTarget | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [pendingLocalDone, setPendingLocalDone] = useState<Set<string>>(() => new Set());
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
   const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -177,6 +198,9 @@ export function IdeaBankModal({
   useEffect(() => {
     if (visible) {
       setLocalItemPatches(new Map());
+    } else {
+      setSearchTarget(null);
+      setSearchQuery('');
     }
   }, [visible, items]);
 
@@ -386,6 +410,57 @@ export function IdeaBankModal({
     [onClose, onPass2Item, openDetail],
   );
 
+  const openAddressSearch = useCallback(
+    (row: TrankilV2TimelineItemRow, kind: TripAddressSearchKind) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      const resolved = resolveRow(row);
+      const metaRoot = safeParseJsonObject(resolved.metadata_json);
+      const trip = getTripMetaFromRoot(metaRoot);
+      const initial =
+        kind === 'arrival'
+          ? resolveTripArrivalLabel(resolved, trip, metaRoot) ?? ''
+          : resolveTripOriginAddressRaw(trip) ?? '';
+      setSearchQuery(initial);
+      setSearchTarget({ row: resolved, kind });
+    },
+    [resolveRow],
+  );
+
+  const closeAddressSearch = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSearchTarget(null);
+    setSearchQuery('');
+  }, []);
+
+  const handleAddressSelect = useCallback(
+    async (place: GooglePlaceSelection) => {
+      if (!searchTarget) return;
+      await safeSuccessHaptic();
+      try {
+        const { row, kind } = searchTarget;
+        const { metadata_json } =
+          kind === 'arrival'
+            ? await persistTripArrivalAddress({
+                intentionId: row.id,
+                metadataJson: row.metadata_json,
+                place,
+              })
+            : await persistTripOriginAddress({
+                intentionId: row.id,
+                metadataJson: row.metadata_json,
+                place,
+              });
+        applyLocalPatch(row.id, { metadata_json });
+      } catch {
+        showAppToast(t('intentionDetail.surveillanceMissingInfo'));
+        return;
+      }
+      closeAddressSearch();
+      void refresh();
+    },
+    [applyLocalPatch, closeAddressSearch, refresh, searchTarget, t],
+  );
+
   const openTripSetup = useCallback(
     (row: TrankilV2TimelineItemRow) => {
       if (onOpenTripSetup) {
@@ -427,7 +502,11 @@ export function IdeaBankModal({
       }
 
       if (uiState === 'pro_incomplete' || !canEnable) {
-        openTripSetup(row);
+        if (!hasTripArrivalAddress(row, trip, meta)) {
+          openAddressSearch(row, 'arrival');
+        } else {
+          openTripSetup(row);
+        }
         return;
       }
 
@@ -436,7 +515,11 @@ export function IdeaBankModal({
         const { result, patch } = await toggleTripSurveillanceForRow({ row, uiState });
         if (result === 'incomplete') {
           showAppToast(t('intentionDetail.surveillanceMissingInfo'));
-          openTripSetup(row);
+          if (!hasTripArrivalAddress(row, trip, meta)) {
+            openAddressSearch(row, 'arrival');
+          } else {
+            openTripSetup(row);
+          }
           return;
         }
         if (result === 'toggled_on') {
@@ -454,7 +537,7 @@ export function IdeaBankModal({
         });
       }
     },
-    [applyLocalPatch, isProUser, openTripSetup, refresh, t, tripPillBusyIds],
+    [applyLocalPatch, isProUser, openAddressSearch, openTripSetup, refresh, t, tripPillBusyIds],
   );
 
   const showCompleteOrb = status === 'TODO';
@@ -475,6 +558,7 @@ export function IdeaBankModal({
               borderTopLeftRadius: designTokens.borderRadius,
               borderTopRightRadius: designTokens.borderRadius,
               paddingBottom: insets.bottom + 16,
+              position: 'relative',
             },
           ]}
         >
@@ -616,7 +700,8 @@ export function IdeaBankModal({
                         meta={metaRoot}
                         textPrimary={designTokens.textPrimary}
                         textSecondary={designTokens.textSecondary}
-                        onRequestArrivalSetup={openTripSetup}
+                        onRequestOriginSetup={(r) => openAddressSearch(r, 'origin')}
+                        onRequestArrivalSetup={(r) => openAddressSearch(r, 'arrival')}
                       />
                     ) : null}
 
@@ -681,6 +766,58 @@ export function IdeaBankModal({
                 {clearAllActionLabel}
               </Text>
             </Pressable>
+          ) : null}
+
+          {searchTarget ? (
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              style={[
+                styles.searchCurtain,
+                {
+                  backgroundColor: designTokens.cardBackground,
+                  paddingBottom: insets.bottom + 16,
+                },
+              ]}
+            >
+              <View style={styles.searchCurtainHeader}>
+                <PressableScale onPress={closeAddressSearch} hitSlop={12} hapticType="light">
+                  <IconButton
+                    icon="arrow-left"
+                    size={22}
+                    iconColor={designTokens.textPrimary}
+                    style={styles.searchCurtainBackBtn}
+                  />
+                </PressableScale>
+                <View pointerEvents="none" style={styles.searchCurtainKindIconWrap}>
+                  <IconButton
+                    icon={searchTarget.kind === 'origin' ? 'map-marker-radius' : 'flag-checkered'}
+                    size={20}
+                    iconColor={designTokens.accentColor}
+                    style={styles.searchCurtainKindIcon}
+                  />
+                </View>
+                <Text style={[styles.searchCurtainTitle, { color: designTokens.textSecondary }]}>
+                  {searchTarget.kind === 'origin'
+                    ? t('timeline.ideaBank.tripSearchOriginTitle')
+                    : t('timeline.ideaBank.tripSearchTitle')}
+                </Text>
+              </View>
+              <ScrollView
+                style={styles.searchCurtainBody}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <GooglePlacesAutocompleteField
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  onSelect={(place) => void handleAddressSelect(place)}
+                  autoFocus
+                  language={i18n.language}
+                  placeholder={t('intentionDetail.addressPlaceholder')}
+                  missingKeyLabel={t('sentinel.placesMissingKey')}
+                />
+              </ScrollView>
+            </KeyboardAvoidingView>
           ) : null}
         </View>
       </View>
@@ -758,5 +895,45 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 12,
+  },
+  searchCurtain: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  searchCurtainHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 16,
+  },
+  searchCurtainBackBtn: {
+    margin: 0,
+    width: 40,
+    height: 40,
+  },
+  searchCurtainKindIconWrap: {
+    width: 36,
+    alignItems: 'center',
+  },
+  searchCurtainKindIcon: {
+    margin: 0,
+    width: 36,
+    height: 36,
+  },
+  searchCurtainTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  searchCurtainBody: {
+    flex: 1,
   },
 });

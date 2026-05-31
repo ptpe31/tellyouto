@@ -18,6 +18,14 @@ export function resolveTripOriginLabel(
   return origin ?? t('intentionDetail.currentPosition');
 }
 
+export function resolveTripOriginAddressRaw(trip: Record<string, unknown> | null): string | null {
+  return str(trip, 'origin_address');
+}
+
+export function hasTripCustomOrigin(trip: Record<string, unknown> | null): boolean {
+  return Boolean(resolveTripOriginAddressRaw(trip));
+}
+
 export function resolveTripArrivalLabel(
   _row: TrankilV2TimelineItemRow,
   trip: Record<string, unknown> | null,

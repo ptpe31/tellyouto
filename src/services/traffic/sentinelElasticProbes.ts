@@ -12,6 +12,8 @@ import type { TripTaskRowV4 } from './TrafficSchedulerV4';
 export const PROBE1_GPS_RETRY_MS = 3 * 60 * 1000;
 export const PROBE2_RETRY_MS = 5 * 60 * 1000;
 export const PROBE3_RETRY_MS = 2 * 60 * 1000;
+/** Plafond PROBE1 — au-delà, bascule STATIC pour stopper la boucle API. */
+export const PROBE1_RETRY_CEILING = 3;
 
 export type ElasticProbeReason = 'PROBE1_CONFIG' | 'PROBE1_RETRY' | 'PROBE2_TREND' | 'PROBE3_GONOGO';
 
@@ -211,6 +213,35 @@ export function buildProbeFailureRecovery(input: {
   if (reason === 'PROBE3_GONOGO') {
     patch.nextRealScanAtMs = nowMs + PROBE3_RETRY_MS;
     patch.nextRealScanReason = 'PROBE3_GONOGO';
+    return patch;
+  }
+
+  return applyProbe1RetryPatch(task, patch, nowMs);
+}
+
+/**
+ * Incrémente probe1RetryCount ; si plafond atteint → STATIC + arrêt des sondes.
+ * @returns true si le plafond a été atteint (plus de retry).
+ */
+export function applyProbe1RetryPatch(
+  task: TripTaskRowV4,
+  patch: Partial<TripTaskRowV4>,
+  nowMs: number,
+): Partial<TripTaskRowV4> {
+  const nextCount = Math.max(0, Math.round(task.probe1RetryCount ?? 0)) + 1;
+  patch.probe1RetryCount = nextCount;
+  patch.lastErrorAt = nowMs;
+
+  if (nextCount >= PROBE1_RETRY_CEILING) {
+    console.error(
+      `[TRIP-SENTINEL] ❌ PROBE1 retry ceiling (${PROBE1_RETRY_CEILING}) reached for ${task.id} — forcing STATIC`,
+    );
+    patch.sentinelMode = 'STATIC';
+    patch.nextRealScanAtMs = null;
+    patch.nextRealScanReason = null;
+    patch.lastErrorAt = nowMs;
+    patch.status = 'ACTIVE';
+    patch.stateVersion = task.stateVersion + 1;
     return patch;
   }
 

@@ -25,10 +25,10 @@ import {
 import {
   computeBufferForTask,
   computeDepartInMinutesFromAnchor,
-  PROBE1_GPS_RETRY_MS,
   buildProbeFailureRecovery,
   releaseElasticProbeLock,
   normalizeProbeReason,
+  applyProbe1RetryPatch,
   resolveDueElasticProbe,
   resolveIdealDurationMin,
   resolvePredictedDurationMin,
@@ -275,6 +275,7 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
     patch.scan1AtMs = nowMs;
     patch.scan1DurationSec = staticSec;
     patch.lastTrafficDuration = trafficSec;
+    patch.probe1RetryCount = 0;
     applyDisplayedContractPatch(patch, anchor, true);
     patch.vigilanceStatus = 'VIGILANCE_BLUE';
     patch.stateVersion = task.stateVersion + 1;
@@ -643,12 +644,9 @@ function probe1GpsFailure(
   patch: Partial<TripTaskRowV4>,
   nowMs: number,
 ): ElasticTickResult {
-  patch.lastErrorAt = nowMs;
   patch.status = 'ACTIVE';
   patch.modeSafety = false;
-  patch.nextRealScanAtMs = nowMs + PROBE1_GPS_RETRY_MS;
-  patch.nextRealScanReason = 'PROBE1_RETRY';
-  patch.stateVersion = task.stateVersion + 1;
+  applyProbe1RetryPatch(task, patch, nowMs);
   const startMs = task.tOptimisteMs ?? nowMs;
   const endMs = task.tPessimisteMs ?? nowMs;
   return {
@@ -666,10 +664,7 @@ function probe1DestFailure(
   patch: Partial<TripTaskRowV4>,
   nowMs: number,
 ): ElasticTickResult {
-  patch.lastErrorAt = nowMs;
-  patch.status = 'ACTIVE';
-  patch.nextRealScanAtMs = nowMs + PROBE1_GPS_RETRY_MS;
-  patch.nextRealScanReason = 'PROBE1_RETRY';
+  applyProbe1RetryPatch(task, patch, nowMs);
   return {
     patch,
     goNoGo: null,

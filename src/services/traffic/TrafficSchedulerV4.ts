@@ -49,6 +49,7 @@ export type TripTaskRowV4 = {
   apiCallsTotal: number;
   apiCallsAvoidedCache: number;
   apiCallsAvoidedExtrapolation: number;
+  probe1RetryCount: number;
   lastErrorAt: number | null;
 };
 
@@ -331,6 +332,7 @@ export class TrafficSchedulerV4 {
     if (patch.apiCallsAvoidedCache !== undefined) add('api_calls_avoided_cache', patch.apiCallsAvoidedCache);
     if (patch.apiCallsAvoidedExtrapolation !== undefined)
       add('api_calls_avoided_extrapolation', patch.apiCallsAvoidedExtrapolation);
+    if (patch.probe1RetryCount !== undefined) add('probe1_retry_count', patch.probe1RetryCount);
     if (patch.originLat !== undefined) add('origin_lat', patch.originLat);
     if (patch.originLng !== undefined) add('origin_lng', patch.originLng);
     if (patch.destLat !== undefined) add('dest_lat', patch.destLat);
@@ -388,6 +390,7 @@ export class TrafficSchedulerV4 {
     apiCallsTotal: Number(row.api_calls_total ?? 0),
     apiCallsAvoidedCache: Number(row.api_calls_avoided_cache ?? 0),
     apiCallsAvoidedExtrapolation: Number(row.api_calls_avoided_extrapolation ?? 0),
+    probe1RetryCount: Number(row.probe1_retry_count ?? 0),
     lastErrorAt: row.last_error_at == null ? null : Number(row.last_error_at),
   });
 

@@ -55,6 +55,7 @@
     "validationRequired": "Select a valid address to activate Sentinel.",
     "activateCta": "Activate Sentinel",
     "placesMissingKey": "Missing Google Places key (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "addressResolveFailed": "Address not found. Check your input and try again.",
     "activatedToast": "VIA is monitoring your trip. Comfort zone expected around {{tOpt}} to arrive on {{date}} at {{time}}.",
     "notifTitle": "To: {{destination}} • Arrival {{arrival}}",
     "notifUpdatedAt": "Updated at {{time}}",
@@ -595,7 +596,9 @@
       "empty": "No undated tasks.",
       "close": "Close",
       "cancel": "Cancel",
-      "tripFillAddress": "📍 Enter address"
+      "tripFillAddress": "📍 Enter address",
+      "tripSearchTitle": "Enter arrival address",
+      "tripSearchOriginTitle": "Enter departure address"
     },
     "box": {
       "clearAll": "Delete all",

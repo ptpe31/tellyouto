@@ -5,7 +5,12 @@ import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
-import { hasTripArrivalAddress, resolveTripArrivalLabel, resolveTripOriginLabel } from '../utils/tripItineraryDisplay';
+import {
+  hasTripArrivalAddress,
+  hasTripCustomOrigin,
+  resolveTripArrivalLabel,
+  resolveTripOriginLabel,
+} from '../utils/tripItineraryDisplay';
 
 type Props = {
   row: TrankilV2TimelineItemRow;
@@ -13,6 +18,7 @@ type Props = {
   meta: Record<string, unknown> | null;
   textPrimary: string;
   textSecondary: string;
+  onRequestOriginSetup: (row: TrankilV2TimelineItemRow) => void;
   onRequestArrivalSetup: (row: TrankilV2TimelineItemRow) => void;
 };
 
@@ -22,11 +28,13 @@ export function IdeaBankTripItineraryBlock({
   meta,
   textPrimary,
   textSecondary,
+  onRequestOriginSetup,
   onRequestArrivalSetup,
 }: Props) {
   const theme = useTheme();
   const { t } = useTranslation();
   const originLabel = resolveTripOriginLabel(trip, t);
+  const hasCustomOrigin = hasTripCustomOrigin(trip);
   const arrivalLabel = resolveTripArrivalLabel(row, trip, meta);
   const hasArrival = hasTripArrivalAddress(row, trip, meta);
   const pastelBg = categoryPastelTabBackground(row.category_id);
@@ -42,9 +50,28 @@ export function IdeaBankTripItineraryBlock({
             style={styles.addrIcon}
           />
         </View>
-        <Text style={[styles.addrValue, { color: textPrimary }]} numberOfLines={2}>
-          {originLabel}
-        </Text>
+        <Pressable
+          onPress={() => onRequestOriginSetup(row)}
+          style={({ pressed }) => [{ opacity: pressed ? 0.78 : 1, flex: 1, minWidth: 0 }]}
+          accessibilityRole="button"
+          accessibilityLabel={
+            hasCustomOrigin ? originLabel : t('timeline.ideaBank.tripSearchOriginTitle')
+          }
+        >
+          <Text
+            style={[
+              styles.addrValue,
+              {
+                color: hasCustomOrigin ? textPrimary : textSecondary,
+                opacity: hasCustomOrigin ? 1 : 0.82,
+                fontWeight: hasCustomOrigin ? '500' : '600',
+              },
+            ]}
+            numberOfLines={2}
+          >
+            {originLabel}
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.connectorRow}>
@@ -63,9 +90,16 @@ export function IdeaBankTripItineraryBlock({
           />
         </View>
         {hasArrival && arrivalLabel ? (
-          <Text style={[styles.addrValue, { color: textPrimary }]} numberOfLines={2}>
-            {arrivalLabel}
-          </Text>
+          <Pressable
+            onPress={() => onRequestArrivalSetup(row)}
+            style={({ pressed }) => [{ opacity: pressed ? 0.78 : 1, flex: 1, minWidth: 0 }]}
+            accessibilityRole="button"
+            accessibilityLabel={arrivalLabel}
+          >
+            <Text style={[styles.addrValue, { color: textPrimary }]} numberOfLines={2}>
+              {arrivalLabel}
+            </Text>
+          </Pressable>
         ) : (
           <Pressable
             onPress={() => onRequestArrivalSetup(row)}

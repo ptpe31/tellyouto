@@ -71,6 +71,7 @@ export async function ensureSentinelTripsSchema(): Promise<void> {
     await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN dest_lat REAL;`);
     await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN dest_lng REAL;`);
     await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN transport_mode TEXT;`);
+    await tryAddColumn(db, `ALTER TABLE sentinel_trips ADD COLUMN probe1_retry_count INTEGER NOT NULL DEFAULT 0;`);
   });
   sentinelTripsSchemaReady = true;
 }

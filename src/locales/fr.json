@@ -55,6 +55,7 @@
     "validationRequired": "Sélectionne une adresse valide pour activer Sentinel.",
     "activateCta": "Activer Sentinel",
     "placesMissingKey": "Clé Google Places manquante (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "addressResolveFailed": "Adresse introuvable. Vérifiez la saisie et réessayez.",
     "activatedToast": "VIA surveille votre trajet. Zone de confort prévue vers {{tOpt}} pour arriver le {{date}} à {{time}}.",
     "notifTitle": "Vers : {{destination}} • Arrivée {{arrival}}",
     "notifUpdatedAt": "Mis à jour à {{time}}",
@@ -595,7 +596,9 @@
       "empty": "Aucune tâche sans date.",
       "close": "Fermer",
       "cancel": "Annuler",
-      "tripFillAddress": "📍 Renseigner l'adresse"
+      "tripFillAddress": "📍 Renseigner l'adresse",
+      "tripSearchTitle": "Saisir l'adresse d'arrivée",
+      "tripSearchOriginTitle": "Saisir l'adresse de départ"
     },
     "box": {
       "clearAll": "Tout supprimer",
