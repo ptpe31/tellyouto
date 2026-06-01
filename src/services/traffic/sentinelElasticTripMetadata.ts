@@ -96,13 +96,22 @@ export function buildProbe1PromisePatch(input: {
   };
 }
 
+/** Lecture sûre de `metadata_json.trip.promise_departure_time_unix` (null si absent ou invalide). */
+export function resolveTripPromiseDepartureTimeUnix(
+  trip: Record<string, unknown> | null | undefined,
+): number | null {
+  if (!trip) return null;
+  const raw = Number(trip.promise_departure_time_unix);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : null;
+}
+
 /** Référence promesse P1 pour PROBE2 prédictif (même `departure_time` que P1). */
 export function readTripPromiseReference(
   trip: Record<string, unknown> | null | undefined,
 ): { departureTimeUnix: number; durationMin: number } | null {
   if (!hasTripPromiseValidated(trip)) return null;
-  const departureTimeUnix = Number(trip!.promise_departure_time_unix);
-  const durationMin = Number(trip!.promise_duration_min);
+  const departureTimeUnix = Number(trip?.promise_departure_time_unix);
+  const durationMin = Number(trip?.promise_duration_min);
   if (
     !Number.isFinite(departureTimeUnix) ||
     departureTimeUnix <= 0 ||

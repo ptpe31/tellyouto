@@ -22,6 +22,7 @@ import {
 import { TripNeumorphicOrb, TRIP_ORB_SIZE } from './TripNeumorphicOrb';
 import { hasTripStandardDurationMin, isTripAllDay } from '../utils/tripElasticDisplay';
 import {
+  resolveTripAlarmPlaceLabel,
   resolveTripNavigationDestination,
   resolveTripTimelineCapsuleBundle,
 } from '../utils/tripElasticCapsuleModel';
@@ -209,7 +210,10 @@ export function IntentionCard({
   const tripCapsuleClockActive = Boolean(tripCapsuleModel);
   const tripCapsuleNowMs = useProbeScheduleClock(tripCapsuleClockActive);
 
-  const tripPromiseRef = useMemo(() => readTripPromiseReference(trip), [trip]);
+  const tripPromiseRef = useMemo(() => {
+    if (!trip) return null;
+    return readTripPromiseReference(trip);
+  }, [trip]);
 
   const tripNavOrbColor = useMemo(() => {
     if (!tripCapsuleModel) return ELASTIC_CAPSULE_COLORS.green;
@@ -244,17 +248,22 @@ export function IntentionCard({
     [meta, row.display_title, row.id, row.transport_mode, trip],
   );
 
+  const tripAlarmPlace = useMemo(
+    () => resolveTripAlarmPlaceLabel(trip, row.display_title, titleText),
+    [row.display_title, titleText, trip],
+  );
+
   const onPressTripAlarm = useCallback(
     (e?: { stopPropagation?: () => void }) => {
       e?.stopPropagation?.();
       const endMs = tripCapsuleModel?.endMs;
-      if (!Number.isFinite(endMs) || endMs <= 0) return;
+      if (endMs == null || !Number.isFinite(endMs) || endMs <= 0) return;
       const alarmUnix = Math.floor(endMs / 1000);
       const time = formatHmFromUnix(alarmUnix);
-      const label = t('tripAlarm.departureLabel', { place: titleText, time });
+      const label = t('tripAlarm.departureLabel', { place: tripAlarmPlace, time });
       void AlarmService.openAlarmSelection(alarmUnix, label);
     },
-    [tripCapsuleModel?.endMs, t, titleText],
+    [tripAlarmPlace, tripCapsuleModel?.endMs, t],
   );
 
   const subtitle = useMemo(() => {

@@ -108,3 +108,16 @@ export function resolveTripNavigationDestination(
   if (fromMeta) return fromMeta;
   return String(displayTitle ?? '').trim();
 }
+
+/** Libellé lieu pour l’alarme réveil (alias destination, pas l’adresse complète). */
+export function resolveTripAlarmPlaceLabel(
+  trip: Record<string, unknown> | null,
+  displayTitle?: string | null,
+  fallback = '',
+): string {
+  const fromTrip =
+    str(trip, 'destination') ?? str(trip, 'destination_name') ?? str(trip, 'destinationName');
+  if (fromTrip) return fromTrip;
+  const title = String(displayTitle ?? '').trim();
+  return title || fallback;
+}

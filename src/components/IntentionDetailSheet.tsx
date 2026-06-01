@@ -1382,10 +1382,10 @@ export function IntentionDetailSheet({
     return { startMs, endMs, ratioD };
   }, [elasticSlotDisplay, isProUser, isTrip, trip, tripIsAllDay]);
 
-  const tripPromiseRef = useMemo(
-    () => readTripPromiseReference(trip as Record<string, unknown> | null),
-    [trip],
-  );
+  const tripPromiseRef = useMemo(() => {
+    if (!row) return null;
+    return readTripPromiseReference(trip as Record<string, unknown> | null);
+  }, [row, trip]);
 
   const elasticDepartureTextFallback = useMemo(() => {
     if (!elasticSlotDisplay?.windowLabel) return null;
@@ -2452,14 +2452,19 @@ export function IntentionDetailSheet({
 
   const launchTripDepartureAlarm = useCallback(() => {
     const endMs = elasticDepartureCapsuleModel?.endMs;
-    if (!Number.isFinite(endMs) || endMs <= 0) return;
+    if (endMs == null || !Number.isFinite(endMs) || endMs <= 0) return;
     const alarmUnix = Math.floor(endMs / 1000);
     const d = new Date(endMs);
     const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    const place = destinationLabel || String(row?.display_title ?? '').trim() || t('intentionDetail.labelItinerary');
+    const tripRecord = trip as Record<string, unknown> | null;
+    const place =
+      destinationLabel ||
+      String(tripRecord?.destination ?? tripRecord?.destination_name ?? '').trim() ||
+      String(row?.display_title ?? '').trim() ||
+      t('intentionDetail.labelItinerary');
     const label = t('tripAlarm.departureLabel', { place, time });
     void AlarmService.openAlarmSelection(alarmUnix, label);
-  }, [destinationLabel, elasticDepartureCapsuleModel?.endMs, row?.display_title, t]);
+  }, [destinationLabel, elasticDepartureCapsuleModel?.endMs, row?.display_title, t, trip]);
 
   const projectCalendarMode = useMemo(() => {
     if (!isProject || !projectPayload) return false;
