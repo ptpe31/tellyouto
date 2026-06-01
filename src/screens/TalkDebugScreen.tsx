@@ -262,10 +262,28 @@ export function TalkDebugScreen() {
     setPeekCapturePhase('idle');
   }, []);
 
-  const openFocusTripDetail = useCallback((row: TrankilV2TimelineItemRow) => {
-    setSacredDetailRow(row);
-    setSacredDetailOpen(true);
+  /** Ouvre `IntentionDetailSheet` principale (plein écran) — même contrat que Timeline `openDetail`. */
+  const openTalkTripDetail = useCallback(async (row: TrankilV2TimelineItemRow) => {
+    setPeekCapturePhase('idle');
+    let mapped = row;
+    try {
+      const full = await getTrankilV2IntentionById(row.id);
+      if (full) mapped = mapTrankilIntentionToTimelineItemRow(full);
+    } catch {
+      /* garde la projection locale */
+    }
+    setPeekDetailRows([mapped]);
+    setSelectedIntentionIndex(0);
+    setDetailPosition('full');
+    setDetailOpen(true);
   }, []);
+
+  const onPressSentinelSuggestion = useCallback(
+    (row: TrankilV2TimelineItemRow) => {
+      void openTalkTripDetail(row);
+    },
+    [openTalkTripDetail],
+  );
 
   const closeSacredDetail = useCallback(() => {
     setSacredDetailOpen(false);
@@ -289,6 +307,7 @@ export function TalkDebugScreen() {
 
   const patchPeekDetailRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
     setPeekDetailRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setTodayFocusRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }, []);
 
   const applyPeekFirstSavePayload = useCallback((payload: unknown) => {
@@ -511,7 +530,8 @@ export function TalkDebugScreen() {
           rows={todayFocusRows}
           todayYmd={formatYmdLocal(new Date())}
           theme={theme}
-          onOpenDetail={openFocusTripDetail}
+          onOpenDetail={(row) => void openTalkTripDetail(row)}
+          onPressSuggestion={onPressSentinelSuggestion}
           onOpenProPaywall={() => {
             if (rootNavigationRef.isReady()) {
               rootNavigationRef.navigate('ProSubscription');

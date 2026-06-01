@@ -544,6 +544,14 @@ export function TimelineScreen() {
     [openDetail],
   );
 
+  /** Sentinel Focus — suggestion : même ouverture que le CTA « Me prévenir quand partir » sur carte TRIP. */
+  const onPressSentinelSuggestion = useCallback(
+    (row: TrankilV2TimelineItemRow) => {
+      handleTripFooterPress(row, { kind: 'setup' });
+    },
+    [handleTripFooterPress],
+  );
+
   /** Met à jour une ligne dans les listes locales + détail si ouvert. */
   const patchRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
     const apply = (rows: TrankilV2TimelineItemRow[]) =>
@@ -1570,6 +1578,7 @@ export function TimelineScreen() {
               todayYmd={toYmd(anchorDate)}
               theme={theme}
               onOpenDetail={openDetail}
+              onPressSuggestion={onPressSentinelSuggestion}
               onOpenProPaywall={() => {
                 if (rootNavigationRef.isReady()) {
                   rootNavigationRef.navigate('ProSubscription');
@@ -1633,6 +1642,7 @@ export function TimelineScreen() {
       handleToggleRowComplete,
       anchorDate,
       openHubBlock,
+      onPressSentinelSuggestion,
       openDetail,
       handleTripFooterPress,
       pendingLocalDone,

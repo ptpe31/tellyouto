@@ -20,7 +20,13 @@ type SentinelFocusBadgeProps = {
   rows: TrankilV2TimelineItemRow[];
   todayYmd: string;
   theme: MD3Theme;
+  /** Ouvre la feuille détail (micro-dashboard actif, même contrat que le hub). */
   onOpenDetail: (row: TrankilV2TimelineItemRow) => void;
+  /**
+   * Suggestion « Me prévenir quand partir » — même handler que le CTA setup TRIP
+   * (`handleTripFooterPress` / `openDetail` sur Timeline).
+   */
+  onPressSuggestion: (row: TrankilV2TimelineItemRow) => void;
   onOpenProPaywall?: () => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -37,13 +43,13 @@ function resolveTripTitle(row: TrankilV2TimelineItemRow, t: (key: string) => str
 type SuggestionFocusProps = {
   row: TrankilV2TimelineItemRow;
   isProUser: boolean;
-  onConfigure: (row: TrankilV2TimelineItemRow) => void;
+  onPressSuggestion: (row: TrankilV2TimelineItemRow) => void;
   onOpenProPaywall?: () => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
-function SuggestionFocusCard({ row, isProUser, onConfigure, onOpenProPaywall, style, testID }: SuggestionFocusProps) {
+function SuggestionFocusCard({ row, isProUser, onPressSuggestion, onOpenProPaywall, style, testID }: SuggestionFocusProps) {
   const { t, i18n } = useTranslation();
   const title = useMemo(
     () => resolveTripTitle(row, t, i18n.language || Intl.DateTimeFormat().resolvedOptions().locale),
@@ -59,8 +65,8 @@ function SuggestionFocusCard({ row, isProUser, onConfigure, onOpenProPaywall, st
       onOpenProPaywall?.();
       return;
     }
-    onConfigure(row);
-  }, [isProUser, onConfigure, onOpenProPaywall, row]);
+    onPressSuggestion(row);
+  }, [isProUser, onPressSuggestion, onOpenProPaywall, row]);
 
   return (
     <Pressable
@@ -85,6 +91,7 @@ export function SentinelFocusBadge({
   todayYmd,
   theme,
   onOpenDetail,
+  onPressSuggestion,
   onOpenProPaywall,
   style,
   testID,
@@ -111,7 +118,7 @@ export function SentinelFocusBadge({
       <SuggestionFocusCard
         row={unconfiguredTrip}
         isProUser={spectrum.isProUser}
-        onConfigure={onOpenDetail}
+        onPressSuggestion={onPressSuggestion}
         onOpenProPaywall={onOpenProPaywall}
         style={style}
         testID={testID ?? 'sentinel-focus-suggestion'}
