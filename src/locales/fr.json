@@ -90,7 +90,9 @@
     "signalBBody": "{{capsule}} — Partez dans environ {{minutes}} min pour {{destination}}."
   },
   "sentinelFocus": {
-    "prompt": "Me prévenir quand partir pour {{title}} à {{time}} ?"
+    "prompt": "Me prévenir quand partir pour {{title}} à {{time}} ?",
+    "departureTitle": "Départ pour {{name}}",
+    "arrivalSubtitle": "Arrivée : {{time}}"
   },
   "tripAlarm": {
     "pickerTitle": "Régler une alarme",

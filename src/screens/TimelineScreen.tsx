@@ -101,7 +101,12 @@ import {
 } from '../features/livingHub';
 import { useAppTheme } from '../context/ThemeContext';
 import { Platform as RPlatform } from '../utils/rnPlatform';
-import { pickSentinelFocus } from '../utils/sentinelFocusSelection';
+import {
+  hasSentinelFocusClockInterest,
+  isSentinelFocusSlotVisible,
+  pickSentinelFocus,
+} from '../utils/sentinelFocusSelection';
+import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 
 /**
  * Onglet **Timeline** : lecture paginée SQLite (`listTrankilV2*`), filtres contexte / statut, cartes intention,
@@ -309,7 +314,7 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 
 const SECTION_HEADER_H = 36;
 const CARD_ROW_H = 120;
-const SENTINEL_FOCUS_FALLBACK_H = 168;
+const SENTINEL_FOCUS_FALLBACK_H = 118;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
   if (bubble === 'HOME') return 'HOME';
@@ -1337,6 +1342,20 @@ export function TimelineScreen() {
     return [...ids];
   }, [listEntries]);
 
+  const sentinelFocusClockActive = useMemo(() => {
+    if (!hubEligible) return false;
+    const todayYmd = toYmd(anchorDate);
+    const todayEntry = listEntries.find((e) => e.id === todayYmd);
+    const todayRows = todayEntry?.rows ?? [];
+    return hasSentinelFocusClockInterest(todayRows, {
+      todayYmd,
+      isProUser: spectrum.isProUser,
+      locale: i18n.language,
+    });
+  }, [anchorDate, hubEligible, i18n.language, listEntries, spectrum.isProUser]);
+
+  const sentinelFocusNowMs = useProbeScheduleClock(sentinelFocusClockActive, 10_000);
+
   const flatListItems = useMemo(() => {
     const todayYmd = toYmd(anchorDate);
     const todayLabel = t('horizons.today');
@@ -1363,8 +1382,16 @@ export function TimelineScreen() {
             todayYmd,
             isProUser: spectrum.isProUser,
             locale: i18n.language,
+            nowMs: sentinelFocusNowMs,
           });
-          if (focusPick.activeTrip ?? focusPick.unconfiguredTrip) {
+          if (
+            isSentinelFocusSlotVisible(focusPick, {
+              locale: i18n.language,
+              isProUser: spectrum.isProUser,
+              nowMs: sentinelFocusNowMs,
+              todayYmd,
+            })
+          ) {
             out.push({ kind: 'sentinelFocus', id: 'sentinel-focus', rows: todayRows });
           }
           if (hubBlocks) {
@@ -1384,6 +1411,7 @@ export function TimelineScreen() {
     hubEligible,
     i18n.language,
     listEntries,
+    sentinelFocusNowMs,
     spectrum.isProUser,
     t,
     timeNav,
@@ -1400,11 +1428,12 @@ export function TimelineScreen() {
           todayYmd,
           isProUser: spectrum.isProUser,
           locale: i18n.language,
+          nowMs: sentinelFocusNowMs,
         }) || SENTINEL_FOCUS_FALLBACK_H,
       );
     }
     return buildFlatListLayouts(flatListItems, heightById);
-  }, [anchorDate, flatListItems, i18n.language, spectrum.isProUser]);
+  }, [anchorDate, flatListItems, i18n.language, sentinelFocusNowMs, spectrum.isProUser]);
 
   const getItemLayout = useCallback(
     (_: unknown, index: number) => {
