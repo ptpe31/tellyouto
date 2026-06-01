@@ -95,6 +95,7 @@ import { useDesignTokens } from '../hooks/useDesignTokens';
 import {
   buildLivingHubBlocks,
   buildRoutineHubBlocks,
+  hubCategoryDisplayTitle,
   LivingHubBlockShell,
   LivingHubCategoryModal,
   type HubBlock,
@@ -1512,7 +1513,7 @@ export function TimelineScreen() {
       setIdeaBankMode('default');
       setIdeaBankCategoryFilter(null);
       setIdeaBankHubItems(block.items);
-      setIdeaBankHubTitle(t(`category.${block.categoryId}`, { defaultValue: block.categoryId }));
+      setIdeaBankHubTitle(hubCategoryDisplayTitle(block.categoryId, t));
       setIdeaBankOpen(true);
     },
     [t],

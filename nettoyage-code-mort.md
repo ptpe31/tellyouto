@@ -1,7 +1,7 @@
 # Nettoyage code mort — registre global
 
 Document de travail pour la suppression définitive du code commenté / stubé dans `src/`, `App.tsx`, et modules liés.  
-**Dernière mise à jour :** juin 2026 — registre Sentinel Focus Badge (code actif, hors périmètre suppression).
+**Dernière mise à jour :** juin 2026 — registre Sentinel Focus + hub `TRIPS_HUB` (code actif, hors périmètre suppression).
 
 ---
 
@@ -240,9 +240,17 @@ Provider conservé pour extension future ; pas d’effet utilisateur aujourd’h
 | `src/utils/sentinelFocusSelection.ts` | `pickSentinelFocus`, éligibilité trajet |
 | `src/screens/TimelineScreen.tsx` | Item FlatList `sentinelFocus` sous « Aujourd’hui » (EMAIL_HUB) |
 | `src/screens/TalkDebugScreen.tsx` | Dock au-dessus du micro |
-| `src/locales/fr.json` / `en.json` | Clé `sentinelFocus.prompt` |
+| `src/locales/fr.json` / `en.json` | Clés `sentinelFocus.*`, `timeline.smartClusters.tripsTitle` |
 
-**Dépendances actives (à conserver)** : `ElasticDepartureCapsule`, `tripElasticCapsuleModel`, `sentinelElasticTripMetadata`, `tripTripReadiness`, `TripNeumorphicOrb`, `listTrankilV2MergedTodayTimelineWithLowPressure`.
+**Hub TRAJETS (juin 2026 — prod, ne pas supprimer)** :
+
+| Fichier | Rôle |
+|---------|------|
+| `src/features/livingHub/hubCategoryRegistry.ts` | `TRIPS_HUB`, `resolveHubBlockCategoryId`, `isHubTripRow` |
+| `src/features/livingHub/buildLivingHubBlocks.ts` | Court-circuit TRIP à l’agrégation |
+| `src/features/livingHub/LivingHubBlockShell.tsx` | Libellé TRAJETS |
+
+**Dépendances actives (à conserver)** : `ElasticDepartureCapsule`, `tripElasticCapsuleModel`, `sentinelElasticTripMetadata`, `tripTripReadiness`, `listTrankilV2MergedTodayTimelineWithLowPressure`.
 
 **Recherche** :
 
@@ -315,6 +323,9 @@ npx tsc --noEmit
 | `SentinelFocusBadge.tsx` | **prod — ne pas supprimer** (§16) |
 | `useSentinelFocus.ts` | **prod — ne pas supprimer** (§16) |
 | `sentinelFocusSelection.ts` | **prod — ne pas supprimer** (§16) |
+| `SentinelMicroDashboard.tsx` | **prod — ne pas supprimer** (§16) |
+| `hubCategoryRegistry.ts` (TRIPS_HUB) | **prod — ne pas supprimer** |
+| `buildLivingHubBlocks.ts` (resolveHubBlockCategoryId) | **prod — ne pas supprimer** |
 
 ---
 

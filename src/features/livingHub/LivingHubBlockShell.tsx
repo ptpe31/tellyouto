@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { DesignTokens } from '../../theme/TalkThemeRegistry';
 import type { HubBlock } from './buildLivingHubBlocks';
+import { hubCategoryDisplayTitle } from './hubCategoryRegistry';
 import { HabitStreakCompact } from './HabitStreakCompact';
 import type { RoutineHubItemLine } from './formatRoutineItemLine';
 
@@ -68,7 +69,7 @@ function hubShellStyle(
 /** Bloc catégorie IA — lignes avec heure et marqueur habitude inline. */
 export function LivingHubBlockShell({ block, designTokens, onPress, variant = 'default' }: Props) {
   const { t } = useTranslation();
-  const categoryLabel = t(`category.${block.categoryId}`, { defaultValue: block.categoryId }).toUpperCase();
+  const categoryLabel = hubCategoryDisplayTitle(block.categoryId, t).toUpperCase();
   const isRoutine = variant === 'routine';
   const routineLines = block.routineLines ?? [];
 

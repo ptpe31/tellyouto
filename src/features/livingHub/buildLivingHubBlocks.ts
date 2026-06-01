@@ -6,6 +6,7 @@ import {
   hubCategoryEmoji,
   hubCategorySortIndex,
   normalizeHubCategoryId,
+  resolveHubBlockCategoryId,
   type HubCategoryId,
 } from './hubCategoryRegistry';
 
@@ -40,8 +41,8 @@ function mergeActiveHabitsForHub(
 }
 
 /**
- * Regroupe les intentions du jour par `category_id` IA (Pass 1).
- * Seules les catégories non vides sont retournées.
+ * Regroupe les intentions du jour par catégorie hub.
+ * TRIP → bloc virtuel `TRIPS_HUB` (🏁), indépendamment du `category_id` Pass 1.
  */
 export function buildLivingHubBlocks(
   rows: TrankilV2TimelineItemRow[],
@@ -51,7 +52,7 @@ export function buildLivingHubBlocks(
   const groups = new Map<HubCategoryId, TrankilV2TimelineItemRow[]>();
 
   for (const row of mergedRows) {
-    const key = normalizeHubCategoryId(row.category_id);
+    const key = resolveHubBlockCategoryId(row);
     const arr = groups.get(key) ?? [];
     arr.push(row);
     groups.set(key, arr);

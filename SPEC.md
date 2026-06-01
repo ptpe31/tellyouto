@@ -716,28 +716,28 @@ Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/De
 
 **Dégradation gracieuse** : échec API PROBE2 → ancre / UI inchangées + retry 5 min ; échec PROBE3 → push `sentinel.probe3Unavailable` ; PROBE3 skip → finalisation silencieuse sans API.
 
-##### 8.c) UI — Sentinel Focus Badge (mai 2026)
+##### 8.c) UI — Sentinel Focus Badge (juin 2026)
 
-Composant déporté : [`SentinelFocusBadge.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx). Sélection : [`sentinelFocusSelection.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/sentinelFocusSelection.ts) + hook [`useSentinelFocus.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useSentinelFocus.ts).
+Composants : [`SentinelFocusBadge.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx), micro-dashboard éphémère [`SentinelMicroDashboard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelMicroDashboard.tsx). Sélection : [`sentinelFocusSelection.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/sentinelFocusSelection.ts) + [`useSentinelFocus.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useSentinelFocus.ts).
 
-**Objectif** : un seul emplacement prioritaire pour le trajet pertinent du jour (l’utilisateur n’est qu’à un seul endroit à la fois), sans parcourir les blocs hub groupés (`VOYAGE`, `APPRENTISSAGE`, …).
+**Objectif** : un seul emplacement prioritaire sous « Aujourd’hui » pour l’anticipation / l’action trajet (hors liste des blocs hub — voir § 2.c court-circuit `TRIPS_HUB`).
 
 **Machine à états** (priorité stricte, un seul trajet affiché) :
 
 | État | Condition | Rendu |
 |------|-----------|--------|
-| **A — Scan actif** | Trajet du jour, `remind_to_leave` ON, mission Sentinel prête, et (`resolveTripTimelineCapsuleBundle` non null **ou** `promise_validated_at` renseigné) | Carte flottante : orbe GPS + titre/sous-titre + [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) `variant="default"` ; GPS → [`tripNavigation`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripNavigation.ts) ; réveil si promesse P1 (`showAlarmIcon`) → [`AlarmService`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts). En cas de plusieurs candidats : le plus urgent (`endMs` minimal). |
-| **B — Suggestion** | Aucun actif ; trajet du jour prêt au scan (`isTripReadyForScan`) mais `remind_to_leave` OFF | Carte texte i18n `sentinelFocus.prompt` (« Me prévenir quand partir pour {{title}} à {{time}} ? ») ; tap → ouverture [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) (même contrat que CTA setup Timeline) ; FREE → paywall Pro. |
-| **—** | Sinon | `null` (espace résorbé, pas d’animation) |
+| **A — Micro-dashboard** | `promise_validated_at` + bundle capsule ; **`nowMs < endMs`** (éphémère strict) | [`SentinelMicroDashboard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelMicroDashboard.tsx) pleine largeur : bordure fine hub (`SENTINEL_HUB_PILL_STYLE`), titre `sentinelFocus.departureTitle`, sous-titre arrivée, [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) `variant="compact"`. Disparaît dès `nowMs >= endMs`. |
+| **B — Suggestion** | Aucun actif éphémère ; trajet prêt au scan, `remind_to_leave` OFF, pas de promesse P1, **`nowMs < arrivalDue`** | Carte pleine largeur i18n `sentinelFocus.prompt` ; `onPressSuggestion(row)` → même handler que CTA setup TRIP (`handleTripFooterPress` / `openDetail` Timeline ; `openTalkTripDetail` Talk → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) principale) ; FREE → paywall. |
+| **—** | Sinon (trajets passés, aucun candidat) | `null` — slot FlatList résorbé (`isSentinelFocusSlotVisible`) |
 
-**Style flottant (3D)** — commun aux deux états : `shadowOpacity: 0.15`, `shadowRadius: 10`, `elevation: 6`, `backgroundColor: #FFFFFF`, `borderRadius: 16`, `marginBottom: 16` (export `SENTINEL_FOCUS_SHADOW_3D`).
+**Horloge** : `useProbeScheduleClock` (10 s) quand micro ou suggestion candidate — disparition suggestion / slot à l’heure d’arrivée dépassée.
 
 **Emplacements** :
 
-- **Hub Email** ([`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)) : item FlatList `sentinelFocus` inséré **juste sous** le titre « Aujourd’hui », **avant** les blocs [`LivingHubBlockShell`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubBlockShell.tsx) — uniquement si `timelineLayoutMode === 'EMAIL_HUB'` et filtres `TODAY` / `ALL` / `TODO`. Hauteur estimée via `estimateSentinelFocusBadgeHeight` pour `getItemLayout`.
-- **Talk / accueil micro** ([`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx)) : même composant au-dessus du dock suggestions/micro ; données du jour via `listTrankilV2MergedTodayTimelineWithLowPressure` ; rafraîchi sur `INTENTIONS_CHANGED_EVENT_NAME`.
+- **Hub Email** ([`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)) : item `sentinelFocus` sous « Aujourd’hui », avant blocs hub — `EMAIL_HUB` + `TODAY` / `ALL` / `TODO`.
+- **Talk** ([`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx)) : même composant ; `listTrankilV2MergedTodayTimelineWithLowPressure` ; `INTENTIONS_CHANGED_EVENT_NAME`.
 
-**Source de vérité** : intentions du jour (projection SQLite + `metadata_json.trip`) — pas de table dédiée ; cohérence temps réel entre Timeline et Talk après patch Sentinel / toggle `remind_to_leave`.
+**Source de vérité** : projection SQLite du jour — pas de table dédiée ; `category_id` Pass 1 inchangé en base.
 
 ##### 9. Notifications — Contrat de Départ (`NotificationService.ts`)
 
@@ -1251,7 +1251,8 @@ const designTokens = useDesignTokens();
 - **Objectif** : sous **Aujourd’hui**, remplacer la liste plate de cartes par un **récap email** groupé par **`category_id` Pass 1** (HOME, WORK, HEALTH, …) — miroir direct de la classification IA, sans blocs inventés (Éphéméride / Routine / Reste).
 - **Activation** : `timelineLayoutMode === 'EMAIL_HUB'` **et** mêmes filtres que Smart Clusters — vue **Aujourd’hui**, contexte **ALL**, statut **TODO** (`hubEligible` dans [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)).
 - **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (**Inbox · À acheter · Box · Routines · Projets**) — l’Inbox reste un sas séparé, le stock sans date vit dans **Box**, les **HABIT** dans **Routines**, zéro double comptage.
-- **Agrégation** : [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) — `groupBy normalizeHubCategoryId(category_id)` sur le pool du jour ; **blocs vides masqués** ; tri catégories via [`hubCategoryRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) ; lignes avec heure inline + marqueur habitude 🔁 ([`formatHubItemLine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/formatHubItemLine.ts)).
+- **Agrégation** : [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) — `groupBy` via [`resolveHubBlockCategoryId`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) sur le pool du jour ; **blocs vides masqués** ; tri via [`hubCategoryRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) ; lignes avec heure inline + marqueur habitude 🔁 ([`formatHubItemLine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/formatHubItemLine.ts)).
+- **Court-circuit TRIP (juin 2026, projection UI)** : toute ligne `type === 'TRIP'` ou avec `metadata_json.trip` est **forcée** dans le bloc virtuel **`TRIPS_HUB`** (🏁, libellé i18n `timeline.smartClusters.tripsTitle` → **TRAJETS**), **indépendamment** du `category_id` Pass 1 (ex. dictée « aller à l’école » classée LEARN n’apparaît plus sous APPRENTISSAGE). **`category_id` SQLite inchangé** ; le bloc `TRAVEL` (✈️ Voyage) reste pour les intentions non-TRIP encore taguées Voyage. Ordre d’affichage : `TRIPS_HUB` en tête de `HUB_CATEGORY_ORDER`.
 - **Habitudes JIT** : injection virtuelle des HABIT actives (`listActiveHabitsForHub` + [`isHabitRowActiveForDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts)) dans le groupBy catégorie.
 - **Focus modal** : tap bloc → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtré sur les items du bloc (`onEditItem` / `ideaBankHubItems`).
 - **Performance** : `getItemLayout` **désactivé** quand `hubEligible` (hauteurs variables des blocs email).

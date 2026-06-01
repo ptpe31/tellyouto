@@ -639,6 +639,7 @@
       "routinesSubtitle": "({{count}} actives)",
       "projectsTitle": "📁 Projets",
       "projectsSubtitle": "({{count}} actifs)",
+      "tripsTitle": "Trajets",
       "listsTitle": "📋 Listes",
       "listsSubtitle": "({{count}} ajouts)"
     }

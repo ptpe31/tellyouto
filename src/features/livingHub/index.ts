@@ -17,9 +17,12 @@ export { getHabitStreakData, type HabitOccurrenceState, type HabitStreakData } f
 export {
   HUB_CATEGORY_EMOJI,
   HUB_CATEGORY_ORDER,
+  hubCategoryDisplayTitle,
   hubCategoryEmoji,
   hubCategorySortIndex,
+  isHubTripRow,
   normalizeHubCategoryId,
+  resolveHubBlockCategoryId,
   type HubCategoryId,
 } from './hubCategoryRegistry';
 export { parseRowTemporalMeta, type RowTemporalMeta } from './parseRowTemporalMeta';
