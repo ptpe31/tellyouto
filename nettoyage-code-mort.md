@@ -1,7 +1,7 @@
 # Nettoyage code mort — registre global
 
 Document de travail pour la suppression définitive du code commenté / stubé dans `src/`, `App.tsx`, et modules liés.  
-**Dernière mise à jour :** passage commentaires/stubs notifications, capture legacy, rituel soirée, nudge disponibilité.
+**Dernière mise à jour :** juin 2026 — registre Sentinel Focus Badge (code actif, hors périmètre suppression).
 
 ---
 
@@ -16,8 +16,9 @@ Document de travail pour la suppression définitive du code commenté / stubé d
 7. [TrafficScheduler debug](#12-trafficscheduler-legacy-debug)
 8. [Focus Protection](#13-focus-protection-context)
 9. [Nudge « 2 minutes disponibles »](#1-modale-2-minutes-disponibles-availability-nudge)
-10. [Checklist suppression](#14-checklist-suppression-définitive)
-11. [Commandes `rg`](#15-commandes-utiles)
+10. [Sentinel Focus Badge — ne pas supprimer](#16-sentinel-focus-badge--code-actif-juin-2026)
+11. [Checklist suppression](#14-checklist-suppression-définitive)
+12. [Commandes `rg`](#15-commandes-utiles)
 
 ---
 
@@ -228,6 +229,29 @@ Provider conservé pour extension future ; pas d’effet utilisateur aujourd’h
 
 ---
 
+## 16. Sentinel Focus Badge — code actif (juin 2026)
+
+> **Ne pas traiter comme code mort.** Composant produit documenté dans **SPEC.md § 8.c** et **PROJECT_STATUS.md**.
+
+| Fichier | Rôle |
+|---------|------|
+| `src/components/SentinelFocusBadge.tsx` | UI badge flottant (états A/B) |
+| `src/hooks/useSentinelFocus.ts` | Hook sélection |
+| `src/utils/sentinelFocusSelection.ts` | `pickSentinelFocus`, éligibilité trajet |
+| `src/screens/TimelineScreen.tsx` | Item FlatList `sentinelFocus` sous « Aujourd’hui » (EMAIL_HUB) |
+| `src/screens/TalkDebugScreen.tsx` | Dock au-dessus du micro |
+| `src/locales/fr.json` / `en.json` | Clé `sentinelFocus.prompt` |
+
+**Dépendances actives (à conserver)** : `ElasticDepartureCapsule`, `tripElasticCapsuleModel`, `sentinelElasticTripMetadata`, `tripTripReadiness`, `TripNeumorphicOrb`, `listTrankilV2MergedTodayTimelineWithLowPressure`.
+
+**Recherche** :
+
+```bash
+rg "SentinelFocusBadge|pickSentinelFocus|useSentinelFocus|sentinelFocus" src
+```
+
+---
+
 ## 14. Checklist suppression définitive
 
 ```text
@@ -288,6 +312,9 @@ npx tsc --noEmit
 | `FocusProtectionContext.tsx` | doc DEPRECATED |
 | `AvailabilityNudgeModal.tsx` | stub (§1) |
 | `App.tsx` | imports commentés (nudge + étoiles) |
+| `SentinelFocusBadge.tsx` | **prod — ne pas supprimer** (§16) |
+| `useSentinelFocus.ts` | **prod — ne pas supprimer** (§16) |
+| `sentinelFocusSelection.ts` | **prod — ne pas supprimer** (§16) |
 
 ---
 

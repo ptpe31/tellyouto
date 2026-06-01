@@ -706,6 +706,7 @@ Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/De
 **Intégrations** :
 - [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) : capsule pleine largeur sous les adresses TRIP ; refresh `metadata_json` depuis SQLite (patchs Sentinel souvent silencieux) + polling 30 s si surveillance active.
 - [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) : remplace le badge texte Timeline quand la mission surveillée est active et qu’une fenêtre élastique est disponible ; sinon conserve CTA setup / scan pending / locked.
+- [`SentinelFocusBadge.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) : badge unique « trajet du moment » — voir § 8.c.
 
 **Annulation / reset mission** ([`sentinelTripMission.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/sentinelTripMission.ts)) :
 - `cancelTripMission(id)` : clear timers + annule PROBE2/3 planifiées — appelé si suppression TRIP, désactivation `remind_to_leave`, ou destination invalide.
@@ -714,6 +715,29 @@ Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/De
 - `wakeTripMissionAfterTimedRestore(id)` : retour horaire + remind ON → PROBE1 si metadata vide.
 
 **Dégradation gracieuse** : échec API PROBE2 → ancre / UI inchangées + retry 5 min ; échec PROBE3 → push `sentinel.probe3Unavailable` ; PROBE3 skip → finalisation silencieuse sans API.
+
+##### 8.c) UI — Sentinel Focus Badge (mai 2026)
+
+Composant déporté : [`SentinelFocusBadge.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx). Sélection : [`sentinelFocusSelection.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/sentinelFocusSelection.ts) + hook [`useSentinelFocus.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useSentinelFocus.ts).
+
+**Objectif** : un seul emplacement prioritaire pour le trajet pertinent du jour (l’utilisateur n’est qu’à un seul endroit à la fois), sans parcourir les blocs hub groupés (`VOYAGE`, `APPRENTISSAGE`, …).
+
+**Machine à états** (priorité stricte, un seul trajet affiché) :
+
+| État | Condition | Rendu |
+|------|-----------|--------|
+| **A — Scan actif** | Trajet du jour, `remind_to_leave` ON, mission Sentinel prête, et (`resolveTripTimelineCapsuleBundle` non null **ou** `promise_validated_at` renseigné) | Carte flottante : orbe GPS + titre/sous-titre + [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) `variant="default"` ; GPS → [`tripNavigation`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripNavigation.ts) ; réveil si promesse P1 (`showAlarmIcon`) → [`AlarmService`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts). En cas de plusieurs candidats : le plus urgent (`endMs` minimal). |
+| **B — Suggestion** | Aucun actif ; trajet du jour prêt au scan (`isTripReadyForScan`) mais `remind_to_leave` OFF | Carte texte i18n `sentinelFocus.prompt` (« Me prévenir quand partir pour {{title}} à {{time}} ? ») ; tap → ouverture [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) (même contrat que CTA setup Timeline) ; FREE → paywall Pro. |
+| **—** | Sinon | `null` (espace résorbé, pas d’animation) |
+
+**Style flottant (3D)** — commun aux deux états : `shadowOpacity: 0.15`, `shadowRadius: 10`, `elevation: 6`, `backgroundColor: #FFFFFF`, `borderRadius: 16`, `marginBottom: 16` (export `SENTINEL_FOCUS_SHADOW_3D`).
+
+**Emplacements** :
+
+- **Hub Email** ([`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)) : item FlatList `sentinelFocus` inséré **juste sous** le titre « Aujourd’hui », **avant** les blocs [`LivingHubBlockShell`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubBlockShell.tsx) — uniquement si `timelineLayoutMode === 'EMAIL_HUB'` et filtres `TODAY` / `ALL` / `TODO`. Hauteur estimée via `estimateSentinelFocusBadgeHeight` pour `getItemLayout`.
+- **Talk / accueil micro** ([`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx)) : même composant au-dessus du dock suggestions/micro ; données du jour via `listTrankilV2MergedTodayTimelineWithLowPressure` ; rafraîchi sur `INTENTIONS_CHANGED_EVENT_NAME`.
+
+**Source de vérité** : intentions du jour (projection SQLite + `metadata_json.trip`) — pas de table dédiée ; cohérence temps réel entre Timeline et Talk après patch Sentinel / toggle `remind_to_leave`.
 
 ##### 9. Notifications — Contrat de Départ (`NotificationService.ts`)
 
@@ -1027,7 +1051,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 **UI Showroom** : onglet **Debug** → section **🎨 EXPLORATION GRAPHIQUE (TEST THÈMES)** (sous « Vider la base ») — grille de 6 boutons tactiles ; bascule **instantanée** sans recompiler. Le panneau consomme lui-même les tokens (`cardBackground`, `cardShadowStyle`, `accentColor`).
 
-**Disposition Timeline (Debug, orthogonal aux skins)** : panneau **Disposition Timeline** sous le showroom — `CURRENT` (cartes plate) vs `EMAIL_HUB` (hub email) ; persisté `@trankil_debug_timeline_layout` via [`timelineLayoutRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/timelineLayoutRegistry.ts) + `ThemeContext.timelineLayoutMode`. Rollback = **Cartes actuelles**.
+**Disposition Timeline (Debug, orthogonal aux skins)** : panneau **Disposition Timeline** sous le showroom — `CURRENT` (cartes plate) vs `EMAIL_HUB` (hub email) ; persisté `@trankil_debug_timeline_layout` via [`timelineLayoutRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/timelineLayoutRegistry.ts) + `ThemeContext.timelineLayoutMode`. Rollback = **Cartes actuelles**. En mode `EMAIL_HUB`, le [**Sentinel Focus Badge**](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) (§ 8.c) précède les blocs catégorie sous « Aujourd’hui ».
 
 **Rollback** : sélectionner **Actuel (TellYouTo)** dans le showroom Debug → retour exact au design d’origine. En mode `CURRENT`, `applyDesignVariantToPaperTheme` reste un **no-op** et les tokens reproduisent `palette` + `paperTheme.ts`.
 

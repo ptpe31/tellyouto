@@ -20,7 +20,9 @@ import {
   getFreeCaptureQuotaSnapshot,
   getTrankilV2IntentionById,
   getTrankilV2UnorganizedCount,
+  listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2PinnedIntentions,
+  type TrankilIntentStatus,
 } from '../api/trankilV2Db';
 import { MAX_PINS_COUNT } from '../config/appConfig';
 import {
@@ -42,6 +44,7 @@ import { resolveTalkDebugSuggestionsBottomOffset, TALK_DEBUG_MIC_DOCK_MIN_HEIGHT
 import { useCapturePresentation } from '../context/CapturePresentationContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { DealerBoard } from '../components/DealerBoard';
+import { SentinelFocusBadge } from '../components/SentinelFocusBadge';
 import { IntentionSuggestionsBanner } from '../components/IntentionSuggestionsBanner';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
 import { PilotStatusHeader } from '../components/PilotStatusHeader';
@@ -168,6 +171,7 @@ export function TalkDebugScreen() {
   const [todayTodoCount, setTodayTodoCount] = useState(0);
   const [headerUnorganizedCount, setHeaderUnorganizedCount] = useState(0);
   const [pinnedRows, setPinnedRows] = useState<TrankilV2TimelineItemRow[]>([]);
+  const [todayFocusRows, setTodayFocusRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [sacredDetailOpen, setSacredDetailOpen] = useState(false);
   const [sacredDetailRow, setSacredDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
 
@@ -197,15 +201,18 @@ export function TalkDebugScreen() {
 
   const refreshPilotHeader = useCallback(async () => {
     const ymd = formatYmdLocal(new Date());
-    const [unorg, todayN, snap, pinned] = await Promise.all([
+    const status: TrankilIntentStatus = 'TODO';
+    const [unorg, todayN, snap, pinned, todayTimeline] = await Promise.all([
       getTrankilV2UnorganizedCount(),
       countTrankilV2RootTodoTasksDueOnLocalDate(ymd),
       spectrum.isProUser ? Promise.resolve(null) : getFreeCaptureQuotaSnapshot(),
       listTrankilV2PinnedIntentions(MAX_PINS_COUNT),
+      listTrankilV2MergedTodayTimelineWithLowPressure(ymd, status, 'ALL', { limit: 200, offset: 0 }),
     ]);
     setHeaderUnorganizedCount(unorg);
     setTodayTodoCount(todayN);
     setPinnedRows(pinned.map(mapTrankilIntentionToTimelineItemRow));
+    setTodayFocusRows(todayTimeline);
     if (snap) {
       setFreeQuotaSnapshot({ remaining: snap.remaining, max: snap.max });
     } else {
@@ -253,6 +260,11 @@ export function TalkDebugScreen() {
     setDetailPosition('full');
     setDetailPeekHeightPx(capturePeekPathAHeightPx());
     setPeekCapturePhase('idle');
+  }, []);
+
+  const openFocusTripDetail = useCallback((row: TrankilV2TimelineItemRow) => {
+    setSacredDetailRow(row);
+    setSacredDetailOpen(true);
   }, []);
 
   const closeSacredDetail = useCallback(() => {
@@ -494,6 +506,20 @@ export function TalkDebugScreen() {
 
       <View style={styles.middleSpacer} />
 
+      <View style={styles.sentinelFocusDock}>
+        <SentinelFocusBadge
+          rows={todayFocusRows}
+          todayYmd={formatYmdLocal(new Date())}
+          theme={theme}
+          onOpenDetail={openFocusTripDetail}
+          onOpenProPaywall={() => {
+            if (rootNavigationRef.isReady()) {
+              rootNavigationRef.navigate('ProSubscription');
+            }
+          }}
+        />
+      </View>
+
       <IntentionSuggestionsBanner
         visible={!captureRecordingActive && !isPipelineOverlayVisible}
         bottomOffset={resolveTalkDebugSuggestionsBottomOffset()}
@@ -535,6 +561,13 @@ const styles = StyleSheet.create({
   sacredText: { flex: 1, fontSize: 14, fontWeight: '600' },
   sacredDate: { fontWeight: '500', fontSize: 13 },
   middleSpacer: { flex: 1, minHeight: 0 },
+  sentinelFocusDock: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    maxWidth: 520,
+    width: '100%',
+    alignSelf: 'center',
+  },
   bottomSpacer: { minHeight: TALK_DEBUG_MIC_DOCK_MIN_HEIGHT },
   disabled: { opacity: 0.5 },
 });

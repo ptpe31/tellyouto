@@ -78,6 +78,7 @@ import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
 import { IntentionCard } from '../components/IntentionCard';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
+import { estimateSentinelFocusBadgeHeight, SentinelFocusBadge } from '../components/SentinelFocusBadge';
 import type { TripTimelineFooter } from '../utils/tripTimelineCard';
 import { useCapturePresentation } from '../context/CapturePresentationContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -100,6 +101,7 @@ import {
 } from '../features/livingHub';
 import { useAppTheme } from '../context/ThemeContext';
 import { Platform as RPlatform } from '../utils/rnPlatform';
+import { pickSentinelFocus } from '../utils/sentinelFocusSelection';
 
 /**
  * Onglet **Timeline** : lecture paginée SQLite (`listTrankilV2*`), filtres contexte / statut, cartes intention,
@@ -307,6 +309,7 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 
 const SECTION_HEADER_H = 36;
 const CARD_ROW_H = 120;
+const SENTINEL_FOCUS_FALLBACK_H = 168;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
   if (bubble === 'HOME') return 'HOME';
@@ -323,6 +326,7 @@ function takePage<T>(rows: T[], pageSize: number): { slice: T[]; hasMore: boolea
 
 type TimelineFlatItem =
   | { kind: 'section'; id: string; titleText: string }
+  | { kind: 'sentinelFocus'; id: string; rows: TrankilV2TimelineItemRow[] }
   | { kind: 'hubBlock'; id: string; block: HubBlock }
   | {
       kind: 'card';
@@ -350,15 +354,20 @@ function flattenForVirtualList(entries: ListEntry[], options?: { skipTodayYmd?: 
   return out;
 }
 
-function buildFlatListLayouts(items: TimelineFlatItem[]): { length: number; offset: number }[] {
+function buildFlatListLayouts(
+  items: TimelineFlatItem[],
+  sentinelFocusHeightById: Map<string, number>,
+): { length: number; offset: number }[] {
   let off = 0;
   return items.map((it) => {
     const len =
       it.kind === 'section'
         ? SECTION_HEADER_H
-        : it.kind === 'hubBlock'
-          ? CARD_ROW_H
-          : CARD_ROW_H;
+        : it.kind === 'sentinelFocus'
+          ? (sentinelFocusHeightById.get(it.id) ?? SENTINEL_FOCUS_FALLBACK_H)
+          : it.kind === 'hubBlock'
+            ? CARD_ROW_H
+            : CARD_ROW_H;
     const cur = { length: len, offset: off };
     off += len;
     return cur;
@@ -1331,6 +1340,8 @@ export function TimelineScreen() {
   const flatListItems = useMemo(() => {
     const todayYmd = toYmd(anchorDate);
     const todayLabel = t('horizons.today');
+    const todayEntry = listEntries.find((e) => e.id === todayYmd);
+    const todayRows = todayEntry?.rows ?? [];
     const base = flattenForVirtualList(
       listEntries,
       hubEligible ? { skipTodayYmd: todayYmd } : undefined,
@@ -1347,18 +1358,53 @@ export function TimelineScreen() {
         it.kind === 'section' &&
         it.titleText === todayLabel
       ) {
-        if (hubEligible && hubBlocks) {
-          for (const block of hubBlocks) {
-            out.push({ kind: 'hubBlock', id: `hub-${block.categoryId}`, block });
+        if (hubEligible) {
+          const focusPick = pickSentinelFocus(todayRows, {
+            todayYmd,
+            isProUser: spectrum.isProUser,
+            locale: i18n.language,
+          });
+          if (focusPick.activeTrip ?? focusPick.unconfiguredTrip) {
+            out.push({ kind: 'sentinelFocus', id: 'sentinel-focus', rows: todayRows });
+          }
+          if (hubBlocks) {
+            for (const block of hubBlocks) {
+              out.push({ kind: 'hubBlock', id: `hub-${block.categoryId}`, block });
+            }
           }
         }
         inserted = true;
       }
     }
     return out;
-  }, [anchorDate, contextBubble, hubBlocks, hubEligible, listEntries, t, timeNav]);
+  }, [
+    anchorDate,
+    contextBubble,
+    hubBlocks,
+    hubEligible,
+    i18n.language,
+    listEntries,
+    spectrum.isProUser,
+    t,
+    timeNav,
+  ]);
 
-  const flatListLayouts = useMemo(() => buildFlatListLayouts(flatListItems), [flatListItems]);
+  const flatListLayouts = useMemo(() => {
+    const todayYmd = toYmd(anchorDate);
+    const heightById = new Map<string, number>();
+    for (const it of flatListItems) {
+      if (it.kind !== 'sentinelFocus') continue;
+      heightById.set(
+        it.id,
+        estimateSentinelFocusBadgeHeight(it.rows, {
+          todayYmd,
+          isProUser: spectrum.isProUser,
+          locale: i18n.language,
+        }) || SENTINEL_FOCUS_FALLBACK_H,
+      );
+    }
+    return buildFlatListLayouts(flatListItems, heightById);
+  }, [anchorDate, flatListItems, i18n.language, spectrum.isProUser]);
 
   const getItemLayout = useCallback(
     (_: unknown, index: number) => {
@@ -1487,6 +1533,23 @@ export function TimelineScreen() {
           </View>
         );
       }
+      if (item.kind === 'sentinelFocus') {
+        return (
+          <View style={{ paddingHorizontal: 16 }}>
+            <SentinelFocusBadge
+              rows={item.rows}
+              todayYmd={toYmd(anchorDate)}
+              theme={theme}
+              onOpenDetail={openDetail}
+              onOpenProPaywall={() => {
+                if (rootNavigationRef.isReady()) {
+                  rootNavigationRef.navigate('ProSubscription');
+                }
+              }}
+            />
+          </View>
+        );
+      }
       if (item.kind === 'hubBlock') {
         return (
           <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
@@ -1539,6 +1602,7 @@ export function TimelineScreen() {
       anchorDate,
       designTokens,
       handleToggleRowComplete,
+      anchorDate,
       openHubBlock,
       openDetail,
       handleTripFooterPress,

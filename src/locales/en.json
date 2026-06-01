@@ -89,6 +89,9 @@
     "signalBTitle": "Departure reminder",
     "signalBBody": "{{capsule}} — Leave in about {{minutes}} min for {{destination}}."
   },
+  "sentinelFocus": {
+    "prompt": "Remind me when to leave for {{title}} at {{time}}?"
+  },
   "tripAlarm": {
     "pickerTitle": "Set an alarm",
     "pickerMessage": "Departure at {{time}}",
