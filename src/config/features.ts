@@ -1,2 +1,2 @@
-/** Autocomplete Places (debounce + session token). Désactivé en V1 — saisie manuelle + Geocoding au submit. */
+/** Autocomplete Places : mode Lazy-Fetch (loupe volontaire ≥ 12 car.) — plus de debounce automatique. */
 export const ENABLE_AUTOCOMPLETE = false;

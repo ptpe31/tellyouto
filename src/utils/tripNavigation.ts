@@ -142,3 +142,13 @@ export async function openTripNavigationFromRecords(input: {
   );
   await openTripNavigationUniversal({ origin, destination, mode, intentionId: input.intentionId });
 }
+
+/** Action primaire carte trajet — ouvre la navigation vers la destination. */
+export async function launchNavigation(input: {
+  trip: Record<string, unknown> | null;
+  destination: string;
+  transportMode?: string | null;
+  intentionId?: string;
+}): Promise<void> {
+  await openTripNavigationFromRecords(input);
+}

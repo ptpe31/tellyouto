@@ -102,4 +102,48 @@ export class AddressResolver {
 
     return { placeId: id, formattedAddress, lat, lng };
   }
+
+  static async fetchAutocompletePredictions(
+    text: string,
+    sessionToken: string,
+    language?: string,
+  ): Promise<Array<{ placeId: string; description: string }>> {
+    const query = String(text ?? '').trim();
+    if (!query) return [];
+
+    const apiKey = getMapsApiKey();
+    if (!apiKey) throw new Error('AddressResolver: missing api key');
+
+    console.log(`[API-CALL] 💸 GOOGLE PLACES AUTOCOMPLETE | Input: "${query}"`);
+
+    const url =
+      `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=` +
+      encodeURIComponent(query) +
+      `&key=` +
+      encodeURIComponent(apiKey) +
+      `&language=` +
+      encodeURIComponent(normalizeLanguage(language)) +
+      `&sessiontoken=` +
+      encodeURIComponent(sessionToken);
+
+    const res = await fetch(url);
+    const json = (await res.json()) as {
+      status?: string;
+      predictions?: Array<{ description?: string; place_id?: string }>;
+    };
+
+    if (!res.ok) throw new Error(`AddressResolver: http ${res.status}`);
+    if (json.status && json.status !== 'OK' && json.status !== 'ZERO_RESULTS') {
+      throw new Error(`AddressResolver: autocomplete ${json.status}`);
+    }
+
+    const rows = Array.isArray(json.predictions) ? json.predictions : [];
+    return rows
+      .map((p) => ({
+        placeId: String(p.place_id || ''),
+        description: String(p.description || '').trim(),
+      }))
+      .filter((p) => p.placeId && p.description)
+      .slice(0, 6);
+  }
 }

@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
-import { ENABLE_AUTOCOMPLETE } from '../config/features';
 import { AddressResolver, type AddressSelection } from '../services/addressResolver';
 
-const AUTOCOMPLETE_DEBOUNCE_MS = 500;
-const AUTOCOMPLETE_MIN_CHARS = 4;
+/** Seuil « recherche approfondie » — autocomplete uniquement via la loupe. */
+export const LAZY_FETCH_SEARCH_MIN_CHARS = 12;
 
 type Prediction = { placeId: string; description: string };
 
@@ -28,13 +27,16 @@ export type UseAddressLogicResult = {
   value: string;
   onChangeText: (text: string) => void;
   onSubmitManual: () => void;
+  onLoupePress: () => void;
+  onClearPress: () => void;
   loading: boolean;
   error: string | null;
   predictions: Prediction[];
   onPickPrediction: (prediction: Prediction) => void;
   missingApiKey: boolean;
-  showAutocomplete: boolean;
-  submitLabel: string;
+  isSearchable: boolean;
+  isValidated: boolean;
+  predictionsVisible: boolean;
 };
 
 export function useAddressLogic(params: UseAddressLogicParams): UseAddressLogicResult {
@@ -43,7 +45,8 @@ export function useAddressLogic(params: UseAddressLogicParams): UseAddressLogicR
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
-  const [lastQuery, setLastQuery] = useState('');
+  const [predictionsVisible, setPredictionsVisible] = useState(false);
+  const [isValidated, setIsValidated] = useState(false);
   const sessionTokenRef = useRef(createSessionToken());
 
   const lang = useMemo(() => {
@@ -51,13 +54,40 @@ export function useAddressLogic(params: UseAddressLogicParams): UseAddressLogicR
     return l || 'fr';
   }, [language]);
 
+  const trimmed = value.trim();
+  const isSearchable = trimmed.length >= LAZY_FETCH_SEARCH_MIN_CHARS;
+
   const resetSessionToken = useCallback(() => {
     sessionTokenRef.current = createSessionToken();
   }, []);
 
+  const finishSelection = useCallback(
+    (place: AddressSelection) => {
+      onChangeText(place.formattedAddress);
+      onSelect(place);
+      setPredictions([]);
+      setPredictionsVisible(false);
+      setIsValidated(true);
+      setError(null);
+      resetSessionToken();
+    },
+    [onChangeText, onSelect, resetSessionToken],
+  );
+
+  const handleChangeText = useCallback(
+    (text: string) => {
+      if (disabled || isValidated) return;
+      onChangeText(text);
+      setPredictions([]);
+      setPredictionsVisible(false);
+      setError(null);
+    },
+    [disabled, isValidated, onChangeText],
+  );
+
   const onSubmitManual = useCallback(() => {
-    if (disabled || loading) return;
-    const q = value.trim();
+    if (disabled || loading || isValidated) return;
+    const q = trimmed;
     if (!q) {
       setError('empty');
       return;
@@ -71,30 +101,64 @@ export function useAddressLogic(params: UseAddressLogicParams): UseAddressLogicR
     void (async () => {
       try {
         const place = await AddressResolver.resolveManual(q, lang);
-        onChangeText(place.formattedAddress);
-        onSelect(place);
-        setPredictions([]);
-        resetSessionToken();
+        finishSelection(place);
       } catch {
         setError('resolve_failed');
       } finally {
         setLoading(false);
       }
     })();
-  }, [apiKey, disabled, lang, loading, onChangeText, onSelect, resetSessionToken, value]);
+  }, [apiKey, disabled, finishSelection, isValidated, lang, loading, trimmed]);
+
+  const onLoupePress = useCallback(() => {
+    if (disabled || loading || isValidated || !isSearchable || !apiKey) return;
+    const q = trimmed;
+    if (!q) return;
+
+    setError(null);
+    setLoading(true);
+    setPredictionsVisible(true);
+    void (async () => {
+      try {
+        const rows = await AddressResolver.fetchAutocompletePredictions(
+          q,
+          sessionTokenRef.current,
+          lang,
+        );
+        setPredictions(rows);
+        if (rows.length === 0) {
+          setError('resolve_failed');
+        }
+      } catch {
+        setPredictions([]);
+        setError('resolve_failed');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [apiKey, disabled, isSearchable, isValidated, lang, loading, trimmed]);
+
+  const onClearPress = useCallback(() => {
+    if (disabled || loading) return;
+    setIsValidated(false);
+    onChangeText('');
+    setPredictions([]);
+    setPredictionsVisible(false);
+    setError(null);
+    resetSessionToken();
+  }, [disabled, loading, onChangeText, resetSessionToken]);
 
   const onPickPrediction = useCallback(
     (prediction: Prediction) => {
-      if (disabled || loading || !apiKey) return;
+      if (disabled || loading || isValidated || !apiKey) return;
       setPredictions([]);
+      setPredictionsVisible(false);
       setLoading(true);
       setError(null);
       void (async () => {
         try {
           const place = await AddressResolver.resolveFromPlaceId(prediction.placeId, lang);
-          onChangeText(place.formattedAddress);
-          onSelect(place);
-          resetSessionToken();
+          finishSelection(place);
         } catch {
           setError('resolve_failed');
         } finally {
@@ -102,72 +166,22 @@ export function useAddressLogic(params: UseAddressLogicParams): UseAddressLogicR
         }
       })();
     },
-    [apiKey, disabled, lang, loading, onChangeText, onSelect, resetSessionToken],
+    [apiKey, disabled, finishSelection, isValidated, lang, loading],
   );
-
-  useEffect(() => {
-    if (!ENABLE_AUTOCOMPLETE || !apiKey || disabled) {
-      setPredictions([]);
-      return;
-    }
-
-    const q = value.trim();
-    if (q.length < AUTOCOMPLETE_MIN_CHARS) {
-      setPredictions([]);
-      setLoading(false);
-      return;
-    }
-
-    const token = setTimeout(() => {
-      void (async () => {
-        if (q === lastQuery) return;
-        setLastQuery(q);
-        setLoading(true);
-        try {
-          console.log(`[API-CALL] 💸 GOOGLE PLACES AUTOCOMPLETE | Input: "${q}"`);
-          const url =
-            `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=` +
-            encodeURIComponent(q) +
-            `&key=` +
-            encodeURIComponent(apiKey) +
-            `&language=` +
-            encodeURIComponent(lang) +
-            `&sessiontoken=` +
-            encodeURIComponent(sessionTokenRef.current);
-          const res = await fetch(url);
-          const json = (await res.json()) as {
-            predictions?: Array<{ description?: string; place_id?: string }>;
-          };
-          const rows = Array.isArray(json.predictions) ? json.predictions : [];
-          const next: Prediction[] = rows
-            .map((p) => ({
-              placeId: String(p.place_id || ''),
-              description: String(p.description || '').trim(),
-            }))
-            .filter((p) => p.placeId && p.description)
-            .slice(0, 6);
-          setPredictions(next);
-        } catch {
-          setPredictions([]);
-        } finally {
-          setLoading(false);
-        }
-      })();
-    }, AUTOCOMPLETE_DEBOUNCE_MS);
-
-    return () => clearTimeout(token);
-  }, [apiKey, disabled, lang, lastQuery, value]);
 
   return {
     value,
-    onChangeText,
+    onChangeText: handleChangeText,
     onSubmitManual,
+    onLoupePress,
+    onClearPress,
     loading,
     error,
     predictions,
     onPickPrediction,
     missingApiKey: !apiKey,
-    showAutocomplete: ENABLE_AUTOCOMPLETE,
-    submitLabel: 'OK',
+    isSearchable,
+    isValidated,
+    predictionsVisible,
   };
 }

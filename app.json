@@ -20,7 +20,9 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Surveillance du trafic en temps réel pour optimiser l'horaire de départ vers vos rendez-vous. La position n'est utilisée que pendant une mission trajet active.",
         "LSApplicationQueriesSchemes": [
           "waze",
-          "comgooglemaps"
+          "comgooglemaps",
+          "clock-alarm",
+          "clock-worldclock"
         ],
         "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
         "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone.",
@@ -51,10 +53,32 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.SCHEDULE_EXACT_ALARM"
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "com.android.alarm.permission.SET_ALARM"
       ],
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "queries": [
+        {
+          "intent": [
+            {
+              "action": "android.intent.action.SET_ALARM"
+            },
+            {
+              "action": "android.intent.action.SHOW_ALARMS"
+            }
+          ]
+        },
+        {
+          "package": "com.google.android.deskclock"
+        },
+        {
+          "package": "com.sec.android.app.clockpackage"
+        },
+        {
+          "package": "com.android.deskclock"
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -89,6 +89,16 @@
     "signalBTitle": "Departure reminder",
     "signalBBody": "{{capsule}} — Leave in about {{minutes}} min for {{destination}}."
   },
+  "tripAlarm": {
+    "pickerTitle": "Set an alarm",
+    "pickerMessage": "Departure at {{time}}",
+    "pickerMessageWithLabel": "{{label}} — {{time}}",
+    "openClock": "Clock",
+    "departureLabel": "{{place}} depart {{time}}",
+    "a11yOpenAlarm": "Set a departure alarm",
+    "iosManualHint": "Open Clock and create an alarm at {{time}}.\nSuggested name: {{label}}",
+    "androidUnavailable": "Could not open Clock. Set an alarm at {{time}} ({{label}})."
+  },
   "intentionDetail": {
     "source": "Source",
     "checklist": "Checklist",

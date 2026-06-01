@@ -2,16 +2,23 @@ import React, { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
+import { Navigation2 } from 'lucide-react-native';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { generateSmartTitle } from '../services/smartTitle';
+import { AlarmService } from '../services/alarmService';
+import { readTripPromiseReference } from '../services/traffic/sentinelElasticTripMetadata';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
 import { formatCreationSubtitle } from '../utils/timeFormat';
-import { ElasticDepartureCapsule } from './ElasticDepartureCapsule';
+import {
+  ElasticDepartureCapsule,
+  ELASTIC_CAPSULE_COLORS,
+  getElasticTrafficColor,
+} from './ElasticDepartureCapsule';
 import { TripNeumorphicOrb, TRIP_ORB_SIZE } from './TripNeumorphicOrb';
 import { hasTripStandardDurationMin, isTripAllDay } from '../utils/tripElasticDisplay';
 import {
@@ -23,7 +30,7 @@ import {
   resolveTripTimelineFooter,
   type TripTimelineFooter,
 } from '../utils/tripTimelineCard';
-import { openTripNavigationFromRecords } from '../utils/tripNavigation';
+import { launchNavigation } from '../utils/tripNavigation';
 import { isTripMissionActive } from '../utils/tripTripReadiness';
 import { normalizeTripTransportMode } from '../utils/tripTransportMode';
 
@@ -119,6 +126,13 @@ function getTripTransportIcon(raw: string | null | undefined): string | null {
   return 'car';
 }
 
+function formatHmFromUnix(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
 function tripFooterLabel(footer: TripTimelineFooter, t: (key: string, opts?: Record<string, unknown>) => string): string {
   if (!footer || typeof footer.kind !== 'string') return '';
   switch (footer.kind) {
@@ -195,20 +209,13 @@ export function IntentionCard({
   const tripCapsuleClockActive = Boolean(tripCapsuleModel);
   const tripCapsuleNowMs = useProbeScheduleClock(tripCapsuleClockActive);
 
-  const onPressTripCapsuleNavigation = useCallback(
-    (e?: { stopPropagation?: () => void }) => {
-      e?.stopPropagation?.();
-      if (!trip) return;
-      const destination = resolveTripNavigationDestination(trip, meta, row.display_title);
-      void openTripNavigationFromRecords({
-        trip,
-        destination,
-        transportMode: row.transport_mode,
-        intentionId: row.id,
-      });
-    },
-    [meta, row.display_title, row.transport_mode, trip],
-  );
+  const tripPromiseRef = useMemo(() => readTripPromiseReference(trip), [trip]);
+
+  const tripNavOrbColor = useMemo(() => {
+    if (!tripCapsuleModel) return ELASTIC_CAPSULE_COLORS.green;
+    if (tripCapsuleNowMs > tripCapsuleModel.endMs) return ELASTIC_CAPSULE_COLORS.graphite;
+    return getElasticTrafficColor(tripCapsuleModel.ratioD);
+  }, [tripCapsuleModel, tripCapsuleNowMs]);
 
   const titleText = useMemo(() => {
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
@@ -221,6 +228,34 @@ export function IntentionCard({
     if (row.type === 'NOTE') return t('timeline.note');
     return t('timeline.untitled');
   }, [i18n.language, row.content_raw, row.display_title, row.type, t]);
+
+  const onPressTripNavigation = useCallback(
+    (e?: { stopPropagation?: () => void }) => {
+      e?.stopPropagation?.();
+      if (!trip) return;
+      const destination = resolveTripNavigationDestination(trip, meta, row.display_title);
+      void launchNavigation({
+        trip,
+        destination,
+        transportMode: row.transport_mode,
+        intentionId: row.id,
+      });
+    },
+    [meta, row.display_title, row.id, row.transport_mode, trip],
+  );
+
+  const onPressTripAlarm = useCallback(
+    (e?: { stopPropagation?: () => void }) => {
+      e?.stopPropagation?.();
+      const endMs = tripCapsuleModel?.endMs;
+      if (!Number.isFinite(endMs) || endMs <= 0) return;
+      const alarmUnix = Math.floor(endMs / 1000);
+      const time = formatHmFromUnix(alarmUnix);
+      const label = t('tripAlarm.departureLabel', { place: titleText, time });
+      void AlarmService.openAlarmSelection(alarmUnix, label);
+    },
+    [tripCapsuleModel?.endMs, t, titleText],
+  );
 
   const subtitle = useMemo(() => {
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
@@ -287,7 +322,8 @@ export function IntentionCard({
   }, [row.transport_mode, trip]);
 
   const categoryIcon = useMemo(() => getCategoryIcon(row.category_id, row.type), [row.category_id, row.type]);
-  const circleIcon = pendingLocalDone ? 'check' : tripIcon ?? categoryIcon;
+  const showTripGpsOrb = isTripCard && !pendingLocalDone;
+  const circleIcon = pendingLocalDone ? 'check' : showTripGpsOrb ? null : tripIcon ?? categoryIcon;
   const iconColor = pendingLocalDone ? '#065f46' : designTokens.accentColor;
 
   const titleOpacity = pendingLocalDone ? 0.5 : 1;
@@ -320,15 +356,27 @@ export function IntentionCard({
       ]}
     >
       <View style={styles.row}>
-        <TripNeumorphicOrb
-          theme={theme}
-          size="card"
-          icon={circleIcon}
-          iconColor={iconColor}
-          onPress={enabled ? onToggleComplete : undefined}
-          disabled={!enabled}
-          accessibilityLabel={t('timeline.a11yTaskComplete')}
-        />
+        {showTripGpsOrb ? (
+          <TripNeumorphicOrb
+            theme={theme}
+            size="card"
+            backgroundColor={tripNavOrbColor}
+            onPress={onPressTripNavigation}
+            accessibilityLabel={t('intentionDetail.launchRoute')}
+          >
+            <Navigation2 size={22} color="#FFFFFF" strokeWidth={2.5} />
+          </TripNeumorphicOrb>
+        ) : (
+          <TripNeumorphicOrb
+            theme={theme}
+            size="card"
+            icon={circleIcon ?? categoryIcon}
+            iconColor={iconColor}
+            onPress={enabled ? onToggleComplete : undefined}
+            disabled={!enabled}
+            accessibilityLabel={t('timeline.a11yTaskComplete')}
+          />
+        )}
 
         <View style={styles.textCol}>
           <View style={styles.titleRow}>
@@ -359,8 +407,11 @@ export function IntentionCard({
             endMs={tripCapsuleModel.endMs}
             nowMs={tripCapsuleNowMs}
             ratioD={tripCapsuleModel.ratioD}
-            onPress={() => onPressTripCapsuleNavigation()}
+            onNavigationPress={() => onPressTripNavigation()}
+            onAlarmPress={tripPromiseRef ? () => onPressTripAlarm() : undefined}
+            showAlarmIcon={Boolean(tripPromiseRef)}
             navigationLabel={t('intentionDetail.launchRoute')}
+            alarmA11yLabel={t('tripAlarm.a11yOpenAlarm')}
             variant="compact"
             lateVariant="graphite"
             theme={theme}

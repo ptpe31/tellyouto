@@ -5,7 +5,7 @@ import { useAddressLogic } from '../../hooks/useAddressLogic';
 import type { AddressSelection } from '../../services/addressResolver';
 import { AddressInput } from './AddressInput';
 
-/** Drop-in Sentinel / trip address field — hook + UI séparés, autocomplete dormant si ENABLE_AUTOCOMPLETE=false. */
+/** Drop-in trip address field — Lazy-Fetch autocomplete (loupe ≥ 12 car., geocoding manuel sinon). */
 export function AddressInputField(props: {
   value: string;
   placeholder?: string;
@@ -30,12 +30,15 @@ export function AddressInputField(props: {
       value={logic.value}
       onChangeText={logic.onChangeText}
       onSubmitManual={logic.onSubmitManual}
+      onLoupePress={logic.onLoupePress}
+      onClearPress={logic.onClearPress}
       loading={logic.loading}
       error={logic.error}
       predictions={logic.predictions}
       onPickPrediction={logic.onPickPrediction}
-      showAutocomplete={logic.showAutocomplete}
-      submitLabel={logic.submitLabel}
+      isSearchable={logic.isSearchable}
+      isValidated={logic.isValidated}
+      predictionsVisible={logic.predictionsVisible}
       placeholder={props.placeholder}
       disabled={props.disabled}
       autoFocus={props.autoFocus}

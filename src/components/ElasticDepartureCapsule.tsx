@@ -1,5 +1,5 @@
-import { Navigation2 } from 'lucide-react-native';
-import React, { useEffect, useMemo, useState } from 'react';
+import { AlarmClock, Navigation2 } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -10,13 +10,7 @@ import {
 } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
 
-import { TripNeumorphicOrb } from './TripNeumorphicOrb';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
+import { TRIP_ORB_SIZE } from './TripNeumorphicOrb';
 
 /** Couleurs système iOS — trafic / alerte. */
 export const ELASTIC_CAPSULE_COLORS = {
@@ -39,13 +33,19 @@ export type ElasticDepartureCapsuleProps = {
   endMs: number;
   nowMs: number;
   ratioD: number;
-  onPress: () => void;
+  /** Action GPS (zone exécution — hors capsule si gérée par la carte). */
+  onNavigationPress: () => void;
+  /** Action réveil (zone planification, droite de la barre). */
+  onAlarmPress?: () => void;
+  /** Affiche l’icône réveil (promesse P1 validée, masquée après `endMs`). */
+  showAlarmIcon?: boolean;
   /** Libellé bouton mode retard (défaut : Navigation). */
   navigationLabel?: string;
+  /** Libellé accessibilité réveil. */
+  alarmA11yLabel?: string;
   variant?: ElasticDepartureCapsuleVariant;
   /** Style du bouton GPS en retard (`graphite` pour la timeline). */
   lateVariant?: ElasticDepartureCapsuleLateVariant;
-  /** Requis pour l’orbe GPS (`TripNeumorphicOrb`, taille compact). */
   theme?: MD3Theme;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -93,6 +93,7 @@ const LAYOUT = {
     lateIcon: 22,
     lateFont: 17,
     latePadV: 16,
+    variant: 'default' as const,
   },
   compact: {
     trackHeight: 6,
@@ -108,8 +109,50 @@ const LAYOUT = {
     lateIcon: 18,
     lateFont: 14,
     latePadV: 10,
+    variant: 'compact' as const,
   },
 } as const;
+
+type CapsuleLayout = (typeof LAYOUT)[keyof typeof LAYOUT];
+
+type AlarmSlotProps = {
+  layout: CapsuleLayout;
+  visible: boolean;
+  onPress?: () => void;
+  alarmA11yLabel?: string;
+};
+
+function AlarmSlot({ layout, visible, onPress, alarmA11yLabel }: AlarmSlotProps) {
+  const slotSize = layout.navBadge;
+  if (!visible) {
+    return <View style={{ width: slotSize, height: slotSize, opacity: 0 }} pointerEvents="none" />;
+  }
+
+  const iconSize = layout.variant === 'compact' ? 20 : 22;
+  const enabled = Boolean(onPress);
+
+  return (
+    <Pressable
+      onPress={(e) => {
+        e?.stopPropagation?.();
+        onPress?.();
+      }}
+      disabled={!enabled}
+      accessibilityRole="button"
+      accessibilityLabel={alarmA11yLabel}
+      accessibilityState={{ disabled: !enabled }}
+      hitSlop={8}
+      style={({ pressed }) => [
+        styles.alarmSlot,
+        { width: slotSize, height: slotSize },
+        !enabled && styles.alarmSlotDisabled,
+        pressed && enabled ? styles.pressed : null,
+      ]}
+    >
+      <AlarmClock size={iconSize} color="rgba(60, 60, 67, 0.85)" strokeWidth={2.2} />
+    </Pressable>
+  );
+}
 
 type LateNavigationButtonProps = {
   endMs: number;
@@ -117,7 +160,6 @@ type LateNavigationButtonProps = {
   label: string;
   onPress: () => void;
   lateVariant: ElasticDepartureCapsuleLateVariant;
-  theme?: MD3Theme;
   compact: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -129,7 +171,6 @@ function LateNavigationButton({
   label,
   onPress,
   lateVariant,
-  theme,
   compact,
   style,
   testID,
@@ -137,50 +178,8 @@ function LateNavigationButton({
   const layout = compact ? LAYOUT.compact : LAYOUT.default;
   const graphite = lateVariant === 'graphite';
 
-  if (graphite && theme) {
-    const endLabel = formatHm(endMs);
-
-    return (
-      <View
-        style={[
-          styles.capsuleOuter,
-          compact ? styles.capsuleOuterCompact : null,
-          styles.lateCapsuleShell,
-          style,
-        ]}
-      >
-        <View
-          style={[
-            styles.capsuleInner,
-            styles.lateCapsuleInner,
-            {
-              paddingVertical: layout.padV,
-              paddingHorizontal: layout.padH,
-              gap: layout.gap,
-            },
-          ]}
-        >
-          <View style={styles.lateTrackSpacer} />
-          <Text
-            style={[styles.edgeLabel, styles.lateEndLabelGhost, { fontSize: layout.edgeFont, minWidth: layout.edgeMinW }]}
-            importantForAccessibility="no-hide-descendants"
-            accessibilityElementsHidden
-          >
-            {endLabel}
-          </Text>
-          <TripNeumorphicOrb
-            theme={theme}
-            size="compact"
-            backgroundColor={ELASTIC_CAPSULE_COLORS.graphite}
-            onPress={onPress}
-            accessibilityLabel={label}
-            testID={testID}
-          >
-            <Navigation2 size={layout.navIcon} color="#FFFFFF" strokeWidth={2.5} />
-          </TripNeumorphicOrb>
-        </View>
-      </View>
-    );
+  if (graphite) {
+    return null;
   }
 
   const { background, foreground } = getLateButtonColors(ratioD);
@@ -210,16 +209,18 @@ function LateNavigationButton({
 }
 
 /**
- * Capsule « Contrat de Départ » — visualisation Apple-like du créneau élastique.
- * Réutilisable dans l’app et les layouts de notification (composant autonome).
+ * Capsule « Contrat de Départ » — barre de progression statique + réveil à droite.
  */
 export function ElasticDepartureCapsule({
   startMs,
   endMs,
   nowMs,
   ratioD,
-  onPress,
+  onNavigationPress,
+  onAlarmPress,
+  showAlarmIcon = false,
   navigationLabel = 'Navigation',
+  alarmA11yLabel = 'Alarm',
   variant = 'default',
   lateVariant = 'traffic',
   theme,
@@ -229,6 +230,7 @@ export function ElasticDepartureCapsule({
   const compact = variant === 'compact';
   const layout = compact ? LAYOUT.compact : LAYOUT.default;
   const isLate = Number.isFinite(nowMs) && Number.isFinite(endMs) && nowMs > endMs;
+  const alarmVisible = showAlarmIcon && !isLate;
   const trafficColor = getElasticTrafficColor(ratioD);
 
   const progress = useMemo(() => {
@@ -238,36 +240,18 @@ export function ElasticDepartureCapsule({
   }, [startMs, endMs, nowMs]);
 
   const [trackWidth, setTrackWidth] = useState(0);
-  const progressSv = useSharedValue(progress);
+  const fillWidth = Math.max(0, trackWidth * progress);
+  const thumbMaxX = Math.max(0, trackWidth - layout.thumbSize);
+  const thumbX = progress * thumbMaxX;
 
-  useEffect(() => {
-    progressSv.value = withTiming(progress, {
-      duration: 320,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [progress, progressSv]);
-
-  const fillStyle = useAnimatedStyle(() => {
-    const w = Math.max(0, trackWidth * progressSv.value);
-    return { width: w };
-  }, [trackWidth]);
-
-  const thumbStyle = useAnimatedStyle(() => {
-    const maxX = Math.max(0, trackWidth - layout.thumbSize);
-    return {
-      transform: [{ translateX: progressSv.value * maxX }],
-    };
-  }, [layout.thumbSize, trackWidth]);
-
-  if (isLate) {
+  if (isLate && lateVariant === 'traffic') {
     return (
       <LateNavigationButton
         endMs={endMs}
         ratioD={ratioD}
         label={navigationLabel}
-        onPress={onPress}
+        onPress={onNavigationPress}
         lateVariant={lateVariant}
-        theme={theme}
         compact={compact}
         style={style}
         testID={testID}
@@ -278,21 +262,16 @@ export function ElasticDepartureCapsule({
   const startLabel = formatHm(startMs);
   const endLabel = formatHm(endMs);
   const startLabelPassed = Number.isFinite(nowMs) && Number.isFinite(startMs) && nowMs > startMs;
-  const accessibilityLabel = `Départ entre ${startLabel} et ${endLabel}. Ouvrir la navigation.`;
 
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      testID={testID}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.capsuleOuter,
         compact ? styles.capsuleOuterCompact : null,
         { borderRadius: layout.radius },
-        pressed && styles.pressed,
         style,
       ]}
+      testID={testID}
     >
       <View
         style={[
@@ -322,17 +301,24 @@ export function ElasticDepartureCapsule({
           }}
         >
           <View style={[styles.trackBg, { height: layout.trackHeight, borderRadius: layout.trackHeight / 2 }]}>
-            <Animated.View
-              style={[styles.trackFill, fillStyle, { backgroundColor: trafficColor, borderRadius: layout.trackHeight / 2 }]}
+            <View
+              style={[
+                styles.trackFill,
+                {
+                  width: fillWidth,
+                  backgroundColor: trafficColor,
+                  borderRadius: layout.trackHeight / 2,
+                },
+              ]}
             />
             <View style={styles.deadlineWall} />
           </View>
 
-          <Animated.View
+          <View
             style={[
               styles.thumb,
-              thumbStyle,
               {
+                transform: [{ translateX: thumbX }],
                 borderColor: trafficColor,
                 width: layout.thumbSize,
                 height: layout.thumbSize,
@@ -352,32 +338,19 @@ export function ElasticDepartureCapsule({
                 },
               ]}
             />
-          </Animated.View>
+          </View>
         </View>
 
         <Text style={[styles.edgeLabel, { fontSize: layout.edgeFont, minWidth: layout.edgeMinW }]}>{endLabel}</Text>
 
-        {theme ? (
-          <TripNeumorphicOrb theme={theme} size="compact" backgroundColor={trafficColor}>
-            <Navigation2 size={layout.navIcon} color="#FFFFFF" strokeWidth={2.5} />
-          </TripNeumorphicOrb>
-        ) : (
-          <View
-            style={[
-              styles.navBadgeFallback,
-              {
-                backgroundColor: trafficColor,
-                width: layout.navBadge,
-                height: layout.navBadge,
-                borderRadius: layout.navBadge / 2,
-              },
-            ]}
-          >
-            <Navigation2 size={layout.navIcon} color="#FFFFFF" strokeWidth={2.5} />
-          </View>
-        )}
+        <AlarmSlot
+          layout={layout}
+          visible={alarmVisible}
+          onPress={alarmVisible ? onAlarmPress : undefined}
+          alarmA11yLabel={alarmA11yLabel}
+        />
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -450,29 +423,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   thumbCore: {},
-  navBadgeFallback: {
+  alarmSlot: {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  alarmSlotDisabled: {
+    opacity: 0.35,
+  },
   pressed: {
     opacity: 0.88,
-    transform: [{ scale: 0.985 }],
-  },
-  lateCapsuleShell: {
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  lateCapsuleInner: {
-    width: '100%',
-  },
-  lateTrackSpacer: {
-    flex: 1,
-    minWidth: 0,
-  },
-  lateEndLabelGhost: {
-    opacity: 0,
   },
   lateButton: {
     width: '100%',
@@ -488,3 +447,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 });
+
+export { TRIP_ORB_SIZE };

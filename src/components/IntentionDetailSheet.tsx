@@ -53,6 +53,8 @@ import {
   wakeTripMissionAfterTimedRestore,
 } from '../services/traffic/sentinelReconciler';
 import { clearAllDepartureNotifications } from '../services/NotificationService';
+import { AlarmService } from '../services/alarmService';
+import { readTripPromiseReference } from '../services/traffic/sentinelElasticTripMetadata';
 import { cancelTripMission, suspendTripMissionForAllDay } from '../services/traffic/sentinelTripMission';
 import { toggleTripSurveillanceForRow } from '../services/traffic/tripSurveillanceToggle';
 import { showAppToast } from '../services/appToast';
@@ -1380,6 +1382,11 @@ export function IntentionDetailSheet({
     return { startMs, endMs, ratioD };
   }, [elasticSlotDisplay, isProUser, isTrip, trip, tripIsAllDay]);
 
+  const tripPromiseRef = useMemo(
+    () => readTripPromiseReference(trip as Record<string, unknown> | null),
+    [trip],
+  );
+
   const elasticDepartureTextFallback = useMemo(() => {
     if (!elasticSlotDisplay?.windowLabel) return null;
     if (elasticSlotDisplay.shifted) {
@@ -2443,6 +2450,17 @@ export function IntentionDetailSheet({
     });
   }, [destinationLabel, originText, row?.id, savedArrivalAddress, transportMode]);
 
+  const launchTripDepartureAlarm = useCallback(() => {
+    const endMs = elasticDepartureCapsuleModel?.endMs;
+    if (!Number.isFinite(endMs) || endMs <= 0) return;
+    const alarmUnix = Math.floor(endMs / 1000);
+    const d = new Date(endMs);
+    const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const place = destinationLabel || String(row?.display_title ?? '').trim() || t('intentionDetail.labelItinerary');
+    const label = t('tripAlarm.departureLabel', { place, time });
+    void AlarmService.openAlarmSelection(alarmUnix, label);
+  }, [destinationLabel, elasticDepartureCapsuleModel?.endMs, row?.display_title, t]);
+
   const projectCalendarMode = useMemo(() => {
     if (!isProject || !projectPayload) return false;
     if (projectStartDraftYmd) return true;
@@ -3307,8 +3325,11 @@ export function IntentionDetailSheet({
                       endMs={elasticDepartureCapsuleModel.endMs}
                       nowMs={elasticCapsuleNowMs}
                       ratioD={elasticDepartureCapsuleModel.ratioD}
-                      onPress={launchTripNavigation}
+                      onNavigationPress={launchTripNavigation}
+                      onAlarmPress={tripPromiseRef ? launchTripDepartureAlarm : undefined}
+                      showAlarmIcon={Boolean(tripPromiseRef)}
                       navigationLabel={t('intentionDetail.launchRoute')}
+                      alarmA11yLabel={t('tripAlarm.a11yOpenAlarm')}
                       theme={theme}
                       style={[
                         styles.comfortDepartureCapsule,

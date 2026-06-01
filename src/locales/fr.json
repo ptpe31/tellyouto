@@ -89,6 +89,16 @@
     "signalBTitle": "Rappel de départ",
     "signalBBody": "{{capsule}} — Partez dans environ {{minutes}} min pour {{destination}}."
   },
+  "tripAlarm": {
+    "pickerTitle": "Régler une alarme",
+    "pickerMessage": "Départ prévu à {{time}}",
+    "pickerMessageWithLabel": "{{label}} — {{time}}",
+    "openClock": "Horloge",
+    "departureLabel": "{{place}} départ {{time}}",
+    "a11yOpenAlarm": "Régler une alarme pour le départ",
+    "iosManualHint": "Ouvrez Horloge et créez une alarme à {{time}}.\nNom suggéré : {{label}}",
+    "androidUnavailable": "Impossible d’ouvrir l’horloge. Réglez une alarme à {{time}} ({{label}})."
+  },
   "intentionDetail": {
     "source": "Source",
     "checklist": "Checklist",
