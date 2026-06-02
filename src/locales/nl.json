@@ -73,6 +73,8 @@
   },
   "sentinelFocus": {
     "prompt": "Herinner me wanneer ik moet vertrekken voor {{title}} om {{time}}?",
+    "promptLine1": "Herinner me wanneer ik moet vertrekken voor {{tripName}}",
+    "promptLine2": "(Gewenste aankomst: {{dueTimeHm}})",
     "departureTitle": "Vertrek naar {{name}}",
     "arrivalSubtitle": "Aankomst: {{time}}"
   },

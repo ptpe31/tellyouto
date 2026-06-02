@@ -73,6 +73,8 @@
   },
   "sentinelFocus": {
     "prompt": "Remind me when to leave for {{title}} at {{time}}?",
+    "promptLine1": "Remind me when to leave for {{tripName}}",
+    "promptLine2": "(Desired arrival: {{dueTimeHm}})",
     "departureTitle": "Leave for {{name}}",
     "arrivalSubtitle": "Arrive: {{time}}"
   },

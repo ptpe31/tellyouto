@@ -11,8 +11,9 @@ import { getTripMetaFromRoot } from './tripTimelineCard';
 import { isTripMissionActive, isTripReadyForScan } from './tripTripReadiness';
 
 export type SentinelFocusPick = {
-  /** Trajet éligible au micro-dashboard (promesse P1 + fenêtre capsule). */
+  /** Trajet éligible au micro-dashboard (promesse P1 + fenêtre capsule), non expiré. */
   microDashboardTrip: TrankilV2TimelineItemRow | null;
+  /** Premier candidat suggestion trouvé par la cascade glissante chronologique. */
   unconfiguredTrip: TrankilV2TimelineItemRow | null;
 };
 
@@ -87,6 +88,28 @@ export function readTripContext(row: TrankilV2TimelineItemRow) {
   const meta = safeParseMeta(row.metadata_json);
   const trip = getTripMetaFromRoot(meta);
   return { meta, trip };
+}
+
+/** Trajet déjà traité (surveillance ON ou promesse P1) — exclu de la cascade suggestion. */
+export function isSentinelTripConfigured(row: TrankilV2TimelineItemRow): boolean {
+  const { trip } = readTripContext(row);
+  return Boolean(row.remind_to_leave) || Boolean(trip && hasTripPromiseValidated(trip));
+}
+
+/** Tri chronologique strict : arrivée souhaitée la plus ancienne en premier. */
+export function sortTodayTripsByArrivalChronology(
+  rows: TrankilV2TimelineItemRow[],
+  todayYmd: string,
+): TrankilV2TimelineItemRow[] {
+  const todayTrips = rows.filter((r) => isTripTimelineRow(r) && isRowDueOnYmd(r, todayYmd));
+  return [...todayTrips].sort((a, b) => {
+    const ma = resolveTripArrivalDueMs(a);
+    const mb = resolveTripArrivalDueMs(b);
+    const aKey = ma ?? Number.POSITIVE_INFINITY;
+    const bKey = mb ?? Number.POSITIVE_INFINITY;
+    if (aKey !== bKey) return aKey - bKey;
+    return hubItemSortKey(a).localeCompare(hubItemSortKey(b));
+  });
 }
 
 /** Candidat micro-dashboard : promesse P1 validée + bundle capsule (fenêtre élastique). */
@@ -187,7 +210,7 @@ export function isSentinelSuggestionFresh(row: TrankilV2TimelineItemRow, nowMs: 
   return nowMs < arrivalMs;
 }
 
-/** Candidat suggestion (hors fraîcheur temporelle). */
+/** Candidat suggestion (hors fraîcheur temporelle et hors cascade). */
 export function isSentinelFocusSuggestionCandidate(input: {
   row: TrankilV2TimelineItemRow;
   todayYmd: string;
@@ -202,7 +225,7 @@ export function isSentinelFocusSuggestionCandidate(input: {
   return true;
 }
 
-/** Trajet du jour éligible à la suggestion (non configuré + arrivée encore dans le futur). */
+/** Trajet du jour éligible à la suggestion (cascade glissante, une ligne). */
 export function isSentinelFocusUnconfiguredTrip(input: {
   row: TrankilV2TimelineItemRow;
   todayYmd: string;
@@ -210,31 +233,70 @@ export function isSentinelFocusUnconfiguredTrip(input: {
   nowMs: number;
 }): boolean {
   const { row, todayYmd, nowMs } = input;
-  if (!isSentinelFocusSuggestionCandidate({ row, todayYmd })) return false;
-  return isSentinelSuggestionFresh(row, nowMs);
+  if (!isSentinelSuggestionFresh(row, nowMs)) return false;
+  if (isSentinelTripConfigured(row)) return false;
+  return isSentinelFocusSuggestionCandidate({ row, todayYmd });
 }
 
-function microUrgencyEndMs(row: TrankilV2TimelineItemRow, locale: string): number {
-  const bundle = resolveSentinelMicroDashboardBundle(row, locale, true);
+function microUrgencyEndMs(row: TrankilV2TimelineItemRow, locale: string, isProUser: boolean): number {
+  const bundle = resolveSentinelMicroDashboardBundle(row, locale, isProUser);
   return bundle?.endMs ?? Number.POSITIVE_INFINITY;
 }
 
-/** Slot visible Timeline : micro éphémère OU suggestion encore fraîche. */
+/**
+ * Priorité 1 — scan actif non expiré.
+ * Parmi les micros valides, le plus urgent = plus petite `endMs`.
+ */
+function pickActiveMicroDashboardTrip(
+  sortedTodayTrips: TrankilV2TimelineItemRow[],
+  options: { isProUser: boolean; locale: string; nowMs: number },
+): TrankilV2TimelineItemRow | null {
+  const { isProUser, locale, nowMs } = options;
+  const active = sortedTodayTrips
+    .filter((r) => isSentinelMicroDashboardCandidate({ row: r, isProUser, locale }))
+    .filter((r) => {
+      const bundle = resolveSentinelMicroDashboardBundle(r, locale, isProUser);
+      return bundle != null && isSentinelMicroDashboardEphemeral(nowMs, bundle);
+    })
+    .sort((a, b) => microUrgencyEndMs(a, locale, isProUser) - microUrgencyEndMs(b, locale, isProUser));
+
+  return active[0] ?? null;
+}
+
+/**
+ * Priorité 2 — cascade glissante chronologique (État B).
+ * Parcourt la liste triée ; élimine passé, configuré ; premier prêt au scan gagne.
+ */
+function pickSlidingSuggestionTrip(
+  sortedTodayTrips: TrankilV2TimelineItemRow[],
+  options: { todayYmd: string; nowMs: number },
+): TrankilV2TimelineItemRow | null {
+  const { todayYmd, nowMs } = options;
+
+  for (const row of sortedTodayTrips) {
+    if (!isSentinelSuggestionFresh(row, nowMs)) continue;
+    if (isSentinelTripConfigured(row)) continue;
+    if (!isSentinelFocusSuggestionCandidate({ row, todayYmd })) continue;
+    return row;
+  }
+
+  return null;
+}
+
+/** Slot visible Timeline — miroir exact du pick séquentiel. */
 export function isSentinelFocusSlotVisible(
   pick: SentinelFocusPick,
   options: { locale: string; isProUser: boolean; nowMs: number; todayYmd: string },
 ): boolean {
-  if (
-    pick.unconfiguredTrip &&
-    isSentinelSuggestionFresh(pick.unconfiguredTrip, options.nowMs)
-  ) {
-    return true;
+  const micro = pick.microDashboardTrip;
+  if (micro) {
+    const bundle = resolveSentinelMicroDashboardBundle(micro, options.locale, options.isProUser);
+    if (bundle && isSentinelMicroDashboardEphemeral(options.nowMs, bundle)) return true;
   }
-  const row = pick.microDashboardTrip;
-  if (!row) return false;
-  const bundle = resolveSentinelMicroDashboardBundle(row, options.locale, options.isProUser);
-  if (!bundle) return false;
-  return isSentinelMicroDashboardEphemeral(options.nowMs, bundle);
+  if (pick.unconfiguredTrip) {
+    return isSentinelSuggestionFresh(pick.unconfiguredTrip, options.nowMs);
+  }
+  return false;
 }
 
 /** Au moins un trajet du jour peut alimenter le badge (horloge / recompute). */
@@ -242,15 +304,30 @@ export function hasSentinelFocusClockInterest(
   rows: TrankilV2TimelineItemRow[],
   options: { todayYmd: string; isProUser: boolean; locale: string },
 ): boolean {
-  const todayTrips = rows.filter((r) => isTripTimelineRow(r) && isRowDueOnYmd(r, options.todayYmd));
-  return todayTrips.some(
-    (r) =>
-      isSentinelMicroDashboardCandidate({ row: r, isProUser: options.isProUser, locale: options.locale }) ||
-      isSentinelFocusSuggestionCandidate({ row: r, todayYmd: options.todayYmd }),
-  );
+  const sorted = sortTodayTripsByArrivalChronology(rows, options.todayYmd);
+  const nowMs = Date.now();
+
+  if (pickActiveMicroDashboardTrip(sorted, { ...options, nowMs })) return true;
+
+  if (pickSlidingSuggestionTrip(sorted, { todayYmd: options.todayYmd, nowMs })) return true;
+
+  return sorted.some((r) => {
+    if (isSentinelMicroDashboardCandidate({ row: r, isProUser: options.isProUser, locale: options.locale })) {
+      return true;
+    }
+    const arrivalMs = resolveTripArrivalDueMs(r);
+    return (
+      isSentinelFocusSuggestionCandidate({ row: r, todayYmd: options.todayYmd }) &&
+      arrivalMs != null &&
+      nowMs < arrivalMs
+    );
+  });
 }
 
-/** Sélection unique : micro-dashboard éphémère, sinon suggestion. */
+/**
+ * Séquenceur glissant : micro actif (Priorité 1) sinon cascade suggestion (Priorité 2).
+ * Les micros expirés (`nowMs >= endMs`) ne bloquent plus la suggestion suivante.
+ */
 export function pickSentinelFocus(
   rows: TrankilV2TimelineItemRow[],
   options: {
@@ -261,23 +338,17 @@ export function pickSentinelFocus(
   },
 ): SentinelFocusPick {
   const { todayYmd, isProUser, locale, nowMs } = options;
-  const todayTrips = rows.filter((r) => isTripTimelineRow(r) && isRowDueOnYmd(r, todayYmd));
+  const sortedTodayTrips = sortTodayTripsByArrivalChronology(rows, todayYmd);
 
-  const microCandidates = todayTrips.filter((r) =>
-    isSentinelMicroDashboardCandidate({ row: r, isProUser, locale }),
-  );
-  const microDashboardTrip =
-    microCandidates.length > 0
-      ? [...microCandidates].sort((a, b) => microUrgencyEndMs(a, locale) - microUrgencyEndMs(b, locale))[0]
-      : null;
+  const microDashboardTrip = pickActiveMicroDashboardTrip(sortedTodayTrips, { isProUser, locale, nowMs });
 
-  const unconfiguredCandidates = todayTrips
-    .filter((r) => isSentinelFocusUnconfiguredTrip({ row: r, todayYmd, isProUser, nowMs }))
-    .sort((a, b) => hubItemSortKey(a).localeCompare(hubItemSortKey(b)));
+  const unconfiguredTrip = microDashboardTrip
+    ? null
+    : pickSlidingSuggestionTrip(sortedTodayTrips, { todayYmd, nowMs });
 
   return {
     microDashboardTrip,
-    unconfiguredTrip: unconfiguredCandidates[0] ?? null,
+    unconfiguredTrip,
   };
 }
 

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
@@ -6,8 +6,16 @@ import { useTranslation } from 'react-i18next';
 import type { TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
-import { hasTripPromiseValidated } from '../services/traffic/sentinelElasticTripMetadata';
+import { AlarmService } from '../services/alarmService';
+import {
+  hasTripPromiseValidated,
+  readTripPromiseReference,
+} from '../services/traffic/sentinelElasticTripMetadata';
 import { generateSmartTitle } from '../services/smartTitle';
+import {
+  resolveElasticDepartureAlarmUnixSec,
+  resolveTripAlarmPlaceLabel,
+} from '../utils/tripElasticCapsuleModel';
 import { ElasticDepartureCapsule } from './ElasticDepartureCapsule';
 import {
   isSentinelMicroDashboardEphemeral,
@@ -45,6 +53,13 @@ type Props = {
   testID?: string;
 };
 
+function formatHmFromUnix(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
 function resolveTripTitle(row: TrankilV2TimelineItemRow, t: (key: string) => string, locale: string): string {
   const direct = String(row.display_title || '').trim();
   if (direct) return direct;
@@ -80,6 +95,29 @@ export function SentinelMicroDashboard({ row, theme, onOpenDetail, style, testID
 
   const arrivalHm = useMemo(() => resolveSentinelTripArrivalDisplayHm(row), [row]);
 
+  const tripPromiseRef = useMemo(() => {
+    if (!trip) return null;
+    return readTripPromiseReference(trip);
+  }, [trip]);
+
+  const tripAlarmPlace = useMemo(
+    () => resolveTripAlarmPlaceLabel(trip, row.display_title, titleName),
+    [row.display_title, titleName, trip],
+  );
+
+  const onPressTripAlarm = useCallback(
+    (e?: { stopPropagation?: () => void }) => {
+      e?.stopPropagation?.();
+      if (!bundle) return;
+      const alarmUnix = resolveElasticDepartureAlarmUnixSec(bundle.startMs, bundle.endMs);
+      if (alarmUnix == null) return;
+      const time = formatHmFromUnix(alarmUnix);
+      const label = t('tripAlarm.departureLabel', { place: tripAlarmPlace, time });
+      void AlarmService.openAlarmSelection(alarmUnix, label);
+    },
+    [bundle, t, tripAlarmPlace],
+  );
+
   if (!trip || !hasTripPromiseValidated(trip) || !bundle) return null;
   if (!isSentinelMicroDashboardEphemeral(nowMs, bundle)) return null;
 
@@ -109,7 +147,9 @@ export function SentinelMicroDashboard({ row, theme, onOpenDetail, style, testID
           nowMs={nowMs}
           ratioD={bundle.ratioD}
           onNavigationPress={() => onOpenDetail(row)}
-          showAlarmIcon={false}
+          onAlarmPress={tripPromiseRef ? onPressTripAlarm : undefined}
+          showAlarmIcon={Boolean(tripPromiseRef)}
+          alarmA11yLabel={t('tripAlarm.a11yOpenAlarm')}
           variant="compact"
           lateVariant="graphite"
           theme={theme}

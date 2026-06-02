@@ -116,7 +116,7 @@ async function openIosAlarmDirect(hour: number, minute: number, label?: string):
  * Ouvre l’app d’horloge native via intent système (Android) ou deep link Horloge (iOS).
  * Aucune modale custom — le OS délègue à l’app Horloge par défaut.
  *
- * @param alarmTimeUnix Timestamp Unix secondes (heure locale cible — fin de capsule / deadline).
+ * @param alarmTimeUnix Timestamp Unix secondes (heure locale cible — voir `resolveElasticDepartureAlarmUnixSec`).
  * @param label Nom suggéré de l’alarme (optionnel — surtout Android / Google Clock).
  */
 export async function openAlarmSelection(

@@ -12,6 +12,22 @@ export type TripElasticCapsuleModel = {
   ratioD: number;
 };
 
+/** Marge avant la borne max de la barre : alarme prédéfinie à 20 % de la fenêtre avant `endMs`. */
+export const ELASTIC_DEPARTURE_ALARM_LEAD_RATIO = 0.2;
+
+/** Horodatage ms de l’alarme prédéfinie (80 % de la fenêtre start→end, soit 20 % avant `endMs`). */
+export function resolveElasticDepartureAlarmMs(startMs: number, endMs: number): number | null {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) return null;
+  return Math.round(endMs - ELASTIC_DEPARTURE_ALARM_LEAD_RATIO * (endMs - startMs));
+}
+
+/** Timestamp Unix (s) pour `AlarmService.openAlarmSelection`. */
+export function resolveElasticDepartureAlarmUnixSec(startMs: number, endMs: number): number | null {
+  const ms = resolveElasticDepartureAlarmMs(startMs, endMs);
+  if (ms == null || ms <= 0) return null;
+  return Math.floor(ms / 1000);
+}
+
 function str(obj: Record<string, unknown> | null, key: string): string | null {
   if (!obj) return null;
   const v = obj[key];

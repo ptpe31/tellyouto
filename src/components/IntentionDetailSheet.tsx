@@ -61,6 +61,7 @@ import { showAppToast } from '../services/appToast';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { isPass2UnlockedMeta } from '../utils/tripTimelineCard';
 import { isTripAllDay, hasTripStandardDurationMin, resolveElasticSlotDisplay } from '../utils/tripElasticDisplay';
+import { resolveElasticDepartureAlarmUnixSec } from '../utils/tripElasticCapsuleModel';
 import { resolveProbeScheduleLabel } from '../utils/tripProbeScheduleDisplay';
 import { resolveTripSurveillanceUiState, tripSurveillanceLabelKey } from '../utils/tripSurveillanceButton';
 import {
@@ -2451,10 +2452,11 @@ export function IntentionDetailSheet({
   }, [destinationLabel, originText, row?.id, savedArrivalAddress, transportMode]);
 
   const launchTripDepartureAlarm = useCallback(() => {
-    const endMs = elasticDepartureCapsuleModel?.endMs;
-    if (endMs == null || !Number.isFinite(endMs) || endMs <= 0) return;
-    const alarmUnix = Math.floor(endMs / 1000);
-    const d = new Date(endMs);
+    const model = elasticDepartureCapsuleModel;
+    if (!model) return;
+    const alarmUnix = resolveElasticDepartureAlarmUnixSec(model.startMs, model.endMs);
+    if (alarmUnix == null) return;
+    const d = new Date(alarmUnix * 1000);
     const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     const tripRecord = trip as Record<string, unknown> | null;
     const place =
@@ -2464,7 +2466,7 @@ export function IntentionDetailSheet({
       t('intentionDetail.labelItinerary');
     const label = t('tripAlarm.departureLabel', { place, time });
     void AlarmService.openAlarmSelection(alarmUnix, label);
-  }, [destinationLabel, elasticDepartureCapsuleModel?.endMs, row?.display_title, t, trip]);
+  }, [destinationLabel, elasticDepartureCapsuleModel, row?.display_title, t, trip]);
 
   const projectCalendarMode = useMemo(() => {
     if (!isProject || !projectPayload) return false;

@@ -78,7 +78,11 @@ import { TimelineDatePickerLazy } from '../components/TimelineDatePickerLazy';
 import { IntentInteractionWrapper } from '../components/IntentInteractionWrapper';
 import { IntentionCard } from '../components/IntentionCard';
 import { IntentionDetailSheet } from '../components/IntentionDetailSheet';
-import { estimateSentinelFocusBadgeHeight, SentinelFocusBadge } from '../components/SentinelFocusBadge';
+import {
+  estimateSentinelFocusBadgeHeight,
+  SENTINEL_FOCUS_SLOT_HEIGHT,
+  SentinelFocusBadge,
+} from '../components/SentinelFocusBadge';
 import type { TripTimelineFooter } from '../utils/tripTimelineCard';
 import { useCapturePresentation } from '../context/CapturePresentationContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
@@ -315,7 +319,7 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 
 const SECTION_HEADER_H = 36;
 const CARD_ROW_H = 120;
-const SENTINEL_FOCUS_FALLBACK_H = 118;
+const SENTINEL_FOCUS_FALLBACK_H = SENTINEL_FOCUS_SLOT_HEIGHT;
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
   if (bubble === 'HOME') return 'HOME';

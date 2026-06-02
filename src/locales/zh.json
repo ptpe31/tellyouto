@@ -73,6 +73,8 @@
   },
   "sentinelFocus": {
     "prompt": "提醒我在 {{time}} 何时出发前往 {{title}}？",
+    "promptLine1": "提醒我在何时出发前往 {{tripName}}",
+    "promptLine2": "（期望到达：{{dueTimeHm}}）",
     "departureTitle": "出发前往 {{name}}",
     "arrivalSubtitle": "到达：{{time}}"
   },

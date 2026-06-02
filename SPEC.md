@@ -695,7 +695,7 @@ Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/De
 **Affichage actif** (`nowMs <= endMs`) :
 - Piste « pill-shaped », labels `HH:mm` aux extrémités, mur vertical deadline à droite.
 - **Zone exécution (gauche)** : badge GPS cliquable → `onNavigationPress` (deep link Maps/Waze).
-- **Zone planification (droite)** : slot **réveil** (`AlarmClock`) si `showAlarmIcon` (promesse P1 validée, masqué après `endMs`) → `onAlarmPress` → intent natif Horloge ([`AlarmService.openAlarmSelection`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts)).
+- **Zone planification (droite)** : slot **réveil** (`AlarmClock`) si `showAlarmIcon` (promesse P1 validée, masqué après `endMs`) → `onAlarmPress` → intent natif Horloge ([`AlarmService.openAlarmSelection`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts)) ; heure prédéfinie = **20 % avant `endMs`** sur la fenêtre `[startMs, endMs]` ([`resolveElasticDepartureAlarmUnixSec`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), constante `ELASTIC_DEPARTURE_ALARM_LEAD_RATIO = 0.2`).
 - Couleur système iOS selon `D` : vert `#34C759` si `< 1.1`, orange `#FF9500` si `< 1.3`, rouge `#FF3B30` sinon.
 - Heure basse (`startMs`) quasi invisible quand déjà passée.
 
@@ -718,23 +718,37 @@ Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/De
 
 ##### 8.c) UI — Sentinel Focus Badge (juin 2026)
 
-Composants : [`SentinelFocusBadge.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx), micro-dashboard éphémère [`SentinelMicroDashboard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelMicroDashboard.tsx). Sélection : [`sentinelFocusSelection.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/sentinelFocusSelection.ts) + [`useSentinelFocus.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useSentinelFocus.ts).
+Composants : [`SentinelFocusBadge.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) (bulle Talk unifiée, états A/B), legacy [`SentinelMicroDashboard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelMicroDashboard.tsx) (Talk / réutilisation). Sélection : [`sentinelFocusSelection.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/sentinelFocusSelection.ts) + [`useSentinelFocus.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useSentinelFocus.ts).
 
 **Objectif** : un seul emplacement prioritaire sous « Aujourd’hui » pour l’anticipation / l’action trajet (hors liste des blocs hub — voir § 2.c court-circuit `TRIPS_HUB`).
 
-**Machine à états** (priorité stricte, un seul trajet affiché) :
+**Séquenceur glissant** (`pickSentinelFocus`) — un seul trajet affiché, cascade chronologique :
+
+1. **Tri préalable** — `sortTodayTripsByArrivalChronology` : tous les trajets du jour (`isTripTimelineRow` + `isRowDueOnYmd`), du plus ancien au plus récent (`resolveTripArrivalDueMs`), tie-break `hubItemSortKey`.
+2. **Priorité 1 — État A (scan actif)** — `pickActiveMicroDashboardTrip` : candidats micro (`isSentinelMicroDashboardCandidate`) **non expirés** (`nowMs < bundle.endMs` uniquement) ; le plus urgent = plus petite `endMs`. Dès `nowMs >= endMs`, le trajet est **consommé** et ne bloque plus la suggestion.
+3. **Priorité 2 — État B (suggestion)** — `pickSlidingSuggestionTrip` (seulement si aucun micro actif) : parcours de la liste triée, élimination séquentielle :
+   - arrivée passée (`nowMs >= resolveTripArrivalDueMs`) → ignoré ;
+   - déjà traité (`remind_to_leave === 1` **ou** `promise_validated_at` / `isSentinelTripConfigured`) → ignoré ;
+   - pas prêt au scan (`!isTripReadyForScan`) → ignoré ;
+   - premier restant avec `remind_to_leave === 0` → `unconfiguredTrip`.
+
+**Machine à états** (rendu dans la même enveloppe 105 dp) :
 
 | État | Condition | Rendu |
 |------|-----------|--------|
-| **A — Micro-dashboard** | `promise_validated_at` + bundle capsule ; **`nowMs < endMs`** (éphémère strict) | [`SentinelMicroDashboard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelMicroDashboard.tsx) pleine largeur : bordure fine hub (`SENTINEL_HUB_PILL_STYLE`), titre `sentinelFocus.departureTitle`, sous-titre arrivée, [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) `variant="compact"`. Disparaît dès `nowMs >= endMs`. |
-| **B — Suggestion** | Aucun actif éphémère ; trajet prêt au scan, `remind_to_leave` OFF, pas de promesse P1, **`nowMs < arrivalDue`** | Carte pleine largeur i18n `sentinelFocus.prompt` ; `onPressSuggestion(row)` → même handler que CTA setup TRIP (`handleTripFooterPress` / `openDetail` Timeline ; `openTalkTripDetail` Talk → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) principale) ; FREE → paywall. |
-| **—** | Sinon (trajets passés, aucun candidat) | `null` — slot FlatList résorbé (`isSentinelFocusSlotVisible`) |
+| **A — Scan actif** | Micro actif retenu par Priorité 1 ; **`nowMs < endMs`** | Bulle `#F2F2F7` + en-tête `💬 TalkNDone` ; `sentinelFocus.departureTitle` / `arrivalSubtitle` ; [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) `variant="compact"`, `showAlarmIcon` si promesse P1, réveil à −20 % de `endMs` (§ 8.b). Clic → `onOpenDetail` → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx). |
+| **B — Suggestion** | Aucun micro actif ; gagnant cascade ; **`nowMs < arrivalDue`** | Même bulle 105 dp ; i18n `sentinelFocus.promptLine1` / `promptLine2` (2 lignes, `ellipsizeMode="tail"`) ; `onPressSuggestion(row)` → même handler que CTA setup TRIP (`handleTripFooterPress` / `openDetail` Timeline ; `openTalkTripDetail` Talk) ; FREE → paywall (`intentionDetail.actionSetupAlertLocked`). |
+| **—** | Aucun candidat ou tout expiré | `null` — slot FlatList **0 dp** (`isSentinelFocusSlotVisible` miroir exact du pick) |
 
-**Horloge** : `useProbeScheduleClock` (10 s) quand micro ou suggestion candidate — disparition suggestion / slot à l’heure d’arrivée dépassée.
+**Layout** : `SENTINEL_FOCUS_BADGE_HEIGHT = 105`, marge 12 → slot `SENTINEL_FOCUS_SLOT_HEIGHT = 117` ; `getItemLayout` Timeline via `estimateSentinelFocusBadgeHeight` (aucun layout shift A↔B).
+
+**Visibilité slot** (`isSentinelFocusSlotVisible`) : `true` si micro actif non expiré **ou** `unconfiguredTrip` encore frais ; `false` sinon (plus de réservation 117 dp pour un micro expiré).
+
+**Horloge** : `useProbeScheduleClock` (10 s) via `hasSentinelFocusClockInterest` (micro candidat, suggestion future, transition micro → cascade).
 
 **Emplacements** :
 
-- **Hub Email** ([`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)) : item `sentinelFocus` sous « Aujourd’hui », avant blocs hub — `EMAIL_HUB` + `TODAY` / `ALL` / `TODO`.
+- **Hub Email** ([`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)) : item `sentinelFocus` sous « Aujourd’hui », avant blocs hub — `EMAIL_HUB` + `TODAY` / `ALL` / `TODO` ; pool = `todayRows` (tous les trajets du jour, y compris hors cartes hub masquées par `skipTodayYmd`).
 - **Talk** ([`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx)) : même composant ; `listTrankilV2MergedTodayTimelineWithLowPressure` ; `INTENTIONS_CHANGED_EVENT_NAME`.
 
 **Source de vérité** : projection SQLite du jour — pas de table dédiée ; `category_id` Pass 1 inchangé en base.

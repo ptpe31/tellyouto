@@ -22,6 +22,7 @@ import {
 import { TripNeumorphicOrb, TRIP_ORB_SIZE } from './TripNeumorphicOrb';
 import { hasTripStandardDurationMin, isTripAllDay } from '../utils/tripElasticDisplay';
 import {
+  resolveElasticDepartureAlarmUnixSec,
   resolveTripAlarmPlaceLabel,
   resolveTripNavigationDestination,
   resolveTripTimelineCapsuleBundle,
@@ -256,14 +257,15 @@ export function IntentionCard({
   const onPressTripAlarm = useCallback(
     (e?: { stopPropagation?: () => void }) => {
       e?.stopPropagation?.();
-      const endMs = tripCapsuleModel?.endMs;
-      if (endMs == null || !Number.isFinite(endMs) || endMs <= 0) return;
-      const alarmUnix = Math.floor(endMs / 1000);
+      const model = tripCapsuleModel;
+      if (!model) return;
+      const alarmUnix = resolveElasticDepartureAlarmUnixSec(model.startMs, model.endMs);
+      if (alarmUnix == null) return;
       const time = formatHmFromUnix(alarmUnix);
       const label = t('tripAlarm.departureLabel', { place: tripAlarmPlace, time });
       void AlarmService.openAlarmSelection(alarmUnix, label);
     },
-    [tripAlarmPlace, tripCapsuleModel?.endMs, t],
+    [tripAlarmPlace, tripCapsuleModel, t],
   );
 
   const subtitle = useMemo(() => {
