@@ -28,6 +28,7 @@ import {
   resolveSentinelMicroDashboardBundle,
   resolveSentinelTripArrivalDisplayHm,
 } from '../utils/sentinelFocusSelection';
+import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
 
 export const SENTINEL_FOCUS_BADGE_HEIGHT = 105;
 export const SENTINEL_FOCUS_BADGE_MARGIN_BOTTOM = 16;
@@ -128,6 +129,8 @@ function SentinelFocusBadgeShell({
   testID,
 }: SentinelFocusBadgeShellProps) {
   const { t } = useTranslation();
+  const { typography } = useDesignTokens();
+  const styles = useMemo(() => createSentinelFocusBadgeStyles(typography), [typography]);
   const brand = t('errorBoundary.brand');
 
   return (
@@ -157,6 +160,8 @@ type ActiveFocusContentProps = {
 /** État A — scan actif (`remind_to_leave === 1`), capsule élastique compacte. */
 function ActiveFocusContent({ row, theme, onOpenDetail, style, testID }: ActiveFocusContentProps) {
   const { t, i18n } = useTranslation();
+  const { typography } = useDesignTokens();
+  const styles = useMemo(() => createSentinelFocusBadgeStyles(typography), [typography]);
   const { spectrum } = useUserSpectrum();
   const locale = i18n.language;
   const isProUser = spectrum.isProUser;
@@ -261,6 +266,8 @@ function SuggestionFocusContent({
   testID,
 }: SuggestionFocusContentProps) {
   const { t, i18n } = useTranslation();
+  const { typography } = useDesignTokens();
+  const styles = useMemo(() => createSentinelFocusBadgeStyles(typography), [typography]);
   const tripName = useMemo(
     () => resolveTripTitle(row, t, i18n.language || Intl.DateTimeFormat().resolvedOptions().locale),
     [i18n.language, row, t],
@@ -390,12 +397,13 @@ export function estimateSentinelFocusBadgeHeight(
   return SENTINEL_FOCUS_SLOT_HEIGHT;
 }
 
-const styles = StyleSheet.create({
+function createSentinelFocusBadgeStyles(typography: ZenTypography) {
+  return StyleSheet.create({
   pressed: { opacity: 0.92 },
   bubbleBrand: {
-    fontSize: 10,
+    fontSize: typography.bodySmall,
     fontWeight: '700',
-    lineHeight: 12,
+    lineHeight: 16,
     color: 'rgba(60, 60, 67, 0.55)',
     letterSpacing: 0.3,
     marginBottom: 2,
@@ -407,15 +415,15 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   activeTitle: {
-    fontSize: 12,
+    fontSize: typography.label,
     fontWeight: '800',
     lineHeight: 15,
     color: '#1C1C1E',
   },
   activeSubtitle: {
-    fontSize: 10,
+    fontSize: typography.bodySmall,
     fontWeight: '600',
-    lineHeight: 13,
+    lineHeight: 16,
     color: 'rgba(60, 60, 67, 0.72)',
     marginTop: 1,
   },
@@ -442,22 +450,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   suggestionBrand: {
-    fontSize: 9,
+    fontSize: typography.bodySmall,
     fontWeight: '700',
-    lineHeight: 11,
+    lineHeight: 16,
     color: 'rgba(198, 93, 0, 0.65)',
     letterSpacing: 0.3,
     marginBottom: 2,
   },
   suggestionLine1: {
-    fontSize: 12,
+    fontSize: typography.label,
     fontWeight: '800',
     lineHeight: 15,
     color: '#1C1C1E',
   },
   suggestionLine2: {
     marginTop: 1,
-    fontSize: 11,
+    fontSize: typography.caption,
     fontWeight: '600',
     lineHeight: 14,
     color: 'rgba(60, 60, 67, 0.72)',
@@ -485,9 +493,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   configurePillText: {
-    fontSize: 12,
+    fontSize: typography.label,
     fontWeight: '800',
     color: '#1C1C1E',
     textAlign: 'center',
   },
-});
+  });
+}

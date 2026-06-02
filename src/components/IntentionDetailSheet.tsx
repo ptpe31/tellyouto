@@ -4210,7 +4210,7 @@ function createIntentionDetailStyles(typography: ZenTypography) {
   zoomChildRowV34: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 12, paddingRight: 12, paddingVertical: 10 },
   zoomChildCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
   zoomChildCircleChecked: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
-  zoomChildCheck: { fontSize: typography.caption, fontWeight: '800', color: 'transparent' },
+  zoomChildCheck: { fontSize: typography.bodySmall, fontWeight: '800', color: 'transparent' },
   zoomChildCheckOn: { color: '#ffffff' },
   zoomConnectorColV34: { width: 16, height: 18, position: 'relative' },
   zoomChildTextColV34: { flex: 1, minWidth: 0 },
