@@ -1,0 +1,1962 @@
+[
+  [
+    "intentInteraction.menuTitle",
+    "Intention"
+  ],
+  [
+    "intentInteraction.archive",
+    "Archive"
+  ],
+  [
+    "intentInteraction.pinDue",
+    "Reschedule / pin date"
+  ],
+  [
+    "intentInteraction.pickDate",
+    "Pick a date"
+  ],
+  [
+    "intentInteraction.cancel",
+    "Cancel"
+  ],
+  [
+    "inbox.action.remove",
+    "Remove from Inbox"
+  ],
+  [
+    "inbox.action.removeAll",
+    "Remove all from Inbox"
+  ],
+  [
+    "inbox.action.removeAllConfirmTitle",
+    "Remove all from Inbox?"
+  ],
+  [
+    "inbox.action.removeAllConfirmBody",
+    "All {{count}} visible intentions will be marked as triaged."
+  ],
+  [
+    "talkCapture.hintTap",
+    "Tap to capture a voice note"
+  ],
+  [
+    "talkCapture.savedTimeline",
+    "Intention saved to Timeline"
+  ],
+  [
+    "talkCapture.savedOfflinePending",
+    "Network unavailable: intention saved for later processing"
+  ],
+  [
+    "category.HOME",
+    "Home"
+  ],
+  [
+    "category.WORK",
+    "Work"
+  ],
+  [
+    "category.PERSO",
+    "Personal"
+  ],
+  [
+    "category.HEALTH",
+    "Health"
+  ],
+  [
+    "category.FINANCE",
+    "Finance"
+  ],
+  [
+    "category.TRAVEL",
+    "Travel"
+  ],
+  [
+    "category.SOCIAL",
+    "Social"
+  ],
+  [
+    "category.SHOP",
+    "Shopping"
+  ],
+  [
+    "category.LEARN",
+    "Learning"
+  ],
+  [
+    "category.OTHER",
+    "Other"
+  ],
+  [
+    "capture.offlineNoteGenericToast",
+    "Saved on this device. Smart sorting will finish when the connection is back."
+  ],
+  [
+    "capture.offlineRetryOkToast",
+    "AI sorting finished — your timeline is up to date."
+  ],
+  [
+    "capture.pendingAiNetworkBack",
+    "{{count}} idea(s) still waiting for AI sorting — tap “Retry AI sort” on the card if you like."
+  ],
+  [
+    "quota_remaining",
+    "You have {{count}} free Sentinel trips remaining."
+  ],
+  [
+    "quota_exhausted_title",
+    "Static Mode"
+  ],
+  [
+    "quota_exhausted_desc",
+    "Sentinel trial ended. Upgrade to PRO for real-time monitoring."
+  ],
+  [
+    "sentinel.validationTitle",
+    "Address validation"
+  ],
+  [
+    "sentinel.detectedPlace",
+    "Detected place: {{place}}"
+  ],
+  [
+    "sentinel.addressLabel",
+    "Validated address (Google Places)"
+  ],
+  [
+    "sentinel.addressPlaceholder",
+    "Search an address…"
+  ],
+  [
+    "sentinel.validationRequired",
+    "Select a valid address to activate Sentinel."
+  ],
+  [
+    "sentinel.placesMissingKey",
+    "Missing Google Places key (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY)."
+  ],
+  [
+    "sentinel.addressResolveFailed",
+    "Address not found. Check your input and try again."
+  ],
+  [
+    "sentinel.notifTitle",
+    "To: {{destination}} • Arrival {{arrival}}"
+  ],
+  [
+    "sentinel.notifUpdatedAt",
+    "Updated at {{time}}"
+  ],
+  [
+    "sentinel.notifStatusBlue",
+    "Monitoring"
+  ],
+  [
+    "sentinel.notifStatusOrange",
+    "Window open"
+  ],
+  [
+    "sentinel.notifStatusRed",
+    "Critical departure"
+  ],
+  [
+    "sentinel.notifStatusStatic",
+    "Static mode"
+  ],
+  [
+    "sentinel.notifDepartureAt",
+    "Depart at {{time}}"
+  ],
+  [
+    "sentinel.notifDepartureWindow",
+    "Suggested departure between {{start}} and {{end}}."
+  ],
+  [
+    "sentinel.notifNextRealUpdateAt",
+    "Next real update at {{time}}"
+  ],
+  [
+    "sentinel.notifModeSafety",
+    "Safety mode"
+  ],
+  [
+    "sentinel.probe3Title",
+    "Departure — {{destination}}"
+  ],
+  [
+    "sentinel.probe3Smooth",
+    "Traffic is clear — you can leave in {{minutes}} minutes."
+  ],
+  [
+    "sentinel.probe3LeaveNow",
+    "Heavy traffic detected — leave now."
+  ],
+  [
+    "sentinel.probe3Unavailable",
+    "Estimate unavailable — please check traffic manually."
+  ],
+  [
+    "sentinel.promiseDriftTitle",
+    "Traffic — {{destination}}"
+  ],
+  [
+    "sentinel.promiseDriftBody",
+    "Traffic has changed slightly. Your departure window is now: {{capsule}}"
+  ],
+  [
+    "sentinel.topDepartTitle",
+    "DEPART NOW"
+  ],
+  [
+    "sentinel.topDepartBody",
+    "Time to leave for {{destination}}."
+  ],
+  [
+    "departureContract.notifTitle",
+    "Departure contract — {{destination}}"
+  ],
+  [
+    "departureContract.signalBTitle",
+    "Departure reminder"
+  ],
+  [
+    "departureContract.signalBBody",
+    "{{capsule}} — Leave in about {{minutes}} min for {{destination}}."
+  ],
+  [
+    "sentinelFocus.prompt",
+    "Remind me when to leave for {{title}} at {{time}}?"
+  ],
+  [
+    "sentinelFocus.departureTitle",
+    "Leave for {{name}}"
+  ],
+  [
+    "sentinelFocus.arrivalSubtitle",
+    "Arrive: {{time}}"
+  ],
+  [
+    "tripAlarm.pickerTitle",
+    "Set an alarm"
+  ],
+  [
+    "tripAlarm.pickerMessage",
+    "Departure at {{time}}"
+  ],
+  [
+    "tripAlarm.departureLabel",
+    "{{place}} depart {{time}}"
+  ],
+  [
+    "tripAlarm.a11yOpenAlarm",
+    "Set a departure alarm"
+  ],
+  [
+    "tripAlarm.iosManualHint",
+    "Open Clock and create an alarm at {{time}}.\nSuggested name: {{label}}"
+  ],
+  [
+    "tripAlarm.androidUnavailable",
+    "Could not open Clock. Set an alarm at {{time}} ({{label}})."
+  ],
+  [
+    "intentionDetail.source",
+    "Source"
+  ],
+  [
+    "intentionDetail.checklist",
+    "Checklist"
+  ],
+  [
+    "intentionDetail.trip",
+    "Trip"
+  ],
+  [
+    "intentionDetail.transport",
+    "Transport"
+  ],
+  [
+    "intentionDetail.currentPosition",
+    "Current position"
+  ],
+  [
+    "intentionDetail.addressPlaceholder",
+    "Search an address…"
+  ],
+  [
+    "intentionDetail.allDay",
+    "All day"
+  ],
+  [
+    "intentionDetail.listItems",
+    "Items"
+  ],
+  [
+    "intentionDetail.projectStartDate",
+    "Start date"
+  ],
+  [
+    "intentionDetail.projectStartDateEmpty",
+    "Set a start date"
+  ],
+  [
+    "intentionDetail.projectMilestoneMenuTitle",
+    "Milestone"
+  ],
+  [
+    "intentionDetail.projectMilestoneMenuPivot",
+    "Calendar (pivot)"
+  ],
+  [
+    "intentionDetail.projectMilestoneMenuNote",
+    "Note"
+  ],
+  [
+    "intentionDetail.projectMilestoneMenuDelete",
+    "Delete"
+  ],
+  [
+    "intentionDetail.confirmReplan",
+    "Confirm and reschedule next steps"
+  ],
+  [
+    "intentionDetail.cancel",
+    "Cancel"
+  ],
+  [
+    "intentionDetail.save",
+    "Save"
+  ],
+  [
+    "intentionDetail.notePlaceholder",
+    "Add a note…"
+  ],
+  [
+    "intentionDetail.transportAuto",
+    "Car"
+  ],
+  [
+    "intentionDetail.transportWalking",
+    "Walk"
+  ],
+  [
+    "intentionDetail.transportBike",
+    "Bike"
+  ],
+  [
+    "intentionDetail.ecoFriendly",
+    "Eco-Friendly 🌱"
+  ],
+  [
+    "intentionDetail.co2Standard",
+    "Standard CO2 impact"
+  ],
+  [
+    "intentionDetail.launchRoute",
+    "Launch route"
+  ],
+  [
+    "intentionDetail.launchRouteDisabledHint",
+    "Add a valid destination address to launch navigation."
+  ],
+  [
+    "intentionDetail.close",
+    "Close"
+  ],
+  [
+    "intentionDetail.pin",
+    "Pin"
+  ],
+  [
+    "intentionDetail.unpin",
+    "Unpin"
+  ],
+  [
+    "intentionDetail.pinMaxReachedTitle",
+    "Pin limit reached"
+  ],
+  [
+    "intentionDetail.pinMaxReachedBody",
+    "You can pin at most {{max}} intentions. Unpin another one first."
+  ],
+  [
+    "intentionDetail.labelIntention",
+    "Intention"
+  ],
+  [
+    "intentionDetail.labelTiming",
+    "Timing"
+  ],
+  [
+    "intentionDetail.labelEngagement",
+    "Engagement"
+  ],
+  [
+    "intentionDetail.trackStreak",
+    "Track streak 🔥"
+  ],
+  [
+    "intentionDetail.trackStreakHint",
+    "Shows a visual counter to help you keep the rhythm."
+  ],
+  [
+    "intentionDetail.labelItinerary",
+    "Route"
+  ],
+  [
+    "intentionDetail.labelTransport",
+    "Transport"
+  ],
+  [
+    "intentionDetail.comfortTitle",
+    "Trip comfort"
+  ],
+  [
+    "intentionDetail.comfortElasticDeparture",
+    "Est. departure: {{window}}"
+  ],
+  [
+    "intentionDetail.comfortElasticDepartureApprox",
+    "Est. departure: ≈ {{window}}"
+  ],
+  [
+    "intentionDetail.comfortElasticDepartureShifted",
+    "⚠️ Est. departure: {{window}}"
+  ],
+  [
+    "intentionDetail.allDayNoDepartureSlot",
+    "All-day event — no departure window"
+  ],
+  [
+    "intentionDetail.actionSetupAlert",
+    "Remind me when to leave?"
+  ],
+  [
+    "intentionDetail.actionSetupAlertLocked",
+    "Remind me when to leave 🔒"
+  ],
+  [
+    "intentionDetail.tripSurveillanceStart",
+    "Monitor trip"
+  ],
+  [
+    "intentionDetail.tripSurveillanceStartLocked",
+    "Monitor trip 🔒"
+  ],
+  [
+    "intentionDetail.tripSurveillanceActive",
+    "Monitoring active 🛡️"
+  ],
+  [
+    "intentionDetail.surveillanceMissingInfo",
+    "Add a valid destination and arrival time to enable monitoring."
+  ],
+  [
+    "intentionDetail.pass2LockedSuffix",
+    "🔒"
+  ],
+  [
+    "intentionDetail.noteMemoSection",
+    "Memo"
+  ],
+  [
+    "intentionDetail.finish",
+    "Finish"
+  ],
+  [
+    "pass2.generateSteps",
+    "✨ Break into steps"
+  ],
+  [
+    "pass2.generateList",
+    "✨ Structure the list"
+  ],
+  [
+    "pass2.steps_loading",
+    "Reading..."
+  ],
+  [
+    "pass2.list_loading",
+    "creating items..."
+  ],
+  [
+    "pass2.finalizing",
+    "Finalizing structure..."
+  ],
+  [
+    "pilotHeader.creditsFree",
+    "{{remaining}} / {{max}} ⚡"
+  ],
+  [
+    "pilotHeader.creditsDepleted",
+    "0 ⚡"
+  ],
+  [
+    "pilotHeader.creditsDepletedHint",
+    "Go Pro"
+  ],
+  [
+    "pilotHeader.proLabel",
+    "PRO"
+  ],
+  [
+    "pilotHeader.a11yCredits",
+    "Capture credits — open Recharge"
+  ],
+  [
+    "pilotHeader.a11yCalendar",
+    "Open today on Timeline"
+  ],
+  [
+    "pilotHeader.a11yPiggy",
+    "Inbox — unorganized items"
+  ],
+  [
+    "tabs.debug",
+    "Debug"
+  ],
+  [
+    "tabs.talkHome",
+    "Talk"
+  ],
+  [
+    "pro.modalTitle",
+    "Unlock maximum power"
+  ],
+  [
+    "pro.modalPrice",
+    "€9.99 / month"
+  ],
+  [
+    "pro.modalLead",
+    "Go Pro to unlock premium channels and keep ad-free mode permanently."
+  ],
+  [
+    "pro.benefit1",
+    "Unlimited WhatsApp"
+  ],
+  [
+    "pro.benefit2",
+    "Zero ads"
+  ],
+  [
+    "pro.benefit3",
+    "Priority support"
+  ],
+  [
+    "pro.benefit4",
+    "Access to all routines"
+  ],
+  [
+    "pro.modalLater",
+    "Not now"
+  ],
+  [
+    "pro.modalCta",
+    "Go Pro"
+  ],
+  [
+    "pro.screenKicker",
+    "SUBSCRIPTION"
+  ],
+  [
+    "pro.screenTitle",
+    "TellYouTo Pro"
+  ],
+  [
+    "pro.screenSubtitle",
+    "Multi-channel, ad-free, priority support."
+  ],
+  [
+    "pro.devNote",
+    "Dev build: the button simulates subscription without payment."
+  ],
+  [
+    "pro.subscribeGold",
+    "Subscribe — €9.99 / month"
+  ],
+  [
+    "pro.back",
+    "Close"
+  ],
+  [
+    "pro.linkRequiredTitle",
+    "Account required"
+  ],
+  [
+    "pro.linkRequiredBody",
+    "To keep your Pro subscription across phones, link Google or Apple (same Firebase identity)."
+  ],
+  [
+    "pro.linkGoogle",
+    "Continue with Google"
+  ],
+  [
+    "pro.linkApple",
+    "Continue with Apple"
+  ],
+  [
+    "pro.linkLater",
+    "Not now"
+  ],
+  [
+    "pro.linkGoogleOnly",
+    "Link Google only"
+  ],
+  [
+    "pro.linkAppleOnly",
+    "Link Apple only"
+  ],
+  [
+    "pro.linkErrorTitle",
+    "Linking failed"
+  ],
+  [
+    "pro.configureGoogleTitle",
+    "Google configuration"
+  ],
+  [
+    "pro.configureGoogleBody",
+    "Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (and iOS/Android client IDs if needed) in .env, then restart Metro."
+  ],
+  [
+    "pro.googleMissingEnv",
+    "Missing Google Web client ID: OAuth linking will not work until EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID is set."
+  ],
+  [
+    "channelSwitch.cancel",
+    "Cancel"
+  ],
+  [
+    "timeline.title",
+    "Timeline"
+  ],
+  [
+    "timeline.allDuration",
+    "All day"
+  ],
+  [
+    "timeline.elasticDepartureWindow",
+    "[ Est. departure: {{window}} ]"
+  ],
+  [
+    "timeline.elasticDepartureApprox",
+    "[ Est. departure: ≈ {{window}} ]"
+  ],
+  [
+    "timeline.elasticDepartureShifted",
+    "[ ⚠️ Est. departure: {{window}} ]"
+  ],
+  [
+    "timeline.scanTrafficScheduled",
+    "Real traffic scan scheduled at {{time}}"
+  ],
+  [
+    "timeline.scanTrafficInProgress",
+    "Scan in progress…"
+  ],
+  [
+    "timeline.createdTodayAt",
+    "Created today at {{time}}"
+  ],
+  [
+    "timeline.createdYesterdayAt",
+    "Created yesterday at {{time}}"
+  ],
+  [
+    "timeline.skyClear",
+    "Clear skies — your mind has room to breathe."
+  ],
+  [
+    "timeline.pilot.title",
+    "Pilot"
+  ],
+  [
+    "timeline.pilot.timeNav",
+    "Time"
+  ],
+  [
+    "timeline.pilot.contextNav",
+    "Contexts"
+  ],
+  [
+    "timeline.pilot.statusNav",
+    "Status"
+  ],
+  [
+    "timeline.pilot.contextAll",
+    "All"
+  ],
+  [
+    "timeline.pilot.contextHome",
+    "Home"
+  ],
+  [
+    "timeline.pilot.contextWork",
+    "Work"
+  ],
+  [
+    "timeline.pilot.contextPiggy",
+    "Piggy bank"
+  ],
+  [
+    "timeline.pilot.contextArchives",
+    "Archives"
+  ],
+  [
+    "timeline.pilot.todo",
+    "To do"
+  ],
+  [
+    "timeline.pilot.done",
+    "Done"
+  ],
+  [
+    "timeline.pilot.specificDate",
+    "Date"
+  ],
+  [
+    "timeline.pilot.pickedDateShort",
+    "{{date}}"
+  ],
+  [
+    "timeline.pilot.changeDate",
+    "Pick another day"
+  ],
+  [
+    "timeline.customDayEmpty",
+    "Nothing scheduled that day."
+  ],
+  [
+    "timeline.customDayAddTask",
+    "Add a task?"
+  ],
+  [
+    "timeline.roadmap.printerA11y",
+    "Daily roadmap"
+  ],
+  [
+    "timeline.roadmap.sasTitle",
+    "Cleanup — Daily roadmap"
+  ],
+  [
+    "timeline.roadmap.sasSubtitle",
+    "Validate, move to today, or delete each item, then run synthesis."
+  ],
+  [
+    "timeline.roadmap.bucketOverdue",
+    "Past due"
+  ],
+  [
+    "timeline.roadmap.bucketOrphan",
+    "No due date"
+  ],
+  [
+    "timeline.roadmap.validate",
+    "Keep"
+  ],
+  [
+    "timeline.roadmap.postpone",
+    "Move to today"
+  ],
+  [
+    "timeline.roadmap.delete",
+    "Archive"
+  ],
+  [
+    "timeline.roadmap.continueSynth",
+    "Run synthesis"
+  ],
+  [
+    "timeline.roadmap.sasEmptyHint",
+    "Nothing to triage — run synthesis."
+  ],
+  [
+    "timeline.roadmap.linkOpenSaved",
+    "Today’s roadmap"
+  ],
+  [
+    "timeline.roadmap.progressCollect",
+    "Gathering intentions"
+  ],
+  [
+    "timeline.roadmap.progressSynth",
+    "Synthesizing"
+  ],
+  [
+    "timeline.roadmap.progressWrite",
+    "Writing the report…"
+  ],
+  [
+    "timeline.roadmap.sharePrint",
+    "Share / PDF"
+  ],
+  [
+    "timeline.roadmap.close",
+    "Close"
+  ],
+  [
+    "timeline.roadmap.synthError",
+    "Synthesis failed. Try again later."
+  ],
+  [
+    "timeline.syncedBadge",
+    "Synced"
+  ],
+  [
+    "timeline.memoAudio",
+    "Audio memo"
+  ],
+  [
+    "timeline.note",
+    "Note"
+  ],
+  [
+    "timeline.untitled",
+    "Untitled"
+  ],
+  [
+    "timeline.badgeAudio",
+    "🎙️ AUDIO"
+  ],
+  [
+    "timeline.badgeNote",
+    "📝 NOTE"
+  ],
+  [
+    "timeline.badgeHabit",
+    "🔄 HABIT"
+  ],
+  [
+    "timeline.badgeTask",
+    "⚡ TASK"
+  ],
+  [
+    "timeline.badgeList",
+    "📋 LIST"
+  ],
+  [
+    "timeline.badgeProject",
+    "🚀 PROJECT"
+  ],
+  [
+    "timeline.a11yTaskComplete",
+    "Mark as done or cancel pending completion"
+  ],
+  [
+    "timeline.createdOn",
+    "Created on {{date}} at {{time}}"
+  ],
+  [
+    "timeline.aiPendingChip",
+    "AI sort pending"
+  ],
+  [
+    "timeline.aiFailedChip",
+    "AI processing failed"
+  ],
+  [
+    "timeline.retryAiSort",
+    "Retry AI sort"
+  ],
+  [
+    "timeline.ideaBank.title",
+    "The Idea Bank"
+  ],
+  [
+    "timeline.ideaBank.shopTitle",
+    "To buy"
+  ],
+  [
+    "timeline.ideaBank.shopSubtitle",
+    "{{count}} items"
+  ],
+  [
+    "timeline.ideaBank.clearAll",
+    "Clear all"
+  ],
+  [
+    "timeline.ideaBank.clearAllTitle",
+    "Empty the idea bank?"
+  ],
+  [
+    "timeline.ideaBank.clearAllBody",
+    "All undated tasks will be deleted."
+  ],
+  [
+    "timeline.ideaBank.empty",
+    "No undated tasks."
+  ],
+  [
+    "timeline.ideaBank.close",
+    "Close"
+  ],
+  [
+    "timeline.ideaBank.cancel",
+    "Cancel"
+  ],
+  [
+    "timeline.ideaBank.tripFillAddress",
+    "📍 Enter address"
+  ],
+  [
+    "timeline.ideaBank.tripSearchTitle",
+    "Enter arrival address"
+  ],
+  [
+    "timeline.ideaBank.tripSearchOriginTitle",
+    "Enter departure address"
+  ],
+  [
+    "timeline.box.clearAll",
+    "Delete all"
+  ],
+  [
+    "timeline.box.clearAllTitle",
+    "Empty the Box?"
+  ],
+  [
+    "timeline.box.clearAllBody",
+    "You are about to permanently delete your {{count}} pending ideas. This action cannot be undone."
+  ],
+  [
+    "timeline.box.clearAllConfirm",
+    "Delete all"
+  ],
+  [
+    "timeline.box.empty",
+    "No ideas in storage."
+  ],
+  [
+    "timeline.routines.title",
+    "Routines"
+  ],
+  [
+    "timeline.routines.empty",
+    "No active routines."
+  ],
+  [
+    "timeline.smartClusters.inbox",
+    "Inbox"
+  ],
+  [
+    "timeline.smartClusters.inboxSubtitle",
+    "{{count}} today"
+  ],
+  [
+    "timeline.smartClusters.routinesTitle",
+    "🔁 Routines"
+  ],
+  [
+    "timeline.smartClusters.routinesSubtitle",
+    "({{count}} active)"
+  ],
+  [
+    "timeline.smartClusters.projectsTitle",
+    "📁 Projects"
+  ],
+  [
+    "timeline.smartClusters.projectsSubtitle",
+    "({{count}} active)"
+  ],
+  [
+    "timeline.smartClusters.tripsTitle",
+    "Trips"
+  ],
+  [
+    "debug.pilotTitle",
+    "Cleanup & piloting (debug)"
+  ],
+  [
+    "debug.note",
+    "Internal cockpit — Remote Config vs local model, simulated traffic, factory reset."
+  ],
+  [
+    "debug.firebaseProjectIdButton",
+    "Show Firebase projectId (SDK vs .env)"
+  ],
+  [
+    "debug.rebuildDb",
+    "Rebuild database"
+  ],
+  [
+    "debug.rebuildDbHelp",
+    "Rebuilds the intentions table (talkndone.db) sequentially."
+  ],
+  [
+    "debug.clearDb",
+    "Clear database"
+  ],
+  [
+    "debug.clearDbHelp",
+    "Deletes only the intentions (Trankil-v2) rows without touching preferences."
+  ],
+  [
+    "debug.clearDbConfirmTitle",
+    "Clear database?"
+  ],
+  [
+    "debug.clearDbConfirmBody",
+    "Deletes all local intentions (Trankil-v2). This cannot be undone."
+  ],
+  [
+    "debug.clearDbCancel",
+    "Cancel"
+  ],
+  [
+    "debug.clearDbConfirm",
+    "Clear"
+  ],
+  [
+    "debug.factoryResetConfirmTitle",
+    "Rebuild database?"
+  ],
+  [
+    "debug.factoryResetConfirmBody",
+    "The intentions table will be dropped and recreated. This cannot be undone."
+  ],
+  [
+    "debug.factoryResetSecondTitle",
+    "Final confirmation"
+  ],
+  [
+    "debug.factoryResetSecondBody",
+    "Confirm intentions table rebuild?"
+  ],
+  [
+    "debug.factoryResetCancel",
+    "Cancel"
+  ],
+  [
+    "debug.factoryResetContinue",
+    "Continue"
+  ],
+  [
+    "debug.factoryResetDestructive",
+    "Erase everything"
+  ],
+  [
+    "debug.factoryResetSuccessTitle",
+    "Database rebuilt"
+  ],
+  [
+    "debug.factoryResetSuccessBody",
+    "Intentions table rebuilt."
+  ],
+  [
+    "debug.busySqlite",
+    "SQLite…"
+  ],
+  [
+    "debug.firebaseProjectIdTitle",
+    "Firebase — projectId (debug)"
+  ],
+  [
+    "debug.firebaseProjectIdBody",
+    "SDK (app.options.projectId):\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID:\n{{env}}"
+  ],
+  [
+    "debug.firebaseSdkNullLabel",
+    "(getFirebaseApp = null)"
+  ],
+  [
+    "debug.firebaseEnvAbsentLabel",
+    "(EXPO_PUBLIC_* missing)"
+  ],
+  [
+    "debug.dashboardSectionPilotageIa",
+    "[AI PILOTING]"
+  ],
+  [
+    "debug.dashboardSectionFluxTraffic",
+    "[TRAFFIC FLOW]"
+  ],
+  [
+    "debug.dashboardSectionSysteme",
+    "[SYSTEM]"
+  ],
+  [
+    "debug.simUserModeTitle",
+    "Test user mode: {{tier}}"
+  ],
+  [
+    "debug.simUserModeReal",
+    "Real"
+  ],
+  [
+    "debug.simUserModeFree",
+    "FREE"
+  ],
+  [
+    "debug.simUserModePro",
+    "PRO"
+  ],
+  [
+    "debug.simUserModeHelp",
+    "The app applies this immediately (quota, paywall). Effective UI tier: {{effective}}."
+  ],
+  [
+    "debug.rcPass1Caption",
+    "Remote Config (gemini_pass1_model_id)"
+  ],
+  [
+    "debug.rcPass2Caption",
+    "Remote Config (gemini_pass2_model_id)"
+  ],
+  [
+    "debug.rcModelValue",
+    "{{modelId}}"
+  ],
+  [
+    "debug.rcModelUnavailable",
+    "— (no Firebase or Remote Config not resolved)"
+  ],
+  [
+    "debug.localPass1Caption",
+    "Effective Pass 1 (extraction)"
+  ],
+  [
+    "debug.localPass2Caption",
+    "Effective Pass 2 (reasoning)"
+  ],
+  [
+    "debug.localModelValue",
+    "{{modelId}}"
+  ],
+  [
+    "debug.localOverridesRcHint",
+    "Effective Pass 2 differs from RC (debug override or health check)."
+  ],
+  [
+    "debug.iaHealthButton",
+    "Run AI health check"
+  ],
+  [
+    "debug.iaHealthTitle",
+    "AI health check"
+  ],
+  [
+    "debug.iaHealthBody",
+    "Pass 1 ({{pass1}}): {{pass1Ok}}\nPass 2 winner: {{pass2}}\nPass 2 probes: {{tested}} (skipped shortlist: {{skipped}}) out of {{total}} models."
+  ],
+  [
+    "debug.iaHealthErrorTitle",
+    "AI health check failed"
+  ],
+  [
+    "debug.busyIaHealth",
+    "Probing models…"
+  ],
+  [
+    "debug.geminiRemoteModelRefresh",
+    "Refresh Remote Config"
+  ],
+  [
+    "debug.oneTapPerfTitle",
+    "One-tap perf (T0–T3 markers)"
+  ],
+  [
+    "debug.oneTapPerfEmpty",
+    "No measurements yet — run a one-tap refine from Talk Debug."
+  ],
+  [
+    "debug.oneTapPerfT0",
+    "T0: {{ms}} ms"
+  ],
+  [
+    "debug.oneTapPerfT1",
+    "T1: {{ms}} ms"
+  ],
+  [
+    "debug.oneTapPerfT3",
+    "T3: {{ms}} ms"
+  ],
+  [
+    "debug.oneTapPerfGemini",
+    "Gemini: {{ms}} ms"
+  ],
+  [
+    "debug.oneTapPerfTotal",
+    "Total from T1: {{ms}} ms"
+  ],
+  [
+    "debug.timelineLayoutTitle",
+    "Timeline layout"
+  ],
+  [
+    "debug.timelineLayoutHint",
+    "Switch between current cards and email hub. Rollback: Current cards. Works with all themes above."
+  ],
+  [
+    "debug.timelineLayoutCurrent",
+    "Current cards"
+  ],
+  [
+    "debug.timelineLayoutEmailHub",
+    "Email hub"
+  ],
+  [
+    "debug.trafficLaunchElastic",
+    "Start elastic jump simulation"
+  ],
+  [
+    "debug.trafficMonitorTitle",
+    "Traffic monitoring (simulation)"
+  ],
+  [
+    "debug.trafficSimulatedTime",
+    "Simulated time: {{time}}"
+  ],
+  [
+    "debug.trafficNextJump",
+    "Next jump: {{sec}} s real time"
+  ],
+  [
+    "debug.trafficEmaMin",
+    "Stabilized traffic duration (EMA): {{min}} min"
+  ],
+  [
+    "debug.trafficStatusLabel",
+    "Status:"
+  ],
+  [
+    "debug.trafficBufferSafety",
+    "BufferSafety: {{min}} min"
+  ],
+  [
+    "debug.trafficCriticalTopDepartTitle",
+    "CRITICAL: TOP_DEPART triggered"
+  ],
+  [
+    "debug.trafficDebugTripDestination",
+    "Muret → Toulouse"
+  ],
+  [
+    "debug.sqliteCountsLine",
+    "intentions={{intentions}} | tasks={{tasks}}"
+  ],
+  [
+    "debug.busySimElastic",
+    "Traffic simulation…"
+  ],
+  [
+    "debug.busyRemoteModel",
+    "Remote Config…"
+  ],
+  [
+    "connector.defaultFirstName",
+    "there"
+  ],
+  [
+    "connector.botWelcomeMessage",
+    "Hello {{firstName}}, this is your private space to create intentions (text or voice). Everything stays strictly confidential and synced to your phone. {{appLink}}"
+  ],
+  [
+    "connector.botRailAck",
+    "Got it! Added. Check your Rail ⚡️\n{{url}}"
+  ],
+  [
+    "connector.botRechargeRedirect",
+    "Your messenger quota is empty — open the Recharge Station: {{url}}"
+  ],
+  [
+    "notifications.externalIntentionTitle",
+    "TellYouTo"
+  ],
+  [
+    "notifications.externalIntentionBody",
+    "Your ally captured a new intention: {{title}}. It’s on your rail."
+  ],
+  [
+    "notifications.offlineAudioReadyTitle",
+    "Offline note available"
+  ],
+  [
+    "notifications.offlineAudioReadyBody",
+    "An audio capture is waiting for analysis."
+  ],
+  [
+    "notifications.offlineAnalyzeAction",
+    "Analyze"
+  ],
+  [
+    "notifications.offlineKeepAudioAction",
+    "Keep audio"
+  ],
+  [
+    "ally.openSettings",
+    "Settings"
+  ],
+  [
+    "health.bannerLead",
+    "Gentle heads-up:"
+  ],
+  [
+    "health.warnFirebase",
+    "cloud sync isn’t configured yet"
+  ],
+  [
+    "health.warnSqlite",
+    "local database check didn’t pass"
+  ],
+  [
+    "health.warnNotifications",
+    "Notifications disabled. Turn them on in Settings to receive new intentions in real time."
+  ],
+  [
+    "health.dismiss",
+    "OK"
+  ],
+  [
+    "agent.alarmPermissionTitle",
+    "Notifications required"
+  ],
+  [
+    "agent.alarmPermissionBody",
+    "The local AI agent cannot ring rail alarms on this device without notification permission. Enable notifications (and alarms on Android) for this app in system settings."
+  ],
+  [
+    "agent.railChannelName",
+    "TellYouTo · Rail ({{soundId}})"
+  ],
+  [
+    "common.cancel",
+    "Cancel"
+  ],
+  [
+    "common.habits",
+    "Habits"
+  ],
+  [
+    "project.title_placeholder",
+    "Project title"
+  ],
+  [
+    "project.add_steps",
+    "+"
+  ],
+  [
+    "project.zoom_confirm_title",
+    "Do you want the AI to break down this step?"
+  ],
+  [
+    "project.zoom_action_start",
+    "Break down"
+  ],
+  [
+    "project.zoom_generating_status",
+    "Creating steps"
+  ],
+  [
+    "project.zoom_background_action",
+    "Process in background"
+  ],
+  [
+    "project.status_processing",
+    "Processing…"
+  ],
+  [
+    "project.zoom_view_steps",
+    "View steps"
+  ],
+  [
+    "talkHome.microphonePermissionTitle",
+    "Microphone access required"
+  ],
+  [
+    "talkHome.microphonePermissionDeniedBody",
+    "Voice input cannot start without microphone access. Open system settings and allow the microphone for TalkNDone."
+  ],
+  [
+    "talkHome.listeningNow",
+    "I'm listening..."
+  ],
+  [
+    "errorBoundary.brand",
+    "TalkNDone"
+  ],
+  [
+    "errorBoundary.title",
+    "A moment without a blank screen"
+  ],
+  [
+    "errorBoundary.body",
+    "A tiny snag in the gears — nothing serious. Breathe; you can restart when you’re ready."
+  ],
+  [
+    "errorBoundary.restartA11y",
+    "Restart the app"
+  ],
+  [
+    "errorBoundary.restart",
+    "Restart"
+  ],
+  [
+    "nativeModule.missingTitle",
+    "Native module error"
+  ],
+  [
+    "nativeModule.missingBody",
+    "{{name}} is missing or not linked to the current binary.\nContext: {{context}}\n→ Android rebuild required (npx expo prebuild --clean --platform android, then compile).\n\n{{detail}}"
+  ],
+  [
+    "nativeModule.unknownModuleName",
+    "(unknown module)"
+  ],
+  [
+    "nativeModule.contextTalkHomeSpeech",
+    "Talk · speech recognition"
+  ],
+  [
+    "nativeModule.contextTalkHomePersist",
+    "Talk · voice intention (local DB)"
+  ],
+  [
+    "listIntention.proTeaserTitle",
+    "Pro"
+  ],
+  [
+    "listIntention.proTeaserBody",
+    "Go Pro to instantly scale your lists (guests, gear, logistics)."
+  ],
+  [
+    "listIntention.unreadable",
+    "This list could not be loaded."
+  ],
+  [
+    "listIntention.a11yDecrease",
+    "Decrease scale"
+  ],
+  [
+    "listIntention.a11yIncrease",
+    "Increase scale"
+  ],
+  [
+    "talkDebug.sacredSpace.title",
+    "Sacred Space"
+  ],
+  [
+    "talkDebug.noteSaved",
+    "Note saved"
+  ],
+  [
+    "talkDebug.audioSaved",
+    "Audio memo saved"
+  ],
+  [
+    "talkDebug.captureTitle",
+    "Capture"
+  ],
+  [
+    "talkDebug.taskQuickRecapIntro",
+    "Task saved"
+  ],
+  [
+    "talkDebug.habitQuickRecapIntro",
+    "Habit saved"
+  ],
+  [
+    "talkDebug.birthdayLabel",
+    "Birthday"
+  ],
+  [
+    "talkDebug.listSavedToast",
+    "List saved"
+  ],
+  [
+    "talkDebug.projectSavedToast",
+    "Project saved"
+  ],
+  [
+    "talkDebug.intentionSuggestionsEyebrow",
+    "Intention ideas"
+  ],
+  [
+    "talkDebug.voiceWaveformA11y",
+    "Live voice level"
+  ],
+  [
+    "talkDebug.micQuotaUpsellHint",
+    "3 free actions per day. Go PRO for unlimited access."
+  ],
+  [
+    "talkDebug.oneTapEmptyTranscript",
+    "Nothing was transcribed. Try again closer to the microphone."
+  ],
+  [
+    "talkDebug.oneTapListSection",
+    "List"
+  ],
+  [
+    "talkDebug.oneTapListItems",
+    "Lines to save"
+  ],
+  [
+    "talkDebug.oneTapListUnitPlaceholder",
+    "people, days…"
+  ],
+  [
+    "talkDebug.oneTapTaskSection",
+    "Task"
+  ],
+  [
+    "talkDebug.oneTapWebDateLabel",
+    "Date (YYYY-MM-DD)"
+  ],
+  [
+    "talkDebug.oneTapPickDate",
+    "Pick a date"
+  ],
+  [
+    "talkDebug.oneTapClearDate",
+    "Clear date"
+  ],
+  [
+    "talkDebug.oneTapTaskDueTime",
+    "Time (optional)"
+  ],
+  [
+    "talkDebug.oneTapTaskNotes",
+    "Notes"
+  ],
+  [
+    "talkDebug.oneTapRecurringSection",
+    "Recurrence"
+  ],
+  [
+    "talkDebug.oneTapCadence",
+    "Cadence"
+  ],
+  [
+    "talkDebug.oneTapAnchorNotes",
+    "Anchor notes"
+  ],
+  [
+    "talkDebug.oneTapHabitSection",
+    "Habit"
+  ],
+  [
+    "talkDebug.oneTapPreferredTime",
+    "Preferred time"
+  ],
+  [
+    "talkDebug.oneTapAnniversarySection",
+    "Annual event"
+  ],
+  [
+    "talkDebug.oneTapPersonName",
+    "Person or subject"
+  ],
+  [
+    "talkDebug.oneTapMonthDay",
+    "Date (MM-DD or YYYY-MM-DD)"
+  ],
+  [
+    "talkDebug.oneTapReminderDays",
+    "Reminder (days before)"
+  ],
+  [
+    "talkDebug.oneTapUniversalReminderTitle",
+    "Scheduled reminder"
+  ],
+  [
+    "talkDebug.oneTapUniversalDueLabel",
+    "Due"
+  ],
+  [
+    "talkDebug.oneTapUniversalRecLabel",
+    "Recurrence"
+  ],
+  [
+    "talkDebug.oneTapClearUniversalReminder",
+    "Remove reminder"
+  ],
+  [
+    "talkDebug.oneTapAddReminderCta",
+    "+ Add a reminder"
+  ],
+  [
+    "talkDebug.oneTapWebDueDateTimeIso",
+    "ISO date/time (reminder)"
+  ],
+  [
+    "talkDebug.oneTapReminderNotifTitle",
+    "TellYouTo reminder"
+  ],
+  [
+    "talkDebug.oneTapReminderRecurringTitle",
+    "Recurring reminder"
+  ],
+  [
+    "talkDebug.oneTapNoteSection",
+    "Memo"
+  ],
+  [
+    "talkDebug.oneTapConfirm",
+    "Save"
+  ],
+  [
+    "talkDebug.oneTapPrintErrorTitle",
+    "Print"
+  ],
+  [
+    "talkDebug.oneTapPrintNeedsNativeBuild",
+    "The print module isn’t in this app binary. Use a development build (e.g. npx expo run:android) after adding expo-print, or rebuild the app. Expo Go may not include newly added native modules."
+  ],
+  [
+    "talkDebug.stepTransport",
+    "Recording audio…"
+  ],
+  [
+    "talkDebug.stepTranscription",
+    "Transcribing audio…"
+  ],
+  [
+    "talkDebug.stepAnalysis",
+    "Generating content…"
+  ],
+  [
+    "talkDebug.stepComplete",
+    "Done!"
+  ],
+  [
+    "talkDebug.actionAddNote",
+    "Add a note"
+  ],
+  [
+    "talkDebug.errorNetwork",
+    "Unstable network. Saved locally."
+  ],
+  [
+    "talkDebug.oneTapType.TASK",
+    "Task"
+  ],
+  [
+    "talkDebug.oneTapType.RECURRING_TASK",
+    "Recurring task"
+  ],
+  [
+    "talkDebug.oneTapType.HABIT",
+    "Habit"
+  ],
+  [
+    "talkDebug.oneTapType.TRIP",
+    "Trip"
+  ],
+  [
+    "talkDebug.oneTapType.LIST",
+    "List"
+  ],
+  [
+    "talkDebug.oneTapType.ANNIVERSARY",
+    "Anniversary"
+  ],
+  [
+    "talkDebug.oneTapType.NOTE",
+    "Note"
+  ],
+  [
+    "profiling.kindness.1.insight[0]",
+    "Your mind is full of ideas right now, {{name}}."
+  ],
+  [
+    "profiling.kindness.1.insight[1]",
+    "Your imagination feels very active today, {{name}}."
+  ],
+  [
+    "profiling.kindness.1.insight[2]",
+    "Many meaningful projects are alive in your head, {{name}}."
+  ],
+  [
+    "profiling.kindness.1.action_tip[0]",
+    "What if you picked just one tiny brick to start?"
+  ],
+  [
+    "profiling.kindness.1.action_tip[1]",
+    "Take one action, even very small, to clear your mind."
+  ],
+  [
+    "profiling.kindness.1.action_tip[2]",
+    "Breathe. Clarity grows when you do one thing at a time."
+  ],
+  [
+    "profiling.kindness.2.insight[0]",
+    "Your rhythm looks quieter these days, {{name}}."
+  ],
+  [
+    "profiling.kindness.2.insight[1]",
+    "This feels like a temporary disconnect phase, {{name}}."
+  ],
+  [
+    "profiling.kindness.2.insight[2]",
+    "Your engine is idling a bit right now, {{name}}."
+  ],
+  [
+    "profiling.kindness.2.action_tip[0]",
+    "Come back with one 2-minute micro-action."
+  ],
+  [
+    "profiling.kindness.2.action_tip[1]",
+    "Choose one simple move now to restart momentum."
+  ],
+  [
+    "profiling.kindness.2.action_tip[2]",
+    "One small check-in today is enough to get back on track."
+  ],
+  [
+    "profiling.kindness.3.insight[0]",
+    "When you engage, your execution is sharp, {{name}}."
+  ],
+  [
+    "profiling.kindness.3.insight[1]",
+    "You convert quickly into results when activated, {{name}}."
+  ],
+  [
+    "profiling.kindness.3.insight[2]",
+    "Your efficiency is strong, even with an irregular rhythm, {{name}}."
+  ],
+  [
+    "profiling.kindness.3.action_tip[0]",
+    "Add a tiny daily ritual to smooth your pace."
+  ],
+  [
+    "profiling.kindness.3.action_tip[1]",
+    "Lock one recurring short slot to stabilize your rhythm."
+  ],
+  [
+    "profiling.kindness.3.action_tip[2]",
+    "Small consistency beats isolated sprints."
+  ],
+  [
+    "profiling.kindness.4.insight[0]",
+    "You orchestrate calendar flow very well, {{name}}."
+  ],
+  [
+    "profiling.kindness.4.insight[1]",
+    "Your steering is clear: sync, align, move forward, {{name}}."
+  ],
+  [
+    "profiling.kindness.4.insight[2]",
+    "You are in a strong coordination posture right now, {{name}}."
+  ],
+  [
+    "profiling.kindness.4.action_tip[0]",
+    "Keep one active local intention to stay grounded daily."
+  ],
+  [
+    "profiling.kindness.4.action_tip[1]",
+    "Reserve a short review window to keep full control of flow."
+  ],
+  [
+    "profiling.kindness.4.action_tip[2]",
+    "Keep it simple: one visible priority at a time."
+  ],
+  [
+    "profiling.kindness.5.insight[0]",
+    "Your action-consistency balance is very solid, {{name}}."
+  ],
+  [
+    "profiling.kindness.5.insight[1]",
+    "You are moving with steady clarity, {{name}}."
+  ],
+  [
+    "profiling.kindness.5.insight[2]",
+    "Great stability: execution and engagement are aligned, {{name}}."
+  ],
+  [
+    "profiling.kindness.5.action_tip[0]",
+    "Keep this cadence with a light weekly review."
+  ],
+  [
+    "profiling.kindness.5.action_tip[1]",
+    "Protect momentum by celebrating one small win each day."
+  ],
+  [
+    "profiling.kindness.5.action_tip[2]",
+    "Preserve your balance with a recurring reset slot."
+  ],
+  [
+    "profiling.kindness.defaultName",
+    "you"
+  ],
+  [
+    "profiling.profiles.1.label",
+    "THE DREAMER"
+  ],
+  [
+    "profiling.profiles.1.description",
+    "Captures many intentions but executes only a small part."
+  ],
+  [
+    "profiling.profiles.2.label",
+    "THE DISCONNECTED"
+  ],
+  [
+    "profiling.profiles.2.description",
+    "Usage is dropping, with low completion and weak engagement."
+  ],
+  [
+    "profiling.profiles.3.label",
+    "THE SPRINTER"
+  ],
+  [
+    "profiling.profiles.3.description",
+    "High execution power, but still irregular over time."
+  ],
+  [
+    "profiling.profiles.4.label",
+    "THE CONDUCTOR"
+  ],
+  [
+    "profiling.profiles.4.description",
+    "Strong orchestration behavior with a high archive/export ratio."
+  ],
+  [
+    "profiling.profiles.5.label",
+    "THE ZEN CONSISTENT"
+  ],
+  [
+    "profiling.profiles.5.description",
+    "Balanced profile with strong execution and regular engagement."
+  ],
+  [
+    "horizons.rearbitrate",
+    "To re-arbitrate"
+  ],
+  [
+    "horizons.today",
+    "Today"
+  ],
+  [
+    "horizons.tomorrow",
+    "Tomorrow"
+  ],
+  [
+    "horizons.thisWeek",
+    "This week"
+  ],
+  [
+    "horizons.noPressure",
+    "No pressure"
+  ],
+  [
+    "TYPE_TASK",
+    "Task"
+  ],
+  [
+    "TYPE_HABIT",
+    "Habit"
+  ],
+  [
+    "TYPE_RECURRING_TASK",
+    "Recurring task"
+  ],
+  [
+    "TYPE_LIST",
+    "List"
+  ],
+  [
+    "TYPE_ANNIVERSARY",
+    "Anniversary"
+  ],
+  [
+    "TYPE_NOTE",
+    "Note"
+  ],
+  [
+    "MODAL_REFINING",
+    "Refining…"
+  ],
+  [
+    "PLACEHOLDER_TITLE",
+    "Title…"
+  ],
+  [
+    "DEFAULT_INTENTION_TITLE",
+    "New intention"
+  ],
+  [
+    "PLACEHOLDER_LIST",
+    "List (one item per line)…"
+  ],
+  [
+    "PLACEHOLDER_DESTINATION",
+    "Destination…"
+  ],
+  [
+    "COMMON_MINUS",
+    "−"
+  ],
+  [
+    "COMMON_PLUS",
+    "+"
+  ],
+  [
+    "COMMON_YES",
+    "Yes"
+  ],
+  [
+    "COMMON_NO",
+    "No"
+  ],
+  [
+    "COMMON_CANCEL",
+    "Cancel"
+  ],
+  [
+    "MODAL_CONFIRM_OK",
+    "OK"
+  ],
+  [
+    "LOGISTICS_TRAFFIC_ADJUST",
+    "Adjust for traffic"
+  ],
+  [
+    "LOGISTICS_BUY_TRAJET_PACK",
+    "Recharge"
+  ],
+  [
+    "LOGISTICS_TRAJET_REMAINING_SUFFIX",
+    "(left: {{n}})"
+  ],
+  [
+    "SAS_SUMMARY_DEPART_RECOMMENDED",
+    "Recommended departure at {{time}}"
+  ],
+  [
+    "SAS_SUMMARY_SCHEDULED",
+    "Scheduled at {{time}}"
+  ],
+  [
+    "SAS_SUMMARY_DESTINATION",
+    "To {{destination}}"
+  ],
+  [
+    "PLACEHOLDER_NOTE",
+    "Type your memo…"
+  ],
+  [
+    "PLACEHOLDER_DATE",
+    "Date (YYYY-MM-DD)…"
+  ],
+  [
+    "PLACEHOLDER_TIME",
+    "Time (HH:MM)…"
+  ],
+  [
+    "PLACEHOLDER_NOTES",
+    "Notes…"
+  ],
+  [
+    "PLACEHOLDER_ADDRESS",
+    "Address…"
+  ],
+  [
+    "PLACEHOLDER_PERSON",
+    "Name…"
+  ],
+  [
+    "PLACEHOLDER_MONTHDAY",
+    "Date (MM-DD)…"
+  ]
+]

@@ -1,110 +1,616 @@
 {
-  "ally": {
-    "lang": {
-      "fr": "Français",
-      "en": "English",
-      "es": "Español",
-      "de": "Deutsch",
-      "it": "Italiano",
-      "ja": "日本語",
-      "zh": "中文",
-      "ar": "العربية",
-      "ko": "한국어",
-      "nl": "Nederlands",
-      "sv": "Svenska"
-    }
+  "intentInteraction": {
+    "menuTitle": "Bedoeling",
+    "archive": "Archiveren",
+    "pinDue": "Verplaatsen / datum vastpinnen",
+    "pickDate": "Kies een datum",
+    "cancel": "Annuleren"
   },
   "inbox": {
     "action": {
-      "remove": "Remove from Inbox",
-      "removeAll": "Remove all from Inbox",
-      "removeConfirmTitle": "Remove from Inbox?",
-      "removeConfirmBody": "The intention stays in TellYouTo but leaves today's Inbox.",
-      "removeAllConfirmTitle": "Remove all from Inbox?",
-      "removeAllConfirmBody": "All {{count}} visible intentions will be marked as triaged."
+      "remove": "Verwijderen uit Inbox",
+      "removeAll": "Alles uit Inbox verwijderen",
+      "removeAllConfirmTitle": "Alles uit Inbox verwijderen?",
+      "removeAllConfirmBody": "Alle {{count}} zichtbare bedoelingen worden als verwerkt gemarkeerd."
     }
   },
+  "talkCapture": {
+    "hintTap": "Tik om een spraaknotitie op te nemen",
+    "savedTimeline": "Bedoeling opgeslagen in Timeline",
+    "savedOfflinePending": "Geen netwerk: bedoeling opgeslagen voor later"
+  },
+  "category": {
+    "HOME": "Thuis",
+    "WORK": "Werk",
+    "PERSO": "Persoonlijk",
+    "HEALTH": "Gezondheid",
+    "FINANCE": "Financiën",
+    "TRAVEL": "Reizen",
+    "SOCIAL": "Sociaal",
+    "SHOP": "Winkelen",
+    "LEARN": "Leren",
+    "OTHER": "Overig"
+  },
+  "capture": {
+    "offlineNoteGenericToast": "Opgeslagen op dit apparaat. Slim sorteren wordt hervat zodra je weer online bent.",
+    "offlineRetryOkToast": "AI-sortering klaar — je Timeline is bijgewerkt.",
+    "pendingAiNetworkBack": "{{count}} idee(ën) wachten nog op AI-sortering — tik op « AI-sortering opnieuw » op de kaart."
+  },
+  "quota_remaining": "Je hebt nog {{count}} gratis Sentinel-ritten over.",
+  "quota_exhausted_title": "Statische modus",
+  "quota_exhausted_desc": "Sentinel-proefperiode voorbij. Upgrade naar PRO voor realtime monitoring.",
+  "sentinel": {
+    "validationTitle": "Adresvalidatie",
+    "detectedPlace": "Gedetecteerde plek: {{place}}",
+    "addressLabel": "Gevalideerd adres (Google Places)",
+    "addressPlaceholder": "Zoek een adres…",
+    "validationRequired": "Selecteer een geldig adres om Sentinel te activeren.",
+    "placesMissingKey": "Google Places-sleutel ontbreekt (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "addressResolveFailed": "Adres niet gevonden. Controleer je invoer en probeer opnieuw.",
+    "notifTitle": "Naar: {{destination}} • Aankomst {{arrival}}",
+    "notifUpdatedAt": "Bijgewerkt om {{time}}",
+    "notifStatusBlue": "Toezicht",
+    "notifStatusOrange": "Venster open",
+    "notifStatusRed": "Kritiek vertrek",
+    "notifStatusStatic": "Statische modus",
+    "notifDepartureAt": "Vertrek om {{time}}",
+    "notifDepartureWindow": "Aanbevolen vertrek tussen {{start}} en {{end}}.",
+    "notifNextRealUpdateAt": "Volgende echte update om {{time}}",
+    "notifModeSafety": "Veiligheidsmodus",
+    "probe3Title": "Vertrek — {{destination}}",
+    "probe3Smooth": "Verkeer is rustig — je kunt over {{minutes}} minuten vertrekken.",
+    "probe3LeaveNow": "Druk verkeer — vertrek nu.",
+    "probe3Unavailable": "Schatting niet beschikbaar — controleer het verkeer handmatig.",
+    "promiseDriftTitle": "Verkeer — {{destination}}",
+    "promiseDriftBody": "Het verkeer is licht veranderd. Je vertrekvenster is nu: {{capsule}}",
+    "topDepartTitle": "VERTREK NU",
+    "topDepartBody": "Tijd om te vertrekken naar {{destination}}."
+  },
+  "departureContract": {
+    "notifTitle": "Vertrekcontract — {{destination}}",
+    "signalBTitle": "Vertrekherinnering",
+    "signalBBody": "{{capsule}} — Vertrek over ongeveer {{minutes}} min naar {{destination}}."
+  },
+  "sentinelFocus": {
+    "prompt": "Herinner me wanneer ik moet vertrekken voor {{title}} om {{time}}?",
+    "departureTitle": "Vertrek naar {{name}}",
+    "arrivalSubtitle": "Aankomst: {{time}}"
+  },
+  "tripAlarm": {
+    "pickerTitle": "Alarm instellen",
+    "pickerMessage": "Vertrek om {{time}}",
+    "departureLabel": "{{place}} vertrek {{time}}",
+    "a11yOpenAlarm": "Vertrekalarm instellen",
+    "iosManualHint": "Open Klok en maak een alarm om {{time}}.\nVoorgestelde naam: {{label}}",
+    "androidUnavailable": "Kon Klok niet openen. Stel een alarm in om {{time}} ({{label}})."
+  },
+  "intentionDetail": {
+    "source": "Bron",
+    "checklist": "Controlelijst",
+    "trip": "Rit",
+    "transport": "Vervoer",
+    "currentPosition": "Huidige locatie",
+    "addressPlaceholder": "Zoek een adres…",
+    "allDay": "Hele dag",
+    "listItems": "Onderdelen",
+    "projectStartDate": "Startdatum",
+    "projectStartDateEmpty": "Startdatum instellen",
+    "projectMilestoneMenuTitle": "Mijlpaal",
+    "projectMilestoneMenuPivot": "Kalender (pivot)",
+    "projectMilestoneMenuNote": "Notitie",
+    "projectMilestoneMenuDelete": "Verwijderen",
+    "confirmReplan": "Bevestigen en volgende stappen herschikken",
+    "cancel": "Annuleren",
+    "save": "Opslaan",
+    "notePlaceholder": "Voeg een notitie toe…",
+    "transportAuto": "Auto",
+    "transportWalking": "Lopen",
+    "transportBike": "Fiets",
+    "ecoFriendly": "Milieuvriendelijk 🌱",
+    "co2Standard": "Standaard CO2-impact",
+    "launchRoute": "Route starten",
+    "launchRouteDisabledHint": "Voeg een geldig bestemmingsadres toe om navigatie te starten.",
+    "close": "Sluiten",
+    "pin": "Vastpinnen",
+    "unpin": "Losmaken",
+    "pinMaxReachedTitle": "Pinlimiet bereikt",
+    "pinMaxReachedBody": "Je kunt maximaal {{max}} bedoelingen vastpinnen. Maak eerst een andere los.",
+    "labelIntention": "Bedoeling",
+    "labelTiming": "Tijdstip",
+    "labelEngagement": "Betrokkenheid",
+    "trackStreak": "Reeks bijhouden 🔥",
+    "trackStreakHint": "Toont een teller om je ritme te helpen volhouden.",
+    "labelItinerary": "Traject",
+    "labelTransport": "Vervoer",
+    "comfortTitle": "Ritcomfort",
+    "comfortElasticDeparture": "Geschat vertrek: {{window}}",
+    "comfortElasticDepartureApprox": "Geschat vertrek: ≈ {{window}}",
+    "comfortElasticDepartureShifted": "⚠️ Geschat vertrek: {{window}}",
+    "allDayNoDepartureSlot": "Hele dag — geen vertrekvenster",
+    "actionSetupAlert": "Herinner me wanneer ik moet vertrekken?",
+    "actionSetupAlertLocked": "Herinner me wanneer ik moet vertrekken 🔒",
+    "tripSurveillanceStart": "Rit monitoren",
+    "tripSurveillanceStartLocked": "Rit monitoren 🔒",
+    "tripSurveillanceActive": "Monitoring actief 🛡️",
+    "surveillanceMissingInfo": "Voeg een geldige bestemming en aankomsttijd toe om monitoring in te schakelen.",
+    "pass2LockedSuffix": "🔒",
+    "noteMemoSection": "Notitie",
+    "finish": "Voltooien"
+  },
+  "pass2": {
+    "generateSteps": "✨ Opsplitsen in stappen",
+    "generateList": "✨ Lijst structureren",
+    "steps_loading": "Lezen...",
+    "list_loading": "items aanmaken...",
+    "finalizing": "Structuur afronden..."
+  },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "Ga Pro",
+    "proLabel": "PRO",
+    "a11yCredits": "Capture-credits — open Recharge",
+    "a11yCalendar": "Open vandaag op Timeline",
+    "a11yPiggy": "Inbox — ongeordende items"
+  },
+  "tabs": {
+    "debug": "Foutopsporing",
+    "talkHome": "Talk"
+  },
+  "pro": {
+    "modalTitle": "Ontgrendel maximale kracht",
+    "modalPrice": "€9,99 / maand",
+    "modalLead": "Ga Pro voor premiumkanalen en permanent advertentievrij.",
+    "benefit1": "Onbeperkt WhatsApp",
+    "benefit2": "Geen advertenties",
+    "benefit3": "Prioritaire support",
+    "benefit4": "Toegang tot alle routines",
+    "modalLater": "Niet nu",
+    "modalCta": "Ga Pro",
+    "screenKicker": "ABONNEMENT",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "Multi-kanaal, advertentievrij, prioritaire support.",
+    "devNote": "Dev-build: de knop simuleert abonnement zonder betaling.",
+    "subscribeGold": "Abonneren — €9,99 / maand",
+    "back": "Sluiten",
+    "linkRequiredTitle": "Account vereist",
+    "linkRequiredBody": "Koppel Google of Apple (zelfde Firebase-identiteit) om je Pro-abonnement te behouden.",
+    "linkGoogle": "Doorgaan met Google",
+    "linkApple": "Doorgaan met Apple",
+    "linkLater": "Niet nu",
+    "linkGoogleOnly": "Alleen Google koppelen",
+    "linkAppleOnly": "Alleen Apple koppelen",
+    "linkErrorTitle": "Koppelen mislukt",
+    "configureGoogleTitle": "Google-configuratie",
+    "configureGoogleBody": "Stel EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (en iOS/Android client IDs indien nodig) in .env in en herstart Metro.",
+    "googleMissingEnv": "Google Web client ID ontbreekt: OAuth-koppeling werkt niet tot EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID is ingesteld."
+  },
+  "channelSwitch": {
+    "cancel": "Annuleren"
+  },
   "timeline": {
-    "createdOn": "Gemaakt op {{date}}",
+    "title": "Timeline",
     "allDuration": "Hele dag",
-    "newBadge": "NIEUW",
+    "elasticDepartureWindow": "[ Geschat vertrek: {{window}} ]",
+    "elasticDepartureApprox": "[ Geschat vertrek: ≈ {{window}} ]",
+    "elasticDepartureShifted": "[ ⚠️ Geschat vertrek: {{window}} ]",
+    "scanTrafficScheduled": "Echte verkeersscan gepland om {{time}}",
+    "scanTrafficInProgress": "Scan bezig…",
     "createdTodayAt": "Vandaag gemaakt om {{time}}",
-    "skyClear": "Strak blauw — je hoofd heeft ruimte.",
+    "createdYesterdayAt": "Gisteren gemaakt om {{time}}",
+    "skyClear": "Heldere lucht — je hoofd heeft ruimte.",
     "pilot": {
-      "title": "Stuurpost",
+      "title": "Pilotage",
       "timeNav": "Tijd",
       "contextNav": "Contexten",
-      "statusNav": "Status",
+      "statusNav": "Toestand",
       "contextAll": "Alles",
       "contextHome": "Thuis",
       "contextWork": "Werk",
       "contextPiggy": "Spaarvarken",
       "contextArchives": "Archief",
       "todo": "Te doen",
-      "done": "Klaar"
-    },
-    "tasks": {
-      "title": "Mijn taken",
-      "scheduledToday": "Vandaag gepland",
-      "noPressure": "Geen haast"
-    },
-    "habits": {
-      "title": "Gewoontes"
-    },
-    "projects": {
-      "title": "Projectstappen"
-    },
-    "notesAudio": {
-      "title": "Notities en audio"
-    },
-    "ideaBank": {
-      "title": "Ideeënbus",
-      "button": "taken in de ideeënbus",
       "done": "Klaar",
-      "schedule": "Inplannen",
-      "remove": "Verwijderen",
-      "removeConfirmTitle": "Taak verwijderen?",
-      "removeConfirmBody": "Permanent van je apparaat gewist.",
-      "clearAll": "Alles legen",
-      "clearAllTitle": "Ideeënbus legen?",
+      "specificDate": "Datum",
+      "pickedDateShort": "{{date}}",
+      "changeDate": "Andere dag kiezen"
+    },
+    "customDayEmpty": "Niets gepland die dag.",
+    "customDayAddTask": "Taak toevoegen?",
+    "roadmap": {
+      "printerA11y": "Dagelijkse roadmap",
+      "sasTitle": "Opruimen — Dagelijkse roadmap",
+      "sasSubtitle": "Valideer, verplaats naar vandaag of archiveer elk item, start daarna synthese.",
+      "bucketOverdue": "Verlopen",
+      "bucketOrphan": "Geen datum",
+      "validate": "Behouden",
+      "postpone": "Naar vandaag verplaatsen",
+      "delete": "Archiveren",
+      "continueSynth": "Synthese starten",
+      "sasEmptyHint": "Niets te triëren — start synthese.",
+      "linkOpenSaved": "Roadmap van vandaag",
+      "progressCollect": "Bedoelingen verzamelen",
+      "progressSynth": "Synthetiseren",
+      "progressWrite": "Rapport schrijven…",
+      "sharePrint": "Delen / PDF",
+      "close": "Sluiten",
+      "synthError": "Synthese mislukt. Probeer later opnieuw."
+    },
+    "syncedBadge": "Gesynchroniseerd",
+    "memoAudio": "Audiomemo",
+    "note": "Notitie",
+    "untitled": "Naamloos",
+    "badgeAudio": "🎙️ GELUID",
+    "badgeNote": "📝 NOTITIE",
+    "badgeHabit": "🔄 GEWOONTE",
+    "badgeTask": "⚡ TAAK",
+    "badgeList": "📋 LIJST",
+    "badgeProject": "🚀 PROJEKT",
+    "a11yTaskComplete": "Markeer als klaar of annuleer openstaande voltooiing",
+    "createdOn": "Gemaakt op {{date}} om {{time}}",
+    "aiPendingChip": "AI-sortering wacht",
+    "aiFailedChip": "AI-verwerking mislukt",
+    "retryAiSort": "AI-sortering opnieuw",
+    "ideaBank": {
+      "title": "Het ideeënbankje",
+      "shopTitle": "Te kopen",
+      "shopSubtitle": "{{count}} artikelen",
+      "clearAll": "Alles wissen",
+      "clearAllTitle": "Ideeënbank legen?",
       "clearAllBody": "Alle taken zonder datum worden verwijderd.",
-      "scheduleTitle": "Kies een datum",
       "empty": "Geen taken zonder datum.",
       "close": "Sluiten",
       "cancel": "Annuleren",
-      "clusterNudge": "Shall we move these forward?",
-      "clusterSubtitle": "{{count}} · {{category}}",
-      "shopTitle": "To buy",
-      "shopSubtitle": "{{count}} items"
+      "tripFillAddress": "📍 Adres invoeren",
+      "tripSearchTitle": "Aankomstadres invoeren",
+      "tripSearchOriginTitle": "Vertrekadres invoeren"
+    },
+    "box": {
+      "clearAll": "Alles verwijderen",
+      "clearAllTitle": "De Box legen?",
+      "clearAllBody": "Je staat op het punt {{count}} wachtende ideeën permanent te verwijderen. Dit kan niet ongedaan worden gemaakt.",
+      "clearAllConfirm": "Alles verwijderen",
+      "empty": "Geen ideeën in opslag."
+    },
+    "routines": {
+      "title": "Vaste routines",
+      "empty": "Geen actieve routines."
     },
     "smartClusters": {
       "inbox": "Inbox",
-      "inboxSubtitle": "{{count}} today",
-      "newTitle": "⚡ New",
-      "newSubtitle": "{{count}} to sort",
-      "projectsTitle": "📁 Projects",
-      "projectsSubtitle": "({{count}} active)",
-      "listsTitle": "📋 Lists",
-      "listsSubtitle": "({{count}} additions)"
+      "inboxSubtitle": "{{count}} vandaag",
+      "routinesTitle": "🔁 Vaste routines",
+      "routinesSubtitle": "({{count}} actief)",
+      "projectsTitle": "📁 Projecten",
+      "projectsSubtitle": "({{count}} actief)",
+      "tripsTitle": "Ritten"
     }
   },
-  "settings": {
-    "memorySectionTitle": "Geheugenbeheer",
-    "archivePurgeTitle": "Gearchiveerde items definitief verwijderen na",
-    "archivePurgeHint": "Wordt bij app-start uitgevoerd. Alleen rijen met een archiefdatum ouder dan dit venster worden verwijderd.",
-    "archivePurge7": "7 dagen",
-    "archivePurge30": "30 dagen",
-    "archivePurgeNever": "Nooit"
+  "debug": {
+    "pilotTitle": "Opruimen & pilotage (debug)",
+    "note": "Intern cockpit — Remote Config vs lokaal model, gesimuleerd verkeer, factory reset.",
+    "firebaseProjectIdButton": "Firebase projectId tonen (SDK vs .env)",
+    "rebuildDb": "Database herbouwen",
+    "rebuildDbHelp": "Herbouwt de intentionstabel (talkndone.db) sequentieel.",
+    "clearDb": "Database legen",
+    "clearDbHelp": "Verwijdert alleen intentions-rijen (Trankil-v2) zonder voorkeuren.",
+    "clearDbConfirmTitle": "Database legen?",
+    "clearDbConfirmBody": "Verwijdert alle lokale intentions (Trankil-v2). Dit kan niet ongedaan worden gemaakt.",
+    "clearDbCancel": "Annuleren",
+    "clearDbConfirm": "Legen",
+    "factoryResetConfirmTitle": "Database herbouwen?",
+    "factoryResetConfirmBody": "De intentionstabel wordt verwijderd en opnieuw aangemaakt. Dit kan niet ongedaan worden gemaakt.",
+    "factoryResetSecondTitle": "Laatste bevestiging",
+    "factoryResetSecondBody": "Herbouw van intentionstabel bevestigen?",
+    "factoryResetCancel": "Annuleren",
+    "factoryResetContinue": "Doorgaan",
+    "factoryResetDestructive": "Alles wissen",
+    "factoryResetSuccessTitle": "Database herbouwd",
+    "factoryResetSuccessBody": "Intentionstabel herbouwd.",
+    "busySqlite": "SQLite…",
+    "firebaseProjectIdTitle": "Firebase — projectId (debug)",
+    "firebaseProjectIdBody": "SDK (app.options.projectId):\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID:\n{{env}}",
+    "firebaseSdkNullLabel": "(getFirebaseApp = null)",
+    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* ontbreekt)",
+    "dashboardSectionPilotageIa": "[AI PILOTAGE]",
+    "dashboardSectionFluxTraffic": "[VERKEERSSTROOM]",
+    "dashboardSectionSysteme": "[SYSTEEM]",
+    "simUserModeTitle": "Testgebruikersmodus: {{tier}}",
+    "simUserModeReal": "Echt",
+    "simUserModeFree": "FREE",
+    "simUserModePro": "PRO",
+    "simUserModeHelp": "De app past dit direct toe (quota, paywall). Effectieve UI-tier: {{effective}}.",
+    "rcPass1Caption": "Remote Config (gemini_pass1_model_id)",
+    "rcPass2Caption": "Remote Config (gemini_pass2_model_id)",
+    "rcModelValue": "{{modelId}}",
+    "rcModelUnavailable": "— (geen Firebase of Remote Config niet opgelost)",
+    "localPass1Caption": "Effectieve Pass 1 (extractie)",
+    "localPass2Caption": "Effectieve Pass 2 (redeneren)",
+    "localModelValue": "{{modelId}}",
+    "localOverridesRcHint": "Effectieve Pass 2 wijkt af van RC (debug override of health check).",
+    "iaHealthButton": "AI health check uitvoeren",
+    "iaHealthTitle": "AI-gezondheidscheck",
+    "iaHealthBody": "Pass 1 ({{pass1}}): {{pass1Ok}}\nPass 2 winnaar: {{pass2}}\nPass 2 probes: {{tested}} (shortlist overgeslagen: {{skipped}}) van {{total}} modellen.",
+    "iaHealthErrorTitle": "AI health check mislukt",
+    "busyIaHealth": "Modellen testen…",
+    "geminiRemoteModelRefresh": "Remote Config vernieuwen",
+    "oneTapPerfTitle": "One-tap-prestatie (T0–T3)",
+    "oneTapPerfEmpty": "Nog geen metingen — voer een one-tap refine uit vanuit Talk Debug.",
+    "oneTapPerfT0": "T0: {{ms}} ms",
+    "oneTapPerfT1": "T1: {{ms}} ms",
+    "oneTapPerfT3": "T3: {{ms}} ms",
+    "oneTapPerfGemini": "Gemini: {{ms}} ms",
+    "oneTapPerfTotal": "Totaal vanaf T1: {{ms}} ms",
+    "timelineLayoutTitle": "Timeline-indeling",
+    "timelineLayoutHint": "Schakel tussen huidige kaarten en e-mailhub. Terugdraaien: Huidige kaarten. Werkt met alle thema's hierboven.",
+    "timelineLayoutCurrent": "Huidige kaarten",
+    "timelineLayoutEmailHub": "E-mailhub",
+    "trafficLaunchElastic": "Elastische sprongsimulatie starten",
+    "trafficMonitorTitle": "Verkeersmonitoring (simulatie)",
+    "trafficSimulatedTime": "Gesimuleerde tijd: {{time}}",
+    "trafficNextJump": "Volgende sprong: {{sec}} s echte tijd",
+    "trafficEmaMin": "Gestabiliseerde verkeersduur (EMA): {{min}} min",
+    "trafficStatusLabel": "Status:",
+    "trafficBufferSafety": "BufferSafety: {{min}} min",
+    "trafficCriticalTopDepartTitle": "KRITIEK: TOP_DEPART geactiveerd",
+    "trafficDebugTripDestination": "Muret → Toulouse",
+    "sqliteCountsLine": "intentions={{intentions}} | tasks={{tasks}}",
+    "busySimElastic": "Verkeerssimulatie…",
+    "busyRemoteModel": "Remote Config…"
+  },
+  "connector": {
+    "defaultFirstName": "daar",
+    "botWelcomeMessage": "Hallo {{firstName}}, dit is je privéruimte om bedoelingen te maken (tekst of spraak). Alles blijft strikt vertrouwelijk en gesynchroniseerd met je telefoon. {{appLink}}",
+    "botRailAck": "Begrepen! Toegevoegd. Bekijk je Rail ⚡️\n{{url}}",
+    "botRechargeRedirect": "Je messengerquotum is leeg — open het Recharge-station: {{url}}"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "Je bondgenoot heeft een nieuwe bedoeling vastgelegd: {{title}}. Staat op je Rail.",
+    "offlineAudioReadyTitle": "Offline notitie beschikbaar",
+    "offlineAudioReadyBody": "Een audio-opname wacht op analyse.",
+    "offlineAnalyzeAction": "Analyseren",
+    "offlineKeepAudioAction": "Audio behouden"
+  },
+  "ally": {
+    "openSettings": "Instellingen"
+  },
+  "health": {
+    "bannerLead": "Zachte heads-up:",
+    "warnFirebase": "cloudsync is nog niet geconfigureerd",
+    "warnSqlite": "lokale databasetest mislukt",
+    "warnNotifications": "Meldingen uitgeschakeld. Schakel ze in via Instellingen om nieuwe bedoelingen realtime te ontvangen.",
+    "dismiss": "OK"
+  },
+  "agent": {
+    "alarmPermissionTitle": "Meldingen vereist",
+    "alarmPermissionBody": "De lokale AI-agent kan geen Rail-alarmen laten afgaan zonder meldingsrechten. Schakel meldingen (en alarmen op Android) in voor deze app.",
+    "railChannelName": "TellYouTo · Rail ({{soundId}})"
+  },
+  "common": {
+    "cancel": "Annuleren",
+    "habits": "Gewoontes"
+  },
+  "project": {
+    "title_placeholder": "Projecttitel",
+    "add_steps": "+",
+    "zoom_confirm_title": "Wil je dat de AI deze stap opsplitst?",
+    "zoom_action_start": "Opsplitsen",
+    "zoom_generating_status": "Stappen aanmaken",
+    "zoom_background_action": "Op de achtergrond verwerken",
+    "status_processing": "Verwerken…",
+    "zoom_view_steps": "Stappen bekijken"
+  },
+  "talkHome": {
+    "microphonePermissionTitle": "Microfoontoegang vereist",
+    "microphonePermissionDeniedBody": "Spraakinvoer kan niet starten zonder microfoon. Open systeeminstellingen en sta microfoon toe voor TalkNDone.",
+    "listeningNow": "Ik luister..."
+  },
+  "errorBoundary": {
+    "brand": "TalkNDone",
+    "title": "Even geen leeg scherm",
+    "body": "Een klein hapering in de werking — niets ernstigs. Adem; je kunt herstarten wanneer je klaar bent.",
+    "restartA11y": "App herstarten",
+    "restart": "Herstarten"
+  },
+  "nativeModule": {
+    "missingTitle": "Native modulefout",
+    "missingBody": "{{name}} ontbreekt of is niet gekoppeld aan het huidige binary.\nContext: {{context}}\n→ Android rebuild vereist (npx expo prebuild --clean --platform android, daarna compileren).\n\n{{detail}}",
+    "unknownModuleName": "(onbekende module)",
+    "contextTalkHomeSpeech": "Talk · spraakherkenning",
+    "contextTalkHomePersist": "Talk · spraakbedoeling (lokale DB)"
+  },
+  "listIntention": {
+    "proTeaserTitle": "Pro",
+    "proTeaserBody": "Ga Pro om je lijsten direct te schalen (gasten, spullen, logistiek).",
+    "unreadable": "Deze lijst kon niet worden geladen.",
+    "a11yDecrease": "Schaal verkleinen",
+    "a11yIncrease": "Schaal vergroten"
   },
   "talkDebug": {
     "sacredSpace": {
-      "title": "Sacred Space"
+      "title": "Heilige ruimte"
+    },
+    "noteSaved": "Notitie opgeslagen",
+    "audioSaved": "Audiomemo opgeslagen",
+    "captureTitle": "Vastleggen",
+    "taskQuickRecapIntro": "Taak opgeslagen",
+    "habitQuickRecapIntro": "Gewoonte opgeslagen",
+    "birthdayLabel": "Verjaardag",
+    "listSavedToast": "Lijst opgeslagen",
+    "projectSavedToast": "Project opgeslagen",
+    "intentionSuggestionsEyebrow": "Bedoelingsideeën",
+    "voiceWaveformA11y": "Live stemniveau",
+    "micQuotaUpsellHint": "3 gratis acties per dag. Ga PRO voor onbeperkte toegang.",
+    "oneTapEmptyTranscript": "Niets getranscribeerd. Probeer opnieuw dichter bij de microfoon.",
+    "oneTapListSection": "Lijst",
+    "oneTapListItems": "Regels om op te slaan",
+    "oneTapListUnitPlaceholder": "personen, dagen…",
+    "oneTapTaskSection": "Taak",
+    "oneTapWebDateLabel": "Datum (YYYY-MM-DD)",
+    "oneTapPickDate": "Kies een datum",
+    "oneTapClearDate": "Datum wissen",
+    "oneTapTaskDueTime": "Tijd (optioneel)",
+    "oneTapTaskNotes": "Notities",
+    "oneTapRecurringSection": "Herhaling",
+    "oneTapCadence": "Cadans",
+    "oneTapAnchorNotes": "Ankernotities",
+    "oneTapHabitSection": "Gewoonte",
+    "oneTapPreferredTime": "Voorkeurstijd",
+    "oneTapAnniversarySection": "Jaarlijks evenement",
+    "oneTapPersonName": "Persoon of onderwerp",
+    "oneTapMonthDay": "Datum (MM-DD of YYYY-MM-DD)",
+    "oneTapReminderDays": "Herinnering (dagen van tevoren)",
+    "oneTapUniversalReminderTitle": "Geplande herinnering",
+    "oneTapUniversalDueLabel": "Deadline",
+    "oneTapUniversalRecLabel": "Herhaling",
+    "oneTapClearUniversalReminder": "Herinnering verwijderen",
+    "oneTapAddReminderCta": "+ Herinnering toevoegen",
+    "oneTapWebDueDateTimeIso": "ISO datum/tijd (herinnering)",
+    "oneTapReminderNotifTitle": "TellYouTo-herinnering",
+    "oneTapReminderRecurringTitle": "Terugkerende herinnering",
+    "oneTapNoteSection": "Notitie",
+    "oneTapConfirm": "Opslaan",
+    "oneTapPrintErrorTitle": "Afdrukken",
+    "oneTapPrintNeedsNativeBuild": "De printmodule zit niet in deze app-binary. Gebruik een development build (bijv. npx expo run:android) na toevoegen van expo-print, of rebuild de app. Expo Go bevat niet altijd nieuw toegevoegde native modules.",
+    "stepTransport": "Audio opnemen…",
+    "stepTranscription": "Audio transcriberen…",
+    "stepAnalysis": "Inhoud genereren…",
+    "stepComplete": "Klaar!",
+    "actionAddNote": "Notitie toevoegen",
+    "errorNetwork": "Onstabiel netwerk. Lokaal opgeslagen.",
+    "oneTapType": {
+      "TASK": "Taak",
+      "RECURRING_TASK": "Terugkerende taak",
+      "HABIT": "Gewoonte",
+      "TRIP": "Rit",
+      "LIST": "Lijst",
+      "ANNIVERSARY": "Verjaardag",
+      "NOTE": "Notitie"
     }
   },
-  "intentionDetail": {
-    "pin": "Pin",
-    "unpin": "Unpin",
-    "pinMaxReachedTitle": "Pin limit reached",
-    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
-  }
+  "profiling": {
+    "kindness": {
+      "1": {
+        "insight": [
+          "Je hoofd zit vol ideeën op dit moment, {{name}}.",
+          "Je verbeelding voelt vandaag erg actief, {{name}}.",
+          "Veel betekenisvolle projecten leven in je hoofd, {{name}}."
+        ],
+        "action_tip": [
+          "Wat als je één klein steentje kiest om te beginnen?",
+          "Doe één actie, hoe klein ook, om je hoofd leeg te maken.",
+          "Adem. Helderheid groeit als je één ding tegelijk doet."
+        ]
+      },
+      "2": {
+        "insight": [
+          "Je ritme lijkt de laatste dagen rustiger, {{name}}.",
+          "Dit voelt als een tijdelijke disconnect-fase, {{name}}.",
+          "Je motor draait nu wat op laag toer, {{name}}."
+        ],
+        "action_tip": [
+          "Kom terug met één micro-actie van 2 minuten.",
+          "Kies nu één simpele stap om momentum te hervatten.",
+          "Eén kleine check-in vandaag is genoeg om weer op koers te komen."
+        ]
+      },
+      "3": {
+        "insight": [
+          "Als je erin duikt, is je uitvoering scherp, {{name}}.",
+          "Je zet snel om in resultaten als je eenmaal gaat, {{name}}.",
+          "Je efficiëntie is sterk, zelfs met een onregelmatig ritme, {{name}}."
+        ],
+        "action_tip": [
+          "Voeg een klein dagelijks ritueel toe om je tempo te stabiliseren.",
+          "Plan één kort terugkerend slot om je ritme te verankeren.",
+          "Kleine consistentie wint van losse sprints."
+        ]
+      },
+      "4": {
+        "insight": [
+          "Je orkestreert je agendaflow heel goed, {{name}}.",
+          "Je stuur is helder: sync, align, vooruit, {{name}}.",
+          "Je hebt nu een sterke coördinatiehouding, {{name}}."
+        ],
+        "action_tip": [
+          "Houd één actieve lokale bedoeling om dagelijks grounded te blijven.",
+          "Reserveer een kort reviewmoment om de flow te beheersen.",
+          "Houd het simpel: één zichtbare prioriteit tegelijk."
+        ]
+      },
+      "5": {
+        "insight": [
+          "Je balans tussen actie en consistentie is erg solide, {{name}}.",
+          "Je beweegt met stabiele helderheid, {{name}}.",
+          "Mooie stabiliteit: uitvoering en betrokkenheid zijn op één lijn, {{name}}."
+        ],
+        "action_tip": [
+          "Houd dit tempo met een lichte wekelijkse review.",
+          "Bescherm momentum door elke dag één kleine winst te vieren.",
+          "Bewaak je balans met een terugkerend resetmoment."
+        ]
+      },
+      "defaultName": "jij"
+    },
+    "profiles": {
+      "1": {
+        "label": "DE DROMER",
+        "description": "Legt veel bedoelingen vast maar voert er maar een klein deel uit."
+      },
+      "2": {
+        "label": "DE LOSGEKOPPELDE",
+        "description": "Gebruik daalt, met lage voltooiing en weinig betrokkenheid."
+      },
+      "3": {
+        "label": "DE SPRINTER",
+        "description": "Hoge uitvoeringskracht, maar nog onregelmatig in de tijd."
+      },
+      "4": {
+        "label": "DE DIRIGENT",
+        "description": "Sterk orchestratiegedrag met een hoog archief/export-ratio."
+      },
+      "5": {
+        "label": "DE ZEN-VOLHARDER",
+        "description": "Gebalanceerd profiel met sterke uitvoering en regelmatige betrokkenheid."
+      }
+    }
+  },
+  "horizons": {
+    "rearbitrate": "Opnieuw beoordelen",
+    "today": "Vandaag",
+    "tomorrow": "Morgen",
+    "thisWeek": "Deze week",
+    "noPressure": "Geen druk"
+  },
+  "TYPE_TASK": "Taak",
+  "TYPE_HABIT": "Gewoonte",
+  "TYPE_RECURRING_TASK": "Terugkerende taak",
+  "TYPE_LIST": "Lijst",
+  "TYPE_ANNIVERSARY": "Verjaardag",
+  "TYPE_NOTE": "Notitie",
+  "MODAL_REFINING": "Verfijnen…",
+  "PLACEHOLDER_TITLE": "Titel…",
+  "DEFAULT_INTENTION_TITLE": "Nieuwe bedoeling",
+  "PLACEHOLDER_LIST": "Lijst (één item per regel)…",
+  "PLACEHOLDER_DESTINATION": "Bestemming…",
+  "COMMON_MINUS": "−",
+  "COMMON_PLUS": "+",
+  "COMMON_YES": "Ja",
+  "COMMON_NO": "Nee",
+  "COMMON_CANCEL": "Annuleren",
+  "MODAL_CONFIRM_OK": "OK",
+  "LOGISTICS_TRAFFIC_ADJUST": "Aanpassen aan verkeer",
+  "LOGISTICS_BUY_TRAJET_PACK": "Recharge",
+  "LOGISTICS_TRAJET_REMAINING_SUFFIX": "(over: {{n}})",
+  "SAS_SUMMARY_DEPART_RECOMMENDED": "Aanbevolen vertrek om {{time}}",
+  "SAS_SUMMARY_SCHEDULED": "Gepland om {{time}}",
+  "SAS_SUMMARY_DESTINATION": "Naar {{destination}}",
+  "PLACEHOLDER_NOTE": "Typ je memo…",
+  "PLACEHOLDER_DATE": "Datum (YYYY-MM-DD)…",
+  "PLACEHOLDER_TIME": "Tijd (HH:MM)…",
+  "PLACEHOLDER_NOTES": "Notities…",
+  "PLACEHOLDER_ADDRESS": "Adres…",
+  "PLACEHOLDER_PERSON": "Naam…",
+  "PLACEHOLDER_MONTHDAY": "Datum (MM-DD)…"
 }

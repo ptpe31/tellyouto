@@ -1,110 +1,616 @@
 {
-  "ally": {
-    "lang": {
-      "fr": "Français",
-      "en": "English",
-      "es": "Español",
-      "de": "Deutsch",
-      "it": "Italiano",
-      "ja": "日本語",
-      "zh": "中文",
-      "ar": "العربية",
-      "ko": "한국어",
-      "nl": "Nederlands",
-      "sv": "Svenska"
-    }
+  "intentInteraction": {
+    "menuTitle": "Avsikt",
+    "archive": "Arkivera",
+    "pinDue": "Flytta / fäst datum",
+    "pickDate": "Välj ett datum",
+    "cancel": "Avbryt"
   },
   "inbox": {
     "action": {
-      "remove": "Remove from Inbox",
-      "removeAll": "Remove all from Inbox",
-      "removeConfirmTitle": "Remove from Inbox?",
-      "removeConfirmBody": "The intention stays in TellYouTo but leaves today's Inbox.",
-      "removeAllConfirmTitle": "Remove all from Inbox?",
-      "removeAllConfirmBody": "All {{count}} visible intentions will be marked as triaged."
+      "remove": "Ta bort från Inbox",
+      "removeAll": "Ta bort alla från Inbox",
+      "removeAllConfirmTitle": "Ta bort alla från Inbox?",
+      "removeAllConfirmBody": "Alla {{count}} synliga avsikter markeras som sorterade."
     }
   },
+  "talkCapture": {
+    "hintTap": "Tryck för att spela in ett röstmemo",
+    "savedTimeline": "Avsikt sparad i Timeline",
+    "savedOfflinePending": "Inget nätverk: avsikten sparas för senare"
+  },
+  "category": {
+    "HOME": "Hem",
+    "WORK": "Jobb",
+    "PERSO": "Privat",
+    "HEALTH": "Hälsa",
+    "FINANCE": "Ekonomi",
+    "TRAVEL": "Resor",
+    "SOCIAL": "Socialt",
+    "SHOP": "Handla",
+    "LEARN": "Lärande",
+    "OTHER": "Övrigt"
+  },
+  "capture": {
+    "offlineNoteGenericToast": "Sparat på den här enheten. Smart sortering fortsätter när anslutningen är tillbaka.",
+    "offlineRetryOkToast": "AI-sortering klar — din Timeline är uppdaterad.",
+    "pendingAiNetworkBack": "{{count}} idé(er) väntar fortfarande på AI-sortering — tryck på « Försök AI-sortering igen » på kortet."
+  },
+  "quota_remaining": "Du har {{count}} gratis Sentinel-resor kvar.",
+  "quota_exhausted_title": "Statiskt läge",
+  "quota_exhausted_desc": "Sentinel-testperioden är slut. Uppgradera till PRO för realtidsövervakning.",
+  "sentinel": {
+    "validationTitle": "Adressvalidering",
+    "detectedPlace": "Upptäckt plats: {{place}}",
+    "addressLabel": "Validerad adress (Google Places)",
+    "addressPlaceholder": "Sök en adress…",
+    "validationRequired": "Välj en giltig adress för att aktivera Sentinel.",
+    "placesMissingKey": "Google Places-nyckel saknas (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "addressResolveFailed": "Adress hittades inte. Kontrollera din inmatning och försök igen.",
+    "notifTitle": "Till: {{destination}} • Ankomst {{arrival}}",
+    "notifUpdatedAt": "Uppdaterad kl. {{time}}",
+    "notifStatusBlue": "Övervakning",
+    "notifStatusOrange": "Fönster öppet",
+    "notifStatusRed": "Kritiskt avresa",
+    "notifStatusStatic": "Statiskt läge",
+    "notifDepartureAt": "Avresa kl. {{time}}",
+    "notifDepartureWindow": "Rekommenderad avresa mellan {{start}} och {{end}}.",
+    "notifNextRealUpdateAt": "Nästa riktiga uppdatering kl. {{time}}",
+    "notifModeSafety": "Säkerhetsläge",
+    "probe3Title": "Avresa — {{destination}}",
+    "probe3Smooth": "Trafiken är lugn — du kan åka om {{minutes}} minuter.",
+    "probe3LeaveNow": "Tung trafik — åk nu.",
+    "probe3Unavailable": "Uppskattning otillgänglig — kontrollera trafiken manuellt.",
+    "promiseDriftTitle": "Trafik — {{destination}}",
+    "promiseDriftBody": "Trafiken har ändrats lite. Ditt avresefönster är nu: {{capsule}}",
+    "topDepartTitle": "ÅK NU",
+    "topDepartBody": "Dags att åka till {{destination}}."
+  },
+  "departureContract": {
+    "notifTitle": "Avreseavtal — {{destination}}",
+    "signalBTitle": "Avrese-påminnelse",
+    "signalBBody": "{{capsule}} — Åk om cirka {{minutes}} min till {{destination}}."
+  },
+  "sentinelFocus": {
+    "prompt": "Påminn mig när jag ska åka till {{title}} kl. {{time}}?",
+    "departureTitle": "Åk till {{name}}",
+    "arrivalSubtitle": "Ankomst: {{time}}"
+  },
+  "tripAlarm": {
+    "pickerTitle": "Ställ in alarm",
+    "pickerMessage": "Avresa kl. {{time}}",
+    "departureLabel": "{{place}} avresa {{time}}",
+    "a11yOpenAlarm": "Ställ in avresealarm",
+    "iosManualHint": "Öppna Klocka och skapa ett alarm kl. {{time}}.\nFöreslaget namn: {{label}}",
+    "androidUnavailable": "Kunde inte öppna Klocka. Ställ in alarm kl. {{time}} ({{label}})."
+  },
+  "intentionDetail": {
+    "source": "Källa",
+    "checklist": "Checklista",
+    "trip": "Resa",
+    "transport": "Transportmedel",
+    "currentPosition": "Nuvarande position",
+    "addressPlaceholder": "Sök en adress…",
+    "allDay": "Hela dagen",
+    "listItems": "Objekt",
+    "projectStartDate": "Startdatum",
+    "projectStartDateEmpty": "Ange startdatum",
+    "projectMilestoneMenuTitle": "Milstolpe",
+    "projectMilestoneMenuPivot": "Kalender (pivot)",
+    "projectMilestoneMenuNote": "Anteckning",
+    "projectMilestoneMenuDelete": "Radera",
+    "confirmReplan": "Bekräfta och omplanera nästa steg",
+    "cancel": "Avbryt",
+    "save": "Spara",
+    "notePlaceholder": "Lägg till en anteckning…",
+    "transportAuto": "Bil",
+    "transportWalking": "Gå",
+    "transportBike": "Cykel",
+    "ecoFriendly": "Miljövänligt 🌱",
+    "co2Standard": "Standard CO2-påverkan",
+    "launchRoute": "Starta rutt",
+    "launchRouteDisabledHint": "Lägg till en giltig destinationsadress för att starta navigering.",
+    "close": "Stäng",
+    "pin": "Fäst",
+    "unpin": "Lossa",
+    "pinMaxReachedTitle": "Fästgräns nådd",
+    "pinMaxReachedBody": "Du kan fästa högst {{max}} avsikter. Lossa en annan först.",
+    "labelIntention": "Avsikt",
+    "labelTiming": "Tidpunkt",
+    "labelEngagement": "Engagemang",
+    "trackStreak": "Följ streak 🔥",
+    "trackStreakHint": "Visar en räknare som hjälper dig hålla rytmen.",
+    "labelItinerary": "Rutt",
+    "labelTransport": "Transportmedel",
+    "comfortTitle": "Reskomfort",
+    "comfortElasticDeparture": "Beräknad avresa: {{window}}",
+    "comfortElasticDepartureApprox": "Beräknad avresa: ≈ {{window}}",
+    "comfortElasticDepartureShifted": "⚠️ Beräknad avresa: {{window}}",
+    "allDayNoDepartureSlot": "Heldagshändelse — inget avresefönster",
+    "actionSetupAlert": "Påminn mig när jag ska åka?",
+    "actionSetupAlertLocked": "Påminn mig när jag ska åka 🔒",
+    "tripSurveillanceStart": "Övervaka resa",
+    "tripSurveillanceStartLocked": "Övervaka resa 🔒",
+    "tripSurveillanceActive": "Övervakning aktiv 🛡️",
+    "surveillanceMissingInfo": "Lägg till giltig destination och ankomsttid för att aktivera övervakning.",
+    "pass2LockedSuffix": "🔒",
+    "noteMemoSection": "Anteckning",
+    "finish": "Slutför"
+  },
+  "pass2": {
+    "generateSteps": "✨ Dela upp i steg",
+    "generateList": "✨ Strukturera listan",
+    "steps_loading": "Läser...",
+    "list_loading": "skapar objekt...",
+    "finalizing": "Slutför struktur..."
+  },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "Gå Pro",
+    "proLabel": "PRO",
+    "a11yCredits": "Capture-krediter — öppna Recharge",
+    "a11yCalendar": "Öppna idag i Timeline",
+    "a11yPiggy": "Inbox — osorterade objekt"
+  },
+  "tabs": {
+    "debug": "Felsökning",
+    "talkHome": "Talk"
+  },
+  "pro": {
+    "modalTitle": "Lås upp maximal kraft",
+    "modalPrice": "9,99 € / månad",
+    "modalLead": "Gå Pro för premiumkanaler och permanent reklamfritt.",
+    "benefit1": "Obegränsat WhatsApp",
+    "benefit2": "Ingen reklam",
+    "benefit3": "Prioriterad support",
+    "benefit4": "Tillgång till alla rutiner",
+    "modalLater": "Inte nu",
+    "modalCta": "Gå Pro",
+    "screenKicker": "PRENUMERATION",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "Multi-kanal, reklamfritt, prioriterad support.",
+    "devNote": "Dev-build: knappen simulerar prenumeration utan betalning.",
+    "subscribeGold": "Prenumerera — 9,99 € / månad",
+    "back": "Stäng",
+    "linkRequiredTitle": "Konto krävs",
+    "linkRequiredBody": "Koppla Google eller Apple (samma Firebase-identitet) för att behålla din Pro-prenumeration.",
+    "linkGoogle": "Fortsätt med Google",
+    "linkApple": "Fortsätt med Apple",
+    "linkLater": "Inte nu",
+    "linkGoogleOnly": "Koppla endast Google",
+    "linkAppleOnly": "Koppla endast Apple",
+    "linkErrorTitle": "Koppling misslyckades",
+    "configureGoogleTitle": "Google-konfiguration",
+    "configureGoogleBody": "Sätt EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (och iOS/Android client IDs vid behov) i .env och starta om Metro.",
+    "googleMissingEnv": "Google Web client ID saknas: OAuth-koppling fungerar inte förrän EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID är satt."
+  },
+  "channelSwitch": {
+    "cancel": "Avbryt"
+  },
   "timeline": {
-    "createdOn": "Skapad {{date}}",
+    "title": "Timeline",
     "allDuration": "Hela dagen",
-    "newBadge": "NY",
+    "elasticDepartureWindow": "[ Beräknad avresa: {{window}} ]",
+    "elasticDepartureApprox": "[ Beräknad avresa: ≈ {{window}} ]",
+    "elasticDepartureShifted": "[ ⚠️ Beräknad avresa: {{window}} ]",
+    "scanTrafficScheduled": "Riktig trafikskanning schemalagd kl. {{time}}",
+    "scanTrafficInProgress": "Skanning pågår…",
     "createdTodayAt": "Skapad idag kl. {{time}}",
-    "skyClear": "Klar himmel — sinnet har utrymme.",
+    "createdYesterdayAt": "Skapad igår kl. {{time}}",
+    "skyClear": "Klar himmel — sinnet har utrymme att andas.",
     "pilot": {
-      "title": "Pilot",
+      "title": "Styrning",
       "timeNav": "Tid",
       "contextNav": "Kontexter",
-      "statusNav": "Status",
+      "statusNav": "Läge",
       "contextAll": "Alla",
       "contextHome": "Hem",
-      "contextWork": "Arbete",
+      "contextWork": "Jobb",
       "contextPiggy": "Spargris",
       "contextArchives": "Arkiv",
       "todo": "Att göra",
-      "done": "Klar"
+      "done": "Klart",
+      "specificDate": "Datum",
+      "pickedDateShort": "{{date}}",
+      "changeDate": "Välj en annan dag"
     },
-    "tasks": {
-      "title": "Mina uppgifter",
-      "scheduledToday": "Idag",
-      "noPressure": "Utan stress"
+    "customDayEmpty": "Inget planerat den dagen.",
+    "customDayAddTask": "Lägg till en uppgift?",
+    "roadmap": {
+      "printerA11y": "Daglig roadmap",
+      "sasTitle": "Städning — Daglig roadmap",
+      "sasSubtitle": "Validera, flytta till idag eller arkivera varje objekt, kör sedan syntes.",
+      "bucketOverdue": "Förfallen",
+      "bucketOrphan": "Inget datum",
+      "validate": "Behåll",
+      "postpone": "Flytta till idag",
+      "delete": "Arkivera",
+      "continueSynth": "Kör syntes",
+      "sasEmptyHint": "Inget att sortera — kör syntes.",
+      "linkOpenSaved": "Dagens roadmap",
+      "progressCollect": "Samlar avsikter",
+      "progressSynth": "Syntetiserar",
+      "progressWrite": "Skriver rapport…",
+      "sharePrint": "Dela / PDF",
+      "close": "Stäng",
+      "synthError": "Syntes misslyckades. Försök igen senare."
     },
-    "habits": {
-      "title": "Vanor"
-    },
-    "projects": {
-      "title": "Projektsteg"
-    },
-    "notesAudio": {
-      "title": "Anteckningar och ljud"
-    },
+    "syncedBadge": "Synkad",
+    "memoAudio": "Ljudmemo",
+    "note": "Anteckning",
+    "untitled": "Namnlös",
+    "badgeAudio": "🎙️ LJUD",
+    "badgeNote": "📝 ANTECKNING",
+    "badgeHabit": "🔄 VANA",
+    "badgeTask": "⚡ UPPGIFT",
+    "badgeList": "📋 LISTA",
+    "badgeProject": "🚀 PROJEKT",
+    "a11yTaskComplete": "Markera som klar eller avbryt väntande slutförande",
+    "createdOn": "Skapad {{date}} kl. {{time}}",
+    "aiPendingChip": "AI-sortering väntar",
+    "aiFailedChip": "AI-behandling misslyckades",
+    "retryAiSort": "Försök AI-sortering igen",
     "ideaBank": {
-      "title": "Idéspargrisen",
-      "button": "uppgifter i spargrisen",
-      "done": "Klar",
-      "schedule": "Planera",
-      "remove": "Ta bort",
-      "removeConfirmTitle": "Ta bort uppgiften?",
-      "removeConfirmBody": "Den raderas permanent från enheten.",
-      "clearAll": "Töm allt",
-      "clearAllTitle": "Tömma spargrisen?",
-      "clearAllBody": "Alla uppgifter utan datum raderas.",
-      "scheduleTitle": "Välj datum",
-      "empty": "Inga uppgifter utan datum.",
+      "title": "Idébanken",
+      "shopTitle": "Att köpa",
+      "shopSubtitle": "{{count}} objekt",
+      "clearAll": "Rensa alla",
+      "clearAllTitle": "Tömma idébanken?",
+      "clearAllBody": "Alla odaterade uppgifter raderas.",
+      "empty": "Inga odaterade uppgifter.",
       "close": "Stäng",
       "cancel": "Avbryt",
-      "clusterNudge": "Shall we move these forward?",
-      "clusterSubtitle": "{{count}} · {{category}}",
-      "shopTitle": "To buy",
-      "shopSubtitle": "{{count}} items"
+      "tripFillAddress": "📍 Ange adress",
+      "tripSearchTitle": "Ange ankomstadress",
+      "tripSearchOriginTitle": "Ange avreseadress"
+    },
+    "box": {
+      "clearAll": "Radera alla",
+      "clearAllTitle": "Tömma Boxen?",
+      "clearAllBody": "Du håller på att permanent radera dina {{count}} väntande idéer. Detta kan inte ångras.",
+      "clearAllConfirm": "Radera alla",
+      "empty": "Inga idéer i lagring."
+    },
+    "routines": {
+      "title": "Rutiner",
+      "empty": "Inga aktiva rutiner."
     },
     "smartClusters": {
       "inbox": "Inbox",
-      "inboxSubtitle": "{{count}} today",
-      "newTitle": "⚡ New",
-      "newSubtitle": "{{count}} to sort",
-      "projectsTitle": "📁 Projects",
-      "projectsSubtitle": "({{count}} active)",
-      "listsTitle": "📋 Lists",
-      "listsSubtitle": "({{count}} additions)"
+      "inboxSubtitle": "{{count}} idag",
+      "routinesTitle": "🔁 Rutiner",
+      "routinesSubtitle": "({{count}} aktiva)",
+      "projectsTitle": "📁 Projekt",
+      "projectsSubtitle": "({{count}} aktiva)",
+      "tripsTitle": "Resor"
     }
   },
-  "settings": {
-    "memorySectionTitle": "Minneshantering",
-    "archivePurgeTitle": "Radera arkiverade objekt permanent efter",
-    "archivePurgeHint": "Körs när appen startar. Endast rader med arkivdatum äldre än detta fönster tas bort.",
-    "archivePurge7": "7 dagar",
-    "archivePurge30": "30 dagar",
-    "archivePurgeNever": "Aldrig"
+  "debug": {
+    "pilotTitle": "Städning & pilot (debug)",
+    "note": "Internt cockpit — Remote Config vs lokalt modell, simulerad trafik, fabriksåterställning.",
+    "firebaseProjectIdButton": "Visa Firebase projectId (SDK vs .env)",
+    "rebuildDb": "Bygg om databas",
+    "rebuildDbHelp": "Bygger om intentionstabellen (talkndone.db) sekventiellt.",
+    "clearDb": "Rensa databas",
+    "clearDbHelp": "Raderar endast intentions-rader (Trankil-v2) utan att röra inställningar.",
+    "clearDbConfirmTitle": "Rensa databas?",
+    "clearDbConfirmBody": "Raderar alla lokala intentions (Trankil-v2). Detta kan inte ångras.",
+    "clearDbCancel": "Avbryt",
+    "clearDbConfirm": "Rensa",
+    "factoryResetConfirmTitle": "Bygga om databas?",
+    "factoryResetConfirmBody": "Intentionstabellen tas bort och skapas på nytt. Detta kan inte ångras.",
+    "factoryResetSecondTitle": "Slutlig bekräftelse",
+    "factoryResetSecondBody": "Bekräfta ombyggnad av intentionstabell?",
+    "factoryResetCancel": "Avbryt",
+    "factoryResetContinue": "Fortsätt",
+    "factoryResetDestructive": "Radera allt",
+    "factoryResetSuccessTitle": "Databas ombyggd",
+    "factoryResetSuccessBody": "Intentionstabell ombyggd.",
+    "busySqlite": "SQLite…",
+    "firebaseProjectIdTitle": "Firebase — projectId (debug)",
+    "firebaseProjectIdBody": "SDK (app.options.projectId):\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID:\n{{env}}",
+    "firebaseSdkNullLabel": "(getFirebaseApp = null)",
+    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* saknas)",
+    "dashboardSectionPilotageIa": "[AI-PILOT]",
+    "dashboardSectionFluxTraffic": "[TRAFIKFLÖDE]",
+    "dashboardSectionSysteme": "[SYSTEM]",
+    "simUserModeTitle": "Testanvändarläge: {{tier}}",
+    "simUserModeReal": "Riktig",
+    "simUserModeFree": "FREE",
+    "simUserModePro": "PRO",
+    "simUserModeHelp": "Appen tillämpar detta direkt (kvot, paywall). Effektiv UI-nivå: {{effective}}.",
+    "rcPass1Caption": "Remote Config (gemini_pass1_model_id)",
+    "rcPass2Caption": "Remote Config (gemini_pass2_model_id)",
+    "rcModelValue": "{{modelId}}",
+    "rcModelUnavailable": "— (ingen Firebase eller Remote Config ej löst)",
+    "localPass1Caption": "Effektiv Pass 1 (extraktion)",
+    "localPass2Caption": "Effektiv Pass 2 (resonemang)",
+    "localModelValue": "{{modelId}}",
+    "localOverridesRcHint": "Effektiv Pass 2 skiljer sig från RC (debug override eller health check).",
+    "iaHealthButton": "Kör AI health check",
+    "iaHealthTitle": "AI-hälsokontroll",
+    "iaHealthBody": "Pass 1 ({{pass1}}): {{pass1Ok}}\nPass 2 vinnare: {{pass2}}\nPass 2 probes: {{tested}} (shortlist hoppad: {{skipped}}) av {{total}} modeller.",
+    "iaHealthErrorTitle": "AI health check misslyckades",
+    "busyIaHealth": "Testar modeller…",
+    "geminiRemoteModelRefresh": "Uppdatera Remote Config",
+    "oneTapPerfTitle": "One-tap perf (T0–T3 markörer)",
+    "oneTapPerfEmpty": "Inga mätningar än — kör en one-tap refine från Talk Debug.",
+    "oneTapPerfT0": "T0: {{ms}} ms",
+    "oneTapPerfT1": "T1: {{ms}} ms",
+    "oneTapPerfT3": "T3: {{ms}} ms",
+    "oneTapPerfGemini": "Gemini: {{ms}} ms",
+    "oneTapPerfTotal": "Totalt från T1: {{ms}} ms",
+    "timelineLayoutTitle": "Timeline-layout",
+    "timelineLayoutHint": "Växla mellan nuvarande kort och e-posthub. Återställ: Nuvarande kort. Fungerar med alla teman ovan.",
+    "timelineLayoutCurrent": "Nuvarande kort",
+    "timelineLayoutEmailHub": "E-posthub",
+    "trafficLaunchElastic": "Starta elastisk hoppsimulering",
+    "trafficMonitorTitle": "Trafikövervakning (simulering)",
+    "trafficSimulatedTime": "Simulerad tid: {{time}}",
+    "trafficNextJump": "Nästa hopp: {{sec}} s verklig tid",
+    "trafficEmaMin": "Stabiliserad trafiktid (EMA): {{min}} min",
+    "trafficStatusLabel": "Status:",
+    "trafficBufferSafety": "BufferSafety: {{min}} min",
+    "trafficCriticalTopDepartTitle": "KRITISKT: TOP_DEPART utlöst",
+    "trafficDebugTripDestination": "Muret → Toulouse",
+    "sqliteCountsLine": "intentions={{intentions}} | tasks={{tasks}}",
+    "busySimElastic": "Trafiksimulering…",
+    "busyRemoteModel": "Remote Config…"
+  },
+  "connector": {
+    "defaultFirstName": "där",
+    "botWelcomeMessage": "Hej {{firstName}}, det här är ditt privata utrymme för att skapa avsikter (text eller röst). Allt förblir strikt konfidentiellt och synkas till din telefon. {{appLink}}",
+    "botRailAck": "Uppfattat! Tillagt. Kolla din Rail ⚡️\n{{url}}",
+    "botRechargeRedirect": "Din messengerkvot är tom — öppna Recharge-stationen: {{url}}"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "Din allierade fångade en ny avsikt: {{title}}. Den ligger på ditt Rail.",
+    "offlineAudioReadyTitle": "Offline-anteckning tillgänglig",
+    "offlineAudioReadyBody": "En ljudinspelning väntar på analys.",
+    "offlineAnalyzeAction": "Analysera",
+    "offlineKeepAudioAction": "Behåll ljud"
+  },
+  "ally": {
+    "openSettings": "Inställningar"
+  },
+  "health": {
+    "bannerLead": "En mild påminnelse:",
+    "warnFirebase": "molnsynk är inte konfigurerad än",
+    "warnSqlite": "lokal databaskontroll misslyckades",
+    "warnNotifications": "Aviseringar avstängda. Slå på dem i Inställningar för att få nya avsikter i realtid.",
+    "dismiss": "OK"
+  },
+  "agent": {
+    "alarmPermissionTitle": "Aviseringar krävs",
+    "alarmPermissionBody": "Den lokala AI-agenten kan inte ringa Rail-larm utan aviseringsbehörighet. Aktivera aviseringar (och alarm på Android) för den här appen.",
+    "railChannelName": "TellYouTo · Rail ({{soundId}})"
+  },
+  "common": {
+    "cancel": "Avbryt",
+    "habits": "Vanor"
+  },
+  "project": {
+    "title_placeholder": "Projekttitel",
+    "add_steps": "+",
+    "zoom_confirm_title": "Vill du att AI:n delar upp det här steget?",
+    "zoom_action_start": "Dela upp",
+    "zoom_generating_status": "Skapar steg",
+    "zoom_background_action": "Bearbeta i bakgrunden",
+    "status_processing": "Bearbetar…",
+    "zoom_view_steps": "Visa steg"
+  },
+  "talkHome": {
+    "microphonePermissionTitle": "Mikrofonåtkomst krävs",
+    "microphonePermissionDeniedBody": "Röstinmatning kan inte starta utan mikrofon. Öppna systeminställningar och tillåt mikrofon för TalkNDone.",
+    "listeningNow": "Jag lyssnar..."
+  },
+  "errorBoundary": {
+    "brand": "TalkNDone",
+    "title": "Ett ögonblick utan tom skärm",
+    "body": "Ett litet glapp i maskineriet — inget allvarligt. Andas; du kan starta om när du är redo.",
+    "restartA11y": "Starta om appen",
+    "restart": "Starta om"
+  },
+  "nativeModule": {
+    "missingTitle": "Native modulfel",
+    "missingBody": "{{name}} saknas eller är inte länkad till den nuvarande binären.\nKontext: {{context}}\n→ Android rebuild krävs (npx expo prebuild --clean --platform android, sedan kompilera).\n\n{{detail}}",
+    "unknownModuleName": "(okänd modul)",
+    "contextTalkHomeSpeech": "Talk · taligenkänning",
+    "contextTalkHomePersist": "Talk · röstavsikt (lokal DB)"
+  },
+  "listIntention": {
+    "proTeaserTitle": "Pro",
+    "proTeaserBody": "Gå Pro för att skala dina listor direkt (gäster, utrustning, logistik).",
+    "unreadable": "Den här listan kunde inte laddas.",
+    "a11yDecrease": "Minska skala",
+    "a11yIncrease": "Öka skala"
   },
   "talkDebug": {
     "sacredSpace": {
-      "title": "Sacred Space"
+      "title": "Heligt rum"
+    },
+    "noteSaved": "Anteckning sparad",
+    "audioSaved": "Ljudmemo sparad",
+    "captureTitle": "Fånga",
+    "taskQuickRecapIntro": "Uppgift sparad",
+    "habitQuickRecapIntro": "Vana sparad",
+    "birthdayLabel": "Födelsedag",
+    "listSavedToast": "Lista sparad",
+    "projectSavedToast": "Projekt sparat",
+    "intentionSuggestionsEyebrow": "Avsiktsidéer",
+    "voiceWaveformA11y": "Live röstnivå",
+    "micQuotaUpsellHint": "3 gratis åtgärder per dag. Gå PRO för obegränsad åtkomst.",
+    "oneTapEmptyTranscript": "Inget transkriberades. Försök igen närmare mikrofonen.",
+    "oneTapListSection": "Lista",
+    "oneTapListItems": "Rader att spara",
+    "oneTapListUnitPlaceholder": "personer, dagar…",
+    "oneTapTaskSection": "Uppgift",
+    "oneTapWebDateLabel": "Datum (YYYY-MM-DD)",
+    "oneTapPickDate": "Välj ett datum",
+    "oneTapClearDate": "Rensa datum",
+    "oneTapTaskDueTime": "Tid (valfritt)",
+    "oneTapTaskNotes": "Anteckningar",
+    "oneTapRecurringSection": "Upprepning",
+    "oneTapCadence": "Kadens",
+    "oneTapAnchorNotes": "Ankaranteckningar",
+    "oneTapHabitSection": "Vana",
+    "oneTapPreferredTime": "Föredragen tid",
+    "oneTapAnniversarySection": "Årlig händelse",
+    "oneTapPersonName": "Person eller ämne",
+    "oneTapMonthDay": "Datum (MM-DD eller YYYY-MM-DD)",
+    "oneTapReminderDays": "Påminnelse (dagar före)",
+    "oneTapUniversalReminderTitle": "Schemalagd påminnelse",
+    "oneTapUniversalDueLabel": "Förfaller",
+    "oneTapUniversalRecLabel": "Upprepning",
+    "oneTapClearUniversalReminder": "Ta bort påminnelse",
+    "oneTapAddReminderCta": "+ Lägg till påminnelse",
+    "oneTapWebDueDateTimeIso": "ISO datum/tid (påminnelse)",
+    "oneTapReminderNotifTitle": "TellYouTo-påminnelse",
+    "oneTapReminderRecurringTitle": "Återkommande påminnelse",
+    "oneTapNoteSection": "Anteckning",
+    "oneTapConfirm": "Spara",
+    "oneTapPrintErrorTitle": "Skriv ut",
+    "oneTapPrintNeedsNativeBuild": "Utskriftsmodulen finns inte i den här app-binären. Använd en development build (t.ex. npx expo run:android) efter att ha lagt till expo-print, eller bygg om appen. Expo Go inkluderar inte alltid nyligen tillagda native moduler.",
+    "stepTransport": "Spelar in ljud…",
+    "stepTranscription": "Transkriberar ljud…",
+    "stepAnalysis": "Genererar innehåll…",
+    "stepComplete": "Klart!",
+    "actionAddNote": "Lägg till anteckning",
+    "errorNetwork": "Instabilt nätverk. Sparat lokalt.",
+    "oneTapType": {
+      "TASK": "Uppgift",
+      "RECURRING_TASK": "Återkommande uppgift",
+      "HABIT": "Vana",
+      "TRIP": "Resa",
+      "LIST": "Lista",
+      "ANNIVERSARY": "Födelsedag",
+      "NOTE": "Anteckning"
     }
   },
-  "intentionDetail": {
-    "pin": "Pin",
-    "unpin": "Unpin",
-    "pinMaxReachedTitle": "Pin limit reached",
-    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
-  }
+  "profiling": {
+    "kindness": {
+      "1": {
+        "insight": [
+          "Ditt huvud är fullt av idéer just nu, {{name}}.",
+          "Din fantasi känns väldigt aktiv idag, {{name}}.",
+          "Många meningsfulla projekt lever i ditt huvud, {{name}}."
+        ],
+        "action_tip": [
+          "Vad om du valde en enda liten bit att börja med?",
+          "Gör en handling, hur liten som helst, för att rensa huvudet.",
+          "Andas. Klarhet växer när du gör en sak i taget."
+        ]
+      },
+      "2": {
+        "insight": [
+          "Din rytm verkar lugnare de senaste dagarna, {{name}}.",
+          "Det känns som en tillfällig frånkopplingsfas, {{name}}.",
+          "Motorn går på lågvarv just nu, {{name}}."
+        ],
+        "action_tip": [
+          "Kom tillbaka med en 2-minuters micro-åtgärd.",
+          "Välj ett enkelt steg nu för att få fart igen.",
+          "En liten check-in idag räcker för att hitta tillbaka."
+        ]
+      },
+      "3": {
+        "insight": [
+          "När du engagerar dig är din genomförandeförmåga skarp, {{name}}.",
+          "Du omvandlar snabbt till resultat när du är igång, {{name}}.",
+          "Din effektivitet är stark, även med oregelbunden rytm, {{name}}."
+        ],
+        "action_tip": [
+          "Lägg till ett litet dagligt ritual för att jämna ut tempot.",
+          "Lås ett kort återkommande pass för att stabilisera rytmen.",
+          "Liten konsekvens slår isolerade spurts."
+        ]
+      },
+      "4": {
+        "insight": [
+          "Du dirigerar kalenderflödet väldigt bra, {{name}}.",
+          "Din styrning är tydlig: synka, rikta in, framåt, {{name}}.",
+          "Du har en stark koordinationshållning just nu, {{name}}."
+        ],
+        "action_tip": [
+          "Behåll en aktiv lokal avsikt för att hålla foten på jorden dagligen.",
+          "Reservera ett kort granskningsfönster för full kontroll.",
+          "Håll det enkelt: en synlig prioritet i taget."
+        ]
+      },
+      "5": {
+        "insight": [
+          "Din balans mellan handling och konsekvens är väldigt solid, {{name}}.",
+          "Du rör dig med stadig klarhet, {{name}}.",
+          "Fin stabilitet: genomförande och engagemang är i linje, {{name}}."
+        ],
+        "action_tip": [
+          "Behåll den här takten med en lätt veckogranskning.",
+          "Skydda farten genom att fira en liten vinst varje dag.",
+          "Bevara balansen med ett återkommande återställningspass."
+        ]
+      },
+      "defaultName": "du"
+    },
+    "profiles": {
+      "1": {
+        "label": "DRÖMAREN",
+        "description": "Fångar många avsikter men genomför bara en liten del."
+      },
+      "2": {
+        "label": "FRÅNKOPPLAD",
+        "description": "Användningen minskar, med låg slutförandegrad och svagt engagemang."
+      },
+      "3": {
+        "label": "SPRINTERN",
+        "description": "Hög genomförandekraft, men fortfarande oregelbunden över tid."
+      },
+      "4": {
+        "label": "DIRIGENTEN",
+        "description": "Starkt orchestrationsbeteende med hög arkiv/export-kvot."
+      },
+      "5": {
+        "label": "ZEN-KONSEKVENT",
+        "description": "Balanserad profil med starkt genomförande och regelbundet engagemang."
+      }
+    }
+  },
+  "horizons": {
+    "rearbitrate": "Ompröva",
+    "today": "Idag",
+    "tomorrow": "Imorgon",
+    "thisWeek": "Den här veckan",
+    "noPressure": "Ingen press"
+  },
+  "TYPE_TASK": "Uppgift",
+  "TYPE_HABIT": "Vana",
+  "TYPE_RECURRING_TASK": "Återkommande uppgift",
+  "TYPE_LIST": "Lista",
+  "TYPE_ANNIVERSARY": "Födelsedag",
+  "TYPE_NOTE": "Anteckning",
+  "MODAL_REFINING": "Förfinar…",
+  "PLACEHOLDER_TITLE": "Titel…",
+  "DEFAULT_INTENTION_TITLE": "Ny avsikt",
+  "PLACEHOLDER_LIST": "Lista (ett objekt per rad)…",
+  "PLACEHOLDER_DESTINATION": "Mål…",
+  "COMMON_MINUS": "−",
+  "COMMON_PLUS": "+",
+  "COMMON_YES": "Ja",
+  "COMMON_NO": "Nej",
+  "COMMON_CANCEL": "Avbryt",
+  "MODAL_CONFIRM_OK": "OK",
+  "LOGISTICS_TRAFFIC_ADJUST": "Anpassa efter trafik",
+  "LOGISTICS_BUY_TRAJET_PACK": "Recharge",
+  "LOGISTICS_TRAJET_REMAINING_SUFFIX": "(kvar: {{n}})",
+  "SAS_SUMMARY_DEPART_RECOMMENDED": "Rekommenderad avresa kl. {{time}}",
+  "SAS_SUMMARY_SCHEDULED": "Planerad kl. {{time}}",
+  "SAS_SUMMARY_DESTINATION": "Till {{destination}}",
+  "PLACEHOLDER_NOTE": "Skriv ditt memo…",
+  "PLACEHOLDER_DATE": "Datum (YYYY-MM-DD)…",
+  "PLACEHOLDER_TIME": "Tid (HH:MM)…",
+  "PLACEHOLDER_NOTES": "Anteckningar…",
+  "PLACEHOLDER_ADDRESS": "Adress…",
+  "PLACEHOLDER_PERSON": "Namn…",
+  "PLACEHOLDER_MONTHDAY": "Datum (MM-DD)…"
 }

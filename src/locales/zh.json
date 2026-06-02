@@ -1,939 +1,616 @@
 {
-  "app": {
-    "name": "TellYouTo"
+  "intentInteraction": {
+    "menuTitle": "意图",
+    "archive": "归档",
+    "pinDue": "改期 / 固定日期",
+    "pickDate": "选择日期",
+    "cancel": "取消"
   },
   "inbox": {
     "action": {
-      "remove": "Remove from Inbox",
-      "removeAll": "Remove all from Inbox",
-      "removeConfirmTitle": "Remove from Inbox?",
-      "removeConfirmBody": "The intention stays in TellYouTo but leaves today's Inbox.",
-      "removeAllConfirmTitle": "Remove all from Inbox?",
-      "removeAllConfirmBody": "All {{count}} visible intentions will be marked as triaged."
+      "remove": "从 Inbox 移除",
+      "removeAll": "全部从 Inbox 移除",
+      "removeAllConfirmTitle": "全部从 Inbox 移除？",
+      "removeAllConfirmBody": "所有 {{count}} 条可见意图将标记为已整理。"
     }
   },
-  "quota": {
-    "format": "{{current}}/{{total}}"
+  "talkCapture": {
+    "hintTap": "点击录制语音备忘",
+    "savedTimeline": "意图已保存到 Timeline",
+    "savedOfflinePending": "网络不可用：意图已保存，稍后处理"
+  },
+  "category": {
+    "HOME": "家",
+    "WORK": "工作",
+    "PERSO": "个人",
+    "HEALTH": "健康",
+    "FINANCE": "财务",
+    "TRAVEL": "旅行",
+    "SOCIAL": "社交",
+    "SHOP": "购物",
+    "LEARN": "学习",
+    "OTHER": "其他"
+  },
+  "capture": {
+    "offlineNoteGenericToast": "已保存在本设备。连接恢复后将完成智能整理。",
+    "offlineRetryOkToast": "AI 整理完成 — 你的 Timeline 已更新。",
+    "pendingAiNetworkBack": "还有 {{count}} 个想法等待 AI 整理 — 可点击卡片上的「重试 AI 整理」。"
+  },
+  "quota_remaining": "你还有 {{count}} 次免费 Sentinel 行程。",
+  "quota_exhausted_title": "静态模式",
+  "quota_exhausted_desc": "Sentinel 试用已结束。升级到 PRO 以启用实时监控。",
+  "sentinel": {
+    "validationTitle": "地址验证",
+    "detectedPlace": "检测到的地点：{{place}}",
+    "addressLabel": "已验证地址（Google Places）",
+    "addressPlaceholder": "搜索地址…",
+    "validationRequired": "请选择有效地址以启用 Sentinel。",
+    "placesMissingKey": "缺少 Google Places 密钥（EXPO_PUBLIC_GOOGLE_PLACES_API_KEY）。",
+    "addressResolveFailed": "未找到地址。请检查输入后重试。",
+    "notifTitle": "前往：{{destination}} • 到达 {{arrival}}",
+    "notifUpdatedAt": "更新于 {{time}}",
+    "notifStatusBlue": "监控中",
+    "notifStatusOrange": "窗口开放",
+    "notifStatusRed": "紧急出发",
+    "notifStatusStatic": "静态模式",
+    "notifDepartureAt": "{{time}} 出发",
+    "notifDepartureWindow": "建议出发时间：{{start}} 至 {{end}}。",
+    "notifNextRealUpdateAt": "下次实时更新：{{time}}",
+    "notifModeSafety": "安全模式",
+    "probe3Title": "出发 — {{destination}}",
+    "probe3Smooth": "路况畅通 — 你可以 {{minutes}} 分钟后出发。",
+    "probe3LeaveNow": "检测到拥堵 — 请立即出发。",
+    "probe3Unavailable": "无法估算 — 请手动查看路况。",
+    "promiseDriftTitle": "路况 — {{destination}}",
+    "promiseDriftBody": "路况略有变化。你的出发窗口现在是：{{capsule}}",
+    "topDepartTitle": "立即出发",
+    "topDepartBody": "该出发前往 {{destination}} 了。"
+  },
+  "departureContract": {
+    "notifTitle": "出发合约 — {{destination}}",
+    "signalBTitle": "出发提醒",
+    "signalBBody": "{{capsule}} — 约 {{minutes}} 分钟后出发前往 {{destination}}。"
+  },
+  "sentinelFocus": {
+    "prompt": "提醒我在 {{time}} 何时出发前往 {{title}}？",
+    "departureTitle": "出发前往 {{name}}",
+    "arrivalSubtitle": "到达：{{time}}"
+  },
+  "tripAlarm": {
+    "pickerTitle": "设置闹钟",
+    "pickerMessage": "{{time}} 出发",
+    "departureLabel": "{{place}} 出发 {{time}}",
+    "a11yOpenAlarm": "设置出发闹钟",
+    "iosManualHint": "打开时钟应用，在 {{time}} 创建闹钟。\n建议名称：{{label}}",
+    "androidUnavailable": "无法打开时钟。请在 {{time}} 设置闹钟（{{label}}）。"
+  },
+  "intentionDetail": {
+    "source": "来源",
+    "checklist": "清单",
+    "trip": "行程",
+    "transport": "交通",
+    "currentPosition": "当前位置",
+    "addressPlaceholder": "搜索地址…",
+    "allDay": "全天",
+    "listItems": "项目",
+    "projectStartDate": "开始日期",
+    "projectStartDateEmpty": "设置开始日期",
+    "projectMilestoneMenuTitle": "里程碑",
+    "projectMilestoneMenuPivot": "日历（枢轴）",
+    "projectMilestoneMenuNote": "备注",
+    "projectMilestoneMenuDelete": "删除",
+    "confirmReplan": "确认并重新安排后续步骤",
+    "cancel": "取消",
+    "save": "保存",
+    "notePlaceholder": "添加备注…",
+    "transportAuto": "驾车",
+    "transportWalking": "步行",
+    "transportBike": "骑行",
+    "ecoFriendly": "环保 🌱",
+    "co2Standard": "标准 CO2 影响",
+    "launchRoute": "启动路线",
+    "launchRouteDisabledHint": "添加有效目的地地址以启动导航。",
+    "close": "关闭",
+    "pin": "固定",
+    "unpin": "取消固定",
+    "pinMaxReachedTitle": "固定数量已达上限",
+    "pinMaxReachedBody": "最多可固定 {{max}} 条意图。请先取消固定其他意图。",
+    "labelIntention": "意图",
+    "labelTiming": "时间",
+    "labelEngagement": "坚持度",
+    "trackStreak": "追踪连续记录 🔥",
+    "trackStreakHint": "显示计数器，帮你保持节奏。",
+    "labelItinerary": "路线",
+    "labelTransport": "交通",
+    "comfortTitle": "行程舒适度",
+    "comfortElasticDeparture": "预计出发：{{window}}",
+    "comfortElasticDepartureApprox": "预计出发：≈ {{window}}",
+    "comfortElasticDepartureShifted": "⚠️ 预计出发：{{window}}",
+    "allDayNoDepartureSlot": "全天事件 — 无出发窗口",
+    "actionSetupAlert": "提醒我该何时出发？",
+    "actionSetupAlertLocked": "提醒我该何时出发 🔒",
+    "tripSurveillanceStart": "监控行程",
+    "tripSurveillanceStartLocked": "监控行程 🔒",
+    "tripSurveillanceActive": "监控中 🛡️",
+    "surveillanceMissingInfo": "添加有效目的地和到达时间以启用监控。",
+    "pass2LockedSuffix": "🔒",
+    "noteMemoSection": "备忘",
+    "finish": "完成"
+  },
+  "pass2": {
+    "generateSteps": "✨ 拆分为步骤",
+    "generateList": "✨ 结构化列表",
+    "steps_loading": "读取中...",
+    "list_loading": "创建项目中...",
+    "finalizing": "正在完成结构..."
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
     "creditsDepleted": "0 ⚡",
     "creditsDepletedHint": "升级 Pro",
     "proLabel": "PRO",
-    "a11yCredits": "捕获额度 — 打开充能",
-    "a11yCalendar": "打开今日时间线",
-    "a11yPiggy": "收集箱 — 未整理",
-    "rechargeModalBody": "前往充能升级 Pro，解锁更高清晰度。",
-    "openRecharge": "查看充能"
+    "a11yCredits": "捕获额度 — 打开 Recharge",
+    "a11yCalendar": "在 Timeline 打开今天",
+    "a11yPiggy": "Inbox — 未整理项目"
   },
   "tabs": {
-    "radar": "雷达",
-    "timeline": "时间线",
-    "agent": "智能体",
-    "recharge": "充能",
-    "messaging": "消息",
-    "stats": "统计",
     "debug": "调试",
     "talkHome": "Talk"
   },
-  "messaging": {
-    "lead": "TellYouTo 深层链接 — 直接打开雷达、时间线或充电站。",
-    "copyLink": "复制链接",
-    "copyAll": "复制全部链接"
-  },
-  "linking": {
-    "telegramMissingTitle": "Telegram",
-    "telegramMissingBody": "尚未安装 Telegram。若要免费与盟友对话，请先安装应用。",
-    "telegramMissingInstall": "安装 Telegram",
-    "telegramMissingLater": "稍后"
-  },
-  "settings": {
-    "privateChannelTitle": "私人频道",
-    "privateChannelSubtitle": "包含 Telegram；WhatsApp、Slack、LINE 需 Pro。",
-    "channelsCatalogTitle": "频道与扩展",
-    "channelsCatalogLead": "同时只能激活一个频道 — 盟友在此向你发送意图。",
-    "channelsPrivacyFootnote": "每个高级频道都是你与本地轨道之间的加密直连。不出售任何数据：经安全隧道传输，并在同步到你的手机后立即从云端清除。",
-    "memorySectionTitle": "存储管理",
-    "archivePurgeTitle": "在多久后永久删除已归档项",
-    "archivePurgeHint": "在应用启动时执行。仅删除归档时间早于该期限的行。",
-    "archivePurge7": "7 天",
-    "archivePurge30": "30 天",
-    "archivePurgeNever": "永不"
-  },
-  "channels": {
-    "connect": "连接",
-    "disconnect": "断开",
-    "linkingWait": "等待你的消息...",
-    "action": {
-      "create_private_conv": "👉 点这里创建私人对话"
-    },
-    "status": {
-      "linking": "正在关联…",
-      "connected": "已连接"
-    },
-    "modal": {
-      "title": "设置 Telegram",
-      "body": "我们将打开安全的 Telegram 对话。只需在屏幕底部点击「开始」即可激活你的轨道。",
-      "button": "开始",
-      "otherTitle": "{{channelName}}",
-      "otherBody": "我们将打开应用以完成私人关联。按提示操作后返回此处。"
-    },
-    "linkLaunched": {
-      "message": "关联已启动！你的盟友将在几秒内给你发消息。",
-      "button": "好的"
-    },
-    "feedback": {
-      "success": "✅ 频道已成功关联！"
-    },
-    "hints": {
-      "pro_account_required": "* 需要在此手机上拥有有效的 Pro 账户"
-    }
-  },
   "pro": {
-    "modalTitle": "解锁全部能力",
-    "modalPrice": "9.99€ / 月",
-    "modalLead": "升级 Pro 解锁高级频道并永久免广告。",
-    "benefit1": "WhatsApp 不限量",
+    "modalTitle": "解锁最大能量",
+    "modalPrice": "€9.99 / 月",
+    "modalLead": "升级 Pro 解锁高级渠道，永久无广告。",
+    "benefit1": "WhatsApp 无限",
     "benefit2": "零广告",
     "benefit3": "优先支持",
-    "benefit4": "访问全部例行程序",
-    "modalLater": "稍后",
+    "benefit4": "访问所有例行事项",
+    "modalLater": "暂不",
     "modalCta": "升级 Pro",
     "screenKicker": "订阅",
     "screenTitle": "TellYouTo Pro",
     "screenSubtitle": "多渠道、无广告、优先支持。",
     "devNote": "开发版：按钮模拟订阅，无需付款。",
-    "subscribeGold": "订阅 — 9.99€ / 月",
+    "subscribeGold": "订阅 — €9.99 / 月",
     "back": "关闭",
-    "linkRequiredTitle": "Account required",
-    "linkRequiredBody": "To keep your Pro subscription across phones, link Google or Apple (same Firebase identity).",
-    "linkGoogle": "Continue with Google",
-    "linkApple": "Continue with Apple",
-    "linkLater": "Not now",
-    "linkGoogleOnly": "Link Google only",
-    "linkAppleOnly": "Link Apple only",
-    "linkErrorTitle": "Linking failed",
-    "configureGoogleTitle": "Google configuration",
-    "configureGoogleBody": "Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (and iOS/Android client IDs if needed) in .env, then restart Metro.",
-    "googleMissingEnv": "Missing Google Web client ID: OAuth linking will not work until EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID is set."
-  },
-  "channelCatalog": {
-    "proBadge": "PRO",
-    "freeBadge": "免费",
-    "recommendedBadge": "推荐",
-    "names": {
-      "telegram": "Telegram",
-      "whatsapp": "WhatsApp",
-      "slack": "Slack",
-      "discord": "Discord",
-      "teams": "Microsoft Teams",
-      "signal": "Signal",
-      "line": "LINE / 微信"
-    }
+    "linkRequiredTitle": "需要账户",
+    "linkRequiredBody": "要在多设备间保留 Pro 订阅，请关联 Google 或 Apple（同一 Firebase 身份）。",
+    "linkGoogle": "使用 Google 继续",
+    "linkApple": "使用 Apple 继续",
+    "linkLater": "暂不",
+    "linkGoogleOnly": "仅关联 Google",
+    "linkAppleOnly": "仅关联 Apple",
+    "linkErrorTitle": "关联失败",
+    "configureGoogleTitle": "Google 配置",
+    "configureGoogleBody": "在 .env 中设置 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID（如需 iOS/Android client ID），然后重启 Metro。",
+    "googleMissingEnv": "缺少 Google Web client ID：未设置 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID 前 OAuth 关联不可用。"
   },
   "channelSwitch": {
-    "title": "切换频道？",
-    "message": "为保护你的专注，盟友只能在一个频道上倾听。切换到 {{channelName}} 吗？",
-    "confirm": "切换",
     "cancel": "取消"
   },
-  "onboarding": {
-    "firstName": {
-      "title": "怎么称呼你？",
-      "subtitle": "名字会用于副驾驶与私人频道的欢迎语。",
-      "placeholder": "名字",
-      "continue": "继续"
-    },
-    "title": "情境诊断",
-    "subtitle": "选择最贴近你的方式 — 副驾驶会校准你的表现光谱。",
-    "progress": "卡片 {{current}} / {{total}}",
-    "cardsHint": "每个选项都会根据你当下的导航方式调整结构、动能、禅与数据权重。",
-    "skip": "使用当前光谱",
-    "situations": {
-      "s1": {
-        "title": "你如何开启一天？",
-        "a0": "先理清优先级与时间块",
-        "a1": "立刻进入行动",
-        "a2": "先静下来找回清晰",
-        "a3": "先看数字或指标"
-      },
-      "s2": {
-        "title": "被打断时你会？",
-        "a0": "重新框定并规划恢复",
-        "a1": "快速转向新的紧急事项",
-        "a2": "短暂停顿以恢复清晰",
-        "a3": "记录并评估影响（时间、负荷）"
-      },
-      "s3": {
-        "title": "一天结束时你最在意？",
-        "a0": "清晰计划有推进",
-        "a1": "保持节奏并闭环行动",
-        "a2": "保留空间与心智清晰",
-        "a3": "有可见的结果或指标"
-      },
-      "s4": {
-        "title": "重要截止日期临近",
-        "a0": "拆解步骤与里程碑",
-        "a1": "加速并砍掉非必要",
-        "a2": "冲刺前先找回清晰",
-        "a3": "依靠数字与跟踪"
-      },
-      "s5": {
-        "title": "与他人协作时你更偏好？",
-        "a0": "清晰框架与明确决策",
-        "a1": "快速往返与短决策",
-        "a2": "从容交流与稳态对齐",
-        "a3": "基于可衡量事实的复盘"
-      }
-    },
-    "privateChannel": {
-      "title": "选择你的盟友",
-      "subtitle": "盟友发送意图的通道 — 私密并绑定设备。",
-      "explainBot": "你不是在拨打 +33 这类号码：机器人绑定你的设备与所选应用 — 一切留在 TellYouTo 空间内。",
-      "telegramPitch": "Telegram 语音体验好、隐私强。这是盟友的 100% 免费通道。",
-      "recommended": "推荐",
-      "telegramGiftBadge": "安装 Telegram 试用盟友，享 15 天免广告",
-      "telegramReady": "通道已就绪。",
-      "whatsappCostHint": "可能产生服务费或意图配额限制。",
-      "proChannelsHint": "专业 / 团队选项",
-      "installTelegram": "安装 Telegram",
-      "rewardTitle": "谢谢！",
-      "rewardBody": "恭喜！盟友已在 Telegram 上，你的时间轨 15 天无广告。",
-      "rewardDismiss": "继续",
-      "platforms": {
-        "whatsapp": "WhatsApp",
-        "telegram": "Telegram",
-        "slack": "Slack",
-        "line": "LINE"
-      },
-      "cta": "保存并打开链接",
-      "skip": "稍后",
-      "urlPending": "链接待配置（EXPO_PUBLIC_BOT_*_URL）",
-      "initMessageLabel": "欢迎消息（复制给机器人）",
-      "copyInit": "复制消息",
-      "copied": "已复制",
-      "waitingConnection": "正在等待连接…",
-      "whatsappErrorTitle": "错误",
-      "whatsappErrorBody": "无法打开 WhatsApp。请确认已安装。",
-      "genericOpenErrorBody": "无法打开链接。请确认应用已安装。",
-      "dictationHint": "在 WhatsApp 里试试语音输入！"
-    }
-  },
-  "radar": {
-    "proBadge": "PRO",
-    "channelsNudgeTitle": "连接盟友（Telegram）",
-    "channelsNudgeBody": "你尚未配置消息通道。打开设置以安装 Telegram 或了解 Pro 选项。",
-    "channelsNudgeCta": "频道与扩展",
-    "channelsNudgeDismiss": "稍后",
-    "empty": "暂无意图。点按 + 添加。",
-    "emptyTitle": "轨道是空的",
-    "emptyBody": "很适合轻轻充电或定下新方向 — 准备好时点 +。",
-    "allyEyebrow": "盟友",
-    "pureAllyModeBadge": "纯盟友模式",
-    "messengerDictationInactive": "消息听写未激活 — 请在智能体中连接频道。",
-    "messengerVoiceActive": "消息通道已连接 — 可使用听写。",
-    "activeSessionTitle": "专注进行中",
-    "activeSessionOpen": "进入胶囊",
-    "priority": "优先级 {{value}}",
-    "quickAddTitle": "快速意图",
-    "fieldTitle": "标题",
-    "fieldDescription": "详情（可选）",
-    "urgentLabel": "标记为紧急",
-    "alarmLabel": "设置闹钟",
-    "flexibleSlotLabel": "灵活时段（让 AI 调整）",
-    "microNowTitle": "此刻",
-    "microVerifyQuestion": "这个小动作完成了吗？",
-    "microVerifyCta": "确认",
-    "done": "完成",
-    "cancel": "取消",
-    "save": "保存",
-    "saveErrorTitle": "无法保存",
-    "saveErrorBody": "出错了，请重试。",
-    "status": {
-      "pending": "待处理",
-      "active": "进行中",
-      "done": "已完成"
-    },
-    "saveTimeoutTitle": "Timed out",
-    "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
-  },
   "timeline": {
+    "title": "Timeline",
     "allDuration": "全天",
-    "newBadge": "新",
-    "createdTodayAt": "今天 {{time}} 创建",
-    "subtitle": "今日轨道 — 按光谱建议时段（动能高 → 更深的工作块）。",
-    "now": "现在",
-    "dayRail": "在一天中的位置（6–22 点）",
-    "empty": "轨道上还没有意图。请从雷达添加。",
-    "emptyTitle": "轨道此刻很安静",
-    "emptyBody": "从雷达添加意图；它们会带着建议时段出现在这里。",
-    "estimated": "约 {{minutes}} 分钟（估计）",
-    "suggestedWindow": "建议时段：{{start}} – {{end}}",
-    "launch": "开始",
-    "done": "完成",
-    "calendarRailTitle": "不可用（日历）",
-    "externalEventLabel": "外部日程",
-    "calendarBusy": "占用 · {{start}} – {{end}}",
-    "alarmSwitch": "时段开始时提醒",
-    "alarmBellA11y": "此时段已设提醒",
-    "hardRoutineLockA11y": "结构性例行 — 时段已锁定",
-    "microFragment": "片段 {{current}} / {{total}}",
-    "microDuration": "约 2 分钟 · 微习惯",
-    "skyClear": "万里无云，思绪轻盈。",
+    "elasticDepartureWindow": "[ 预计出发：{{window}} ]",
+    "elasticDepartureApprox": "[ 预计出发：≈ {{window}} ]",
+    "elasticDepartureShifted": "[ ⚠️ 预计出发：{{window}} ]",
+    "scanTrafficScheduled": "真实路况扫描计划于 {{time}}",
+    "scanTrafficInProgress": "扫描中…",
+    "createdTodayAt": "今天创建于 {{time}}",
+    "createdYesterdayAt": "昨天创建于 {{time}}",
+    "skyClear": "晴空万里 — 你的思绪也有空间呼吸。",
     "pilot": {
-      "title": "驾驶舱",
+      "title": "导航",
       "timeNav": "时间",
-      "contextNav": "场景",
+      "contextNav": "情境",
       "statusNav": "状态",
       "contextAll": "全部",
-      "contextHome": "居家",
+      "contextHome": "家",
       "contextWork": "工作",
       "contextPiggy": "存钱罐",
       "contextArchives": "归档",
       "todo": "待办",
-      "done": "已完成"
+      "done": "已完成",
+      "specificDate": "日期",
+      "pickedDateShort": "{{date}}",
+      "changeDate": "选择其他日期"
     },
-    "todoFilter": "待办",
-    "doneFilter": "已完成",
-    "noItems": "暂无项目",
-    "noContentForDate": "该日期暂无内容",
-    "createdOn": "创建于 {{date}}",
-    "tasks": {
-      "title": "我的任务",
-      "scheduledToday": "今日到期",
-      "noPressure": "不急"
+    "customDayEmpty": "当天没有安排。",
+    "customDayAddTask": "添加任务？",
+    "roadmap": {
+      "printerA11y": "每日路线图",
+      "sasTitle": "整理 — 每日路线图",
+      "sasSubtitle": "验证、移至今天或归档每项，然后运行合成。",
+      "bucketOverdue": "已过期",
+      "bucketOrphan": "无日期",
+      "validate": "保留",
+      "postpone": "移至今天",
+      "delete": "归档",
+      "continueSynth": "运行合成",
+      "sasEmptyHint": "无需整理 — 运行合成。",
+      "linkOpenSaved": "今日路线图",
+      "progressCollect": "收集中意图",
+      "progressSynth": "合成中",
+      "progressWrite": "撰写报告中…",
+      "sharePrint": "分享 / PDF",
+      "close": "关闭",
+      "synthError": "合成失败。请稍后重试。"
     },
-    "habits": {
-      "title": "习惯"
-    },
-    "projects": {
-      "title": "项目步骤"
-    },
-    "notesAudio": {
-      "title": "笔记与音频"
-    },
+    "syncedBadge": "已同步",
+    "memoAudio": "语音备忘",
+    "note": "备注",
+    "untitled": "无标题",
+    "badgeAudio": "🎙️ 语音",
+    "badgeNote": "📝 备注",
+    "badgeHabit": "🔄 习惯",
+    "badgeTask": "⚡ 任务",
+    "badgeList": "📋 列表",
+    "badgeProject": "🚀 项目",
+    "a11yTaskComplete": "标记完成或取消待完成",
+    "createdOn": "创建于 {{date}} {{time}}",
+    "aiPendingChip": "AI 整理待处理",
+    "aiFailedChip": "AI 处理失败",
+    "retryAiSort": "重试 AI 整理",
     "ideaBank": {
-      "title": "创意存钱罐",
-      "button": "存钱罐中的任务",
-      "done": "完成",
-      "schedule": "安排日期",
-      "remove": "移除",
-      "removeConfirmTitle": "移除此任务？",
-      "removeConfirmBody": "将从本机永久删除。",
+      "title": "想法库",
+      "shopTitle": "待购",
+      "shopSubtitle": "{{count}} 项",
       "clearAll": "全部清空",
-      "clearAllTitle": "清空存钱罐？",
-      "clearAllBody": "将删除所有无日期的任务。",
-      "scheduleTitle": "选择日期",
-      "empty": "没有无日期的任务。",
+      "clearAllTitle": "清空想法库？",
+      "clearAllBody": "所有无日期任务将被删除。",
+      "empty": "没有无日期任务。",
       "close": "关闭",
       "cancel": "取消",
-      "clusterNudge": "Shall we move these forward?",
-      "clusterSubtitle": "{{count}} · {{category}}",
-      "shopTitle": "To buy",
-      "shopSubtitle": "{{count}} items"
+      "tripFillAddress": "📍 输入地址",
+      "tripSearchTitle": "输入到达地址",
+      "tripSearchOriginTitle": "输入出发地址"
+    },
+    "box": {
+      "clearAll": "全部删除",
+      "clearAllTitle": "清空 Box？",
+      "clearAllBody": "你即将永久删除 {{count}} 条待处理想法。此操作无法撤销。",
+      "clearAllConfirm": "全部删除",
+      "empty": "存储中没有想法。"
+    },
+    "routines": {
+      "title": "例行事项",
+      "empty": "没有活跃的例行事项。"
     },
     "smartClusters": {
       "inbox": "Inbox",
-      "inboxSubtitle": "{{count}} today",
-      "newTitle": "⚡ New",
-      "newSubtitle": "{{count}} to sort",
-      "projectsTitle": "📁 Projects",
-      "projectsSubtitle": "({{count}} active)",
-      "listsTitle": "📋 Lists",
-      "listsSubtitle": "({{count}} additions)"
+      "inboxSubtitle": "今天 {{count}}",
+      "routinesTitle": "🔁 例行事项",
+      "routinesSubtitle": "（{{count}} 个活跃）",
+      "projectsTitle": "📁 项目",
+      "projectsSubtitle": "（{{count}} 个活跃）",
+      "tripsTitle": "行程"
     }
   },
-  "focusMode": {
-    "title": "会话模式",
-    "chrono": "计时模式",
-    "chronoHint": "接近你的预估时长 — 由你掌控计时。",
-    "pomodoro": "番茄模式",
-    "pomodoroHint": "25 / 5 分钟 · 最多四轮专注"
-  },
-  "focus": {
-    "start": "开始",
-    "pause": "暂停",
-    "resume": "继续",
-    "terminate": "结束",
-    "terminateHold": "长按橙色按钮可提前结束 — 避免误触。",
-    "feedbackTitle": "清晰",
-    "ok": "好",
-    "pomodoroWorkLine": "步骤 {{step}} / {{total}}",
-    "pomodoroBreakLine": "休息 · 下一步 {{nextStep}} / {{total}}",
-    "pomodoroConcentration": "专注",
-    "pomodoroBreak": "休息"
-  },
-  "stats": {
-    "screenTitle": "清晰度一览",
-    "screenSubtitle": "来自副驾驶的观察 — 陈述，而非评判。",
-    "loading": "加载中…",
-    "wellbeingTitle": "健康坚持度",
-    "wellbeingHint": "今日在轨道上已勾选的微习惯时段占比。",
-    "wellbeingEmpty": "今日轨道暂无微习惯安排。",
-    "wellbeingMeta": "{{done}} / {{total}} 个微时段已确认",
-    "clarityTitle": "今日清晰度",
-    "clarityHint": "温和解读：实际用时与预估有多接近（仅统计已完成的专注）。",
-    "noSessionsToday": "今天还没有完成的专注。结束一次胶囊后会显示在这里。",
-    "sessionsToday": "今日已完成 {{count}} 个专注块",
-    "spectrumTitle": "时间倾向",
-    "spectrumHint": "来自已完成会话的分钟数，按每条意图的光谱加权。",
-    "spectrumEmpty": "今天暂无可展示的数据。",
-    "minutesTotal": "光谱合计约 {{minutes}} 分钟",
-    "historyTitle": "最近几天",
-    "historyHint": "按本地日分组的已完成会话 — 存档在设备上。",
-    "historyEmpty": "完成专注块后，历史会逐渐出现。",
-    "historyDay": "{{date}} · {{count}} 次会话",
-    "axis": {
-      "structure": "结构",
-      "momentum": "动量",
-      "zen": "禅",
-      "stats": "数据"
-    },
-    "insightKicker": "副驾驶寄语",
-    "insightEmpty": "完成一次专注后，我会在这里放一小段反思 — 不必着急。",
-    "insightLead": "今天，你完成的时间略偏向 {{axis}} — 这是一个温和的倾向，不是标签。",
-    "insightClarity": "清晰度约在 {{score}}% — 表示实际分钟与预估的接近程度。",
-    "insightShort": "哪怕只有一两个短块，也在讲述温和的故事。",
-    "insightEnergyLow": "能量看起来偏柔；明天可以迈小步就好。",
-    "insightEnergyOk": "能量看起来足以支撑你接下来的选择。",
-    "semanticLabTitle": "Semantic Brain Lab",
-    "semanticLabHint": "Audio .m4a → Gemini Flash + comparison with local AI (no DB persistence).",
-    "semanticLabOpen": "Open test lab"
-  },
   "debug": {
-    "pilotTitle": "驾驶舱工具",
-    "note": "内部工具 — 界面从简。",
-    "firebaseProjectIdButton": "查看 Firebase projectId（SDK 与 .env）",
-    "calendarSection": "系统日历",
-    "calendarConnect": "连接系统日历",
-    "calendarConnectHelp": "仅本地读取 — 不向 Firebase 发送事件标题。",
-    "calendarHideRail": "在轨道上隐藏日历事件",
-    "calendarHideHelp": "隐藏后仍作为占用块参与智能排期。",
-    "calendarRefresh": "刷新日历",
-    "calendarUntitled": "未命名日历",
-    "calendarConnectedToggle": "已连接",
-    "calendarRailVisibilityHelp": "轨道：显示时段或仅占用（供智能体避让）。",
-    "calendarRailHide": "隐藏",
-    "calendarRailShow": "显示",
-    "resetProfile": "重置档案",
-    "resetProfileHelp": "清除 AsyncStorage 中的 onboarding_complete 与 user_spectrum，并返回 5 情境引导流程。",
+    "pilotTitle": "整理与导航（调试）",
+    "note": "内部控制台 — Remote Config 对比本地模型、模拟路况、恢复出厂。",
+    "firebaseProjectIdButton": "显示 Firebase projectId（SDK vs .env）",
     "rebuildDb": "重建数据库",
-    "rebuildDbHelp": "恢复出厂：SQLite、AsyncStorage、各服务 — 然后回到 5 情境引导。",
-    "factoryResetConfirmTitle": "要重建数据库吗？",
-    "factoryResetConfirmBody": "将清除所有本地数据与偏好设置，且无法撤销。",
+    "rebuildDbHelp": "按序重建意图表（talkndone.db）。",
+    "clearDb": "清空数据库",
+    "clearDbHelp": "仅删除意图（Trankil-v2）行，不影响偏好设置。",
+    "clearDbConfirmTitle": "清空数据库？",
+    "clearDbConfirmBody": "将删除所有本地意图（Trankil-v2）。此操作无法撤销。",
+    "clearDbCancel": "取消",
+    "clearDbConfirm": "清空",
+    "factoryResetConfirmTitle": "重建数据库？",
+    "factoryResetConfirmBody": "意图表将被删除并重建。此操作无法撤销。",
     "factoryResetSecondTitle": "最终确认",
-    "factoryResetSecondBody": "确认完整重置系统？",
+    "factoryResetSecondBody": "确认重建意图表？",
     "factoryResetCancel": "取消",
     "factoryResetContinue": "继续",
     "factoryResetDestructive": "全部清除",
-    "factoryResetSuccessTitle": "已重置",
-    "factoryResetSuccessBody": "系统已重置。",
-    "factoryResetHealthWarn": "数据库已重建，但 SQLite 健康检查报告异常。",
-    "busyProfile": "正在重置档案…",
+    "factoryResetSuccessTitle": "数据库已重建",
+    "factoryResetSuccessBody": "意图表已重建。",
     "busySqlite": "SQLite…",
-    "proUserToggle": "模拟 Pro（本地 + 同步）",
-    "sectionSpectrum": "UserSpectrumContext（原始）",
-    "sectionRawIntentions": "Intentions（原始）",
-    "rawIntentionsHelp": "SQLite 导出：title、start_time_ms、rail_start_minutes、isMicroHabit、isHardConstraint、energy_score、sync_status、raw_transcript，以及 _full_row。插入或重置时刷新。",
-    "sectionSyncPurge": "同步与清理（Firestore）",
-    "syncPurgeHelp": "统计此设备在云端仍存在的文档（rail_inbox = 机器人消息；intentions = 临时同步副本）。写入 SQLite 后应降为 0。时间戳 = 上次成功从云端删除的时间。",
-    "syncPurgeRefresh": "刷新云端状态",
-    "syncPurgeRailInboxCloud": "rail_inbox（云端）",
-    "syncPurgeTransitCloud": "中转 intentions（云端）",
-    "syncPurgeLastRail": "上次清理 rail_inbox",
-    "syncPurgeLastTransit": "上次清理中转 intentions",
-    "syncPurgeNever": "无",
-    "syncPurgeNoDb": "Firebase 不可用（无法统计云端）。",
-    "purgeIntentions": "清空 Intentions",
-    "purgeIntentionsBusy": "正在删除…",
-    "purgeIntentionsConfirmTitle": "清空所有 Intentions？",
-    "purgeIntentionsConfirmBody": "删除本地所有 Intentions 与微习惯打卡记录。便于在不同档案测试间切换（Zen、Momentum 等）。",
-    "purgeIntentionsCancel": "取消",
-    "purgeIntentionsConfirm": "全部删除",
-    "sectionAgentNativeTitle": "原生代理（不经 SQLite）",
-    "forceAgentAlarmButton": "强制代理：闹钟（+10 分钟）",
-    "forceAgentAlarmHelp": "在 10 分钟后安排系统通知（高优先级闹钟频道、rail 音效）。不读写 SQLite — 测试 JS → Android。",
-    "forceAgentAlarmBusy": "正在安排测试闹钟…",
-    "forceAgentAlarmSuccessTitle": "已安排闹钟",
-    "forceAgentAlarmSuccessBody": "系统 / Expo 标识：{{id}}",
-    "forceAgentAlarmErrorTitle": "安排失败",
-    "sectionPower": "PowerContext（原始）",
-    "simSectionTitle": "外部入口模拟",
-    "simSectionHelp": "类 Webhook 注入。若已设置平台用户 ID，发送方必须匹配。",
-    "simSampleRaw": "18 点买面包",
-    "simLineRaw": "会议前发送演示文稿",
-    "simWhatsApp": "模拟 WhatsApp 消息",
-    "simWhatsAppHelp": "通过 WhatsApp 连接器将示例意图写入 SQLite。",
-    "simWhatsAppIntentionButton": "模拟收到 WhatsApp 消息",
-    "simWhatsAppIntentionHelp": "创建本地意图「Test WhatsApp」以验证雷达与时间线。",
-    "simWhatsAppIntentionBusy": "正在创建测试意图…",
-    "simLine": "模拟 LINE 消息",
-    "simLineHelp": "使用 LINE 连接器的相同流程。",
-    "simBusy": "正在注入意图…",
-    "simErrorUser": "用户 ID 不匹配 — 请在档案中对齐平台 ID，或留空以使用本地模拟。",
-    "demoDaySectionTitle": "统计演示",
-    "demoDayHelp": "插入 5 条今日已完成的会话（结构 / 动量 / 禅），让统计页在演示时更饱满。",
-    "demoDayButton": "生成典型一天",
-    "demoDayBusy": "正在写入典型一天…",
-    "demoIntent1Title": "晨间框架与优先级",
-    "demoIntent1Desc": "结构化块：短清单，一个明确重点。",
-    "demoIntent2Title": "收件箱冲刺",
-    "demoIntent2Desc": "快速来回以推进团队。",
-    "demoIntent3Title": "无屏休息",
-    "demoIntent3Desc": "几分钟呼吸与拉开距离。",
-    "demoIntent4Title": "里程碑回顾",
-    "demoIntent4Desc": "午间对齐下一步。",
-    "demoIntent5Title": "跟踪看板",
-    "demoIntent5Desc": "更新指标与负荷。",
-    "semantic_tags": "语义标签",
-    "user_profile_sync_success": "用户资料更新成功。",
-    "user_profile_sync_error": "用户资料更新失败。",
-    "soundSectionTitle": "Sound settings",
-    "soundHelp": "Selects the bundled .wav for rail alarms (native rebuild after adding files). Android uses one notification channel per variant so the OS actually plays the selected sound.",
-    "soundDefault": "Default",
-    "soundZen": "Zen",
-    "soundDigital": "Digital",
-    "firebaseProjectIdTitle": "Firebase — projectId (debug)",
+    "firebaseProjectIdTitle": "Firebase — projectId（调试）",
     "firebaseProjectIdBody": "SDK (app.options.projectId):\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID:\n{{env}}",
     "firebaseSdkNullLabel": "(getFirebaseApp = null)",
-    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* missing)",
-    "testWhatsAppTitle": "Test WhatsApp",
-    "testWhatsAppRaw": "Test WhatsApp (debug simulation)",
-    "talkCaptureSectionTitle": "Talk monitor (Quick / Deep)",
-    "talkCaptureEmpty": "No recent capture — use the Talk tab.",
-    "talkCaptureModeQuick": "Quick mode",
-    "talkCaptureModeDeep": "Deep mode",
-    "talkCaptureRawLabel": "Raw transcript",
-    "talkCaptureLocalLabel": "Local triage (JSON)",
-    "talkCaptureGeminiLabel": "Gemini (full JSON)"
-  },
-  "legal": {
-    "screenTitle": "关于",
-    "lead": "关于你的数据与 TellYouTo 使用方式的透明说明。",
-    "privacyTitle": "隐私",
-    "privacyBody": "TellYouTo 重视你的个人空间：大多数意图保留在设备本地的 SQLite 数据库中，与系统其余存储一样受保护。\n\n若启用 Firebase 云同步，仅交换服务所需的数据；访问依赖 Firebase 身份验证与服务器端安全规则。我们不会将你的内容出售给第三方。\n\n可通过高级模式下的工具重建数据库以清除本地数据。涉及 GDPR 等法律问题请咨询合适的专业人士。",
-    "termsTitle": "使用条款",
-    "termsBody": "使用 TellYouTo 即表示你接受以专注与身心健康为核心的体验。应用按「现状」提供；AI 与建议可能不完美 — 你仍对自己的决定负责。\n\n连接器与模拟须合法并尊重第三方服务。\n\n我们可能更新文案或功能以提高清晰度或合规性；以应用内显示版本为准。"
-  },
-  "allyVoice": {
-    "personalGreeting": "{{name}}，",
-    "greet": {
-      "morning": {
-        "structure": "先别急着冲：列三条就够框住今天的轨道。",
-        "momentum": "一早能量很足，准备好就推进你的轨道。",
-        "zen": "早安。先用一条温和的意图稳住清晰度。",
-        "stats": "用一个数字或里程碑开场，其余随后跟上。"
-      },
-      "afternoon": {
-        "structure": "午后适合轻轻收束，让下午更顺。",
-        "momentum": "下午要节奏——手里留一条最清晰的意图。",
-        "zen": "深呼吸，为下一段专注挑个安静时段。",
-        "stats": "现在做个快检：离目标还有多远？"
-      }
-    },
-    "farewell": {
-      "evening": {
-        "structure": "收尾了：关掉一个清晰的点，其余明天再说。",
-        "momentum": "今天很拼——让引擎歇歇，轨道明天还在。",
-        "zen": "温柔入夜，你的清醒值得被轻声对待。",
-        "stats": "数字可以等——先肯定今天动过的东西。"
-      },
-      "night": {
-        "structure": "很晚了，明天的清单留给早晨。",
-        "momentum": "把冲劲留到以后，轨道不会跑。",
-        "zen": "夜里宜静：一条轻意图，或干脆休息。",
-        "stats": "仪表盘睡了，你也可以。"
-      }
-    },
-    "suggestFocusCapsule": "你完成得很快！对更棘手的任务，专注胶囊也许能帮你稳住节奏。"
-  },
-  "connectors": {
-    "whatsapp": "WhatsApp",
-    "line": "LINE"
+    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* 缺失)",
+    "dashboardSectionPilotageIa": "[AI 导航]",
+    "dashboardSectionFluxTraffic": "[交通流]",
+    "dashboardSectionSysteme": "[系统]",
+    "simUserModeTitle": "测试用户模式：{{tier}}",
+    "simUserModeReal": "真实",
+    "simUserModeFree": "FREE",
+    "simUserModePro": "PRO",
+    "simUserModeHelp": "应用立即生效（配额、付费墙）。有效 UI 层级：{{effective}}。",
+    "rcPass1Caption": "Remote Config (gemini_pass1_model_id)",
+    "rcPass2Caption": "Remote Config (gemini_pass2_model_id)",
+    "rcModelValue": "{{modelId}}",
+    "rcModelUnavailable": "—（无 Firebase 或 Remote Config 未解析）",
+    "localPass1Caption": "有效 Pass 1（提取）",
+    "localPass2Caption": "有效 Pass 2（推理）",
+    "localModelValue": "{{modelId}}",
+    "localOverridesRcHint": "有效 Pass 2 与 RC 不同（调试覆盖或健康检查）。",
+    "iaHealthButton": "运行 AI 健康检查",
+    "iaHealthTitle": "AI 健康检查",
+    "iaHealthBody": "Pass 1 ({{pass1}}): {{pass1Ok}}\nPass 2 胜者: {{pass2}}\nPass 2 探测: {{tested}}（跳过短名单: {{skipped}}）/ {{total}} 模型。",
+    "iaHealthErrorTitle": "AI 健康检查失败",
+    "busyIaHealth": "探测模型中…",
+    "geminiRemoteModelRefresh": "刷新 Remote Config",
+    "oneTapPerfTitle": "一键性能（T0–T3 标记）",
+    "oneTapPerfEmpty": "尚无测量 — 从 Talk Debug 运行一键 refine。",
+    "oneTapPerfT0": "T0: {{ms}} ms",
+    "oneTapPerfT1": "T1: {{ms}} ms",
+    "oneTapPerfT3": "T3: {{ms}} ms",
+    "oneTapPerfGemini": "Gemini: {{ms}} ms",
+    "oneTapPerfTotal": "T1 起总计: {{ms}} ms",
+    "timelineLayoutTitle": "Timeline 布局",
+    "timelineLayoutHint": "在当前卡片和邮件中心间切换。回滚：当前卡片。适用于以上所有主题。",
+    "timelineLayoutCurrent": "当前卡片",
+    "timelineLayoutEmailHub": "邮件中心",
+    "trafficLaunchElastic": "启动弹性跳跃模拟",
+    "trafficMonitorTitle": "交通监控（模拟）",
+    "trafficSimulatedTime": "模拟时间：{{time}}",
+    "trafficNextJump": "下次跳跃：{{sec}} 秒（真实时间）",
+    "trafficEmaMin": "稳定交通时长（EMA）：{{min}} 分钟",
+    "trafficStatusLabel": "状态：",
+    "trafficBufferSafety": "BufferSafety: {{min}} min",
+    "trafficCriticalTopDepartTitle": "CRITICAL: TOP_DEPART 已触发",
+    "trafficDebugTripDestination": "Muret → Toulouse",
+    "sqliteCountsLine": "intentions={{intentions}} | tasks={{tasks}}",
+    "busySimElastic": "交通模拟…",
+    "busyRemoteModel": "Remote Config…"
   },
   "connector": {
     "defaultFirstName": "朋友",
-    "telegramAllyWelcome": "你好{{firstName}}！我是你的盟友。发语音或文字 — 时间轨交给我。{{appLink}}",
-    "botWelcomeMessage": "你好{{firstName}}，这是创建意图的私人空间（文字或语音）。内容严格保密，并与手机同步。{{appLink}}",
-    "botRailAck": "收到！已添加。看看你的时间轨 ⚡️\n{{url}}",
-    "whatsappInitCelebration": "连接成功！盟友正在倾听…",
-    "botRechargeRedirect": "消息配额已用完 — 打开充电站：{{url}}",
-    "copyLinkHint": "若没有聊天应用，可复制此链接。",
-    "deepLinkRadar": "打开雷达",
-    "deepLinkTimeline": "打开时间线",
-    "deepLinkRecharge": "充电站"
+    "botWelcomeMessage": "你好 {{firstName}}，这是你创建意图（文字或语音）的私人空间。一切严格保密并同步到你的手机。 {{appLink}}",
+    "botRailAck": "收到！已添加。查看你的 Rail ⚡️\n{{url}}",
+    "botRechargeRedirect": "你的消息配额已空 — 打开 Recharge 站：{{url}}"
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",
-    "externalIntentionBody": "你的盟友捕捉到新意图：{{title}}。它已在你的轨道上。"
-  },
-  "recharge": {
-    "eyebrow": "感官站",
-    "title": "充能",
-    "subtitle": "选择节奏。模拟温和广告位，然后 30 秒心率相干呼吸 — 为副驾驶补充能量。",
-    "modes": {
-      "flash": {
-        "title": "闪充",
-        "desc": "快速重置 — 轻量、迅速回归。"
-      },
-      "breath": {
-        "title": "呼吸",
-        "desc": "相干节奏 — 柔和气泡，更稳的神经状态。"
-      },
-      "immersion": {
-        "title": "沉浸",
-        "desc": "更深暂停 — 盟友获得更多额度。"
-      }
-    },
-    "adSim": {
-      "title": "多巴胺暂停",
-      "sub": "伦理广告位 — 赞助模拟。随后：心率相干。"
-    },
-    "dopamine": {
-      "title": "随气泡呼吸",
-      "hint": "上升吸气，下降呼气 — 每波约 10 秒。"
-    },
-    "done": {
-      "title": "充能完成",
-      "sub": "已为副驾驶添加能量。随时再来。",
-      "cta": "继续"
-    }
+    "externalIntentionBody": "你的盟友捕获了新意图：{{title}}。已在你的 Rail 上。",
+    "offlineAudioReadyTitle": "离线备忘可用",
+    "offlineAudioReadyBody": "一段语音录制等待分析。",
+    "offlineAnalyzeAction": "分析",
+    "offlineKeepAudioAction": "保留语音"
   },
   "ally": {
-    "calendarConflictTitle": "时段已有安排",
-    "calendarConflictBody": "日历显示这段时间已有事项。你仍可开始胶囊 — 或稍后再试。",
-    "calendarConflictContinue": "仍要开始",
-    "calendarConflictBack": "取消",
-    "hardRoutineConflictTitle": "时段已保留",
-    "hardRoutineConflictBody": "此时段已为例行「{{name}}」保留。要换个时间吗？",
-    "hardRoutineConflictDismiss": "好的",
-    "settingsTitle": "副驾驶",
-    "settingsLead": "设置 TellYouTo 的声音、语气与语言。",
-    "messengerRemindersTitle": "消息提醒",
-    "messengerRemindersSubtitle": "机器人可在每个时间轨片段开始前提醒你（意图与例行）。",
-    "messengerRemindersSwitch": "通过消息应用接收提醒",
-    "messengerRemindersLead": "提前多少分钟",
-    "messengerRemindersHint": "简短文字，适合手机与手表。Telegram 发送普通通知（是否振动取决于聊天设置）。",
-    "sectionVoice": "声音",
-    "sectionTone": "语气",
-    "sectionUiLang": "界面语言",
-    "sectionAiLang": "AI 交互语言",
-    "uiLangHint": "应用菜单与文案。",
-    "aiLangHint": "副驾驶推理与回复优先使用的语言（可与界面不同）。",
-    "openSettings": "设置",
-    "externalHelp": "了解专注（网页）",
-    "versionLabel": "版本 {{version}}",
-    "debugUnlockTitle": "开发者模式",
-    "debugUnlockBody": "已授权访问。",
-    "sectionLegal": "信息",
-    "legalNav": "关于与法律声明",
-    "voice": {
-      "balanced": "均衡",
-      "warm": "温暖",
-      "crisp": "清晰"
-    },
-    "tone": {
-      "clear": "明朗",
-      "calm": "平静",
-      "dynamic": "动感"
-    },
-    "lang": {
-      "fr": "Français",
-      "en": "English",
-      "es": "Español",
-      "de": "Deutsch",
-      "it": "Italiano",
-      "ja": "日本語",
-      "zh": "中文",
-      "ar": "العربية",
-      "ko": "한국어",
-      "nl": "Nederlands",
-      "sv": "Svenska"
-    }
+    "openSettings": "设置"
   },
   "health": {
     "bannerLead": "温馨提示：",
-    "warnFirebase": "尚未配置云端同步",
+    "warnFirebase": "云同步尚未配置",
     "warnSqlite": "本地数据库检查未通过",
-    "warnNotifications": "通知已关闭。请在设置中开启，以实时接收新意图。",
-    "dismiss": "好"
-  },
-  "safeExternal": {
-    "title": "离开 TellYouTo？",
-    "message": "你正处于专注区。确定要打开外部链接吗？",
-    "stay": "留下",
-    "leave": "离开"
+    "warnNotifications": "通知已关闭。请在设置中开启以实时接收新意图。",
+    "dismiss": "OK"
   },
   "agent": {
-    "energyLine": "能量：{{pct}}% · 低功耗：{{low}}",
-    "yes": "是",
-    "no": "否",
-    "agentPool": "副驾驶时间储备：{{seconds}} 秒",
-    "allyPreview": "声音：{{voice}} · 语气：{{tone}} · AI 语言：{{lang}}",
-    "alarmPermissionTitle": "需要通知权限",
-    "alarmPermissionBody": "没有通知权限，本地智能体无法在本机设置轨道闹钟。请在系统设置中为本应用开启通知（Android 上包括闹钟相关权限）。",
+    "alarmPermissionTitle": "需要通知",
+    "alarmPermissionBody": "没有通知权限，本地 AI 代理无法响铃 Rail 闹钟。请在本应用系统设置中开启通知（Android 还需闹钟）。",
     "railChannelName": "TellYouTo · Rail ({{soundId}})"
   },
   "common": {
-    "habits": "习惯",
-    "projects": "项目",
-    "later": "Later",
-    "tryAgainSoon": "Try again in a moment.",
-    "active": "Active",
-    "inactive": "Inactive",
-    "premiumQuota": "Premium quota",
-    "premiumQuotaRemaining": "Premium quota remaining: {{count}}"
+    "cancel": "取消",
+    "habits": "习惯"
   },
-  "eveningRitual": {
-    "title": "Star Ritual",
-    "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
-    "victoryLabel": "Victory of the day",
-    "tomorrowPlaceholder": "One thought for tomorrow?",
-    "cta": "One thought for tomorrow?",
-    "saving": "Anchoring...",
-    "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
-    "gratitudeLine2": "Every step counts. Your sky opens this evening.",
-    "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
-    "temperamentLabel": "你当前的气质: {{profile}}",
-    "profileOverride": {
-      "1": {
-        "action_tip": "即使没有全部勾选也没关系。为明天保留一个清晰的小行动就足够。"
-      },
-      "4": {
-        "insight": "你的思绪已经清晰、有序且安全。重要事项都已锚定到日历中。",
-        "action_tip": "今晚可以放心卸下负担：你的系统已经整洁并在掌控之中。"
-      }
-    }
-  },
-  "economy": {
-    "labels": {
-      "zenPoints": "Zen Points",
-      "aiCredits": "AI Credits"
-    },
-    "aiCreditsCount": "{{count}} AI Credits",
-    "balanceInsufficientTitle": "Insufficient balance",
-    "recharge": {
-      "modalTitle": "AI Recharge",
-      "modalBody": "Your Ad-Free mode is active, but AI still needs fuel. Watch one video for +5 credits.",
-      "watchVideoCta": "Watch a video",
-      "dailyCapReached": "Daily recharge limit reached. Let your AI rest until tomorrow!",
-      "cooldown": "Please wait 60 seconds between recharge videos.",
-      "unavailableTitle": "Recharge unavailable",
-      "rewardToast": "+5 AI Credits"
-    },
-    "shop": {
-      "title": "Time Shop",
-      "zenModeActive": "Zen Mode Active",
-      "adFreeState": "Ad-free status: {{state}}.",
-      "serenityDescription": "Removes intrusive banners and ads. Note: manual AI video recharge stays available to fuel your projects.",
-      "buySerenity": "24h of Serenity - 500Z",
-      "buyBoost": "Intelligence Boost (+5 AI) - 300Z",
-      "purchaseSuccessTitle": "Purchase confirmed",
-      "serenityInsufficientBody": "You need 500Z to activate 24h of serenity.",
-      "boostInsufficientBody": "You need 300Z to buy this boost.",
-      "serenitySuccessBody": "24h of serenity activated.",
-      "boostSuccessBody": "+5 AI Credits added."
-    },
-    "debugAddZen": "+10 Zen",
-    "debugAddAiCredit": "+1 AI Credit"
-  },
-  "quests": {
-    "notReadyTitle": "Quest not ready",
-    "notReadyBody": "Requirements are not met yet.",
-    "bonusReceivedTitle": "Bonus received",
-    "claimedToast": "Quest completed +{{gain}}Z",
-    "dailyTitle": "Quest of the Day - {{title}}",
-    "progress": "Progress: {{current}}/{{target}}",
-    "alreadyClaimed": "Bonus already claimed",
-    "claimCta": "Claim my bonus"
-  },
-  "horizons": {
-    "rearbitrate": "To re-arbitrate",
-    "today": "Today",
-    "tomorrow": "Tomorrow",
-    "thisWeek": "This week",
-    "noPressure": "No pressure",
-    "optionalNoPressure": "Optional (No pressure)",
-    "rebalanceToToday": "Move to Today",
-    "rebalanceToNoPressure": "Move to No pressure"
+  "project": {
+    "title_placeholder": "项目标题",
+    "add_steps": "+",
+    "zoom_confirm_title": "你想让 AI 分解这一步吗？",
+    "zoom_action_start": "分解",
+    "zoom_generating_status": "创建步骤中",
+    "zoom_background_action": "后台处理",
+    "status_processing": "处理中…",
+    "zoom_view_steps": "查看步骤"
   },
   "talkHome": {
-    "frequencyLabel": "Frequency",
-    "whenLabel": "When?",
-    "habitFrequencyPlaceholder": "Daily, Week, Weekend",
-    "whenPlaceholder": "Optional (e.g. tomorrow, 6pm...)",
-    "frequencyDaily": "Daily",
-    "frequencyWeek": "Week",
-    "frequencyWeekend": "Weekend",
-    "brandName": "TalkNDone",
-    "talkieProjet": "PROJECT",
-    "talkieIntention": "INTENTION",
-    "talkieQuickNote": "QUICK NOTE",
-    "a11yTalkieProjet": "Project — expert capture to break down a complex idea",
-    "a11yTalkieIntention": "Intention — hold to capture, release for on-device triage",
-    "a11yTalkieQuickNote": "Quick note — raw capture with no analysis",
-    "profileButton": "Open profile",
-    "priorityHigh": "High-priority",
-    "questionHydration": "Drink a glass of water?",
-    "yes": "YES",
-    "no": "NO",
-    "localPrivacyHint": "Managed by local AI • Total Privacy",
-    "progressCurrent": "Current task: 1/3",
-    "progressNextAnchor": "Next anchor: Meditation (evening)",
-    "holdToTalk": "Hold to speak",
-    "status": {
-      "listening": "Listening",
-      "analyzing": "Analyzing…"
-    },
-    "button": {
-      "stop": "STOP"
-    },
-    "label": {
-      "quickIntent": "Quick mode — on-device",
-      "deepIntent": "Deep mode — Gemini"
-    },
-    "hintTapQuick": "Short tap: quick intent (on-device recognition).",
-    "hintHoldDeep": "Hold to unlock: hands-free recording, then STOP → Gemini.",
-    "a11yMainIdle": "Short tap for on-device speech, or hold for hands-free Gemini capture",
-    "a11yStopQuick": "Stop listening and analyze locally",
-    "a11yStopDeep": "Stop recording and send to Gemini",
-    "deepNoApiKeyTitle": "Gemini API key",
-    "deepNoApiKeyBody": "Gemini proxy not configured. Deploy the Cloud Function and restart the app.",
-    "orbital": {
-      "hintSlide": "Slide the bead to Task (right) or Project (left), then hold the mic.",
-      "holdRelease": "Release to finish",
-      "pickTitle": "Choose a mode",
-      "pickBody": "Snap the bead to Task or Project before speaking."
-    },
-    "a11yMicNeutral": "Mic: slide the bead to Task or Project first, then hold to speak",
-    "a11yMicQuick": "Mic: hold for on-device dictation (Task)",
-    "a11yMicDeep": "Mic: hold for Project recording sent to Gemini",
-    "microphonePermissionTitle": "Microphone access required",
-    "microphonePermissionBody": "Allow microphone access to record your voice with TalkNDone.",
-    "microphonePermissionDeniedTitle": "Microphone blocked",
-    "microphonePermissionDeniedBody": "Voice input cannot start without microphone access. Open system settings and allow the microphone for TalkNDone.",
-    "speechRecognitionUnavailableTitle": "Speech recognition unavailable",
-    "speechRecognitionUnavailableBody": "This device has no usable system speech recognizer (on Android this is often tied to the Google app and speech services). Install or update the Google app, check your system language, then try again.",
-    "speechErrorNotAllowed": "Microphone or speech recognition is denied for TalkNDone. Open system settings and allow access.",
-    "speechErrorService": "The system speech recognizer is not available. Check that Google Speech Services (Android) or Dictation (iOS) is enabled.",
-    "speechErrorNetwork": "Recognition failed due to a network issue. Try again or check your connection.",
-    "speechErrorNoSpeech": "No speech detected. Speak a little louder or closer to the microphone.",
-    "speechErrorClient": "Recognizer engine error. Please try again shortly.",
-    "speechErrorInterrupted": "Recognition was interrupted (call, Siri, or another audio app). Try again when audio is free.",
-    "speechErrorGeneric": "{{message}}",
-    "speechDebugTitle": "Technical detail (dev)",
-    "speechDebugBody": "{{detail}}",
-    "recordingErrorTitle": "Recording",
-    "recordingErrorStart": "Unable to start recording.",
-    "recordingErrorStop": "Unable to stop recording.",
-    "recordingErrorMissingFile": "Audio file not found after recording.",
-    "recordingTooShortTitle": "Recording too short",
-    "recordingTooShortBody": "Hold the button a little longer to capture audio.",
-    "transcriptionTitle": "Local transcription",
-    "listeningNow": "I'm listening...",
-    "confirmIntro": "Confirm to take this into account:",
-    "confirmTypePrefix": "Type",
-    "confirmActionLabel": "Action",
-    "confirmMomentLabel": "Moment",
-    "timeUnspecified": "Not specified",
-    "intentType": {
-      "habit": "Habit",
-      "task": "Task",
-      "project": "Project",
-      "note": "Note"
-    },
-    "editIntentA11y": "Edit action and moment",
-    "voiceLivePlaceholder": "…",
-    "voiceWebUnsupportedTitle": "Speech recognition",
-    "voiceWebUnsupportedBody": "Native dictation is not available on the web. Use the iOS or Android app.",
-    "voiceProcess": "PROCESS",
-    "voiceCallExpert": "CALL EXPERT",
-    "voiceCancel": "CANCEL",
-    "voiceValidate": "VALIDATE",
-    "voiceNote": "NOTE",
-    "scenarioLocal": "Scenario A · Quick local validation",
-    "scenarioComplex": "Scenario B · Expert refinement on demand",
-    "scenarioQuickNote": "Raw capture · Inbox (no triage)",
-    "scenarioComplexHint": "Scenario B ready: call the expert if needed.",
-    "transcriptionUnclearTitle": "Transcription",
-    "transcriptionUnclearBody": "Sorry, I did not understand.",
-    "titleRequiredTitle": "Title required",
-    "titleRequiredBody": "Add a short title before processing.",
-    "voicePersistErrorTitle": "Could not save",
-    "voicePersistErrorBody": "This intention could not be saved. Please try again shortly.",
-    "confirmEmptyTitle": "—"
+    "microphonePermissionTitle": "需要麦克风权限",
+    "microphonePermissionDeniedBody": "没有麦克风权限无法启动语音输入。请打开系统设置，允许 TalkNDone 使用麦克风。",
+    "listeningNow": "我在听..."
   },
   "errorBoundary": {
     "brand": "TalkNDone",
-    "title": "A moment without a blank screen",
-    "body": "A tiny snag in the gears — nothing serious. Breathe; you can restart when you’re ready.",
-    "restartA11y": "Restart the app",
-    "restart": "Restart"
+    "title": "没有空白屏的一刻",
+    "body": "齿轮轻轻卡了一下 — 没什么大事。深呼吸，准备好了就重启。",
+    "restartA11y": "重启应用",
+    "restart": "重启"
   },
   "nativeModule": {
-    "missingTitle": "Native module error",
-    "missingBody": "{{name}} is missing or not linked to the current binary.\nContext: {{context}}\n→ Android rebuild required (npx expo prebuild --clean --platform android, then compile).\n\n{{detail}}",
-    "unknownModuleName": "(unknown module)",
-    "contextTalkHomeSpeech": "Talk · speech recognition",
-    "contextTalkHomePersist": "Talk · voice intention (local DB)",
-    "contextRadarSave": "Radar · save (local DB / notifications / alarms)",
-    "contextInsertIntention": "Insert intention (SQLite / notifications)"
+    "missingTitle": "原生模块错误",
+    "missingBody": "{{name}} 缺失或未链接到当前二进制。\n上下文: {{context}}\n→ 需要 Android 重建（npx expo prebuild --clean --platform android，然后编译）。\n\n{{detail}}",
+    "unknownModuleName": "（未知模块）",
+    "contextTalkHomeSpeech": "Talk · 语音识别",
+    "contextTalkHomePersist": "Talk · 语音意图（本地 DB）"
   },
-  "semanticLab": {
-    "kind": {
-      "habit": "Habit",
-      "task": "Task",
-      "project": "Project"
-    },
-    "yes": "yes",
-    "no": "no",
-    "alertWebUnsupportedTitle": "Not supported",
-    "alertWebUnsupportedBody": "expo-av recording: iOS / Android only.",
-    "alertMicTitle": "Microphone",
-    "alertMicDeniedBody": "Microphone permission denied.",
-    "alertRecordingTitle": "Recording",
-    "alertRecordingNoActiveBody": "No active recording — tap START first.",
-    "alertApiKeyTitle": "API key",
-    "alertApiKeyBody": "Gemini proxy not configured. Deploy the Cloud Function and restart the app.",
-    "pipelineErrorExpoAvRebuild": "Native expo-av module missing: rebuild required (npx expo prebuild + run:android / run:ios).",
-    "errorUriAfterStop": ".m4a file URI missing after stop.",
-    "webUnsupportedMessage": "Web not supported — use iOS or Android (expo-av).",
-    "lead": "Pipeline: .m4a (source of truth) → Gemini Flash transcription → [LOCAL AI] vs [GEMINI]. No SQLite / Firestore writes.",
-    "btnStart": "START (.m4a)",
-    "btnStopPipeline": "STOP & PIPELINE",
-    "btnReset": "RESET (memory + file)",
-    "loaderLabel": "Transcription + analysis…",
-    "sectionRaw": "— RAW TEXT (Gemini transcription)",
-    "sectionLocal": "— [LOCAL AI] (reformulateStructuredIntent + frequency)",
-    "sectionGemini": "— [GEMINI FLASH] (structured JSON)",
-    "sectionSynth": "— SUMMARY (comparison)",
-    "emptyPlaceholder": "—",
-    "localLineType": "Type: {{kind}} ({{kindCode}})",
-    "localLineFrequency": "Frequency: {{value}}",
-    "localLineTitle": "Title (cleaned): {{value}}",
-    "localLineTimeMarker": "timeMarker: {{value}}",
-    "synthNoGeminiHeader": "(No Gemini analysis — see pipeline error above.)\n",
-    "synthLocalOnlyLine": "[LOCAL AI] only: {{kind}} — frequency: {{freq}}",
-    "synthAligned": "Types aligned: {{localLabel}} = Gemini \"{{geminiType}}\".\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}",
-    "synthMismatch": "Mismatch: [LOCAL AI] said « {{localLabel}} », [GEMINI FLASH] said « {{geminiType}} ».\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}\nComplex project (Gemini): {{complex}}\nWhy (Gemini): {{reasoning}}"
+  "listIntention": {
+    "proTeaserTitle": "Pro",
+    "proTeaserBody": "升级 Pro 即时扩展你的列表（宾客、装备、物流）。",
+    "unreadable": "无法加载此列表。",
+    "a11yDecrease": "缩小比例",
+    "a11yIncrease": "放大比例"
   },
   "talkDebug": {
-    "noteSaved": "笔记已保存",
-    "audioTitle": "语音备忘",
-    "audioMissing": "未检测到音频文件。",
-    "audioSaved": "语音备忘已保存",
-    "actionSuccess": "操作成功完成。",
     "sacredSpace": {
-      "title": "Sacred Space"
+      "title": "神圣空间"
+    },
+    "noteSaved": "备注已保存",
+    "audioSaved": "语音备忘已保存",
+    "captureTitle": "捕获",
+    "taskQuickRecapIntro": "任务已保存",
+    "habitQuickRecapIntro": "习惯已保存",
+    "birthdayLabel": "生日",
+    "listSavedToast": "列表已保存",
+    "projectSavedToast": "项目已保存",
+    "intentionSuggestionsEyebrow": "意图灵感",
+    "voiceWaveformA11y": "实时音量",
+    "micQuotaUpsellHint": "每天 3 次免费。升级 PRO 无限使用。",
+    "oneTapEmptyTranscript": "没有转写内容。请靠近麦克风重试。",
+    "oneTapListSection": "列表",
+    "oneTapListItems": "待保存行",
+    "oneTapListUnitPlaceholder": "人、天…",
+    "oneTapTaskSection": "任务",
+    "oneTapWebDateLabel": "日期 (YYYY-MM-DD)",
+    "oneTapPickDate": "选择日期",
+    "oneTapClearDate": "清除日期",
+    "oneTapTaskDueTime": "时间（可选）",
+    "oneTapTaskNotes": "备注",
+    "oneTapRecurringSection": "重复",
+    "oneTapCadence": "频率",
+    "oneTapAnchorNotes": "锚点备注",
+    "oneTapHabitSection": "习惯",
+    "oneTapPreferredTime": "偏好时间",
+    "oneTapAnniversarySection": "年度事件",
+    "oneTapPersonName": "人物或主题",
+    "oneTapMonthDay": "日期 (MM-DD 或 YYYY-MM-DD)",
+    "oneTapReminderDays": "提醒（提前天数）",
+    "oneTapUniversalReminderTitle": "计划提醒",
+    "oneTapUniversalDueLabel": "截止",
+    "oneTapUniversalRecLabel": "重复",
+    "oneTapClearUniversalReminder": "移除提醒",
+    "oneTapAddReminderCta": "+ 添加提醒",
+    "oneTapWebDueDateTimeIso": "ISO 日期/时间（提醒）",
+    "oneTapReminderNotifTitle": "TellYouTo 提醒",
+    "oneTapReminderRecurringTitle": "重复提醒",
+    "oneTapNoteSection": "备忘",
+    "oneTapConfirm": "保存",
+    "oneTapPrintErrorTitle": "打印",
+    "oneTapPrintNeedsNativeBuild": "打印模块不在此应用二进制中。添加 expo-print 后请使用 development build（如 npx expo run:android），或重建应用。Expo Go 可能不包含新添加的原生模块。",
+    "stepTransport": "录制音频中…",
+    "stepTranscription": "转写音频中…",
+    "stepAnalysis": "生成内容中…",
+    "stepComplete": "完成！",
+    "actionAddNote": "添加备注",
+    "errorNetwork": "网络不稳定。已本地保存。",
+    "oneTapType": {
+      "TASK": "任务",
+      "RECURRING_TASK": "重复任务",
+      "HABIT": "习惯",
+      "TRIP": "行程",
+      "LIST": "列表",
+      "ANNIVERSARY": "纪念日",
+      "NOTE": "备注"
     }
   },
-  "navigation": {
-    "semanticBrainLabHeader": "Semantic Brain Lab"
+  "profiling": {
+    "kindness": {
+      "1": {
+        "insight": [
+          "你现在满脑子都是想法，{{name}}。",
+          "今天你的想象力特别活跃，{{name}}。",
+          "许多有意义的项目在你脑中酝酿，{{name}}。"
+        ],
+        "action_tip": [
+          "不如先选一块最小的砖开始？",
+          "做一个小行动，哪怕很小，也能清空思绪。",
+          "深呼吸。一次只做一件事，思路会更清晰。"
+        ]
+      },
+      "2": {
+        "insight": [
+          "最近你的节奏安静了一些，{{name}}。",
+          "这像是一段暂时的断联期，{{name}}。",
+          "引擎现在在怠速运转，{{name}}。"
+        ],
+        "action_tip": [
+          "用一次 2 分钟的微行动回来吧。",
+          "现在选一个简单动作，重新启动动力。",
+          "今天一个小检查就足够回到正轨。"
+        ]
+      },
+      "3": {
+        "insight": [
+          "一旦投入，你的执行力很敏锐，{{name}}。",
+          "启动后你很快转化为结果，{{name}}。",
+          "即使节奏不规律，你的效率也很强，{{name}}。"
+        ],
+        "action_tip": [
+          "加一个小日常仪式，让节奏更平稳。",
+          "锁定一个短的重复时段，稳定节奏。",
+          "小的持续胜过孤立的冲刺。"
+        ]
+      },
+      "4": {
+        "insight": [
+          "你把日历流编排得很好，{{name}}。",
+          "你的掌舵很清晰：同步、对齐、前进，{{name}}。",
+          "你现在处于很强的协调状态，{{name}}。"
+        ],
+        "action_tip": [
+          "保留一个活跃的本地意图，每天保持落地。",
+          "预留短回顾窗口，完全掌控流程。",
+          "保持简单：一次只一个可见优先级。"
+        ]
+      },
+      "5": {
+        "insight": [
+          "你的行动与持续度平衡很稳固，{{name}}。",
+          "你以稳定的清晰感在前进，{{name}}。",
+          "很好的稳定性：执行与坚持度一致，{{name}}。"
+        ],
+        "action_tip": [
+          "用轻量周回顾保持这个节奏。",
+          "每天庆祝一个小胜利，保护动力。",
+          "用定期重置时段保持平衡。"
+        ]
+      },
+      "defaultName": "你"
+    },
+    "profiles": {
+      "1": {
+        "label": "梦想家",
+        "description": "捕获很多意图，但只执行一小部分。"
+      },
+      "2": {
+        "label": "断联者",
+        "description": "使用下降，完成率低，坚持度弱。"
+      },
+      "3": {
+        "label": "冲刺者",
+        "description": "执行力强，但节奏仍不规律。"
+      },
+      "4": {
+        "label": "指挥家",
+        "description": "编排行为强，归档/导出比例高。"
+      },
+      "5": {
+        "label": "禅系坚持者",
+        "description": "执行与定期坚持平衡良好。"
+      }
+    }
   },
-  "intentionDetail": {
-    "pin": "Pin",
-    "unpin": "Unpin",
-    "pinMaxReachedTitle": "Pin limit reached",
-    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
-  }
+  "horizons": {
+    "rearbitrate": "待重新裁定",
+    "today": "今天",
+    "tomorrow": "明天",
+    "thisWeek": "本周",
+    "noPressure": "无压力"
+  },
+  "TYPE_TASK": "任务",
+  "TYPE_HABIT": "习惯",
+  "TYPE_RECURRING_TASK": "重复任务",
+  "TYPE_LIST": "列表",
+  "TYPE_ANNIVERSARY": "纪念日",
+  "TYPE_NOTE": "备注",
+  "MODAL_REFINING": "优化中…",
+  "PLACEHOLDER_TITLE": "标题…",
+  "DEFAULT_INTENTION_TITLE": "新意图",
+  "PLACEHOLDER_LIST": "列表（每行一项）…",
+  "PLACEHOLDER_DESTINATION": "目的地…",
+  "COMMON_MINUS": "−",
+  "COMMON_PLUS": "+",
+  "COMMON_YES": "是",
+  "COMMON_NO": "否",
+  "COMMON_CANCEL": "取消",
+  "MODAL_CONFIRM_OK": "OK",
+  "LOGISTICS_TRAFFIC_ADJUST": "根据路况调整",
+  "LOGISTICS_BUY_TRAJET_PACK": "Recharge",
+  "LOGISTICS_TRAJET_REMAINING_SUFFIX": "（剩余: {{n}}）",
+  "SAS_SUMMARY_DEPART_RECOMMENDED": "建议 {{time}} 出发",
+  "SAS_SUMMARY_SCHEDULED": "计划于 {{time}}",
+  "SAS_SUMMARY_DESTINATION": "前往 {{destination}}",
+  "PLACEHOLDER_NOTE": "输入备忘…",
+  "PLACEHOLDER_DATE": "日期 (YYYY-MM-DD)…",
+  "PLACEHOLDER_TIME": "时间 (HH:MM)…",
+  "PLACEHOLDER_NOTES": "备注…",
+  "PLACEHOLDER_ADDRESS": "地址…",
+  "PLACEHOLDER_PERSON": "姓名…",
+  "PLACEHOLDER_MONTHDAY": "日期 (MM-DD)…"
 }

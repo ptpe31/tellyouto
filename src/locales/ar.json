@@ -1,34 +1,203 @@
 {
-  "ally": {
-    "lang": {
-      "fr": "Français",
-      "en": "English",
-      "es": "Español",
-      "de": "Deutsch",
-      "it": "Italiano",
-      "ja": "日本語",
-      "zh": "中文",
-      "ar": "العربية",
-      "ko": "한국어",
-      "nl": "Nederlands",
-      "sv": "Svenska"
-    }
+  "intentInteraction": {
+    "menuTitle": "نية",
+    "archive": "أرشفة",
+    "pinDue": "إعادة جدولة / تثبيت التاريخ",
+    "pickDate": "اختر تاريخًا",
+    "cancel": "إلغاء"
   },
   "inbox": {
     "action": {
-      "remove": "Remove from Inbox",
-      "removeAll": "Remove all from Inbox",
-      "removeConfirmTitle": "Remove from Inbox?",
-      "removeConfirmBody": "The intention stays in TellYouTo but leaves today's Inbox.",
-      "removeAllConfirmTitle": "Remove all from Inbox?",
-      "removeAllConfirmBody": "All {{count}} visible intentions will be marked as triaged."
+      "remove": "إزالة من Inbox",
+      "removeAll": "إزالة الكل من Inbox",
+      "removeAllConfirmTitle": "إزالة الكل من Inbox؟",
+      "removeAllConfirmBody": "سيتم وضع علامة « مُرتّب » على جميع النيات الظاهرة ({{count}})."
     }
   },
+  "talkCapture": {
+    "hintTap": "اضغط لتسجيل مذكرة صوتية",
+    "savedTimeline": "تم حفظ النية في Timeline",
+    "savedOfflinePending": "لا يوجد اتصال: تم حفظ النية للمعالجة لاحقًا"
+  },
+  "category": {
+    "HOME": "المنزل",
+    "WORK": "العمل",
+    "PERSO": "شخصي",
+    "HEALTH": "الصحة",
+    "FINANCE": "المال",
+    "TRAVEL": "السفر",
+    "SOCIAL": "اجتماعي",
+    "SHOP": "تسوق",
+    "LEARN": "تعلّم",
+    "OTHER": "أخرى"
+  },
+  "capture": {
+    "offlineNoteGenericToast": "تم الحفظ على هذا الجهاز. سيكتمل الفرز الذكي عند عودة الاتصال.",
+    "offlineRetryOkToast": "اكتمل فرز الذكاء الاصطناعي — Timeline محدّث.",
+    "pendingAiNetworkBack": "{{count}} فكرة (أفكار) لا تزال بانتظار فرز الذكاء الاصطناعي — اضغط « إعادة فرز الذكاء الاصطناعي » على البطاقة."
+  },
+  "quota_remaining": "تبقى لديك {{count}} رحلات Sentinel مجانية.",
+  "quota_exhausted_title": "الوضع الثابت",
+  "quota_exhausted_desc": "انتهت تجربة Sentinel. ترقّ إلى PRO للمراقبة في الوقت الفعلي.",
+  "sentinel": {
+    "validationTitle": "التحقق من العنوان",
+    "detectedPlace": "المكان المكتشف: {{place}}",
+    "addressLabel": "عنوان مُتحقّق (Google Places)",
+    "addressPlaceholder": "ابحث عن عنوان…",
+    "validationRequired": "اختر عنوانًا صالحًا لتفعيل Sentinel.",
+    "placesMissingKey": "مفتاح Google Places مفقود (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "addressResolveFailed": "العنوان غير موجود. تحقق من الإدخال وحاول مجددًا.",
+    "notifTitle": "إلى: {{destination}} • الوصول {{arrival}}",
+    "notifUpdatedAt": "تم التحديث في {{time}}",
+    "notifStatusBlue": "مراقبة",
+    "notifStatusOrange": "النافذة مفتوحة",
+    "notifStatusRed": "مغادرة حرجة",
+    "notifStatusStatic": "الوضع الثابت",
+    "notifDepartureAt": "المغادرة في {{time}}",
+    "notifDepartureWindow": "المغادرة المقترحة بين {{start}} و {{end}}.",
+    "notifNextRealUpdateAt": "التحديث الحقيقي التالي في {{time}}",
+    "notifModeSafety": "وضع الأمان",
+    "probe3Title": "المغادرة — {{destination}}",
+    "probe3Smooth": "المرور سلس — يمكنك المغادرة خلال {{minutes}} دقيقة.",
+    "probe3LeaveNow": "ازدحام مروري — غادر الآن.",
+    "probe3Unavailable": "التقدير غير متاح — تحقق من المرور يدويًا.",
+    "promiseDriftTitle": "المرور — {{destination}}",
+    "promiseDriftBody": "تغيّر المرور قليلًا. نافذة المغادرة الآن: {{capsule}}",
+    "topDepartTitle": "غادر الآن",
+    "topDepartBody": "حان وقت المغادرة إلى {{destination}}."
+  },
+  "departureContract": {
+    "notifTitle": "عقد المغادرة — {{destination}}",
+    "signalBTitle": "تذكير بالمغادرة",
+    "signalBBody": "{{capsule}} — غادر خلال نحو {{minutes}} دقيقة إلى {{destination}}."
+  },
+  "sentinelFocus": {
+    "prompt": "ذكّرني متى أغادر إلى {{title}} في {{time}}؟",
+    "departureTitle": "المغادرة إلى {{name}}",
+    "arrivalSubtitle": "الوصول: {{time}}"
+  },
+  "tripAlarm": {
+    "pickerTitle": "ضبط منبّه",
+    "pickerMessage": "المغادرة في {{time}}",
+    "departureLabel": "{{place}} مغادرة {{time}}",
+    "a11yOpenAlarm": "ضبط منبّه المغادرة",
+    "iosManualHint": "افتح الساعة وأنشئ منبّهًا في {{time}}.\nالاسم المقترح: {{label}}",
+    "androidUnavailable": "تعذّر فتح الساعة. اضبط منبّهًا في {{time}} ({{label}})."
+  },
+  "intentionDetail": {
+    "source": "المصدر",
+    "checklist": "قائمة التحقق",
+    "trip": "رحلة",
+    "transport": "المواصلات",
+    "currentPosition": "الموقع الحالي",
+    "addressPlaceholder": "ابحث عن عنوان…",
+    "allDay": "طوال اليوم",
+    "listItems": "عناصر",
+    "projectStartDate": "تاريخ البدء",
+    "projectStartDateEmpty": "حدّد تاريخ البدء",
+    "projectMilestoneMenuTitle": "معلم",
+    "projectMilestoneMenuPivot": "التقويم (محور)",
+    "projectMilestoneMenuNote": "ملاحظة",
+    "projectMilestoneMenuDelete": "حذف",
+    "confirmReplan": "تأكيد وإعادة جدولة الخطوات التالية",
+    "cancel": "إلغاء",
+    "save": "حفظ",
+    "notePlaceholder": "أضف ملاحظة…",
+    "transportAuto": "سيارة",
+    "transportWalking": "مشي",
+    "transportBike": "دراجة",
+    "ecoFriendly": "صديق للبيئة 🌱",
+    "co2Standard": "تأثير CO2 قياسي",
+    "launchRoute": "بدء المسار",
+    "launchRouteDisabledHint": "أضف عنوان وجهة صالحًا لبدء الملاحة.",
+    "close": "إغلاق",
+    "pin": "تثبيت",
+    "unpin": "إلغاء التثبيت",
+    "pinMaxReachedTitle": "بلغت حد التثبيت",
+    "pinMaxReachedBody": "يمكنك تثبيت {{max}} نية كحد أقصى. ألغِ تثبيت نية أخرى أولًا.",
+    "labelIntention": "نية",
+    "labelTiming": "التوقيت",
+    "labelEngagement": "الالتزام",
+    "trackStreak": "تتبّع السلسلة 🔥",
+    "trackStreakHint": "يعرض عدّادًا يساعدك على الحفاظ على الإيقاع.",
+    "labelItinerary": "المسار",
+    "labelTransport": "المواصلات",
+    "comfortTitle": "راحة الرحلة",
+    "comfortElasticDeparture": "مغادرة متوقعة: {{window}}",
+    "comfortElasticDepartureApprox": "مغادرة متوقعة: ≈ {{window}}",
+    "comfortElasticDepartureShifted": "⚠️ مغادرة متوقعة: {{window}}",
+    "allDayNoDepartureSlot": "حدث طوال اليوم — لا نافذة مغادرة",
+    "actionSetupAlert": "ذكّرني متى أغادر؟",
+    "actionSetupAlertLocked": "ذكّرني متى أغادر 🔒",
+    "tripSurveillanceStart": "مراقبة الرحلة",
+    "tripSurveillanceStartLocked": "مراقبة الرحلة 🔒",
+    "tripSurveillanceActive": "المراقبة نشطة 🛡️",
+    "surveillanceMissingInfo": "أضف وجهة صالحة ووقت وصول لتفعيل المراقبة.",
+    "pass2LockedSuffix": "🔒",
+    "noteMemoSection": "مذكرة",
+    "finish": "إنهاء"
+  },
+  "pass2": {
+    "generateSteps": "✨ تقسيم إلى خطوات",
+    "generateList": "✨ هيكلة القائمة",
+    "steps_loading": "جارٍ القراءة...",
+    "list_loading": "جارٍ إنشاء العناصر...",
+    "finalizing": "جارٍ إنهاء الهيكل..."
+  },
+  "pilotHeader": {
+    "creditsFree": "{{remaining}} / {{max}} ⚡",
+    "creditsDepleted": "0 ⚡",
+    "creditsDepletedHint": "انتقل إلى Pro",
+    "proLabel": "PRO",
+    "a11yCredits": "رصيد الالتقاط — افتح Recharge",
+    "a11yCalendar": "افتح اليوم في Timeline",
+    "a11yPiggy": "Inbox — عناصر غير مرتّبة"
+  },
+  "tabs": {
+    "debug": "تصحيح",
+    "talkHome": "Talk"
+  },
+  "pro": {
+    "modalTitle": "افتح أقصى قوة",
+    "modalPrice": "9.99 € / شهر",
+    "modalLead": "انتقل إلى Pro لفتح القنوات المميزة والبقاء بلا إعلانات.",
+    "benefit1": "WhatsApp بلا حدود",
+    "benefit2": "بدون إعلانات",
+    "benefit3": "دعم ذو أولوية",
+    "benefit4": "الوصول إلى كل الروتينات",
+    "modalLater": "ليس الآن",
+    "modalCta": "انتقل إلى Pro",
+    "screenKicker": "اشتراك",
+    "screenTitle": "TellYouTo Pro",
+    "screenSubtitle": "متعدد القنوات، بلا إعلانات، دعم ذو أولوية.",
+    "devNote": "نسخة dev: الزر يحاكي الاشتراك دون دفع.",
+    "subscribeGold": "اشترك — 9.99 € / شهر",
+    "back": "إغلاق",
+    "linkRequiredTitle": "حساب مطلوب",
+    "linkRequiredBody": "للاحتفاظ باشتراك Pro بين الهواتف، اربط Google أو Apple (نفس هوية Firebase).",
+    "linkGoogle": "المتابعة مع Google",
+    "linkApple": "المتابعة مع Apple",
+    "linkLater": "ليس الآن",
+    "linkGoogleOnly": "ربط Google فقط",
+    "linkAppleOnly": "ربط Apple فقط",
+    "linkErrorTitle": "فشل الربط",
+    "configureGoogleTitle": "إعداد Google",
+    "configureGoogleBody": "عيّن EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (ومعرّفات iOS/Android إن لزم) في .env ثم أعد تشغيل Metro.",
+    "googleMissingEnv": "معرّف Google Web مفقود: لن يعمل ربط OAuth حتى يُضبط EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID."
+  },
+  "channelSwitch": {
+    "cancel": "إلغاء"
+  },
   "timeline": {
-    "createdOn": "أُنشئ في {{date}}",
+    "title": "Timeline",
     "allDuration": "طوال اليوم",
-    "newBadge": "جديد",
+    "elasticDepartureWindow": "[ مغادرة متوقعة: {{window}} ]",
+    "elasticDepartureApprox": "[ مغادرة متوقعة: ≈ {{window}} ]",
+    "elasticDepartureShifted": "[ ⚠️ مغادرة متوقعة: {{window}} ]",
+    "scanTrafficScheduled": "مسح مرور حقيقي مجدول في {{time}}",
+    "scanTrafficInProgress": "المسح جارٍ…",
     "createdTodayAt": "أُنشئ اليوم في {{time}}",
+    "createdYesterdayAt": "أُنشئ أمس في {{time}}",
     "skyClear": "سماء صافية — ذهنك أخف.",
     "pilot": {
       "title": "قيادة",
@@ -38,73 +207,410 @@
       "contextAll": "الكل",
       "contextHome": "المنزل",
       "contextWork": "العمل",
-      "contextPiggy": "الحصالة",
+      "contextPiggy": "حصّالة",
       "contextArchives": "الأرشيف",
       "todo": "للتنفيذ",
-      "done": "تم"
-    },
-    "tasks": {
-      "title": "مهامي",
-      "scheduledToday": "مستحق اليوم",
-      "noPressure": "دون ضغط"
-    },
-    "habits": {
-      "title": "عادات"
-    },
-    "projects": {
-      "title": "خطوات المشاريع"
-    },
-    "notesAudio": {
-      "title": "ملاحظات وصوتيات"
-    },
-    "ideaBank": {
-      "title": "حصالة الأفكار",
-      "button": "مهام في الحصالة",
       "done": "تم",
-      "schedule": "جدولة",
-      "remove": "إزالة",
-      "removeConfirmTitle": "إزالة هذه المهمة؟",
-      "removeConfirmBody": "ستُحذف نهائياً من جهازك.",
+      "specificDate": "التاريخ",
+      "pickedDateShort": "{{date}}",
+      "changeDate": "اختر يومًا آخر"
+    },
+    "customDayEmpty": "لا شيء مجدول ذلك اليوم.",
+    "customDayAddTask": "إضافة مهمة؟",
+    "roadmap": {
+      "printerA11y": "خارطة طريق يومية",
+      "sasTitle": "تنظيف — خارطة طريق يومية",
+      "sasSubtitle": "تحقّق، انقل إلى اليوم، أو أرشف كل عنصر، ثم شغّل التوليف.",
+      "bucketOverdue": "متأخر",
+      "bucketOrphan": "بلا تاريخ",
+      "validate": "احتفاظ",
+      "postpone": "نقل إلى اليوم",
+      "delete": "أرشفة",
+      "continueSynth": "تشغيل التوليف",
+      "sasEmptyHint": "لا شيء للفرز — شغّل التوليف.",
+      "linkOpenSaved": "خارطة طريق اليوم",
+      "progressCollect": "جمع النيات",
+      "progressSynth": "توليف",
+      "progressWrite": "كتابة التقرير…",
+      "sharePrint": "مشاركة / PDF",
+      "close": "إغلاق",
+      "synthError": "فشل التوليف. حاول لاحقًا."
+    },
+    "syncedBadge": "متزامن",
+    "memoAudio": "مذكرة صوتية",
+    "note": "ملاحظة",
+    "untitled": "بلا عنوان",
+    "badgeAudio": "🎙️ صوت",
+    "badgeNote": "📝 ملاحظة",
+    "badgeHabit": "🔄 عادة",
+    "badgeTask": "⚡ مهمة",
+    "badgeList": "📋 قائمة",
+    "badgeProject": "🚀 مشروع",
+    "a11yTaskComplete": "علّم كمنجز أو ألغِ الإكمال المعلّق",
+    "createdOn": "أُنشئ في {{date}} الساعة {{time}}",
+    "aiPendingChip": "فرز الذكاء الاصطناعي معلّق",
+    "aiFailedChip": "فشل معالجة الذكاء الاصطناعي",
+    "retryAiSort": "إعادة فرز الذكاء الاصطناعي",
+    "ideaBank": {
+      "title": "بنك الأفكار",
+      "shopTitle": "للشراء",
+      "shopSubtitle": "{{count}} عناصر",
       "clearAll": "مسح الكل",
-      "clearAllTitle": "إفراغ الحصالة؟",
+      "clearAllTitle": "تفريغ بنك الأفكار؟",
       "clearAllBody": "ستُحذف كل المهام بلا تاريخ.",
-      "scheduleTitle": "اختر تاريخاً",
-      "empty": "لا توجد مهام بلا تاريخ.",
+      "empty": "لا مهام بلا تاريخ.",
       "close": "إغلاق",
       "cancel": "إلغاء",
-      "clusterNudge": "Shall we move these forward?",
-      "clusterSubtitle": "{{count}} · {{category}}",
-      "shopTitle": "To buy",
-      "shopSubtitle": "{{count}} items"
+      "tripFillAddress": "📍 أدخل العنوان",
+      "tripSearchTitle": "أدخل عنوان الوصول",
+      "tripSearchOriginTitle": "أدخل عنوان المغادرة"
+    },
+    "box": {
+      "clearAll": "حذف الكل",
+      "clearAllTitle": "تفريغ الصندوق؟",
+      "clearAllBody": "أنت على وشك حذف {{count}} فكرة معلّقة نهائيًا. لا يمكن التراجع.",
+      "clearAllConfirm": "حذف الكل",
+      "empty": "لا أفكار في التخزين."
+    },
+    "routines": {
+      "title": "روتينات",
+      "empty": "لا روتينات نشطة."
     },
     "smartClusters": {
       "inbox": "Inbox",
-      "inboxSubtitle": "{{count}} today",
-      "newTitle": "⚡ New",
-      "newSubtitle": "{{count}} to sort",
-      "projectsTitle": "📁 Projects",
-      "projectsSubtitle": "({{count}} active)",
-      "listsTitle": "📋 Lists",
-      "listsSubtitle": "({{count}} additions)"
+      "inboxSubtitle": "{{count}} اليوم",
+      "routinesTitle": "🔁 روتينات",
+      "routinesSubtitle": "({{count}} نشطة)",
+      "projectsTitle": "📁 مشاريع",
+      "projectsSubtitle": "({{count}} نشطة)",
+      "tripsTitle": "رحلات"
     }
   },
-  "settings": {
-    "memorySectionTitle": "إدارة الذاكرة",
-    "archivePurgeTitle": "حذف العناصر المؤرشفة نهائياً بعد",
-    "archivePurgeHint": "يُنفّذ عند بدء التطبيق. تُحذف فقط الصفوف ذات تاريخ أرشفة أقدم من هذه المدة.",
-    "archivePurge7": "7 أيام",
-    "archivePurge30": "30 يوماً",
-    "archivePurgeNever": "أبداً"
+  "debug": {
+    "pilotTitle": "تنظيف وقيادة (تصحيح)",
+    "note": "قمرة داخلية — Remote Config مقابل النموذج المحلي، مرور مُحاكى، إعادة ضبط المصنع.",
+    "firebaseProjectIdButton": "عرض Firebase projectId (SDK مقابل .env)",
+    "rebuildDb": "إعادة بناء قاعدة البيانات",
+    "rebuildDbHelp": "يعيد بناء جدول النيات (talkndone.db) تسلسليًا.",
+    "clearDb": "مسح قاعدة البيانات",
+    "clearDbHelp": "يحذف صفوف النيات (Trankil-v2) فقط دون المساس بالتفضيلات.",
+    "clearDbConfirmTitle": "مسح قاعدة البيانات؟",
+    "clearDbConfirmBody": "يحذف كل النيات المحلية (Trankil-v2). لا يمكن التراجع.",
+    "clearDbCancel": "إلغاء",
+    "clearDbConfirm": "مسح",
+    "factoryResetConfirmTitle": "إعادة بناء قاعدة البيانات؟",
+    "factoryResetConfirmBody": "سيُحذف جدول النيات ويُعاد إنشاؤه. لا يمكن التراجع.",
+    "factoryResetSecondTitle": "تأكيد نهائي",
+    "factoryResetSecondBody": "تأكيد إعادة بناء جدول النيات؟",
+    "factoryResetCancel": "إلغاء",
+    "factoryResetContinue": "متابعة",
+    "factoryResetDestructive": "مسح كل شيء",
+    "factoryResetSuccessTitle": "أُعيد بناء قاعدة البيانات",
+    "factoryResetSuccessBody": "أُعيد بناء جدول النيات.",
+    "busySqlite": "SQLite…",
+    "firebaseProjectIdTitle": "Firebase — projectId (تصحيح)",
+    "firebaseProjectIdBody": "SDK (app.options.projectId):\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID:\n{{env}}",
+    "firebaseSdkNullLabel": "(getFirebaseApp = null)",
+    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* مفقود)",
+    "dashboardSectionPilotageIa": "[قيادة الذكاء الاصطناعي]",
+    "dashboardSectionFluxTraffic": "[تدفق المرور]",
+    "dashboardSectionSysteme": "[النظام]",
+    "simUserModeTitle": "وضع مستخدم تجريبي: {{tier}}",
+    "simUserModeReal": "حقيقي",
+    "simUserModeFree": "FREE",
+    "simUserModePro": "PRO",
+    "simUserModeHelp": "التطبيق يطبّق هذا فورًا (حصة، paywall). مستوى الواجهة الفعلي: {{effective}}.",
+    "rcPass1Caption": "Remote Config (gemini_pass1_model_id)",
+    "rcPass2Caption": "Remote Config (gemini_pass2_model_id)",
+    "rcModelValue": "{{modelId}}",
+    "rcModelUnavailable": "— (لا Firebase أو Remote Config غير محلول)",
+    "localPass1Caption": "Pass 1 الفعلي (استخراج)",
+    "localPass2Caption": "Pass 2 الفعلي (استدلال)",
+    "localModelValue": "{{modelId}}",
+    "localOverridesRcHint": "Pass 2 الفعلي يختلف عن RC (override تصحيح أو فحص صحة).",
+    "iaHealthButton": "تشغيل فحص صحة الذكاء الاصطناعي",
+    "iaHealthTitle": "فحص صحة الذكاء الاصطناعي",
+    "iaHealthBody": "Pass 1 ({{pass1}}): {{pass1Ok}}\nالفائز Pass 2: {{pass2}}\nمسبارات Pass 2: {{tested}} (تخطي القائمة المختصرة: {{skipped}}) من {{total}} نماذج.",
+    "iaHealthErrorTitle": "فشل فحص صحة الذكاء الاصطناعي",
+    "busyIaHealth": "اختبار النماذج…",
+    "geminiRemoteModelRefresh": "تحديث Remote Config",
+    "oneTapPerfTitle": "أداء one-tap (علامات T0–T3)",
+    "oneTapPerfEmpty": "لا قياسات بعد — شغّل refine بنقرة واحدة من Talk Debug.",
+    "oneTapPerfT0": "T0: {{ms}} ms",
+    "oneTapPerfT1": "T1: {{ms}} ms",
+    "oneTapPerfT3": "T3: {{ms}} ms",
+    "oneTapPerfGemini": "Gemini: {{ms}} ms",
+    "oneTapPerfTotal": "المجموع من T1: {{ms}} ms",
+    "timelineLayoutTitle": "تخطيط Timeline",
+    "timelineLayoutHint": "التبديل بين البطاقات الحالية ومركز البريد. التراجع: البطاقات الحالية. يعمل مع كل السمات أعلاه.",
+    "timelineLayoutCurrent": "البطاقات الحالية",
+    "timelineLayoutEmailHub": "مركز البريد",
+    "trafficLaunchElastic": "بدء محاكاة القفزة المرنة",
+    "trafficMonitorTitle": "مراقبة المرور (محاكاة)",
+    "trafficSimulatedTime": "الوقت المُحاكى: {{time}}",
+    "trafficNextJump": "القفزة التالية: {{sec}} ثانية زمن حقيقي",
+    "trafficEmaMin": "مدة المرور المستقرة (EMA): {{min}} د",
+    "trafficStatusLabel": "الحالة:",
+    "trafficBufferSafety": "BufferSafety: {{min}} min",
+    "trafficCriticalTopDepartTitle": "حرج: TOP_DEPART مُفعّل",
+    "trafficDebugTripDestination": "Muret → Toulouse",
+    "sqliteCountsLine": "intentions={{intentions}} | tasks={{tasks}}",
+    "busySimElastic": "محاكاة المرور…",
+    "busyRemoteModel": "Remote Config…"
+  },
+  "connector": {
+    "defaultFirstName": "صديق",
+    "botWelcomeMessage": "مرحبًا {{firstName}}، هذا فضاؤك الخاص لإنشاء النيات (نص أو صوت). كل شيء سري تمامًا ومتزامن مع هاتفك. {{appLink}}",
+    "botRailAck": "تم! أُضيف. راجع Rail ⚡️\n{{url}}",
+    "botRechargeRedirect": "حصة المراسلة فارغة — افتح محطة Recharge: {{url}}"
+  },
+  "notifications": {
+    "externalIntentionTitle": "TellYouTo",
+    "externalIntentionBody": "حليفك التقط نية جديدة: {{title}}. على Rail.",
+    "offlineAudioReadyTitle": "مذكرة دون اتصال متاحة",
+    "offlineAudioReadyBody": "تسجيل صوتي ينتظر التحليل.",
+    "offlineAnalyzeAction": "تحليل",
+    "offlineKeepAudioAction": "الاحتفاظ بالصوت"
+  },
+  "ally": {
+    "openSettings": "الإعدادات"
+  },
+  "health": {
+    "bannerLead": "تنبيه لطيف:",
+    "warnFirebase": "المزامنة السحابية غير مُعدّة بعد",
+    "warnSqlite": "فشل فحص قاعدة البيانات المحلية",
+    "warnNotifications": "الإشعارات معطّلة. فعّلها في الإعدادات لاستقبال النيات الجديدة فورًا.",
+    "dismiss": "OK"
+  },
+  "agent": {
+    "alarmPermissionTitle": "الإشعارات مطلوبة",
+    "alarmPermissionBody": "لا يمكن للوكيل المحلي تشغيل منبّهات Rail دون إذن الإشعارات. فعّل الإشعارات (والمنبّهات على Android) لهذا التطبيق.",
+    "railChannelName": "TellYouTo · Rail ({{soundId}})"
+  },
+  "common": {
+    "cancel": "إلغاء",
+    "habits": "عادات"
+  },
+  "project": {
+    "title_placeholder": "عنوان المشروع",
+    "add_steps": "+",
+    "zoom_confirm_title": "هل تريد أن يقسّم الذكاء الاصطناعي هذه الخطوة؟",
+    "zoom_action_start": "تقسيم",
+    "zoom_generating_status": "جارٍ إنشاء الخطوات",
+    "zoom_background_action": "معالجة في الخلفية",
+    "status_processing": "جارٍ المعالجة…",
+    "zoom_view_steps": "عرض الخطوات"
+  },
+  "talkHome": {
+    "microphonePermissionTitle": "مطلوب الوصول إلى الميكروفون",
+    "microphonePermissionDeniedBody": "لا يمكن بدء الإدخال الصوتي دون الميكروفون. افتح إعدادات النظام واسمح للميكروفون لـ TalkNDone.",
+    "listeningNow": "أنا أستمع..."
+  },
+  "errorBoundary": {
+    "brand": "TalkNDone",
+    "title": "لحظة بلا شاشة فارغة",
+    "body": "عثرة صغيرة في التروس — لا شيء خطير. تنفّس؛ يمكنك إعادة التشغيل عندما تكون جاهزًا.",
+    "restartA11y": "إعادة تشغيل التطبيق",
+    "restart": "إعادة تشغيل"
+  },
+  "nativeModule": {
+    "missingTitle": "خطأ في الوحدة الأصلية",
+    "missingBody": "{{name}} مفقود أو غير مرتبط بالثنائي الحالي.\nالسياق: {{context}}\n→ إعادة بناء Android مطلوبة (npx expo prebuild --clean --platform android ثم التجميع).\n\n{{detail}}",
+    "unknownModuleName": "(وحدة غير معروفة)",
+    "contextTalkHomeSpeech": "Talk · التعرف على الكلام",
+    "contextTalkHomePersist": "Talk · نية صوتية (قاعدة محلية)"
+  },
+  "listIntention": {
+    "proTeaserTitle": "Pro",
+    "proTeaserBody": "انتقل إلى Pro لتوسيع قوائمك فورًا (ضيوف، معدات، لوجستيات).",
+    "unreadable": "تعذّر تحميل هذه القائمة.",
+    "a11yDecrease": "تصغير المقياس",
+    "a11yIncrease": "تكبير المقياس"
   },
   "talkDebug": {
     "sacredSpace": {
-      "title": "Sacred Space"
+      "title": "الفضاء المقدّس"
+    },
+    "noteSaved": "تم حفظ الملاحظة",
+    "audioSaved": "تم حفظ المذكرة الصوتية",
+    "captureTitle": "التقاط",
+    "taskQuickRecapIntro": "تم حفظ المهمة",
+    "habitQuickRecapIntro": "تم حفظ العادة",
+    "birthdayLabel": "عيد ميلاد",
+    "listSavedToast": "تم حفظ القائمة",
+    "projectSavedToast": "تم حفظ المشروع",
+    "intentionSuggestionsEyebrow": "أفكار نيات",
+    "voiceWaveformA11y": "مستوى الصوت المباشر",
+    "micQuotaUpsellHint": "3 إجراءات مجانية يوميًا. انتقل إلى PRO للوصول بلا حدود.",
+    "oneTapEmptyTranscript": "لم يُنسخ شيء. حاول مجددًا أقرب إلى الميكروفون.",
+    "oneTapListSection": "قائمة",
+    "oneTapListItems": "أسطر للحفظ",
+    "oneTapListUnitPlaceholder": "أشخاص، أيام…",
+    "oneTapTaskSection": "مهمة",
+    "oneTapWebDateLabel": "التاريخ (YYYY-MM-DD)",
+    "oneTapPickDate": "اختر تاريخًا",
+    "oneTapClearDate": "مسح التاريخ",
+    "oneTapTaskDueTime": "الوقت (اختياري)",
+    "oneTapTaskNotes": "ملاحظات",
+    "oneTapRecurringSection": "تكرار",
+    "oneTapCadence": "وتيرة",
+    "oneTapAnchorNotes": "ملاحظات مرساة",
+    "oneTapHabitSection": "عادة",
+    "oneTapPreferredTime": "الوقت المفضّل",
+    "oneTapAnniversarySection": "حدث سنوي",
+    "oneTapPersonName": "شخص أو موضوع",
+    "oneTapMonthDay": "التاريخ (MM-DD أو YYYY-MM-DD)",
+    "oneTapReminderDays": "تذكير (أيام قبل)",
+    "oneTapUniversalReminderTitle": "تذكير مجدول",
+    "oneTapUniversalDueLabel": "الاستحقاق",
+    "oneTapUniversalRecLabel": "تكرار",
+    "oneTapClearUniversalReminder": "إزالة التذكير",
+    "oneTapAddReminderCta": "+ إضافة تذكير",
+    "oneTapWebDueDateTimeIso": "ISO تاريخ/وقت (تذكير)",
+    "oneTapReminderNotifTitle": "تذكير TellYouTo",
+    "oneTapReminderRecurringTitle": "تذكير متكرر",
+    "oneTapNoteSection": "مذكرة",
+    "oneTapConfirm": "حفظ",
+    "oneTapPrintErrorTitle": "طباعة",
+    "oneTapPrintNeedsNativeBuild": "وحدة الطباعة غير موجودة في ثنائي التطبيق. استخدم development build (مثل npx expo run:android) بعد إضافة expo-print، أو أعد بناء التطبيق. قد لا يتضمن Expo Go وحدات أصلية جديدة.",
+    "stepTransport": "جارٍ تسجيل الصوت…",
+    "stepTranscription": "جارٍ نسخ الصوت…",
+    "stepAnalysis": "جارٍ إنشاء المحتوى…",
+    "stepComplete": "تم!",
+    "actionAddNote": "إضافة ملاحظة",
+    "errorNetwork": "شبكة غير مستقرة. حُفظ محليًا.",
+    "oneTapType": {
+      "TASK": "مهمة",
+      "RECURRING_TASK": "مهمة متكررة",
+      "HABIT": "عادة",
+      "TRIP": "رحلة",
+      "LIST": "قائمة",
+      "ANNIVERSARY": "ذكرى سنوية",
+      "NOTE": "ملاحظة"
     }
   },
-  "intentionDetail": {
-    "pin": "Pin",
-    "unpin": "Unpin",
-    "pinMaxReachedTitle": "Pin limit reached",
-    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
-  }
+  "profiling": {
+    "kindness": {
+      "1": {
+        "insight": [
+          "ذهنك مليء بالأفكار الآن، {{name}}.",
+          "خيالك نشط جدًا اليوم، {{name}}.",
+          "مشاريع كثيرة ذات معنى تعيش في رأسك، {{name}}."
+        ],
+        "action_tip": [
+          "ماذا لو اخترت لبنة صغيرة واحدة للبدء؟",
+          "اتخذ فعلًا واحدًا، ولو صغيرًا جدًا، لتصفية ذهنك.",
+          "تنفّس. الوضوح ينمو عندما تفعل شيئًا واحدًا في كل مرة."
+        ]
+      },
+      "2": {
+        "insight": [
+          "إيقاعك يبدو أهدأ هذه الأيام، {{name}}.",
+          "يبدو وكأنه مرحلة انقطاع مؤقتة، {{name}}.",
+          "محرّكك يعمل على وضع الخمول الآن، {{name}}."
+        ],
+        "action_tip": [
+          "عد بفعل صغير لمدة دقيقتين.",
+          "اختر خطوة بسيطة الآن لاستعادة الزخم.",
+          "تسجيل حضور صغير اليوم يكفي للعودة إلى المسار."
+        ]
+      },
+      "3": {
+        "insight": [
+          "عندما تلتزم، تنفيذك حاد، {{name}}.",
+          "تحوّل بسرعة إلى نتائج عندما تبدأ، {{name}}.",
+          "كفاءتك قوية، حتى مع إيقاع غير منتظم، {{name}}."
+        ],
+        "action_tip": [
+          "أضف طقسًا يوميًا صغيرًا لتنعيم وتيرتك.",
+          "ثبّت فترة قصيرة متكررة لاستقرار إيقاعك.",
+          "الاستمرارية الصغيرة تتفوق على الاندفاعات المعزولة."
+        ]
+      },
+      "4": {
+        "insight": [
+          "تنسّق تدفق التقويم ببراعة، {{name}}.",
+          "قيادتك واضحة: مزامنة، محاذاة، إلى الأمام، {{name}}.",
+          "أنت في وضع تنسيق قوي الآن، {{name}}."
+        ],
+        "action_tip": [
+          "احتفظ بنية محلية نشطة لتبقى متصلًا يوميًا.",
+          "خصّص نافذة مراجعة قصيرة للسيطرة الكاملة على التدفق.",
+          "ابقَ بسيطًا: أولوية واحدة ظاهرة في كل مرة."
+        ]
+      },
+      "5": {
+        "insight": [
+          "توازنك بين الفعل والاستمرارية متين جدًا، {{name}}.",
+          "تتحرك بوضوح ثابت، {{name}}.",
+          "استقرار رائع: التنفيذ والالتزام متوافقان، {{name}}."
+        ],
+        "action_tip": [
+          "حافظ على هذا الإيقاع بمراجعة أسبوعية خفيفة.",
+          "احمِ الزخم بالاحتفال بانتصار صغير كل يوم.",
+          "حافظ على توازنك بفترة إعادة ضبط متكررة."
+        ]
+      },
+      "defaultName": "أنت"
+    },
+    "profiles": {
+      "1": {
+        "label": "الحالم",
+        "description": "يلتقط نيات كثيرة لكن ينفّذ جزءًا صغيرًا فقط."
+      },
+      "2": {
+        "label": "المنقطع",
+        "description": "الاستخدام يتراجع، مع إكمال منخفض و التزام ضعيف."
+      },
+      "3": {
+        "label": "العدّاء",
+        "description": "قوة تنفيذ عالية، لكن الإيقاع لا يزال غير منتظم."
+      },
+      "4": {
+        "label": "القائد",
+        "description": "سلوك تنسيق قوي مع نسبة أرشفة/تصدير عالية."
+      },
+      "5": {
+        "label": "الزِن المثابر",
+        "description": "ملف متوازن بتنفيذ قوي و التزام منتظم."
+      }
+    }
+  },
+  "horizons": {
+    "rearbitrate": "لإعادة التحكيم",
+    "today": "اليوم",
+    "tomorrow": "غدًا",
+    "thisWeek": "هذا الأسبوع",
+    "noPressure": "بلا ضغط"
+  },
+  "TYPE_TASK": "مهمة",
+  "TYPE_HABIT": "عادة",
+  "TYPE_RECURRING_TASK": "مهمة متكررة",
+  "TYPE_LIST": "قائمة",
+  "TYPE_ANNIVERSARY": "ذكرى سنوية",
+  "TYPE_NOTE": "ملاحظة",
+  "MODAL_REFINING": "جارٍ التحسين…",
+  "PLACEHOLDER_TITLE": "العنوان…",
+  "DEFAULT_INTENTION_TITLE": "نية جديدة",
+  "PLACEHOLDER_LIST": "قائمة (عنصر لكل سطر)…",
+  "PLACEHOLDER_DESTINATION": "الوجهة…",
+  "COMMON_MINUS": "−",
+  "COMMON_PLUS": "+",
+  "COMMON_YES": "نعم",
+  "COMMON_NO": "لا",
+  "COMMON_CANCEL": "إلغاء",
+  "MODAL_CONFIRM_OK": "OK",
+  "LOGISTICS_TRAFFIC_ADJUST": "تعديل حسب المرور",
+  "LOGISTICS_BUY_TRAJET_PACK": "Recharge",
+  "LOGISTICS_TRAJET_REMAINING_SUFFIX": "(متبقٍ: {{n}})",
+  "SAS_SUMMARY_DEPART_RECOMMENDED": "مغادرة مقترحة في {{time}}",
+  "SAS_SUMMARY_SCHEDULED": "مجدول في {{time}}",
+  "SAS_SUMMARY_DESTINATION": "إلى {{destination}}",
+  "PLACEHOLDER_NOTE": "اكتب مذكرتك…",
+  "PLACEHOLDER_DATE": "التاريخ (YYYY-MM-DD)…",
+  "PLACEHOLDER_TIME": "الوقت (HH:MM)…",
+  "PLACEHOLDER_NOTES": "ملاحظات…",
+  "PLACEHOLDER_ADDRESS": "العنوان…",
+  "PLACEHOLDER_PERSON": "الاسم…",
+  "PLACEHOLDER_MONTHDAY": "التاريخ (MM-DD)…"
 }

@@ -1,939 +1,616 @@
 {
-  "app": {
-    "name": "TellYouTo"
+  "intentInteraction": {
+    "menuTitle": "意図",
+    "archive": "アーカイブ",
+    "pinDue": "日付を変更 / 固定",
+    "pickDate": "日付を選ぶ",
+    "cancel": "キャンセル"
   },
   "inbox": {
     "action": {
-      "remove": "Remove from Inbox",
-      "removeAll": "Remove all from Inbox",
-      "removeConfirmTitle": "Remove from Inbox?",
-      "removeConfirmBody": "The intention stays in TellYouTo but leaves today's Inbox.",
-      "removeAllConfirmTitle": "Remove all from Inbox?",
-      "removeAllConfirmBody": "All {{count}} visible intentions will be marked as triaged."
+      "remove": "Inbox から削除",
+      "removeAll": "Inbox からすべて削除",
+      "removeAllConfirmTitle": "Inbox からすべて削除しますか？",
+      "removeAllConfirmBody": "表示中の {{count}} 件の意図を整理済みにマークします。"
     }
   },
-  "quota": {
-    "format": "{{current}}/{{total}}"
+  "talkCapture": {
+    "hintTap": "タップしてボイスメモを録音",
+    "savedTimeline": "意図を Timeline に保存しました",
+    "savedOfflinePending": "オフラインです：後で処理するため保存しました"
+  },
+  "category": {
+    "HOME": "ホーム",
+    "WORK": "仕事",
+    "PERSO": "プライベート",
+    "HEALTH": "健康",
+    "FINANCE": "お金",
+    "TRAVEL": "旅行",
+    "SOCIAL": "ソーシャル",
+    "SHOP": "買い物",
+    "LEARN": "学習",
+    "OTHER": "その他"
+  },
+  "capture": {
+    "offlineNoteGenericToast": "この端末に保存しました。接続が戻るとスマート整理が完了します。",
+    "offlineRetryOkToast": "AI 整理が完了 — Timeline は最新です。",
+    "pendingAiNetworkBack": "{{count}} 件のアイデアが AI 整理待ちです — カードの「AI 整理を再試行」をタップしてください。"
+  },
+  "quota_remaining": "無料 Sentinel トリップがあと {{count}} 回残っています。",
+  "quota_exhausted_title": "スタティックモード",
+  "quota_exhausted_desc": "Sentinel の試用期間が終了しました。リアルタイム監視には PRO にアップグレードしてください。",
+  "sentinel": {
+    "validationTitle": "住所の確認",
+    "detectedPlace": "検出した場所：{{place}}",
+    "addressLabel": "確認済み住所（Google Places）",
+    "addressPlaceholder": "住所を検索…",
+    "validationRequired": "Sentinel を有効にするには有効な住所を選んでください。",
+    "placesMissingKey": "Google Places キーがありません（EXPO_PUBLIC_GOOGLE_PLACES_API_KEY）。",
+    "addressResolveFailed": "住所が見つかりません。入力を確認してもう一度お試しください。",
+    "notifTitle": "行先：{{destination}} • 到着 {{arrival}}",
+    "notifUpdatedAt": "{{time}} に更新",
+    "notifStatusBlue": "監視中",
+    "notifStatusOrange": "ウィンドウ開放",
+    "notifStatusRed": "出発が迫っています",
+    "notifStatusStatic": "スタティックモード",
+    "notifDepartureAt": "{{time}} 出発",
+    "notifDepartureWindow": "出発の目安：{{start}} 〜 {{end}}",
+    "notifNextRealUpdateAt": "次のリアル更新：{{time}}",
+    "notifModeSafety": "セーフティモード",
+    "probe3Title": "出発 — {{destination}}",
+    "probe3Smooth": "交通は順調です — {{minutes}} 分後に出発できます。",
+    "probe3LeaveNow": "渋滞を検知 — 今すぐ出発を。",
+    "probe3Unavailable": "見積もり不可 — 交通状況を手動で確認してください。",
+    "promiseDriftTitle": "交通 — {{destination}}",
+    "promiseDriftBody": "交通状況が少し変わりました。出発ウィンドウ：{{capsule}}",
+    "topDepartTitle": "今すぐ出発",
+    "topDepartBody": "{{destination}} へ出発する時間です。"
+  },
+  "departureContract": {
+    "notifTitle": "出発契約 — {{destination}}",
+    "signalBTitle": "出発リマインダー",
+    "signalBBody": "{{capsule}} — {{destination}} まで約 {{minutes}} 分で出発を。"
+  },
+  "sentinelFocus": {
+    "prompt": "{{title}}（{{time}}）への出発を教えてもらえますか？",
+    "departureTitle": "{{name}} へ出発",
+    "arrivalSubtitle": "到着：{{time}}"
+  },
+  "tripAlarm": {
+    "pickerTitle": "アラームを設定",
+    "pickerMessage": "{{time}} 出発",
+    "departureLabel": "{{place}} 出発 {{time}}",
+    "a11yOpenAlarm": "出発アラームを設定",
+    "iosManualHint": "時計アプリを開き {{time}} のアラームを作成してください。\n推奨名：{{label}}",
+    "androidUnavailable": "時計アプリを開けませんでした。{{time}} にアラームを設定してください（{{label}}）。"
+  },
+  "intentionDetail": {
+    "source": "ソース",
+    "checklist": "チェックリスト",
+    "trip": "トリップ",
+    "transport": "交通手段",
+    "currentPosition": "現在地",
+    "addressPlaceholder": "住所を検索…",
+    "allDay": "終日",
+    "listItems": "アイテム",
+    "projectStartDate": "開始日",
+    "projectStartDateEmpty": "開始日を設定",
+    "projectMilestoneMenuTitle": "マイルストーン",
+    "projectMilestoneMenuPivot": "カレンダー（ピボット）",
+    "projectMilestoneMenuNote": "メモ",
+    "projectMilestoneMenuDelete": "削除",
+    "confirmReplan": "確認して次のステップを再スケジュール",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "notePlaceholder": "メモを追加…",
+    "transportAuto": "車",
+    "transportWalking": "徒歩",
+    "transportBike": "自転車",
+    "ecoFriendly": "エコフレンドリー 🌱",
+    "co2Standard": "標準 CO2 インパクト",
+    "launchRoute": "ルートを開始",
+    "launchRouteDisabledHint": "ナビを開始するには有効な目的地住所を追加してください。",
+    "close": "閉じる",
+    "pin": "固定",
+    "unpin": "固定解除",
+    "pinMaxReachedTitle": "固定数の上限に達しました",
+    "pinMaxReachedBody": "固定できる意図は最大 {{max}} 件です。先に別の意図の固定を解除してください。",
+    "labelIntention": "意図",
+    "labelTiming": "タイミング",
+    "labelEngagement": "習慣・継続",
+    "trackStreak": "連続記録を追跡 🔥",
+    "trackStreakHint": "リズムを保つためのカウンターを表示します。",
+    "labelItinerary": "ルート",
+    "labelTransport": "交通手段",
+    "comfortTitle": "トリップの快適さ",
+    "comfortElasticDeparture": "推定出発：{{window}}",
+    "comfortElasticDepartureApprox": "推定出発：≈ {{window}}",
+    "comfortElasticDepartureShifted": "⚠️ 推定出発：{{window}}",
+    "allDayNoDepartureSlot": "終日イベント — 出発ウィンドウなし",
+    "actionSetupAlert": "出発を教えてもらえますか？",
+    "actionSetupAlertLocked": "出発を教えてもらえますか 🔒",
+    "tripSurveillanceStart": "トリップを監視",
+    "tripSurveillanceStartLocked": "トリップを監視 🔒",
+    "tripSurveillanceActive": "監視中 🛡️",
+    "surveillanceMissingInfo": "監視を有効にするには有効な目的地と到着時刻を追加してください。",
+    "pass2LockedSuffix": "🔒",
+    "noteMemoSection": "メモ",
+    "finish": "完了"
+  },
+  "pass2": {
+    "generateSteps": "✨ ステップに分解",
+    "generateList": "✨ リストを構造化",
+    "steps_loading": "読み込み中...",
+    "list_loading": "アイテムを作成中...",
+    "finalizing": "構造を仕上げています..."
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
     "creditsDepleted": "0 ⚡",
-    "creditsDepletedHint": "Proへ",
+    "creditsDepletedHint": "Pro へ",
     "proLabel": "PRO",
-    "a11yCredits": "キャプチャクレジット — リチャージを開く",
-    "a11yCalendar": "今日のタイムラインを開く",
-    "a11yPiggy": "受信箱 — 未整理",
-    "rechargeModalBody": "リチャージでProに進み、さらに明瞭に。",
-    "openRecharge": "リチャージを見る"
+    "a11yCredits": "キャプチャクレジット — Recharge を開く",
+    "a11yCalendar": "Timeline で今日を開く",
+    "a11yPiggy": "Inbox — 未整理のアイテム"
   },
   "tabs": {
-    "radar": "レーダー",
-    "timeline": "タイムライン",
-    "agent": "AIエージェント",
-    "recharge": "リチャージ",
-    "messaging": "メッセージ",
-    "stats": "統計",
-    "debug": "Debug",
+    "debug": "デバッグ",
     "talkHome": "Talk"
   },
-  "messaging": {
-    "lead": "TellYouToのディープリンク — Radar・Timeline・チャージを直接開きます。",
-    "copyLink": "リンクをコピー",
-    "copyAll": "すべてコピー"
-  },
-  "linking": {
-    "telegramMissingTitle": "Telegram",
-    "telegramMissingBody": "Telegram が入っていません。無料でアリーと話すにはアプリをインストールしてね。",
-    "telegramMissingInstall": "Telegram をインストール",
-    "telegramMissingLater": "あとで"
-  },
-  "settings": {
-    "privateChannelTitle": "プライベートチャネル",
-    "privateChannelSubtitle": "Telegram は含まれます。WhatsApp・Slack・LINE は Pro が必要です。",
-    "channelsCatalogTitle": "チャネルと拡張",
-    "channelsCatalogLead": "同時に有効にできるのは1チャネルのみ — アリーが意図を送る先です。",
-    "channelsPrivacyFootnote": "各プレミアムチャネルは、あなたとローカルレール間の暗号化された専用回線です。データは販売されません。安全なトンネルを経由し、スマートフォンに同期された後はクラウドから直ちに削除されます。",
-    "memorySectionTitle": "メモリ管理",
-    "archivePurgeTitle": "アーカイブを完全に削除するまでの期間",
-    "archivePurgeHint": "アプリ起動時に実行されます。アーカイブ日時がこの期間より古い行だけが削除されます。",
-    "archivePurge7": "7日",
-    "archivePurge30": "30日",
-    "archivePurgeNever": "しない"
-  },
-  "channels": {
-    "connect": "接続",
-    "disconnect": "切断",
-    "linkingWait": "メッセージを待っています...",
-    "action": {
-      "create_private_conv": "👉 タップしてプライベート会話を作成"
-    },
-    "status": {
-      "linking": "接続中...",
-      "connected": "接続済み"
-    },
-    "modal": {
-      "title": "Telegram の設定",
-      "body": "安全な Telegram のチャットを開きます。画面下の「開始」をタップしてレールを有効にしてください。",
-      "button": "始める",
-      "otherTitle": "{{channelName}}",
-      "otherBody": "プライベート連携を完了するためアプリを開きます。案内に従い、またここに戻ってください。"
-    },
-    "linkLaunched": {
-      "message": "連携を開始しました！数秒以内にアリーからメッセージが届きます。",
-      "button": "OK"
-    },
-    "feedback": {
-      "success": "✅ チャネルを接続しました！"
-    },
-    "hints": {
-      "pro_account_required": "* この端末で有効な Pro アカウントが必要です"
-    }
-  },
   "pro": {
-    "modalTitle": "最大の力を解放",
-    "modalPrice": "月額 9,99€",
-    "modalLead": "Pro でプレミアムチャネルを解放し、常時広告なしに。",
+    "modalTitle": "最大パワーを解放",
+    "modalPrice": "€9.99 / 月",
+    "modalLead": "Pro でプレミアムチャンネルを解放し、広告なしを永久に。",
     "benefit1": "WhatsApp 無制限",
     "benefit2": "広告ゼロ",
     "benefit3": "優先サポート",
-    "benefit4": "全ルーティンにアクセス",
+    "benefit4": "すべてのルーティンにアクセス",
     "modalLater": "あとで",
     "modalCta": "Pro へ",
-    "screenKicker": "サブスク",
+    "screenKicker": "サブスクリプション",
     "screenTitle": "TellYouTo Pro",
-    "screenSubtitle": "マルチチャネル、広告なし、優先サポート。",
-    "devNote": "開発版：ボタンは支払いなしで購読をシミュレートします。",
-    "subscribeGold": "購読 — 月額 9,99€",
+    "screenSubtitle": "マルチチャンネル、広告なし、優先サポート。",
+    "devNote": "Dev ビルド：ボタンは支払いなしでサブスクをシミュレートします。",
+    "subscribeGold": "登録 — €9.99 / 月",
     "back": "閉じる",
-    "linkRequiredTitle": "Account required",
-    "linkRequiredBody": "To keep your Pro subscription across phones, link Google or Apple (same Firebase identity).",
-    "linkGoogle": "Continue with Google",
-    "linkApple": "Continue with Apple",
-    "linkLater": "Not now",
-    "linkGoogleOnly": "Link Google only",
-    "linkAppleOnly": "Link Apple only",
-    "linkErrorTitle": "Linking failed",
-    "configureGoogleTitle": "Google configuration",
-    "configureGoogleBody": "Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (and iOS/Android client IDs if needed) in .env, then restart Metro.",
-    "googleMissingEnv": "Missing Google Web client ID: OAuth linking will not work until EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID is set."
-  },
-  "channelCatalog": {
-    "proBadge": "PRO",
-    "freeBadge": "無料",
-    "recommendedBadge": "おすすめ",
-    "names": {
-      "telegram": "Telegram",
-      "whatsapp": "WhatsApp",
-      "slack": "Slack",
-      "discord": "Discord",
-      "teams": "Microsoft Teams",
-      "signal": "Signal",
-      "line": "LINE / WeChat"
-    }
+    "linkRequiredTitle": "アカウントが必要です",
+    "linkRequiredBody": "Pro サブスクを端末間で保持するには Google または Apple を連携してください（同じ Firebase ID）。",
+    "linkGoogle": "Google で続行",
+    "linkApple": "Apple で続行",
+    "linkLater": "あとで",
+    "linkGoogleOnly": "Google のみ連携",
+    "linkAppleOnly": "Apple のみ連携",
+    "linkErrorTitle": "連携に失敗しました",
+    "configureGoogleTitle": "Google 設定",
+    "configureGoogleBody": ".env に EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID（必要なら iOS/Android client ID）を設定し Metro を再起動してください。",
+    "googleMissingEnv": "Google Web client ID がありません：EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID が設定されるまで OAuth 連携は使えません。"
   },
   "channelSwitch": {
-    "title": "チャネルを変更？",
-    "message": "フォーカスを守るため、アリーが聞けるのは1チャネルだけです。{{channelName}} に切り替えますか？",
-    "confirm": "切り替え",
     "cancel": "キャンセル"
   },
-  "onboarding": {
-    "firstName": {
-      "title": "お名前は？",
-      "subtitle": "お名前はアライとプライベートチャンネルのあいさつ文に使われます。",
-      "placeholder": "名前",
-      "continue": "次へ"
-    },
-    "title": "状況診断",
-    "subtitle": "自分に合うものを選ぶ — コパイロットがパフォーマンスのスペクトルを調整します。",
-    "progress": "カード {{current}} / {{total}}",
-    "cardsHint": "各選択で、今のナビに合わせて Structure / Momentum / Zen / Stats が更新されます。",
-    "skip": "現在のスペクトルを使う",
-    "situations": {
-      "s1": {
-        "title": "一日をどう始めますか？",
-        "a0": "優先度と時間ブロックを先に整理する",
-        "a1": "すぐに行動に移る",
-        "a2": "落ち着いて明瞭さを取り戻す",
-        "a3": "まず数値や指標を見る"
-      },
-      "s2": {
-        "title": "割り込みが来たら？",
-        "a0": "立て直し、再開の計画を立てる",
-        "a1": "新しい緊急対応に素早く切り替える",
-        "a2": "短い休憩で明瞭さを取り戻す",
-        "a3": "メモして影響（時間・負荷）を見積もる"
-      },
-      "s3": {
-        "title": "一日の終わりに最も大事なのは？",
-        "a0": "明確な計画が前に進んだこと",
-        "a1": "テンポを保ち、タスクを閉じたこと",
-        "a2": "余白と心の明瞭さを守れたこと",
-        "a3": "見える成果や指標があったこと"
-      },
-      "s4": {
-        "title": "重要な期限が近づいている",
-        "a0": "ステップと中間目標を組み立てる",
-        "a1": "加速して不要を削る",
-        "a2": "最終スプリント前に明瞭さを優先する",
-        "a3": "数値と追跡に頼る"
-      },
-      "s5": {
-        "title": "他者と調整するときは？",
-        "a0": "枠組みと明確な意思決定",
-        "a1": "素早い往復と短い決定",
-        "a2": "落ち着いた対話と静かな整合",
-        "a3": "測定可能な事実に基づくレビュー"
-      }
-    },
-    "privateChannel": {
-      "title": "アリーを選ぶ",
-      "subtitle": "アリーが意図を送るチャネル — プライベートで端末に紐づきます。",
-      "explainBot": "+33のような番号ではありません。ボットは端末と選んだアプリに紐づき、TellYouToの空間に留まります。",
-      "telegramPitch": "Telegramは音声に強く、プライバシーを守ります。アリー向けに100%無料のチャネルです。",
-      "recommended": "おすすめ",
-      "telegramGiftBadge": "Telegram を入れてアリーを試し、15日間広告なしをお楽しみください",
-      "telegramReady": "チャネルは利用可能です。",
-      "whatsappCostHint": "サービス料や意図の枠がかかる場合があります。",
-      "proChannelsHint": "プロ／チーム向け",
-      "installTelegram": "Telegramをインストール",
-      "rewardTitle": "ありがとう！",
-      "rewardBody": "おめでとう！アリーはTelegram上 — レールは15日間広告なし。",
-      "rewardDismiss": "続ける",
-      "platforms": {
-        "whatsapp": "WhatsApp",
-        "telegram": "Telegram",
-        "slack": "Slack",
-        "line": "LINE"
-      },
-      "cta": "保存してリンクを開く",
-      "skip": "あとで",
-      "urlPending": "リンクを設定（EXPO_PUBLIC_BOT_*_URL）",
-      "initMessageLabel": "ウェルカムメッセージ（ボット用にコピー）",
-      "copyInit": "コピー",
-      "copied": "コピーしました",
-      "waitingConnection": "接続を待っています…",
-      "whatsappErrorTitle": "エラー",
-      "whatsappErrorBody": "WhatsApp を開けませんでした。インストールされているか確認してください。",
-      "genericOpenErrorBody": "リンクを開けませんでした。アプリがインストールされているか確認してください。",
-      "dictationHint": "WhatsApp では音声入力も試してね！"
-    }
-  },
-  "radar": {
-    "proBadge": "PRO",
-    "channelsNudgeTitle": "アリーを接続（Telegram）",
-    "channelsNudgeBody": "まだメッセージチャネルを設定していません。設定から Telegram を入れるか、Pro オプションを確認できます。",
-    "channelsNudgeCta": "チャネルと拡張",
-    "channelsNudgeDismiss": "あとで",
-    "empty": "意図はまだありません。+ で追加してください。",
-    "emptyTitle": "レールは空いています",
-    "emptyBody": "リチャージにも、新しい方向を決めるにも、ちょうどいい時間です。準備ができたら + を。",
-    "allyEyebrow": "アリー",
-    "pureAllyModeBadge": "ピュア・アリーモード",
-    "messengerDictationInactive": "メッセンジャー音声入力はオフ — AIエージェントでチャネルを接続。",
-    "messengerVoiceActive": "メッセンジャー接続済み — 音声入力OK。",
-    "activeSessionTitle": "フォーカス中",
-    "activeSessionOpen": "カプセルを開く",
-    "priority": "優先度 {{value}}",
-    "quickAddTitle": "クイック意図",
-    "fieldTitle": "タイトル",
-    "fieldDescription": "詳細（任意）",
-    "urgentLabel": "緊急としてマーク",
-    "alarmLabel": "アラームを設定",
-    "flexibleSlotLabel": "柔軟な枠（AIに調整させる）",
-    "microNowTitle": "いま",
-    "microVerifyQuestion": "小さな一歩、できましたか？",
-    "microVerifyCta": "確認",
-    "done": "完了",
-    "cancel": "キャンセル",
-    "save": "保存",
-    "saveErrorTitle": "保存できませんでした",
-    "saveErrorBody": "エラーが発生しました。もう一度お試しください。",
-    "status": {
-      "pending": "保留",
-      "active": "進行中",
-      "done": "完了"
-    },
-    "saveTimeoutTitle": "Timed out",
-    "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
-  },
   "timeline": {
+    "title": "Timeline",
     "allDuration": "終日",
-    "newBadge": "新規",
-    "createdTodayAt": "本日 {{time}} に作成",
-    "subtitle": "今日のレール — スペクトルに沿った提案（モメンタム高め → 深いブロック）。",
-    "now": "いま",
-    "dayRail": "一日の中の位置（6–22時）",
-    "empty": "レールに載せる意図がありません。レーダーから追加してください。",
-    "emptyTitle": "いまは静かなレール",
-    "emptyBody": "レーダーから意図を追加すると、提案枠つきでここに並びます。",
-    "estimated": "約 {{minutes}} 分（見積）",
-    "suggestedWindow": "提案枠：{{start}} – {{end}}",
-    "launch": "開始",
-    "done": "完了",
-    "calendarRailTitle": "予定あり（カレンダー）",
-    "externalEventLabel": "外部予定",
-    "calendarBusy": "予定あり · {{start}} – {{end}}",
-    "alarmSwitch": "枠の開始時にアラーム",
-    "alarmBellA11y": "この枠にアラームあり",
-    "hardRoutineLockA11y": "構造的ルーティン — 固定枠",
-    "microFragment": "フラグメント {{current}} / {{total}}",
-    "microDuration": "約2分 · マイクロ習慣",
-    "skyClear": "晴れ渡った空のように、心に余白があります。",
+    "elasticDepartureWindow": "[ 推定出発：{{window}} ]",
+    "elasticDepartureApprox": "[ 推定出発：≈ {{window}} ]",
+    "elasticDepartureShifted": "[ ⚠️ 推定出発：{{window}} ]",
+    "scanTrafficScheduled": "リアル交通スキャン予定：{{time}}",
+    "scanTrafficInProgress": "スキャン中…",
+    "createdTodayAt": "今日 {{time}} に作成",
+    "createdYesterdayAt": "昨日 {{time}} に作成",
+    "skyClear": "晴れ渡る空 — 心に余裕が生まれます。",
     "pilot": {
       "title": "パイロット",
       "timeNav": "時間",
       "contextNav": "コンテキスト",
-      "statusNav": "状態",
+      "statusNav": "ステータス",
       "contextAll": "すべて",
       "contextHome": "ホーム",
       "contextWork": "仕事",
       "contextPiggy": "貯金箱",
       "contextArchives": "アーカイブ",
-      "todo": "未完了",
-      "done": "完了"
-    },
-    "todoFilter": "未完了",
-    "doneFilter": "完了",
-    "noItems": "項目なし",
-    "noContentForDate": "この日付の内容はありません",
-    "createdOn": "{{date}} に作成",
-    "tasks": {
-      "title": "マイタスク",
-      "scheduledToday": "今日の予定",
-      "noPressure": "急がなくて大丈夫"
-    },
-    "habits": {
-      "title": "習慣"
-    },
-    "projects": {
-      "title": "プロジェクトのステップ"
-    },
-    "notesAudio": {
-      "title": "メモと音声"
-    },
-    "ideaBank": {
-      "title": "アイデア貯金箱",
-      "button": "貯金箱のタスク",
+      "todo": "やること",
       "done": "完了",
-      "schedule": "予定を入れる",
-      "remove": "削除",
-      "removeConfirmTitle": "このタスクを削除しますか？",
-      "removeConfirmBody": "端末から完全に削除されます。",
-      "clearAll": "すべて空にする",
-      "clearAllTitle": "貯金箱を空にしますか？",
-      "clearAllBody": "日付のないタスクがすべて削除されます。",
-      "scheduleTitle": "日付を選ぶ",
+      "specificDate": "日付",
+      "pickedDateShort": "{{date}}",
+      "changeDate": "別の日を選ぶ"
+    },
+    "customDayEmpty": "その日は予定がありません。",
+    "customDayAddTask": "タスクを追加しますか？",
+    "roadmap": {
+      "printerA11y": "デイリーロードマップ",
+      "sasTitle": "整理 — デイリーロードマップ",
+      "sasSubtitle": "各項目を確認・今日へ移動・アーカイブしてから合成を実行してください。",
+      "bucketOverdue": "期限切れ",
+      "bucketOrphan": "日付なし",
+      "validate": "残す",
+      "postpone": "今日へ移動",
+      "delete": "アーカイブ",
+      "continueSynth": "合成を実行",
+      "sasEmptyHint": "整理するものはありません — 合成を実行してください。",
+      "linkOpenSaved": "今日のロードマップ",
+      "progressCollect": "意図を収集中",
+      "progressSynth": "合成中",
+      "progressWrite": "レポートを作成中…",
+      "sharePrint": "共有 / PDF",
+      "close": "閉じる",
+      "synthError": "合成に失敗しました。後でもう一度お試しください。"
+    },
+    "syncedBadge": "同期済み",
+    "memoAudio": "音声メモ",
+    "note": "メモ",
+    "untitled": "無題",
+    "badgeAudio": "🎙️ 音声",
+    "badgeNote": "📝 メモ",
+    "badgeHabit": "🔄 習慣",
+    "badgeTask": "⚡ タスク",
+    "badgeList": "📋 リスト",
+    "badgeProject": "🚀 プロジェクト",
+    "a11yTaskComplete": "完了にする、または保留中の完了をキャンセル",
+    "createdOn": "{{date}} {{time}} に作成",
+    "aiPendingChip": "AI 整理待ち",
+    "aiFailedChip": "AI 処理失敗",
+    "retryAiSort": "AI 整理を再試行",
+    "ideaBank": {
+      "title": "アイデアバンク",
+      "shopTitle": "買うもの",
+      "shopSubtitle": "{{count}} 件",
+      "clearAll": "すべてクリア",
+      "clearAllTitle": "アイデアバンクを空にしますか？",
+      "clearAllBody": "日付のないタスクはすべて削除されます。",
       "empty": "日付のないタスクはありません。",
       "close": "閉じる",
       "cancel": "キャンセル",
-      "clusterNudge": "Shall we move these forward?",
-      "clusterSubtitle": "{{count}} · {{category}}",
-      "shopTitle": "To buy",
-      "shopSubtitle": "{{count}} items"
+      "tripFillAddress": "📍 住所を入力",
+      "tripSearchTitle": "到着住所を入力",
+      "tripSearchOriginTitle": "出発住所を入力"
+    },
+    "box": {
+      "clearAll": "すべて削除",
+      "clearAllTitle": "Box を空にしますか？",
+      "clearAllBody": "保留中の {{count}} 件のアイデアを完全に削除しようとしています。元に戻せません。",
+      "clearAllConfirm": "すべて削除",
+      "empty": "ストレージにアイデアはありません。"
+    },
+    "routines": {
+      "title": "ルーティン",
+      "empty": "アクティブなルーティンはありません。"
     },
     "smartClusters": {
       "inbox": "Inbox",
-      "inboxSubtitle": "{{count}} today",
-      "newTitle": "⚡ New",
-      "newSubtitle": "{{count}} to sort",
-      "projectsTitle": "📁 Projects",
-      "projectsSubtitle": "({{count}} active)",
-      "listsTitle": "📋 Lists",
-      "listsSubtitle": "({{count}} additions)"
+      "inboxSubtitle": "今日 {{count}} 件",
+      "routinesTitle": "🔁 ルーティン",
+      "routinesSubtitle": "（{{count}} 件アクティブ）",
+      "projectsTitle": "📁 プロジェクト",
+      "projectsSubtitle": "（{{count}} 件アクティブ）",
+      "tripsTitle": "トリップ"
     }
   },
-  "focusMode": {
-    "title": "セッションモード",
-    "chrono": "クロノ",
-    "chronoHint": "見積もりに近い時間 — タイマーはあなたが操作。",
-    "pomodoro": "ポモドーロ",
-    "pomodoroHint": "25 / 5 分 · 最大4フォーカス"
-  },
-  "focus": {
-    "start": "開始",
-    "pause": "一時停止",
-    "resume": "再開",
-    "terminate": "終了",
-    "terminateHold": "オレンジのボタンを長押しで早めに終了 — 誤タップを防ぎます。",
-    "feedbackTitle": "明瞭さ",
-    "ok": "OK",
-    "pomodoroWorkLine": "ステップ {{step}} / {{total}}",
-    "pomodoroBreakLine": "休憩 · 次はステップ {{nextStep}} / {{total}}",
-    "pomodoroConcentration": "集中",
-    "pomodoroBreak": "休憩"
-  },
-  "stats": {
-    "screenTitle": "明瞭さの概要",
-    "screenSubtitle": "コパイロットからの観察 — 評価ではなく気づき。",
-    "loading": "読み込み中…",
-    "wellbeingTitle": "ウェルビーイングの継続",
-    "wellbeingHint": "今日のマイクロ習慣スロットのうち確認済みの割合（レール上の予定）。",
-    "wellbeingEmpty": "今日はレールにマイクロ習慣がありません。",
-    "wellbeingMeta": "{{done}} / {{total}} ミニ枠を確認",
-    "clarityTitle": "今日の明瞭さ",
-    "clarityHint": "穏やかな読み：実際の時間が見積もりにどれだけ近かったか（完了したフォーカスのみ）。",
-    "noSessionsToday": "今日はまだ完了したフォーカスがありません。カプセルを終えるとここに表示されます。",
-    "sessionsToday": "今日完了したフォーカス {{count}} 件",
-    "spectrumTitle": "時間の傾き",
-    "spectrumHint": "完了セッションの分数を、各意図のスペクトルで重み付け。",
-    "spectrumEmpty": "今日はまだ表示できるデータがありません。",
-    "minutesTotal": "スペクトル計 ~{{minutes}} 分",
-    "historyTitle": "最近の日",
-    "historyHint": "ローカル日ごとの完了セッション — 端末に保存。",
-    "historyEmpty": "フォーカスを完了すると履歴が埋まります。",
-    "historyDay": "{{date}} · {{count}} セッション",
-    "axis": {
-      "structure": "構造",
-      "momentum": "モメンタム",
-      "zen": "ゼン",
-      "stats": "スタッツ"
-    },
-    "insightKicker": "コパイロットより",
-    "insightEmpty": "フォーカスを完了すると、ここに短い振り返りを置きます。急がなくて大丈夫です。",
-    "insightLead": "今日は完了した時間がやや {{axis}} に寄ったようです — 傾向のメモであって、ラベルではありません。",
-    "insightClarity": "明瞭さはおよそ {{score}}% — 実時間と見積もりの近さの目安です。",
-    "insightShort": "短いブロックが一つ二つあっても、やさしい物語になります。",
-    "insightEnergyLow": "エネルギーは控えめに見えます。明日は小さな一歩で十分です。",
-    "insightEnergyOk": "この先に選ぶことへのエネルギーは十分そうです。",
-    "semanticLabTitle": "Semantic Brain Lab",
-    "semanticLabHint": "Audio .m4a → Gemini Flash + comparison with local AI (no DB persistence).",
-    "semanticLabOpen": "Open test lab"
-  },
   "debug": {
-    "pilotTitle": "操作用ツール",
-    "note": "内部向け — 最低限のUI。",
-    "firebaseProjectIdButton": "Firebase projectId を表示（SDK と .env）",
-    "calendarSection": "システムカレンダー",
-    "calendarConnect": "システムカレンダーを接続",
-    "calendarConnectHelp": "端末内のみ — イベント名は Firebase に送りません。",
-    "calendarHideRail": "カレンダー予定をレールに表示しない",
-    "calendarHideHelp": "非表示でもエージェントはブロックとして扱います。",
-    "calendarRefresh": "カレンダーを再読み込み",
-    "calendarUntitled": "無題のカレンダー",
-    "calendarConnectedToggle": "接続",
-    "calendarRailVisibilityHelp": "レール：枠を表示するか、予約のみ（エージェントのブロック）。",
-    "calendarRailHide": "非表示",
-    "calendarRailShow": "表示",
-    "resetProfile": "プロフィールをリセット",
-    "resetProfileHelp": "AsyncStorage の onboarding_complete と user_spectrum を削除し、5 シチュエーションのオンボーディングに戻します。",
+    "pilotTitle": "整理 & パイロット（デバッグ）",
+    "note": "内部コックピット — Remote Config vs ローカルモデル、交通シミュレーション、工場出荷時リセット。",
+    "firebaseProjectIdButton": "Firebase projectId を表示（SDK vs .env）",
     "rebuildDb": "データベースを再構築",
-    "rebuildDbHelp": "工場出荷状態に戻す：SQLite・AsyncStorage・各サービス — その後5シチュエーションのオンボーディングへ。",
+    "rebuildDbHelp": "意図テーブル（talkndone.db）を順次再構築します。",
+    "clearDb": "データベースをクリア",
+    "clearDbHelp": "意図（Trankil-v2）行のみ削除し、設定は触りません。",
+    "clearDbConfirmTitle": "データベースをクリアしますか？",
+    "clearDbConfirmBody": "ローカルの意図（Trankil-v2）をすべて削除します。元に戻せません。",
+    "clearDbCancel": "キャンセル",
+    "clearDbConfirm": "クリア",
     "factoryResetConfirmTitle": "データベースを再構築しますか？",
-    "factoryResetConfirmBody": "ローカルデータと設定がすべて消去されます。元に戻せません。",
+    "factoryResetConfirmBody": "意図テーブルを削除して再作成します。元に戻せません。",
     "factoryResetSecondTitle": "最終確認",
-    "factoryResetSecondBody": "システムを完全にリセットしますか？",
+    "factoryResetSecondBody": "意図テーブルの再構築を確認しますか？",
     "factoryResetCancel": "キャンセル",
     "factoryResetContinue": "続行",
-    "factoryResetDestructive": "すべて削除",
-    "factoryResetSuccessTitle": "リセット完了",
-    "factoryResetSuccessBody": "システムをリセットしました。",
-    "factoryResetHealthWarn": "データベースは再作成されましたが、SQLite のヘルスチェックで問題が出ました。",
-    "busyProfile": "プロフィールをリセット中…",
+    "factoryResetDestructive": "すべて消去",
+    "factoryResetSuccessTitle": "データベースを再構築しました",
+    "factoryResetSuccessBody": "意図テーブルを再構築しました。",
     "busySqlite": "SQLite…",
-    "proUserToggle": "Pro をシミュレート（端末＋同期）",
-    "sectionSpectrum": "UserSpectrumContext（生）",
-    "sectionRawIntentions": "Intentions（生）",
-    "rawIntentionsHelp": "SQLite ダンプ：title, start_time_ms, rail_start_minutes, isMicroHabit, isHardConstraint, energy_score, sync_status, raw_transcript、続けて _full_row。挿入またはリセットで更新。",
-    "sectionSyncPurge": "同期とパージ（Firestore）",
-    "syncPurgeHelp": "この端末のクラウドに残るドキュメント数（rail_inbox＝ボット、intentions＝トランジットコピー）。SQLite 取り込み後は 0 になるのが目安。時刻＝最後にクラウド削除に成功した時刻。",
-    "syncPurgeRefresh": "クラウド状態を更新",
-    "syncPurgeRailInboxCloud": "rail_inbox（クラウド）",
-    "syncPurgeTransitCloud": "トランジット intentions（クラウド）",
-    "syncPurgeLastRail": "最後の rail_inbox パージ",
-    "syncPurgeLastTransit": "最後のトランジット intentions パージ",
-    "syncPurgeNever": "なし",
-    "syncPurgeNoDb": "Firebase 利用不可（クラウド集計なし）。",
-    "purgeIntentions": "Intentions を空にする",
-    "purgeIntentionsBusy": "削除中…",
-    "purgeIntentionsConfirmTitle": "すべての Intentions を削除？",
-    "purgeIntentionsConfirmBody": "ローカルの Intentions とマイクロ習慣チェックを削除。プロファイル試験の合間に便利。",
-    "purgeIntentionsCancel": "キャンセル",
-    "purgeIntentionsConfirm": "すべて削除",
-    "sectionAgentNativeTitle": "ネイティブエージェント（SQLite なし）",
-    "forceAgentAlarmButton": "エージェント強制：アラーム（+10 分）",
-    "forceAgentAlarmHelp": "10 分後にシステム通知を予約（高優先度アラームチャンネル、rail 音）。SQLite 不使用 — JS→Android の経路確認。",
-    "forceAgentAlarmBusy": "テストアラームを予約中…",
-    "forceAgentAlarmSuccessTitle": "アラームを予約しました",
-    "forceAgentAlarmSuccessBody": "OS / Expo ID: {{id}}",
-    "forceAgentAlarmErrorTitle": "予約に失敗",
-    "sectionPower": "PowerContext（生）",
-    "simSectionTitle": "外部入力シミュレーション",
-    "simSectionHelp": "Webhook 風の注入。プラットフォームユーザーIDがある場合、送信者と一致する必要があります。",
-    "simSampleRaw": "18時にパンを買う",
-    "simLineRaw": "通話前に資料を送る",
-    "simWhatsApp": "WhatsApp メッセージをシミュレート",
-    "simWhatsAppHelp": "WhatsApp コネクタ経由でサンプル意図を SQLite に投入します。",
-    "simWhatsAppIntentionButton": "受信 WhatsApp メッセージをシミュレート",
-    "simWhatsAppIntentionHelp": "ローカル意図「Test WhatsApp」を作成して Radar と Timeline を確認します。",
-    "simWhatsAppIntentionBusy": "テスト意図を作成中…",
-    "simLine": "LINE メッセージをシミュレート",
-    "simLineHelp": "LINE コネクタで同じフロー。",
-    "simBusy": "意図を注入中…",
-    "simErrorUser": "ユーザーIDが一致しません — プロフィールのIDを合わせるか、空のままローカルシムを使ってください。",
-    "demoDaySectionTitle": "Stats デモ",
-    "demoDayHelp": "今日完了したセッションを5件（Structure / Momentum / Zen）挿入し、Stats をデモ向けに埋めます。",
-    "demoDayButton": "典型日を生成",
-    "demoDayBusy": "典型日を投入中…",
-    "demoIntent1Title": "午前の枠と優先度",
-    "demoIntent1Desc": "短いリストで一つの明確な優先事項。",
-    "demoIntent2Title": "受信箱スプリント",
-    "demoIntent2Desc": "チームのブロックを外すための素早いやり取り。",
-    "demoIntent3Title": "画面なしの休憩",
-    "demoIntent3Desc": "呼吸と距離感を取り戻す数分。",
-    "demoIntent4Title": "マイルストーン確認",
-    "demoIntent4Desc": "昼過ぎの次の一歩のすり合わせ。",
-    "demoIntent5Title": "トラッキングボード",
-    "demoIntent5Desc": "指標と負荷の更新。",
-    "semantic_tags": "セマンティックタグ",
-    "user_profile_sync_success": "ユーザープロファイルを更新しました。",
-    "user_profile_sync_error": "ユーザープロファイルの更新に失敗しました。",
-    "soundSectionTitle": "Sound settings",
-    "soundHelp": "Selects the bundled .wav for rail alarms (native rebuild after adding files). Android uses one notification channel per variant so the OS actually plays the selected sound.",
-    "soundDefault": "Default",
-    "soundZen": "Zen",
-    "soundDigital": "Digital",
-    "firebaseProjectIdTitle": "Firebase — projectId (debug)",
+    "firebaseProjectIdTitle": "Firebase — projectId（デバッグ）",
     "firebaseProjectIdBody": "SDK (app.options.projectId):\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID:\n{{env}}",
     "firebaseSdkNullLabel": "(getFirebaseApp = null)",
-    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* missing)",
-    "testWhatsAppTitle": "Test WhatsApp",
-    "testWhatsAppRaw": "Test WhatsApp (debug simulation)",
-    "talkCaptureSectionTitle": "Talk monitor (Quick / Deep)",
-    "talkCaptureEmpty": "No recent capture — use the Talk tab.",
-    "talkCaptureModeQuick": "Quick mode",
-    "talkCaptureModeDeep": "Deep mode",
-    "talkCaptureRawLabel": "Raw transcript",
-    "talkCaptureLocalLabel": "Local triage (JSON)",
-    "talkCaptureGeminiLabel": "Gemini (full JSON)"
-  },
-  "legal": {
-    "screenTitle": "について",
-    "lead": "データと TellYouTo の利用について、透明性を持って説明します。",
-    "privacyTitle": "プライバシー",
-    "privacyBody": "TellYouTo は個人の領域を大切にします。ほとんどの意図は端末内の SQLite に残り、システムストレージと同様に保護されます。\n\nFirebase 同期を有効にした場合、サービスに必要なデータのみがやり取りされ、アクセスは Firebase 認証とサーバー側のセキュリティルールに基づきます。コンテンツを第三者に販売しません。\n\n上級者向けのパイロットツールからデータベースを再構築するとローカルデータを消去できます。法的な質問（GDPR 等）は適切な専門家にご相談ください。",
-    "termsTitle": "利用規約",
-    "termsBody": "TellYouTo を利用すると、集中とウェルビーイングを重視する体験に同意したことになります。アプリは現状有姿で提供され、AI や提案は不完全な場合があります — 判断の責任はあなたにあります。\n\nコネクタやシミュレーションは、第三者サービスを尊重する合法的な方法で使用してください。\n\n明確さやコンプライアンスのため、文言や機能を更新することがあります。アプリに表示される版が優先します。"
-  },
-  "allyVoice": {
-    "personalGreeting": "{{name}}さん、",
-    "greet": {
-      "morning": {
-        "structure": "走る前に：短いリストだけでレールの枠が決まります。",
-        "momentum": "朝からエネルギー高め。準備ができたらレールを動かそう。",
-        "zen": "おはよう。まずは穏やかな意図で、頭の中を整えよう。",
-        "stats": "一日の始まりに、一つの数字かマイルストーンをはっきり。"
-      },
-      "afternoon": {
-        "structure": "昼過ぎ：小さく立て直すと午後が楽になります。",
-        "momentum": "午後はテンポが大事。次の意図を一つだけはっきり。",
-        "zen": "深呼吸して、次のブロック用に静かな時間を選ぼう。",
-        "stats": "今が振り返りどき。目標に対してどこまで来た？"
-      }
-    },
-    "farewell": {
-      "evening": {
-        "structure": "一日の終わり：一つきれいに閉じて、あとは手放して。",
-        "momentum": "今日はよく動いた。エンジンを冷まして、明日またレールで。",
-        "zen": "穏やかな夜へ。今日の明瞭さには、静かな締めが似合う。",
-        "stats": "数字は明日でいい。進んだことを認めて。"
-      },
-      "night": {
-        "structure": "もう遅い時間。明日のリストは朝で十分。",
-        "momentum": "勢いは取っておこう。レールは逃げない。",
-        "zen": "静かな夜。軽い意図か、ただ休むだけでも。",
-        "stats": "ダッシュボードは眠る。あなたも、できれば。"
-      }
-    },
-    "suggestFocusCapsule": "とても速いペースですね。難しいタスクにはフォーカスカプセルが役立つかもしれません。"
-  },
-  "connectors": {
-    "whatsapp": "WhatsApp",
-    "line": "LINE"
+    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* 未設定)",
+    "dashboardSectionPilotageIa": "[AI パイロット]",
+    "dashboardSectionFluxTraffic": "[交通フロー]",
+    "dashboardSectionSysteme": "[システム]",
+    "simUserModeTitle": "テストユーザーモード：{{tier}}",
+    "simUserModeReal": "実際",
+    "simUserModeFree": "FREE",
+    "simUserModePro": "PRO",
+    "simUserModeHelp": "アプリは即座に反映します（クォータ、ペイウォール）。有効 UI ティア：{{effective}}。",
+    "rcPass1Caption": "Remote Config (gemini_pass1_model_id)",
+    "rcPass2Caption": "Remote Config (gemini_pass2_model_id)",
+    "rcModelValue": "{{modelId}}",
+    "rcModelUnavailable": "—（Firebase なし、または Remote Config 未解決）",
+    "localPass1Caption": "有効 Pass 1（抽出）",
+    "localPass2Caption": "有効 Pass 2（推論）",
+    "localModelValue": "{{modelId}}",
+    "localOverridesRcHint": "有効 Pass 2 が RC と異なります（デバッグ override またはヘルスチェック）。",
+    "iaHealthButton": "AI ヘルスチェックを実行",
+    "iaHealthTitle": "AI ヘルスチェック",
+    "iaHealthBody": "Pass 1 ({{pass1}}): {{pass1Ok}}\nPass 2 勝者: {{pass2}}\nPass 2 プローブ: {{tested}}（ショートリストスキップ: {{skipped}}）/ {{total}} モデル。",
+    "iaHealthErrorTitle": "AI ヘルスチェック失敗",
+    "busyIaHealth": "モデルをプローブ中…",
+    "geminiRemoteModelRefresh": "Remote Config を更新",
+    "oneTapPerfTitle": "ワンタップ性能（T0–T3 マーカー）",
+    "oneTapPerfEmpty": "測定なし — Talk Debug からワンタップ refine を実行してください。",
+    "oneTapPerfT0": "T0: {{ms}} ms",
+    "oneTapPerfT1": "T1: {{ms}} ms",
+    "oneTapPerfT3": "T3: {{ms}} ms",
+    "oneTapPerfGemini": "Gemini: {{ms}} ms",
+    "oneTapPerfTotal": "T1 からの合計: {{ms}} ms",
+    "timelineLayoutTitle": "Timeline レイアウト",
+    "timelineLayoutHint": "現在のカードとメールハブを切り替え。ロールバック：現在のカード。上記すべてのテーマで動作。",
+    "timelineLayoutCurrent": "現在のカード",
+    "timelineLayoutEmailHub": "メールハブ",
+    "trafficLaunchElastic": "エラスティックジャンプシミュレーションを開始",
+    "trafficMonitorTitle": "交通監視（シミュレーション）",
+    "trafficSimulatedTime": "シミュレーション時刻：{{time}}",
+    "trafficNextJump": "次のジャンプ：{{sec}} 秒（実時間）",
+    "trafficEmaMin": "安定化交通時間（EMA）：{{min}} 分",
+    "trafficStatusLabel": "ステータス：",
+    "trafficBufferSafety": "BufferSafety: {{min}} min",
+    "trafficCriticalTopDepartTitle": "CRITICAL: TOP_DEPART 発動",
+    "trafficDebugTripDestination": "Muret → Toulouse",
+    "sqliteCountsLine": "intentions={{intentions}} | tasks={{tasks}}",
+    "busySimElastic": "交通シミュレーション…",
+    "busyRemoteModel": "Remote Config…"
   },
   "connector": {
     "defaultFirstName": "あなた",
-    "telegramAllyWelcome": "{{firstName}}さん、こんにちは！アリーだよ。ボイスでもテキストでも送って — レールは任せて。{{appLink}}",
-    "botWelcomeMessage": "こんにちは{{firstName}}さん。ここは意図を作るプライベート空間です（テキストまたは音声）。内容は厳密に機密で、スマホと同期します。{{appLink}}",
-    "botRailAck": "受け取ったよ！追加済み。レールを見てね ⚡️\n{{url}}",
-    "whatsappInitCelebration": "接続できたよ！アリーが聞いている…",
-    "botRechargeRedirect": "メッセンジャー枠がゼロです。チャージはこちら：{{url}}",
-    "copyLinkHint": "チャットアプリがない場合はリンクをコピーしてください。",
-    "deepLinkRadar": "レーダーを開く",
-    "deepLinkTimeline": "タイムラインを開く",
-    "deepLinkRecharge": "チャージステーション"
+    "botWelcomeMessage": "こんにちは {{firstName}}、テキストや音声で意図を作成するプライベート空間です。すべて厳重に保護され、端末と同期されます。 {{appLink}}",
+    "botRailAck": "了解！追加しました。Rail を確認 ⚡️\n{{url}}",
+    "botRechargeRedirect": "メッセンジャークォータが空です — Recharge ステーションを開いてください：{{url}}"
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",
-    "externalIntentionBody": "アリーが新しい意図を受け取りました：{{title}}。レールに載っています。"
-  },
-  "recharge": {
-    "eyebrow": "感覚ステーション",
-    "title": "リチャージ",
-    "subtitle": "リズムを選ぶ。落ち着いた広告枠をシミュレートし、30秒の心のコヒーレンスへ — コパイロットにエネルギーが入ります。",
-    "modes": {
-      "flash": {
-        "title": "フラッシュ",
-        "desc": "クイックリセット — 軽く、すぐ戻る。"
-      },
-      "breath": {
-        "title": "呼吸",
-        "desc": "コヒーレンスのペース — やわらかい泡、落ち着いた神経系。"
-      },
-      "immersion": {
-        "title": "没入",
-        "desc": "より深い休憩 — アリーにより多くのクレジット。"
-      }
-    },
-    "adSim": {
-      "title": "ドーパミン・ポーズ",
-      "sub": "倫理的枠 — スポンサー演出。次は心のコヒーレンス。"
-    },
-    "dopamine": {
-      "title": "泡と一緒に呼吸",
-      "hint": "上がるときに吸い、下がるときに吐く — 波は約10秒。"
-    },
-    "done": {
-      "title": "リチャージ完了",
-      "sub": "コパイロットにエネルギーを追加しました。またいつでもどうぞ。",
-      "cta": "続ける"
-    }
+    "externalIntentionBody": "アライが新しい意図をキャプチャしました：{{title}}。Rail に載っています。",
+    "offlineAudioReadyTitle": "オフライン メモ利用可能",
+    "offlineAudioReadyBody": "音声キャプチャが分析待ちです。",
+    "offlineAnalyzeAction": "分析",
+    "offlineKeepAudioAction": "音声を保持"
   },
   "ally": {
-    "calendarConflictTitle": "時間が重なっています",
-    "calendarConflictBody": "カレンダーに予定があります。カプセルを開始してもよいですし、少しずらしてもよいです。",
-    "calendarConflictContinue": "それでも開始",
-    "calendarConflictBack": "キャンセル",
-    "hardRoutineConflictTitle": "予約済みの枠",
-    "hardRoutineConflictBody": "この枠はルーティン「{{name}}」用に取ってあります。別の時間を探しますか？",
-    "hardRoutineConflictDismiss": "OK",
-    "settingsTitle": "コパイロット",
-    "settingsLead": "TellYouToの声・トーン・言語を選びます。",
-    "messengerRemindersTitle": "メッセンジャーリマインダー",
-    "messengerRemindersSubtitle": "各レール枠の前にボットから通知できます（意図・ルーティン）。",
-    "messengerRemindersSwitch": "メッセンジャーでリマインダーを受け取る",
-    "messengerRemindersLead": "開始何分前",
-    "messengerRemindersHint": "短い文でスマホ・ウォッチ向け。Telegramは通常通知（チャットの通知設定に従う）。",
-    "sectionVoice": "声",
-    "sectionTone": "トーン",
-    "sectionUiLang": "インターフェース言語",
-    "sectionAiLang": "AI対話言語",
-    "uiLangHint": "アプリのメニューとラベル。",
-    "aiLangHint": "コパイロットが思考・返答に使う言語（UIと別でも可）。",
-    "openSettings": "設定",
-    "externalHelp": "フォーカスについて（Web）",
-    "versionLabel": "バージョン {{version}}",
-    "debugUnlockTitle": "開発者モード",
-    "debugUnlockBody": "アクセスが許可されました。",
-    "sectionLegal": "情報",
-    "legalNav": "アプリについて・法的表示",
-    "voice": {
-      "balanced": "バランス",
-      "warm": "あたたかい",
-      "crisp": "シャープ"
-    },
-    "tone": {
-      "clear": "クリア",
-      "calm": "カーム",
-      "dynamic": "ダイナミック"
-    },
-    "lang": {
-      "fr": "Français",
-      "en": "English",
-      "es": "Español",
-      "de": "Deutsch",
-      "it": "Italiano",
-      "ja": "日本語",
-      "zh": "中文",
-      "ar": "العربية",
-      "ko": "한국어",
-      "nl": "Nederlands",
-      "sv": "Svenska"
-    }
+    "openSettings": "設定"
   },
   "health": {
-    "bannerLead": "お知らせ：",
-    "warnFirebase": "クラウド同期がまだ設定されていません",
-    "warnSqlite": "ローカルDBの確認に失敗しました",
-    "warnNotifications": "通知がオフになっています。設定で有効にすると、新しい意図をリアルタイムで受け取れます。",
+    "bannerLead": "そっとお知らせ：",
+    "warnFirebase": "クラウド同期はまだ設定されていません",
+    "warnSqlite": "ローカル DB チェックに失敗しました",
+    "warnNotifications": "通知がオフです。設定で有効にすると新しい意図をリアルタイムで受け取れます。",
     "dismiss": "OK"
   },
-  "safeExternal": {
-    "title": "TellYouToを離れますか？",
-    "message": "フォーカスゾーンにいます。外部リンクを開きますか？",
-    "stay": "とどまる",
-    "leave": "離れる"
-  },
   "agent": {
-    "energyLine": "エネルギー: {{pct}} % · 省電力: {{low}}",
-    "yes": "はい",
-    "no": "いいえ",
-    "agentPool": "コパイロット時間: {{seconds}} 秒",
-    "allyPreview": "声: {{voice}} · トーン: {{tone}} · AI言語: {{lang}}",
     "alarmPermissionTitle": "通知が必要です",
-    "alarmPermissionBody": "通知の許可がないと、ローカルAIエージェントはレールのアラームを端末に設定できません。システム設定でこのアプリの通知（Androidではアラーム）を有効にしてください。",
+    "alarmPermissionBody": "通知権限がないと、ローカル AI エージェントは Rail アラームを鳴らせません。このアプリの通知（Android ではアラームも）を有効にしてください。",
     "railChannelName": "TellYouTo · Rail ({{soundId}})"
   },
   "common": {
-    "habits": "習慣",
-    "projects": "プロジェクト",
-    "later": "Later",
-    "tryAgainSoon": "Try again in a moment.",
-    "active": "Active",
-    "inactive": "Inactive",
-    "premiumQuota": "Premium quota",
-    "premiumQuotaRemaining": "Premium quota remaining: {{count}}"
+    "cancel": "キャンセル",
+    "habits": "習慣"
   },
-  "eveningRitual": {
-    "title": "Star Ritual",
-    "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
-    "victoryLabel": "Victory of the day",
-    "tomorrowPlaceholder": "One thought for tomorrow?",
-    "cta": "One thought for tomorrow?",
-    "saving": "Anchoring...",
-    "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
-    "gratitudeLine2": "Every step counts. Your sky opens this evening.",
-    "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
-    "temperamentLabel": "現在の気質: {{profile}}",
-    "profileOverride": {
-      "1": {
-        "action_tip": "すべてにチェックが付いていなくても大丈夫。明日に向けて一つの明確な行動で十分です。"
-      },
-      "4": {
-        "insight": "あなたの頭の中は整理され、安全です。大切なことはすべてカレンダーに固定されています。",
-        "action_tip": "今夜は負荷を手放して大丈夫。あなたのシステムは整っていて安定しています。"
-      }
-    }
-  },
-  "economy": {
-    "labels": {
-      "zenPoints": "Zen Points",
-      "aiCredits": "AI Credits"
-    },
-    "aiCreditsCount": "{{count}} AI Credits",
-    "balanceInsufficientTitle": "Insufficient balance",
-    "recharge": {
-      "modalTitle": "AI Recharge",
-      "modalBody": "Your Ad-Free mode is active, but AI still needs fuel. Watch one video for +5 credits.",
-      "watchVideoCta": "Watch a video",
-      "dailyCapReached": "Daily recharge limit reached. Let your AI rest until tomorrow!",
-      "cooldown": "Please wait 60 seconds between recharge videos.",
-      "unavailableTitle": "Recharge unavailable",
-      "rewardToast": "+5 AI Credits"
-    },
-    "shop": {
-      "title": "Time Shop",
-      "zenModeActive": "Zen Mode Active",
-      "adFreeState": "Ad-free status: {{state}}.",
-      "serenityDescription": "Removes intrusive banners and ads. Note: manual AI video recharge stays available to fuel your projects.",
-      "buySerenity": "24h of Serenity - 500Z",
-      "buyBoost": "Intelligence Boost (+5 AI) - 300Z",
-      "purchaseSuccessTitle": "Purchase confirmed",
-      "serenityInsufficientBody": "You need 500Z to activate 24h of serenity.",
-      "boostInsufficientBody": "You need 300Z to buy this boost.",
-      "serenitySuccessBody": "24h of serenity activated.",
-      "boostSuccessBody": "+5 AI Credits added."
-    },
-    "debugAddZen": "+10 Zen",
-    "debugAddAiCredit": "+1 AI Credit"
-  },
-  "quests": {
-    "notReadyTitle": "Quest not ready",
-    "notReadyBody": "Requirements are not met yet.",
-    "bonusReceivedTitle": "Bonus received",
-    "claimedToast": "Quest completed +{{gain}}Z",
-    "dailyTitle": "Quest of the Day - {{title}}",
-    "progress": "Progress: {{current}}/{{target}}",
-    "alreadyClaimed": "Bonus already claimed",
-    "claimCta": "Claim my bonus"
-  },
-  "horizons": {
-    "rearbitrate": "To re-arbitrate",
-    "today": "Today",
-    "tomorrow": "Tomorrow",
-    "thisWeek": "This week",
-    "noPressure": "No pressure",
-    "optionalNoPressure": "Optional (No pressure)",
-    "rebalanceToToday": "Move to Today",
-    "rebalanceToNoPressure": "Move to No pressure"
+  "project": {
+    "title_placeholder": "プロジェクトタイトル",
+    "add_steps": "+",
+    "zoom_confirm_title": "AI にこのステップを分解させますか？",
+    "zoom_action_start": "分解",
+    "zoom_generating_status": "ステップを作成中",
+    "zoom_background_action": "バックグラウンドで処理",
+    "status_processing": "処理中…",
+    "zoom_view_steps": "ステップを表示"
   },
   "talkHome": {
-    "frequencyLabel": "Frequency",
-    "whenLabel": "When?",
-    "habitFrequencyPlaceholder": "Daily, Week, Weekend",
-    "whenPlaceholder": "Optional (e.g. tomorrow, 6pm...)",
-    "frequencyDaily": "Daily",
-    "frequencyWeek": "Week",
-    "frequencyWeekend": "Weekend",
-    "brandName": "TalkNDone",
-    "talkieProjet": "PROJECT",
-    "talkieIntention": "INTENTION",
-    "talkieQuickNote": "QUICK NOTE",
-    "a11yTalkieProjet": "Project — expert capture to break down a complex idea",
-    "a11yTalkieIntention": "Intention — hold to capture, release for on-device triage",
-    "a11yTalkieQuickNote": "Quick note — raw capture with no analysis",
-    "profileButton": "Open profile",
-    "priorityHigh": "High-priority",
-    "questionHydration": "Drink a glass of water?",
-    "yes": "YES",
-    "no": "NO",
-    "localPrivacyHint": "Managed by local AI • Total Privacy",
-    "progressCurrent": "Current task: 1/3",
-    "progressNextAnchor": "Next anchor: Meditation (evening)",
-    "holdToTalk": "Hold to speak",
-    "status": {
-      "listening": "Listening",
-      "analyzing": "Analyzing…"
-    },
-    "button": {
-      "stop": "STOP"
-    },
-    "label": {
-      "quickIntent": "Quick mode — on-device",
-      "deepIntent": "Deep mode — Gemini"
-    },
-    "hintTapQuick": "Short tap: quick intent (on-device recognition).",
-    "hintHoldDeep": "Hold to unlock: hands-free recording, then STOP → Gemini.",
-    "a11yMainIdle": "Short tap for on-device speech, or hold for hands-free Gemini capture",
-    "a11yStopQuick": "Stop listening and analyze locally",
-    "a11yStopDeep": "Stop recording and send to Gemini",
-    "deepNoApiKeyTitle": "Gemini API key",
-    "deepNoApiKeyBody": "Gemini proxy not configured. Deploy the Cloud Function and restart the app.",
-    "orbital": {
-      "hintSlide": "Slide the bead to Task (right) or Project (left), then hold the mic.",
-      "holdRelease": "Release to finish",
-      "pickTitle": "Choose a mode",
-      "pickBody": "Snap the bead to Task or Project before speaking."
-    },
-    "a11yMicNeutral": "Mic: slide the bead to Task or Project first, then hold to speak",
-    "a11yMicQuick": "Mic: hold for on-device dictation (Task)",
-    "a11yMicDeep": "Mic: hold for Project recording sent to Gemini",
-    "microphonePermissionTitle": "Microphone access required",
-    "microphonePermissionBody": "Allow microphone access to record your voice with TalkNDone.",
-    "microphonePermissionDeniedTitle": "Microphone blocked",
-    "microphonePermissionDeniedBody": "Voice input cannot start without microphone access. Open system settings and allow the microphone for TalkNDone.",
-    "speechRecognitionUnavailableTitle": "Speech recognition unavailable",
-    "speechRecognitionUnavailableBody": "This device has no usable system speech recognizer (on Android this is often tied to the Google app and speech services). Install or update the Google app, check your system language, then try again.",
-    "speechErrorNotAllowed": "Microphone or speech recognition is denied for TalkNDone. Open system settings and allow access.",
-    "speechErrorService": "The system speech recognizer is not available. Check that Google Speech Services (Android) or Dictation (iOS) is enabled.",
-    "speechErrorNetwork": "Recognition failed due to a network issue. Try again or check your connection.",
-    "speechErrorNoSpeech": "No speech detected. Speak a little louder or closer to the microphone.",
-    "speechErrorClient": "Recognizer engine error. Please try again shortly.",
-    "speechErrorInterrupted": "Recognition was interrupted (call, Siri, or another audio app). Try again when audio is free.",
-    "speechErrorGeneric": "{{message}}",
-    "speechDebugTitle": "Technical detail (dev)",
-    "speechDebugBody": "{{detail}}",
-    "recordingErrorTitle": "Recording",
-    "recordingErrorStart": "Unable to start recording.",
-    "recordingErrorStop": "Unable to stop recording.",
-    "recordingErrorMissingFile": "Audio file not found after recording.",
-    "recordingTooShortTitle": "Recording too short",
-    "recordingTooShortBody": "Hold the button a little longer to capture audio.",
-    "transcriptionTitle": "Local transcription",
-    "listeningNow": "I'm listening...",
-    "confirmIntro": "Confirm to take this into account:",
-    "confirmTypePrefix": "Type",
-    "confirmActionLabel": "Action",
-    "confirmMomentLabel": "Moment",
-    "timeUnspecified": "Not specified",
-    "intentType": {
-      "habit": "Habit",
-      "task": "Task",
-      "project": "Project",
-      "note": "Note"
-    },
-    "editIntentA11y": "Edit action and moment",
-    "voiceLivePlaceholder": "…",
-    "voiceWebUnsupportedTitle": "Speech recognition",
-    "voiceWebUnsupportedBody": "Native dictation is not available on the web. Use the iOS or Android app.",
-    "voiceProcess": "PROCESS",
-    "voiceCallExpert": "CALL EXPERT",
-    "voiceCancel": "CANCEL",
-    "voiceValidate": "VALIDATE",
-    "voiceNote": "NOTE",
-    "scenarioLocal": "Scenario A · Quick local validation",
-    "scenarioComplex": "Scenario B · Expert refinement on demand",
-    "scenarioQuickNote": "Raw capture · Inbox (no triage)",
-    "scenarioComplexHint": "Scenario B ready: call the expert if needed.",
-    "transcriptionUnclearTitle": "Transcription",
-    "transcriptionUnclearBody": "Sorry, I did not understand.",
-    "titleRequiredTitle": "Title required",
-    "titleRequiredBody": "Add a short title before processing.",
-    "voicePersistErrorTitle": "Could not save",
-    "voicePersistErrorBody": "This intention could not be saved. Please try again shortly.",
-    "confirmEmptyTitle": "—"
+    "microphonePermissionTitle": "マイクアクセスが必要です",
+    "microphonePermissionDeniedBody": "マイクがないと音声入力を開始できません。システム設定で TalkNDone のマイクを許可してください。",
+    "listeningNow": "聞いています..."
   },
   "errorBoundary": {
     "brand": "TalkNDone",
-    "title": "A moment without a blank screen",
-    "body": "A tiny snag in the gears — nothing serious. Breathe; you can restart when you’re ready.",
-    "restartA11y": "Restart the app",
-    "restart": "Restart"
+    "title": "真っ白な画面のないひととき",
+    "body": "歯車に小さな引っかかり — 大したことではありません。深呼吸して、準備ができたら再起動してください。",
+    "restartA11y": "アプリを再起動",
+    "restart": "再起動"
   },
   "nativeModule": {
-    "missingTitle": "Native module error",
-    "missingBody": "{{name}} is missing or not linked to the current binary.\nContext: {{context}}\n→ Android rebuild required (npx expo prebuild --clean --platform android, then compile).\n\n{{detail}}",
-    "unknownModuleName": "(unknown module)",
-    "contextTalkHomeSpeech": "Talk · speech recognition",
-    "contextTalkHomePersist": "Talk · voice intention (local DB)",
-    "contextRadarSave": "Radar · save (local DB / notifications / alarms)",
-    "contextInsertIntention": "Insert intention (SQLite / notifications)"
+    "missingTitle": "ネイティブモジュールエラー",
+    "missingBody": "{{name}} が見つからないか、現在のバイナリにリンクされていません。\nコンテキスト: {{context}}\n→ Android 再ビルドが必要（npx expo prebuild --clean --platform android、後にコンパイル）。\n\n{{detail}}",
+    "unknownModuleName": "（不明なモジュール）",
+    "contextTalkHomeSpeech": "Talk · 音声認識",
+    "contextTalkHomePersist": "Talk · 音声意図（ローカル DB）"
   },
-  "semanticLab": {
-    "kind": {
-      "habit": "Habit",
-      "task": "Task",
-      "project": "Project"
-    },
-    "yes": "yes",
-    "no": "no",
-    "alertWebUnsupportedTitle": "Not supported",
-    "alertWebUnsupportedBody": "expo-av recording: iOS / Android only.",
-    "alertMicTitle": "Microphone",
-    "alertMicDeniedBody": "Microphone permission denied.",
-    "alertRecordingTitle": "Recording",
-    "alertRecordingNoActiveBody": "No active recording — tap START first.",
-    "alertApiKeyTitle": "API key",
-    "alertApiKeyBody": "Gemini proxy not configured. Deploy the Cloud Function and restart the app.",
-    "pipelineErrorExpoAvRebuild": "Native expo-av module missing: rebuild required (npx expo prebuild + run:android / run:ios).",
-    "errorUriAfterStop": ".m4a file URI missing after stop.",
-    "webUnsupportedMessage": "Web not supported — use iOS or Android (expo-av).",
-    "lead": "Pipeline: .m4a (source of truth) → Gemini Flash transcription → [LOCAL AI] vs [GEMINI]. No SQLite / Firestore writes.",
-    "btnStart": "START (.m4a)",
-    "btnStopPipeline": "STOP & PIPELINE",
-    "btnReset": "RESET (memory + file)",
-    "loaderLabel": "Transcription + analysis…",
-    "sectionRaw": "— RAW TEXT (Gemini transcription)",
-    "sectionLocal": "— [LOCAL AI] (reformulateStructuredIntent + frequency)",
-    "sectionGemini": "— [GEMINI FLASH] (structured JSON)",
-    "sectionSynth": "— SUMMARY (comparison)",
-    "emptyPlaceholder": "—",
-    "localLineType": "Type: {{kind}} ({{kindCode}})",
-    "localLineFrequency": "Frequency: {{value}}",
-    "localLineTitle": "Title (cleaned): {{value}}",
-    "localLineTimeMarker": "timeMarker: {{value}}",
-    "synthNoGeminiHeader": "(No Gemini analysis — see pipeline error above.)\n",
-    "synthLocalOnlyLine": "[LOCAL AI] only: {{kind}} — frequency: {{freq}}",
-    "synthAligned": "Types aligned: {{localLabel}} = Gemini \"{{geminiType}}\".\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}",
-    "synthMismatch": "Mismatch: [LOCAL AI] said « {{localLabel}} », [GEMINI FLASH] said « {{geminiType}} ».\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}\nComplex project (Gemini): {{complex}}\nWhy (Gemini): {{reasoning}}"
+  "listIntention": {
+    "proTeaserTitle": "Pro",
+    "proTeaserBody": "Pro でリストを即座にスケール（ゲスト、装備、ロジスティクス）。",
+    "unreadable": "このリストを読み込めませんでした。",
+    "a11yDecrease": "スケールを縮小",
+    "a11yIncrease": "スケールを拡大"
   },
   "talkDebug": {
-    "noteSaved": "メモを保存しました",
-    "audioTitle": "音声メモ",
-    "audioMissing": "音声ファイルが見つかりません。",
-    "audioSaved": "音声メモを保存しました",
-    "actionSuccess": "操作が完了しました。",
     "sacredSpace": {
-      "title": "Sacred Space"
+      "title": "サークレッドスペース"
+    },
+    "noteSaved": "メモを保存しました",
+    "audioSaved": "音声メモを保存しました",
+    "captureTitle": "キャプチャ",
+    "taskQuickRecapIntro": "タスクを保存しました",
+    "habitQuickRecapIntro": "習慣を保存しました",
+    "birthdayLabel": "誕生日",
+    "listSavedToast": "リストを保存しました",
+    "projectSavedToast": "プロジェクトを保存しました",
+    "intentionSuggestionsEyebrow": "意図のアイデア",
+    "voiceWaveformA11y": "ライブ音声レベル",
+    "micQuotaUpsellHint": "1 日 3 回無料。PRO で無制限。",
+    "oneTapEmptyTranscript": "文字起こしされませんでした。マイクに近づいて再試行してください。",
+    "oneTapListSection": "リスト",
+    "oneTapListItems": "保存する行",
+    "oneTapListUnitPlaceholder": "人、日…",
+    "oneTapTaskSection": "タスク",
+    "oneTapWebDateLabel": "日付 (YYYY-MM-DD)",
+    "oneTapPickDate": "日付を選ぶ",
+    "oneTapClearDate": "日付をクリア",
+    "oneTapTaskDueTime": "時刻（任意）",
+    "oneTapTaskNotes": "メモ",
+    "oneTapRecurringSection": "繰り返し",
+    "oneTapCadence": "頻度",
+    "oneTapAnchorNotes": "アンカーメモ",
+    "oneTapHabitSection": "習慣",
+    "oneTapPreferredTime": "希望時刻",
+    "oneTapAnniversarySection": "年次イベント",
+    "oneTapPersonName": "人物または件名",
+    "oneTapMonthDay": "日付 (MM-DD または YYYY-MM-DD)",
+    "oneTapReminderDays": "リマインダー（何日前）",
+    "oneTapUniversalReminderTitle": "予定リマインダー",
+    "oneTapUniversalDueLabel": "期限",
+    "oneTapUniversalRecLabel": "繰り返し",
+    "oneTapClearUniversalReminder": "リマインダーを削除",
+    "oneTapAddReminderCta": "+ リマインダーを追加",
+    "oneTapWebDueDateTimeIso": "ISO 日時（リマインダー）",
+    "oneTapReminderNotifTitle": "TellYouTo リマインダー",
+    "oneTapReminderRecurringTitle": "定期リマインダー",
+    "oneTapNoteSection": "メモ",
+    "oneTapConfirm": "保存",
+    "oneTapPrintErrorTitle": "印刷",
+    "oneTapPrintNeedsNativeBuild": "印刷モジュールがこのアプリバイナリに含まれていません。expo-print 追加後に development build（例 npx expo run:android）を使うか、アプリを再ビルドしてください。Expo Go には新規ネイティブモジュールが含まれない場合があります。",
+    "stepTransport": "音声を録音中…",
+    "stepTranscription": "音声を文字起こし中…",
+    "stepAnalysis": "コンテンツを生成中…",
+    "stepComplete": "完了！",
+    "actionAddNote": "メモを追加",
+    "errorNetwork": "ネットワーク不安定。ローカルに保存しました。",
+    "oneTapType": {
+      "TASK": "タスク",
+      "RECURRING_TASK": "定期タスク",
+      "HABIT": "習慣",
+      "TRIP": "トリップ",
+      "LIST": "リスト",
+      "ANNIVERSARY": "記念日",
+      "NOTE": "メモ"
     }
   },
-  "navigation": {
-    "semanticBrainLabHeader": "Semantic Brain Lab"
+  "profiling": {
+    "kindness": {
+      "1": {
+        "insight": [
+          "今、頭の中はアイデアでいっぱいですね、{{name}}。",
+          "今日は想像力がとても活発な感じがします、{{name}}。",
+          "意味のあるプロジェクトがたくさん頭の中にありますね、{{name}}。"
+        ],
+        "action_tip": [
+          "小さな一歩だけ選んでみませんか？",
+          "どんなに小さくても、一つ行動して心をすっきりさせましょう。",
+          "深呼吸。一つずつ進めると、心が澄んでいきます。"
+        ]
+      },
+      "2": {
+        "insight": [
+          "最近、リズムが静かになっているようですね、{{name}}。",
+          "一時的な離脱期のような感じです、{{name}}。",
+          "今はエンジンがアイドリング中ですね、{{name}}。"
+        ],
+        "action_tip": [
+          "2 分のマイクロアクションから戻りましょう。",
+          "今、シンプルな一歩を選んで勢いを取り戻しましょう。",
+          "今日小さくチェックインするだけで、軌道に戻れます。"
+        ]
+      },
+      "3": {
+        "insight": [
+          "取り組むと、実行力が鋭いですね、{{name}}。",
+          "スイッチが入ると、すぐ結果に変わりますね、{{name}}。",
+          "不規則なリズムでも、効率は高いですね、{{name}}。"
+        ],
+        "action_tip": [
+          "小さな日課を足してペースを整えましょう。",
+          "短い定期スロットを固定してリズムを安定させましょう。",
+          "小さな継続が、孤立したスプリントに勝ちます。"
+        ]
+      },
+      "4": {
+        "insight": [
+          "カレンダーの流れをとても上手に操っていますね、{{name}}。",
+          "操縦が明確：同期、整列、前進、{{name}}。",
+          "今、強いコーディネーション姿勢ですね、{{name}}。"
+        ],
+        "action_tip": [
+          "地に足をつけるため、一つアクティブなローカル意図を保ちましょう。",
+          "短いレビュー時間を確保して、流れを完全にコントロールしましょう。",
+          "シンプルに：一度に一つの優先事項。"
+        ]
+      },
+      "5": {
+        "insight": [
+          "行動と継続のバランスがとても安定していますね、{{name}}。",
+          "安定した明快さで進んでいますね、{{name}}。",
+          "素晴らしい安定感：実行と継続が揃っています、{{name}}。"
+        ],
+        "action_tip": [
+          "軽い週次レビューでこのペースを維持しましょう。",
+          "毎日小さな勝利を祝って勢いを守りましょう。",
+          "定期リセットスロットでバランスを保ちましょう。"
+        ]
+      },
+      "defaultName": "あなた"
+    },
+    "profiles": {
+      "1": {
+        "label": "ドリーマー",
+        "description": "たくさん意図をキャプチャするが、実行は一部だけ。"
+      },
+      "2": {
+        "label": "ディスコネクテッド",
+        "description": "利用が減り、完了率と継続度が低い。"
+      },
+      "3": {
+        "label": "スプリンター",
+        "description": "実行力は高いが、リズムはまだ不規則。"
+      },
+      "4": {
+        "label": "コンダクター",
+        "description": "オーケストレーションが強く、アーカイブ/エクスポート比率が高い。"
+      },
+      "5": {
+        "label": "ゼン・コンシステント",
+        "description": "実行と定期的な継続のバランスが良い。"
+      }
+    }
   },
-  "intentionDetail": {
-    "pin": "Pin",
-    "unpin": "Unpin",
-    "pinMaxReachedTitle": "Pin limit reached",
-    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
-  }
+  "horizons": {
+    "rearbitrate": "再調整",
+    "today": "今日",
+    "tomorrow": "明日",
+    "thisWeek": "今週",
+    "noPressure": "プレッシャーなし"
+  },
+  "TYPE_TASK": "タスク",
+  "TYPE_HABIT": "習慣",
+  "TYPE_RECURRING_TASK": "定期タスク",
+  "TYPE_LIST": "リスト",
+  "TYPE_ANNIVERSARY": "記念日",
+  "TYPE_NOTE": "メモ",
+  "MODAL_REFINING": "調整中…",
+  "PLACEHOLDER_TITLE": "タイトル…",
+  "DEFAULT_INTENTION_TITLE": "新しい意図",
+  "PLACEHOLDER_LIST": "リスト（1 行 1 項目）…",
+  "PLACEHOLDER_DESTINATION": "目的地…",
+  "COMMON_MINUS": "−",
+  "COMMON_PLUS": "+",
+  "COMMON_YES": "はい",
+  "COMMON_NO": "いいえ",
+  "COMMON_CANCEL": "キャンセル",
+  "MODAL_CONFIRM_OK": "OK",
+  "LOGISTICS_TRAFFIC_ADJUST": "交通に合わせて調整",
+  "LOGISTICS_BUY_TRAJET_PACK": "Recharge",
+  "LOGISTICS_TRAJET_REMAINING_SUFFIX": "（残り: {{n}}）",
+  "SAS_SUMMARY_DEPART_RECOMMENDED": "推奨出発 {{time}}",
+  "SAS_SUMMARY_SCHEDULED": "{{time}} に予定",
+  "SAS_SUMMARY_DESTINATION": "{{destination}} へ",
+  "PLACEHOLDER_NOTE": "メモを入力…",
+  "PLACEHOLDER_DATE": "日付 (YYYY-MM-DD)…",
+  "PLACEHOLDER_TIME": "時刻 (HH:MM)…",
+  "PLACEHOLDER_NOTES": "メモ…",
+  "PLACEHOLDER_ADDRESS": "住所…",
+  "PLACEHOLDER_PERSON": "名前…",
+  "PLACEHOLDER_MONTHDAY": "日付 (MM-DD)…"
 }

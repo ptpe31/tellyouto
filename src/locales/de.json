@@ -1,19 +1,148 @@
 {
-  "app": {
-    "name": "TellYouTo"
+  "intentInteraction": {
+    "menuTitle": "Intention",
+    "archive": "Archivieren",
+    "pinDue": "Verschieben / Datum anheften",
+    "pickDate": "Datum wählen",
+    "cancel": "Abbrechen"
   },
   "inbox": {
     "action": {
-      "remove": "Remove from Inbox",
-      "removeAll": "Remove all from Inbox",
-      "removeConfirmTitle": "Remove from Inbox?",
-      "removeConfirmBody": "The intention stays in TellYouTo but leaves today's Inbox.",
-      "removeAllConfirmTitle": "Remove all from Inbox?",
-      "removeAllConfirmBody": "All {{count}} visible intentions will be marked as triaged."
+      "remove": "Aus Inbox entfernen",
+      "removeAll": "Alle aus Inbox entfernen",
+      "removeAllConfirmTitle": "Alle aus Inbox entfernen?",
+      "removeAllConfirmBody": "Alle {{count}} sichtbaren Intentionen werden als sortiert markiert."
     }
   },
-  "quota": {
-    "format": "{{current}}/{{total}}"
+  "talkCapture": {
+    "hintTap": "Tippen, um eine Sprachnotiz aufzunehmen",
+    "savedTimeline": "Intention in Timeline gespeichert",
+    "savedOfflinePending": "Netzwerk nicht verfügbar: Intention für spätere Verarbeitung gespeichert"
+  },
+  "category": {
+    "HOME": "Zuhause",
+    "WORK": "Arbeit",
+    "PERSO": "Persönlich",
+    "HEALTH": "Gesundheit",
+    "FINANCE": "Finanzen",
+    "TRAVEL": "Reise",
+    "SOCIAL": "Soziales",
+    "SHOP": "Einkaufen",
+    "LEARN": "Lernen",
+    "OTHER": "Sonstiges"
+  },
+  "capture": {
+    "offlineNoteGenericToast": "Auf diesem Gerät gespeichert. Die smarte Sortierung wird fertig, sobald die Verbindung wieder da ist.",
+    "offlineRetryOkToast": "KI-Sortierung abgeschlossen — deine Timeline ist aktuell.",
+    "pendingAiNetworkBack": "{{count}} Idee(n) warten noch auf KI-Sortierung — tippe auf der Karte auf „KI-Sortierung wiederholen“, wenn du möchtest."
+  },
+  "quota_remaining": "Du hast noch {{count}} kostenlose Sentinel-Fahrten.",
+  "quota_exhausted_title": "Statischer Modus",
+  "quota_exhausted_desc": "Sentinel-Testphase beendet. Upgrade auf PRO für Echtzeit-Überwachung.",
+  "sentinel": {
+    "validationTitle": "Adressvalidierung",
+    "detectedPlace": "Erkannter Ort: {{place}}",
+    "addressLabel": "Validierte Adresse (Google Places)",
+    "addressPlaceholder": "Adresse suchen…",
+    "validationRequired": "Wähle eine gültige Adresse, um Sentinel zu aktivieren.",
+    "placesMissingKey": "Google-Places-Schlüssel fehlt (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "addressResolveFailed": "Adresse nicht gefunden. Prüfe deine Eingabe und versuche es erneut.",
+    "notifTitle": "Nach: {{destination}} • Ankunft {{arrival}}",
+    "notifUpdatedAt": "Aktualisiert um {{time}}",
+    "notifStatusBlue": "Überwachung aktiv",
+    "notifStatusOrange": "Fenster offen",
+    "notifStatusRed": "Kritischer Abfahrt",
+    "notifStatusStatic": "Statischer Modus",
+    "notifDepartureAt": "Abfahrt um {{time}}",
+    "notifDepartureWindow": "Empfohlene Abfahrt zwischen {{start}} und {{end}}.",
+    "notifNextRealUpdateAt": "Nächstes echtes Update um {{time}}",
+    "notifModeSafety": "Sicherheitsmodus",
+    "probe3Title": "Abfahrt — {{destination}}",
+    "probe3Smooth": "Verkehr ist frei — du kannst in {{minutes}} Minuten losfahren.",
+    "probe3LeaveNow": "Starker Verkehr erkannt — fahr jetzt los.",
+    "probe3Unavailable": "Schätzung nicht verfügbar — prüfe den Verkehr bitte manuell.",
+    "promiseDriftTitle": "Verkehr — {{destination}}",
+    "promiseDriftBody": "Der Verkehr hat sich leicht geändert. Dein Abfahrtsfenster ist jetzt: {{capsule}}",
+    "topDepartTitle": "JETZT LOSFAHREN",
+    "topDepartBody": "Zeit, loszufahren nach {{destination}}."
+  },
+  "departureContract": {
+    "notifTitle": "Abfahrtsvertrag — {{destination}}",
+    "signalBTitle": "Abfahrtserinnerung",
+    "signalBBody": "{{capsule}} — Fahr in etwa {{minutes}} Min. los nach {{destination}}."
+  },
+  "sentinelFocus": {
+    "prompt": "Erinnere mich, wann ich für {{title}} um {{time}} losfahren soll?",
+    "departureTitle": "Losfahren nach {{name}}",
+    "arrivalSubtitle": "Ankunft: {{time}}"
+  },
+  "tripAlarm": {
+    "pickerTitle": "Wecker stellen",
+    "pickerMessage": "Abfahrt um {{time}}",
+    "departureLabel": "{{place}} Abfahrt {{time}}",
+    "a11yOpenAlarm": "Abfahrtswecker stellen",
+    "iosManualHint": "Öffne die Uhr-App und stelle einen Wecker auf {{time}}.\nVorgeschlagener Name: {{label}}",
+    "androidUnavailable": "Uhr-App konnte nicht geöffnet werden. Stelle einen Wecker auf {{time}} ({{label}})."
+  },
+  "intentionDetail": {
+    "source": "Quelle",
+    "checklist": "Checkliste",
+    "trip": "Fahrt",
+    "transport": "Transport",
+    "currentPosition": "Aktuelle Position",
+    "addressPlaceholder": "Adresse suchen…",
+    "allDay": "Ganztägig",
+    "listItems": "Einträge",
+    "projectStartDate": "Startdatum",
+    "projectStartDateEmpty": "Startdatum festlegen",
+    "projectMilestoneMenuTitle": "Meilenstein",
+    "projectMilestoneMenuPivot": "Kalender (Pivot)",
+    "projectMilestoneMenuNote": "Notiz",
+    "projectMilestoneMenuDelete": "Löschen",
+    "confirmReplan": "Bestätigen und nächste Schritte verschieben",
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "notePlaceholder": "Notiz hinzufügen…",
+    "transportAuto": "Auto",
+    "transportWalking": "Zu Fuß",
+    "transportBike": "Fahrrad",
+    "ecoFriendly": "Umweltfreundlich 🌱",
+    "co2Standard": "Standard-CO₂-Auswirkung",
+    "launchRoute": "Route starten",
+    "launchRouteDisabledHint": "Füge eine gültige Zieladresse hinzu, um die Navigation zu starten.",
+    "close": "Schließen",
+    "pin": "Anheften",
+    "unpin": "Lösen",
+    "pinMaxReachedTitle": "Anheft-Limit erreicht",
+    "pinMaxReachedBody": "Du kannst höchstens {{max}} Intentionen anheften. Löse zuerst eine andere.",
+    "labelIntention": "Intention",
+    "labelTiming": "Zeitplan",
+    "labelEngagement": "Engagement",
+    "trackStreak": "Serie tracken 🔥",
+    "trackStreakHint": "Zeigt einen visuellen Zähler, der dir hilft, im Rhythmus zu bleiben.",
+    "labelItinerary": "Route",
+    "labelTransport": "Transport",
+    "comfortTitle": "Fahrkomfort",
+    "comfortElasticDeparture": "Gesch. Abfahrt: {{window}}",
+    "comfortElasticDepartureApprox": "Gesch. Abfahrt: ≈ {{window}}",
+    "comfortElasticDepartureShifted": "⚠️ Gesch. Abfahrt: {{window}}",
+    "allDayNoDepartureSlot": "Ganztägiger Termin — kein Abfahrtsfenster",
+    "actionSetupAlert": "Erinnern, wann ich losfahren soll?",
+    "actionSetupAlertLocked": "Erinnern, wann ich losfahren soll 🔒",
+    "tripSurveillanceStart": "Fahrt überwachen",
+    "tripSurveillanceStartLocked": "Fahrt überwachen 🔒",
+    "tripSurveillanceActive": "Überwachung aktiv 🛡️",
+    "surveillanceMissingInfo": "Füge eine gültige Zieladresse und Ankunftszeit hinzu, um die Überwachung zu aktivieren.",
+    "pass2LockedSuffix": "🔒",
+    "noteMemoSection": "Memo",
+    "finish": "Fertig"
+  },
+  "pass2": {
+    "generateSteps": "✨ In Schritte aufteilen",
+    "generateList": "✨ Liste strukturieren",
+    "steps_loading": "Lese…",
+    "list_loading": "Erstelle Einträge…",
+    "finalizing": "Struktur wird fertiggestellt…"
   },
   "pilotHeader": {
     "creditsFree": "{{remaining}} / {{max}} ⚡",
@@ -22,72 +151,11 @@
     "proLabel": "PRO",
     "a11yCredits": "Capture-Credits — Aufladen öffnen",
     "a11yCalendar": "Heute in der Timeline öffnen",
-    "a11yPiggy": "Eingang — ungeordnete Ideen",
-    "rechargeModalBody": "Öffne Aufladen für Pro und mehr Klarheit.",
-    "openRecharge": "Aufladen anzeigen"
+    "a11yPiggy": "Inbox — ungeordnete Einträge"
   },
   "tabs": {
-    "radar": "Radar",
-    "timeline": "Zeit",
-    "agent": "KI-Agent",
-    "recharge": "Aufladen",
-    "messaging": "Nachrichten",
-    "stats": "Stats",
     "debug": "Debug",
     "talkHome": "Talk"
-  },
-  "messaging": {
-    "lead": "TellYouTo-Deep-Links — App direkt auf Radar, Timeline oder Aufladestation öffnen.",
-    "copyLink": "Link kopieren",
-    "copyAll": "Alle Links kopieren"
-  },
-  "linking": {
-    "telegramMissingTitle": "Telegram",
-    "telegramMissingBody": "Telegram ist nicht installiert. Installiere die App, um kostenlos mit deinem Ally zu sprechen.",
-    "telegramMissingInstall": "Telegram installieren",
-    "telegramMissingLater": "Später"
-  },
-  "settings": {
-    "privateChannelTitle": "Privater Kanal",
-    "privateChannelSubtitle": "Telegram ist enthalten; WhatsApp, Slack und LINE erfordern Pro.",
-    "channelsCatalogTitle": "Kanäle & Erweiterungen",
-    "channelsCatalogLead": "Nur ein aktiver Kanal — dorthin sendet dein Ally deine Intentionen.",
-    "channelsPrivacyFootnote": "Jeder Premium-Kanal ist eine verschlüsselte Direktleitung zwischen dir und deinem lokalen Rail. Es werden keine Daten verkauft: Sie passieren einen sicheren Tunnel und werden in der Cloud gelöscht, sobald sie auf deinem Telefon synchronisiert sind.",
-    "memorySectionTitle": "Speicherverwaltung",
-    "archivePurgeTitle": "Archivierte Einträge endgültig löschen nach",
-    "archivePurgeHint": "Wird beim App-Start ausgeführt. Es werden nur Zeilen mit Archivierungsdatum entfernt, die älter als dieses Fenster sind.",
-    "archivePurge7": "7 Tagen",
-    "archivePurge30": "30 Tagen",
-    "archivePurgeNever": "Nie"
-  },
-  "channels": {
-    "connect": "Verbinden",
-    "disconnect": "Trennen",
-    "linkingWait": "Warte auf deine Nachricht...",
-    "action": {
-      "create_private_conv": "👉 Tippe hier, um den privaten Chat zu starten"
-    },
-    "status": {
-      "linking": "Verknüpfung läuft...",
-      "connected": "Verbunden"
-    },
-    "modal": {
-      "title": "Telegram einrichten",
-      "body": "Wir öffnen einen sicheren Telegram-Chat. Tippe unten einfach auf Start, um deinen Rail zu aktivieren.",
-      "button": "Los geht’s",
-      "otherTitle": "{{channelName}}",
-      "otherBody": "Wir öffnen die App, um die private Verknüpfung abzuschließen. Folge den Hinweisen und komm dann zurück."
-    },
-    "linkLaunched": {
-      "message": "Verknüpfung gestartet! Dein Ally schickt dir in wenigen Sekunden eine Nachricht.",
-      "button": "OK"
-    },
-    "feedback": {
-      "success": "✅ Kanal erfolgreich verknüpft!"
-    },
-    "hints": {
-      "pro_account_required": "* Erfordert ein aktives Pro-Konto auf diesem Telefon"
-    }
   },
   "pro": {
     "modalTitle": "Volle Leistung freischalten",
@@ -105,183 +173,34 @@
     "devNote": "Dev-Build: Der Button simuliert das Abo ohne Zahlung.",
     "subscribeGold": "Abonnieren — 9,99 € / Monat",
     "back": "Schließen",
-    "linkRequiredTitle": "Account required",
-    "linkRequiredBody": "To keep your Pro subscription across phones, link Google or Apple (same Firebase identity).",
-    "linkGoogle": "Continue with Google",
-    "linkApple": "Continue with Apple",
-    "linkLater": "Not now",
-    "linkGoogleOnly": "Link Google only",
-    "linkAppleOnly": "Link Apple only",
-    "linkErrorTitle": "Linking failed",
-    "configureGoogleTitle": "Google configuration",
-    "configureGoogleBody": "Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (and iOS/Android client IDs if needed) in .env, then restart Metro.",
-    "googleMissingEnv": "Missing Google Web client ID: OAuth linking will not work until EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID is set."
-  },
-  "channelCatalog": {
-    "proBadge": "PRO",
-    "freeBadge": "Kostenlos",
-    "recommendedBadge": "Empfohlen",
-    "names": {
-      "telegram": "Telegram",
-      "whatsapp": "WhatsApp",
-      "slack": "Slack",
-      "discord": "Discord",
-      "teams": "Microsoft Teams",
-      "signal": "Signal",
-      "line": "LINE / WeChat"
-    }
+    "linkRequiredTitle": "Account erforderlich",
+    "linkRequiredBody": "Um dein Pro-Abo auf mehreren Handys zu behalten, verknüpfe Google oder Apple (gleiche Firebase-Identität).",
+    "linkGoogle": "Mit Google fortfahren",
+    "linkApple": "Mit Apple fortfahren",
+    "linkLater": "Später",
+    "linkGoogleOnly": "Nur Google verknüpfen",
+    "linkAppleOnly": "Nur Apple verknüpfen",
+    "linkErrorTitle": "Verknüpfung fehlgeschlagen",
+    "configureGoogleTitle": "Google-Konfiguration",
+    "configureGoogleBody": "Setze EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID (und bei Bedarf iOS/Android Client-IDs) in .env, dann starte Metro neu.",
+    "googleMissingEnv": "Google-Web-Client-ID fehlt: OAuth-Verknüpfung funktioniert erst, wenn EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID gesetzt ist."
   },
   "channelSwitch": {
-    "title": "Kanal wechseln?",
-    "message": "Dein Ally kann nur auf einem Kanal hören, um deinen Fokus zu schützen. Zu {{channelName}} wechseln?",
-    "confirm": "Wechseln",
     "cancel": "Abbrechen"
   },
-  "onboarding": {
-    "firstName": {
-      "title": "Wie heißt du?",
-      "subtitle": "Dein Vorname personalisiert den Ally und die Begrüßung im privaten Kanal.",
-      "placeholder": "Vorname",
-      "continue": "Weiter"
-    },
-    "title": "Situationsdiagnose",
-    "subtitle": "Wähle, was passt — der Co-Pilot kalibriert dein Performance-Spektrum.",
-    "progress": "Karte {{current}} / {{total}}",
-    "cardsHint": "Jede Antwort passt Struktur, Momentum, Zen und Stats an deine aktuelle Navigation an.",
-    "skip": "Aktuelles Spektrum behalten",
-    "situations": {
-      "s1": {
-        "title": "Wie startest du in den Tag?",
-        "a0": "Ich kläre Prioritäten und Zeitblöcke",
-        "a1": "Ich steige sofort in die Aktion ein",
-        "a2": "Ich nehme mir eine ruhige Minute für Klarheit",
-        "a3": "Ich schaue zuerst auf Zahlen oder Indikatoren"
-      },
-      "s2": {
-        "title": "Du wirst unterbrochen — was tust du?",
-        "a0": "Ich rahme neu und plane die Fortsetzung",
-        "a1": "Ich wechsle schnell zur neuen Dringlichkeit",
-        "a2": "Ich mache eine kurze Pause für Klarheit",
-        "a3": "Ich notiere und schätze die Auswirkung"
-      },
-      "s3": {
-        "title": "Am Ende des Tages zählt für dich am meisten…",
-        "a0": "Ein klarer Plan ist vorangekommen",
-        "a1": "Tempo gehalten und Aufgaben abgeschlossen",
-        "a2": "Mentaler Raum und Klarheit bewahrt",
-        "a3": "Sichtbare Kennzahlen oder Ergebnisse"
-      },
-      "s4": {
-        "title": "Eine wichtige Frist rückt näher",
-        "a0": "Ich strukturiere Schritte und Meilensteine",
-        "a1": "Ich beschleunige und streiche Nebensächliches",
-        "a2": "Ich suche zuerst Klarheit vor dem Endspurt",
-        "a3": "Ich stütze mich auf Zahlen und Tracking"
-      },
-      "s5": {
-        "title": "Bei der Koordination mit anderen bevorzugst du…",
-        "a0": "Klare Rahmen und explizite Entscheidungen",
-        "a1": "Schnelle Rückfragen und kurze Entscheidungen",
-        "a2": "Ruhigen Austausch und stetige Ausrichtung",
-        "a3": "Reviews mit messbaren Fakten"
-      }
-    },
-    "privateChannel": {
-      "title": "Wähle deinen Ally",
-      "subtitle": "Der Kanal, über den dein Ally Intentionen sendet — privat und mit deinem Gerät verknüpft.",
-      "explainBot": "Du chattest nicht mit einer +33-Nummer: Der Bot ist mit deinem Gerät und der gewählten App verbunden — alles bleibt in deinem TellYouTo-Raum.",
-      "telegramPitch": "Telegram bietet die beste Spracherfahrung und schützt deine Privatsphäre. Es ist der 100 % kostenlose Kanal für deinen Ally.",
-      "recommended": "Empfohlen",
-      "telegramGiftBadge": "Installiere Telegram, teste den Ally und genieße 15 werbefreie Tage",
-      "telegramReady": "Kanal einsatzbereit.",
-      "whatsappCostHint": "Kann Servicegebühren oder Intention-Kontingente verursachen.",
-      "proChannelsHint": "Pro / Team-Option",
-      "installTelegram": "Telegram installieren",
-      "rewardTitle": "Danke!",
-      "rewardBody": "Glückwunsch! Dein Ally läuft über Telegram — dein Rail bleibt 15 Tage werbefrei.",
-      "rewardDismiss": "Weiter",
-      "platforms": {
-        "whatsapp": "WhatsApp",
-        "telegram": "Telegram",
-        "slack": "Slack",
-        "line": "LINE"
-      },
-      "cta": "Speichern und Link öffnen",
-      "skip": "Später",
-      "urlPending": "Link konfigurieren (EXPO_PUBLIC_BOT_*_URL)",
-      "initMessageLabel": "Willkommensnachricht (für den Bot kopieren)",
-      "copyInit": "Nachricht kopieren",
-      "copied": "Kopiert!",
-      "waitingConnection": "Warte auf Verbindung...",
-      "whatsappErrorTitle": "Fehler",
-      "whatsappErrorBody": "WhatsApp konnte nicht geöffnet werden. Prüfe, ob es installiert ist.",
-      "genericOpenErrorBody": "Link konnte nicht geöffnet werden. Prüfe, ob die App installiert ist.",
-      "dictationHint": "In WhatsApp kannst du auch per Spracheingabe diktieren!"
-    }
-  },
-  "radar": {
-    "proBadge": "PRO",
-    "channelsNudgeTitle": "Allied verbinden (Telegram)",
-    "channelsNudgeBody": "Du hast noch keinen Messenger-Kanal eingerichtet. Öffne die Einstellungen, um Telegram zu installieren oder Pro zu entdecken.",
-    "channelsNudgeCta": "Kanäle & Erweiterungen",
-    "channelsNudgeDismiss": "Später",
-    "empty": "Noch keine Intentionen. Tippe + zum Hinzufügen.",
-    "emptyTitle": "Deine Schiene ist frei",
-    "emptyBody": "Ein guter Moment für eine sanfte Pause oder eine neue Richtung — tippe auf +, wenn es passt.",
-    "allyEyebrow": "Ally",
-    "pureAllyModeBadge": "Reiner-Ally-Modus",
-    "messengerDictationInactive": "Messenger-Diktat inaktiv — verbinde einen Kanal im KI-Agenten.",
-    "messengerVoiceActive": "Messenger verbunden — Diktat verfügbar.",
-    "activeSessionTitle": "Fokus aktiv",
-    "activeSessionOpen": "Zur Kapsel",
-    "priority": "Priorität {{value}}",
-    "quickAddTitle": "Schnelle Intention",
-    "fieldTitle": "Titel",
-    "fieldDescription": "Detail (optional)",
-    "urgentLabel": "Als dringend markieren",
-    "alarmLabel": "Wecker für den Vorschlagsblock",
-    "flexibleSlotLabel": "Flexibler Slot (KI darf anpassen)",
-    "microNowTitle": "Jetzt",
-    "microVerifyQuestion": "Kleine Handlung erledigt?",
-    "microVerifyCta": "Bestätigen",
-    "done": "Erledigt",
-    "cancel": "Abbrechen",
-    "save": "Speichern",
-    "saveErrorTitle": "Speichern fehlgeschlagen",
-    "saveErrorBody": "Etwas ist schiefgelaufen. Bitte erneut versuchen.",
-    "status": {
-      "pending": "Ausstehend",
-      "active": "Aktiv",
-      "done": "Erledigt"
-    },
-    "saveTimeoutTitle": "Timed out",
-    "saveTimeoutBody": "The SQLite write took longer than 3 seconds. Try again or restart the app."
-  },
   "timeline": {
-    "allDuration": "Den ganzen Tag",
-    "newBadge": "NEU",
+    "title": "Timeline",
+    "allDuration": "Ganztägig",
+    "elasticDepartureWindow": "[ Gesch. Abfahrt: {{window}} ]",
+    "elasticDepartureApprox": "[ Gesch. Abfahrt: ≈ {{window}} ]",
+    "elasticDepartureShifted": "[ ⚠️ Gesch. Abfahrt: {{window}} ]",
+    "scanTrafficScheduled": "Echter Verkehrsscan geplant um {{time}}",
+    "scanTrafficInProgress": "Scan läuft…",
     "createdTodayAt": "Heute erstellt um {{time}}",
-    "subtitle": "Tages-Schiene — vorgeschlagene Fenster nach Spektrum (hohes Momentum → tiefere Blöcke).",
-    "now": "Jetzt",
-    "dayRail": "Position im Tag (6–22 Uhr)",
-    "empty": "Noch nichts für die Schiene. Intentionen im Radar hinzufügen.",
-    "emptyTitle": "Ruhige Schiene",
-    "emptyBody": "Füge Intentionen im Radar hinzu — sie erscheinen hier mit vorgeschlagenen Fenstern.",
-    "estimated": "~ {{minutes}} Min. geschätzt",
-    "suggestedWindow": "Vorschlag: {{start}} – {{end}}",
-    "launch": "Starten",
-    "done": "Erledigt",
-    "calendarRailTitle": "Blockiert (Kalender)",
-    "externalEventLabel": "Externer Termin",
-    "calendarBusy": "Belegt · {{start}} – {{end}}",
-    "alarmSwitch": "Alarm zum Start des Blocks",
-    "alarmBellA11y": "Alarm für diesen Block aktiv",
-    "hardRoutineLockA11y": "Strukturroutine — gesperrter Slot",
-    "microFragment": "Fragment {{current}} / {{total}}",
-    "microDuration": "~ 2 Min · Mikro-Gewohnheit",
-    "skyClear": "Freie Sicht — dein Kopf hat Luft.",
+    "createdYesterdayAt": "Gestern erstellt um {{time}}",
+    "skyClear": "Klarer Himmel — dein Kopf hat Luft zum Atmen.",
     "pilot": {
-      "title": "Steuerung",
+      "title": "Pilot",
       "timeNav": "Zeit",
       "contextNav": "Kontexte",
       "statusNav": "Status",
@@ -291,649 +210,407 @@
       "contextPiggy": "Sparschwein",
       "contextArchives": "Archiv",
       "todo": "Offen",
-      "done": "Erledigt"
-    },
-    "todoFilter": "Offen",
-    "doneFilter": "Erledigt",
-    "noItems": "Keine Eintraege",
-    "noContentForDate": "Keine Inhalte fuer dieses Datum",
-    "createdOn": "Erstellt am {{date}}",
-    "tasks": {
-      "title": "Meine Aufgaben",
-      "scheduledToday": "Heute fällig",
-      "noPressure": "Ohne Druck"
-    },
-    "habits": {
-      "title": "Gewohnheiten"
-    },
-    "projects": {
-      "title": "Projektschritte"
-    },
-    "notesAudio": {
-      "title": "Notizen & Audios"
-    },
-    "ideaBank": {
-      "title": "Ideensparschwein",
-      "button": "Aufgaben im Spar-Schwein",
       "done": "Erledigt",
-      "schedule": "Planen",
-      "remove": "Entfernen",
-      "removeConfirmTitle": "Aufgabe entfernen?",
-      "removeConfirmBody": "Sie wird dauerhaft von deinem Gerät gelöscht.",
+      "specificDate": "Datum",
+      "pickedDateShort": "{{date}}",
+      "changeDate": "Anderen Tag wählen"
+    },
+    "customDayEmpty": "An diesem Tag ist nichts geplant.",
+    "customDayAddTask": "Aufgabe hinzufügen?",
+    "roadmap": {
+      "printerA11y": "Tages-Roadmap",
+      "sasTitle": "Aufräumen — Tages-Roadmap",
+      "sasSubtitle": "Validiere, verschiebe auf heute oder archiviere jeden Eintrag, dann starte die Synthese.",
+      "bucketOverdue": "Überfällig",
+      "bucketOrphan": "Ohne Fälligkeitsdatum",
+      "validate": "Behalten",
+      "postpone": "Auf heute verschieben",
+      "delete": "Archivieren",
+      "continueSynth": "Synthese starten",
+      "sasEmptyHint": "Nichts zu sortieren — starte die Synthese.",
+      "linkOpenSaved": "Heutige Roadmap",
+      "progressCollect": "Intentionen sammeln",
+      "progressSynth": "Synthese läuft",
+      "progressWrite": "Bericht wird geschrieben…",
+      "sharePrint": "Teilen / PDF",
+      "close": "Schließen",
+      "synthError": "Synthese fehlgeschlagen. Versuche es später erneut."
+    },
+    "syncedBadge": "Synchronisiert",
+    "memoAudio": "Audio-Memo",
+    "note": "Notiz",
+    "untitled": "Ohne Titel",
+    "badgeAudio": "🎙️ AUDIO",
+    "badgeNote": "📝 NOTIZ",
+    "badgeHabit": "🔄 GEWOHNHEIT",
+    "badgeTask": "⚡ AUFGABE",
+    "badgeList": "📋 LISTE",
+    "badgeProject": "🚀 PROJEKT",
+    "a11yTaskComplete": "Als erledigt markieren oder ausstehende Erledigung abbrechen",
+    "createdOn": "Erstellt am {{date}} um {{time}}",
+    "aiPendingChip": "KI-Sortierung ausstehend",
+    "aiFailedChip": "KI-Verarbeitung fehlgeschlagen",
+    "retryAiSort": "KI-Sortierung wiederholen",
+    "ideaBank": {
+      "title": "Die Ideenbank",
+      "shopTitle": "Zu kaufen",
+      "shopSubtitle": "{{count}} Einträge",
       "clearAll": "Alles leeren",
-      "clearAllTitle": "Spar-Schwein leeren?",
-      "clearAllBody": "Alle Aufgaben ohne Datum werden gelöscht.",
-      "scheduleTitle": "Datum wählen",
-      "empty": "Keine Aufgaben ohne Datum.",
+      "clearAllTitle": "Ideenbank leeren?",
+      "clearAllBody": "Alle undatierten Aufgaben werden gelöscht.",
+      "empty": "Keine undatierten Aufgaben.",
       "close": "Schließen",
       "cancel": "Abbrechen",
-      "clusterNudge": "Shall we move these forward?",
-      "clusterSubtitle": "{{count}} · {{category}}",
-      "shopTitle": "To buy",
-      "shopSubtitle": "{{count}} items"
+      "tripFillAddress": "📍 Adresse eingeben",
+      "tripSearchTitle": "Ankunftsadresse eingeben",
+      "tripSearchOriginTitle": "Abfahrtsadresse eingeben"
+    },
+    "box": {
+      "clearAll": "Alle löschen",
+      "clearAllTitle": "Box leeren?",
+      "clearAllBody": "Du bist dabei, deine {{count}} ausstehenden Ideen dauerhaft zu löschen. Das lässt sich nicht rückgängig machen.",
+      "clearAllConfirm": "Alle löschen",
+      "empty": "Keine Ideen im Speicher."
+    },
+    "routines": {
+      "title": "Routinen",
+      "empty": "Keine aktiven Routinen."
     },
     "smartClusters": {
       "inbox": "Inbox",
-      "inboxSubtitle": "{{count}} today",
-      "newTitle": "⚡ New",
-      "newSubtitle": "{{count}} to sort",
-      "projectsTitle": "📁 Projects",
-      "projectsSubtitle": "({{count}} active)",
-      "listsTitle": "📋 Lists",
-      "listsSubtitle": "({{count}} additions)"
+      "inboxSubtitle": "{{count}} heute",
+      "routinesTitle": "🔁 Routinen",
+      "routinesSubtitle": "({{count}} aktiv)",
+      "projectsTitle": "📁 Projekte",
+      "projectsSubtitle": "({{count}} aktiv)",
+      "tripsTitle": "Fahrten"
     }
   },
-  "focusMode": {
-    "title": "Sitzungsmodus",
-    "chrono": "Timer-Modus",
-    "chronoHint": "Nah an deiner Schätzung — du steuerst die Zeit.",
-    "pomodoro": "Pomodoro-Modus",
-    "pomodoroHint": "25 / 5 Min. · bis zu vier Fokusphasen"
-  },
-  "focus": {
-    "start": "Start",
-    "pause": "Pause",
-    "resume": "Weiter",
-    "terminate": "Beenden",
-    "terminateHold": "Orange Taste gedrückt halten zum frühen Beenden — verhindert versehentliche Tipps.",
-    "feedbackTitle": "Klarheit",
-    "ok": "OK",
-    "pomodoroWorkLine": "Schritt {{step}} / {{total}}",
-    "pomodoroBreakLine": "Pause · nächster Schritt {{nextStep}} / {{total}}",
-    "pomodoroConcentration": "Konzentration",
-    "pomodoroBreak": "Pause"
-  },
-  "stats": {
-    "screenTitle": "Klarheitsüberblick",
-    "screenSubtitle": "Blicke vom Co-Piloten — Beobachtung, kein Urteil.",
-    "loading": "Laden…",
-    "wellbeingTitle": "Wohlfühl-Konstanz",
-    "wellbeingHint": "Anteil der heute bestätigten Mini-Slots (gegen geplante Pastillen auf der Schiene).",
-    "wellbeingEmpty": "Heute keine Mikro-Gewohnheiten auf der Schiene.",
-    "wellbeingMeta": "{{done}} / {{total}} Mini-Slots bestätigt",
-    "clarityTitle": "Heutige Klarheit",
-    "clarityHint": "Sanfte Lesart: wie nah die reale Zeit an deinen Schätzungen war (nur abgeschlossene Fokus-Sessions).",
-    "noSessionsToday": "Heute noch kein abgeschlossener Fokus. Schließe eine Kapsel — dann erscheint es hier.",
-    "sessionsToday": "Heute {{count}} abgeschlossene Fokusblöcke",
-    "spectrumTitle": "Wohin sich deine Zeit neigte",
-    "spectrumHint": "Minuten abgeschlossener Sessions, gewichtet mit dem Spektrum jeder Intention.",
-    "spectrumEmpty": "Heute noch nichts darstellbar.",
-    "minutesTotal": "~ {{minutes}} Min. aufs Spektrum verteilt",
-    "historyTitle": "Letzte Tage",
-    "historyHint": "Abgeschlossene Sessions nach Kalendertag (lokal) — Archiv auf dem Gerät.",
-    "historyEmpty": "Die Historie füllt sich mit jedem abgeschlossenen Fokus.",
-    "historyDay": "{{date}} · {{count}} Session(s)",
-    "axis": {
-      "structure": "Struktur",
-      "momentum": "Momentum",
-      "zen": "Zen",
-      "stats": "Stats"
-    },
-    "insightKicker": "Co-Pilot-Notiz",
-    "insightEmpty": "Wenn du einen Fokus abschließt, steht hier eine kurze Reflexion — ganz ohne Druck.",
-    "insightLead": "Heute neigte sich etwas mehr deiner abgeschlossenen Zeit Richtung {{axis}} — ein Hinweis, kein Etikett.",
-    "insightClarity": "Klarheit liegt bei etwa {{score}}% — wie nah die reale Zeit an deinen Schätzungen war.",
-    "insightShort": "Schon ein oder zwei kurze Blöcke erzählen eine freundliche Geschichte.",
-    "insightEnergyLow": "Deine Energie wirkt leise; morgen reichen kleine Schritte.",
-    "insightEnergyOk": "Die Energie wirkt ausreichend für das, was du als Nächstes wählst.",
-    "semanticLabTitle": "Semantic Brain Lab",
-    "semanticLabHint": "Audio .m4a → Gemini Flash + comparison with local AI (no DB persistence).",
-    "semanticLabOpen": "Open test lab"
-  },
   "debug": {
-    "pilotTitle": "Steuerungswerkzeuge",
-    "note": "Internes Tool — absichtlich schlicht.",
+    "pilotTitle": "Aufräumen & Steuerung (Debug)",
+    "note": "Internes Cockpit — Remote Config vs. lokales Modell, simulierter Verkehr, Werksreset.",
     "firebaseProjectIdButton": "Firebase projectId anzeigen (SDK vs .env)",
-    "calendarSection": "Systemkalender",
-    "calendarConnect": "Systemkalender verbinden",
-    "calendarConnectHelp": "Nur lokal — keine Ereignistitel zu Firebase.",
-    "calendarHideRail": "Kalenderereignisse auf der Schiene ausblenden",
-    "calendarHideHelp": "Ausgeblendet: keine Anzeige; für den Agenten weiterhin blockiert.",
-    "calendarRefresh": "Kalender aktualisieren",
-    "calendarUntitled": "Unbenannter Kalender",
-    "calendarConnectedToggle": "Verbunden",
-    "calendarRailVisibilityHelp": "Rail: Blöcke anzeigen oder nur reservieren (Blockierung für den Agenten).",
-    "calendarRailHide": "Ausblenden",
-    "calendarRailShow": "Anzeigen",
-    "resetProfile": "Profil zurücksetzen",
-    "resetProfileHelp": "Löscht onboarding_complete und user_spectrum (AsyncStorage), danach Onboarding der 5 Situationen.",
     "rebuildDb": "Datenbank neu aufbauen",
-    "rebuildDbHelp": "Werksreset: SQLite, AsyncStorage, Dienste — dann zurück zum 5-Situationen-Onboarding.",
+    "rebuildDbHelp": "Baut die Intentions-Tabelle (talkndone.db) sequenziell neu auf.",
+    "clearDb": "Datenbank leeren",
+    "clearDbHelp": "Löscht nur die Intentionen (Trankil-v2), ohne Einstellungen anzutasten.",
+    "clearDbConfirmTitle": "Datenbank leeren?",
+    "clearDbConfirmBody": "Löscht alle lokalen Intentionen (Trankil-v2). Das lässt sich nicht rückgängig machen.",
+    "clearDbCancel": "Abbrechen",
+    "clearDbConfirm": "Leeren",
     "factoryResetConfirmTitle": "Datenbank neu aufbauen?",
-    "factoryResetConfirmBody": "Alle lokalen Daten und Einstellungen werden gelöscht. Nicht rückgängig zu machen.",
+    "factoryResetConfirmBody": "Die Intentions-Tabelle wird gelöscht und neu erstellt. Das lässt sich nicht rückgängig machen.",
     "factoryResetSecondTitle": "Letzte Bestätigung",
-    "factoryResetSecondBody": "Vollständigen System-Reset bestätigen?",
+    "factoryResetSecondBody": "Neuaufbau der Intentions-Tabelle bestätigen?",
     "factoryResetCancel": "Abbrechen",
     "factoryResetContinue": "Weiter",
     "factoryResetDestructive": "Alles löschen",
-    "factoryResetSuccessTitle": "Zurückgesetzt",
-    "factoryResetSuccessBody": "System zurückgesetzt.",
-    "factoryResetHealthWarn": "Die Datenbank wurde neu erstellt, aber der SQLite-Health-Check meldet ein Problem.",
-    "busyProfile": "Profil wird zurückgesetzt…",
+    "factoryResetSuccessTitle": "Datenbank neu aufgebaut",
+    "factoryResetSuccessBody": "Intentions-Tabelle neu aufgebaut.",
     "busySqlite": "SQLite…",
-    "proUserToggle": "Pro simulieren (lokal + Sync)",
-    "sectionSpectrum": "UserSpectrumContext (Rohdaten)",
-    "sectionRawIntentions": "Intentions (Rohdaten)",
-    "rawIntentionsHelp": "SQLite-Dump: title, start_time_ms, rail_start_minutes, isMicroHabit, isHardConstraint, energy_score, sync_status, raw_transcript, dann _full_row. Aktualisiert bei Insert oder Reset.",
-    "sectionSyncPurge": "Sync & Purge (Firestore)",
-    "syncPurgeHelp": "Zählt noch vorhandene Cloud-Dokumente für dieses Gerät (rail_inbox = Bots; intentions = Transit-Kopien). Nach SQLite-Ingest sollte 0 erreicht werden. Zeitstempel = letzte erfolgreiche Cloud-Löschung.",
-    "syncPurgeRefresh": "Cloud-Status aktualisieren",
-    "syncPurgeRailInboxCloud": "rail_inbox (Cloud)",
-    "syncPurgeTransitCloud": "Transit-Intentions (Cloud)",
-    "syncPurgeLastRail": "Letzte rail_inbox-Bereinigung",
-    "syncPurgeLastTransit": "Letzte Transit-Intentions-Bereinigung",
-    "syncPurgeNever": "nie",
-    "syncPurgeNoDb": "Firebase nicht verfügbar (keine Cloud-Zählung).",
-    "purgeIntentions": "Intentions leeren",
-    "purgeIntentionsBusy": "Intentions werden gelöscht…",
-    "purgeIntentionsConfirmTitle": "Alle Intentions löschen?",
-    "purgeIntentionsConfirmBody": "Löscht alle lokalen Intentions und Micro-Habit-Checks. Nützlich zwischen Profil-Tests (Zen, Momentum …).",
-    "purgeIntentionsCancel": "Abbrechen",
-    "purgeIntentionsConfirm": "Alles löschen",
-    "sectionAgentNativeTitle": "Nativer Agent (ohne SQLite)",
-    "forceAgentAlarmButton": "Agent erzwingen: Alarm (+10 Min.)",
-    "forceAgentAlarmHelp": "Plant eine Systembenachrichtigung in 10 Min. (Alarmkanal, Rail-Ton). Kein SQLite — Test JS → Android.",
-    "forceAgentAlarmBusy": "Test-Alarm wird geplant…",
-    "forceAgentAlarmSuccessTitle": "Alarm geplant",
-    "forceAgentAlarmSuccessBody": "OS-/Expo-ID: {{id}}",
-    "forceAgentAlarmErrorTitle": "Planung fehlgeschlagen",
-    "sectionPower": "PowerContext (Rohdaten)",
-    "simSectionTitle": "Externe Eingabe (Simulation)",
-    "simSectionHelp": "Webhook-ähnliche Injektion. Ist eine Plattform-Benutzer-ID gesetzt, muss der Absender übereinstimmen.",
-    "simSampleRaw": "Brot um 18 Uhr kaufen",
-    "simLineRaw": "Deck vor dem Call senden",
-    "simWhatsApp": "WhatsApp-Nachricht simulieren",
-    "simWhatsAppHelp": "Beispiel-Intention über WhatsApp-Connector und SQLite einfügen.",
-    "simWhatsAppIntentionButton": "WhatsApp-Nachricht simulieren (empfangen)",
-    "simWhatsAppIntentionHelp": "Erstellt die lokale Intention „Test WhatsApp“ für Radar und Timeline.",
-    "simWhatsAppIntentionBusy": "Test-Intention wird erstellt…",
-    "simLine": "LINE-Nachricht simulieren",
-    "simLineHelp": "Gleicher Ablauf mit LINE-Connector.",
-    "simBusy": "Intention wird eingespielt…",
-    "simErrorUser": "Benutzer-ID passt nicht — ID im Profil anpassen oder für lokale Sim leer lassen.",
-    "demoDaySectionTitle": "Stats-Demo",
-    "demoDayHelp": "Fügt 5 heute abgeschlossene Sessions ein (Structure, Momentum, Zen), damit Stats in einer Demo voll wirkt.",
-    "demoDayButton": "Typischen Tag erzeugen",
-    "demoDayBusy": "Typischer Tag wird eingespielt…",
-    "demoIntent1Title": "Rahmen & Morgenprioritäten",
-    "demoIntent1Desc": "Strukturierter Block: kurze Liste, eine klare Priorität.",
-    "demoIntent2Title": "Posteingang-Sprint",
-    "demoIntent2Desc": "Schnelle Rückmeldungen, um das Team zu entblocken.",
-    "demoIntent3Title": "Pause ohne Bildschirm",
-    "demoIntent3Desc": "Ein paar Minuten zum Durchatmen und Distanz gewinnen.",
-    "demoIntent4Title": "Meilenstein-Review",
-    "demoIntent4Desc": "Mittags-Abgleich der nächsten Schritte.",
-    "demoIntent5Title": "Tracking-Board",
-    "demoIntent5Desc": "Kennzahlen und Auslastung aktualisieren.",
-    "semantic_tags": "Semantische Tags",
-    "user_profile_sync_success": "Benutzerprofil erfolgreich aktualisiert.",
-    "user_profile_sync_error": "Benutzerprofil konnte nicht aktualisiert werden.",
-    "soundSectionTitle": "Sound settings",
-    "soundHelp": "Selects the bundled .wav for rail alarms (native rebuild after adding files). Android uses one notification channel per variant so the OS actually plays the selected sound.",
-    "soundDefault": "Default",
-    "soundZen": "Zen",
-    "soundDigital": "Digital",
-    "firebaseProjectIdTitle": "Firebase — projectId (debug)",
+    "firebaseProjectIdTitle": "Firebase — projectId (Debug)",
     "firebaseProjectIdBody": "SDK (app.options.projectId):\n{{sdk}}\n\nEXPO_PUBLIC_FIREBASE_PROJECT_ID:\n{{env}}",
     "firebaseSdkNullLabel": "(getFirebaseApp = null)",
-    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* missing)",
-    "testWhatsAppTitle": "Test WhatsApp",
-    "testWhatsAppRaw": "Test WhatsApp (debug simulation)",
-    "talkCaptureSectionTitle": "Talk monitor (Quick / Deep)",
-    "talkCaptureEmpty": "No recent capture — use the Talk tab.",
-    "talkCaptureModeQuick": "Quick mode",
-    "talkCaptureModeDeep": "Deep mode",
-    "talkCaptureRawLabel": "Raw transcript",
-    "talkCaptureLocalLabel": "Local triage (JSON)",
-    "talkCaptureGeminiLabel": "Gemini (full JSON)"
-  },
-  "legal": {
-    "screenTitle": "Über die App",
-    "lead": "Transparenz zu deinen Daten und der Nutzung von TellYouTo.",
-    "privacyTitle": "Datenschutz",
-    "privacyBody": "TellYouTo legt Wert auf deinen persönlichen Raum: Die meisten Intentionen bleiben auf dem Gerät in einer lokalen SQLite-Datenbank, geschützt wie übriger Systemspeicher.\n\nWenn du Cloud-Sync mit Firebase aktivierst, werden nur die für den Dienst nötigen Daten ausgetauscht; der Zugriff basiert auf Firebase-Authentifizierung und serverseitigen Sicherheitsregeln. Wir verkaufen deine Inhalte nicht an Dritte.\n\nLokale Daten kannst du durch Neuaufbau der Datenbank in den Pilot-Tools löschen (fortgeschritten). Für Rechtsfragen (DSGVO usw.) hole dir passende Beratung.",
-    "termsTitle": "Nutzungsbedingungen",
-    "termsBody": "Mit der Nutzung von TellYouTo akzeptierst du ein Erlebnis rund um Fokus und Wohlbefinden. Die App wird „wie besehen“ bereitgestellt; KI und Vorschläge können unvollkommen sein — du bleibst für deine Entscheidungen verantwortlich.\n\nConnectoren und Simulationen sind rechtmäßig und respektvoll gegenüber Drittanbietern zu nutzen.\n\nWir können Texte oder Funktionen zur Klarheit oder Compliance anpassen; maßgeblich ist die in der App angezeigte Version."
-  },
-  "allyVoice": {
-    "personalGreeting": "Hallo {{name}}, ",
-    "greet": {
-      "morning": {
-        "structure": "Bevor es losgeht: eine kurze Liste reicht, um die Schiene zu rahmen.",
-        "momentum": "Viel Energie heute Morgen — die Schiene wartet, wenn du startklar bist.",
-        "zen": "Guten Morgen. Eine ruhige Intention zuerst — dann der Rest.",
-        "stats": "Starte mit einer klaren Zahl oder einem Meilenstein; der Rest folgt."
-      },
-      "afternoon": {
-        "structure": "Mittags-Reset: ein kleines Neu-Fokussieren rettet den Nachmittag.",
-        "momentum": "Der Nachmittag mag Tempo — halte eine klare Intention griffbereit.",
-        "zen": "Atmen: such dir ein ruhiges Fenster für den nächsten Block.",
-        "stats": "Guter Moment für einen schnellen Check — wo stehst du gegenüber deinem Ziel?"
-      }
-    },
-    "farewell": {
-      "evening": {
-        "structure": "Tagesende: einen Punkt sauber schließen, dann loslassen.",
-        "momentum": "Du warst heute unter Strom — gib der Schiene Ruhe; morgen geht’s weiter.",
-        "zen": "Sanfter Abend: deine Klarheit verdient ein leises Ende.",
-        "stats": "Zahlen können warten — würdige, was sich bewegt hat."
-      },
-      "night": {
-        "structure": "Es ist spät — die Liste für morgen kann warten.",
-        "momentum": "Heb dir die Energie auf; die Schiene bleibt.",
-        "zen": "Ruhige Nacht: eine leichte Intention — oder einfach Schlaf.",
-        "stats": "Dashboards schlafen bis morgen — du auch, wenn’s geht."
-      }
-    },
-    "suggestFocusCapsule": "Du bist schnell unterwegs! Für kniffligere Aufgaben könnte eine Fokus-Kapsel helfen."
-  },
-  "connectors": {
-    "whatsapp": "WhatsApp",
-    "line": "LINE"
+    "firebaseEnvAbsentLabel": "(EXPO_PUBLIC_* fehlt)",
+    "dashboardSectionPilotageIa": "[KI-STEUERUNG]",
+    "dashboardSectionFluxTraffic": "[VERKEHRSFLUSS]",
+    "dashboardSectionSysteme": "[SYSTEM]",
+    "simUserModeTitle": "Test-Nutzermodus: {{tier}}",
+    "simUserModeReal": "Echt",
+    "simUserModeFree": "FREE",
+    "simUserModePro": "PRO",
+    "simUserModeHelp": "Die App wendet das sofort an (Kontingent, Paywall). Effektive UI-Stufe: {{effective}}.",
+    "rcPass1Caption": "Remote Config (gemini_pass1_model_id)",
+    "rcPass2Caption": "Remote Config (gemini_pass2_model_id)",
+    "rcModelValue": "{{modelId}}",
+    "rcModelUnavailable": "— (kein Firebase oder Remote Config nicht aufgelöst)",
+    "localPass1Caption": "Effektiver Pass 1 (Extraktion)",
+    "localPass2Caption": "Effektiver Pass 2 (Reasoning)",
+    "localModelValue": "{{modelId}}",
+    "localOverridesRcHint": "Effektiver Pass 2 weicht von RC ab (Debug-Override oder Health Check).",
+    "iaHealthButton": "KI-Health-Check starten",
+    "iaHealthTitle": "KI-Health-Check",
+    "iaHealthBody": "Pass 1 ({{pass1}}): {{pass1Ok}}\nPass-2-Gewinner: {{pass2}}\nPass-2-Probes: {{tested}} (Shortlist übersprungen: {{skipped}}) von {{total}} Modellen.",
+    "iaHealthErrorTitle": "KI-Health-Check fehlgeschlagen",
+    "busyIaHealth": "Modelle werden getestet…",
+    "geminiRemoteModelRefresh": "Remote Config aktualisieren",
+    "oneTapPerfTitle": "One-Tap-Performance (T0–T3-Marker)",
+    "oneTapPerfEmpty": "Noch keine Messungen — starte eine One-Tap-Verfeinerung aus Talk Debug.",
+    "oneTapPerfT0": "T0: {{ms}} ms",
+    "oneTapPerfT1": "T1: {{ms}} ms",
+    "oneTapPerfT3": "T3: {{ms}} ms",
+    "oneTapPerfGemini": "Gemini: {{ms}} ms",
+    "oneTapPerfTotal": "Gesamt ab T1: {{ms}} ms",
+    "timelineLayoutTitle": "Timeline-Layout",
+    "timelineLayoutHint": "Wechsel zwischen aktuellen Karten und E-Mail-Hub. Rollback: Aktuelle Karten. Funktioniert mit allen Themes oben.",
+    "timelineLayoutCurrent": "Aktuelle Karten",
+    "timelineLayoutEmailHub": "E-Mail-Hub",
+    "trafficLaunchElastic": "Elastische-Sprung-Simulation starten",
+    "trafficMonitorTitle": "Verkehrsüberwachung (Simulation)",
+    "trafficSimulatedTime": "Simulierte Zeit: {{time}}",
+    "trafficNextJump": "Nächster Sprung: {{sec}} s Echtzeit",
+    "trafficEmaMin": "Stabilisierte Verkehrsdauer (EMA): {{min}} Min.",
+    "trafficStatusLabel": "Status:",
+    "trafficBufferSafety": "BufferSafety: {{min}} Min.",
+    "trafficCriticalTopDepartTitle": "KRITISCH: TOP_DEPART ausgelöst",
+    "trafficDebugTripDestination": "Muret → Toulouse",
+    "sqliteCountsLine": "intentions={{intentions}} | tasks={{tasks}}",
+    "busySimElastic": "Verkehrssimulation…",
+    "busyRemoteModel": "Remote Config…"
   },
   "connector": {
     "defaultFirstName": "du",
-    "telegramAllyWelcome": "Hallo {{firstName}}! Ich bin dein Ally. Schick mir eine Sprachnachricht oder Text — ich kümmere mich um deinen Rail. {{appLink}}",
-    "botWelcomeMessage": "Hallo {{firstName}}, hier ist dein privater Bereich für Intentionen (Text oder Sprache). Alles bleibt vertraulich und mit deinem Handy synchronisiert. {{appLink}}",
-    "botRailAck": "Alles klar! Ist drauf. Schau auf deinen Rail ⚡️\n{{url}}",
-    "whatsappInitCelebration": "Verbunden! Dein Allié hört zu …",
-    "botRechargeRedirect": "Dein Messenger-Kontingent ist leer — Aufladestation: {{url}}",
-    "copyLinkHint": "Wenn die Chat-App fehlt, kopiere diesen Link.",
-    "deepLinkRadar": "Radar öffnen",
-    "deepLinkTimeline": "Timeline öffnen",
-    "deepLinkRecharge": "Aufladestation"
+    "botWelcomeMessage": "Hallo {{firstName}}, hier ist dein privater Bereich für Intentionen (Text oder Sprache). Alles bleibt streng vertraulich und mit deinem Handy synchronisiert. {{appLink}}",
+    "botRailAck": "Alles klar! Hinzugefügt. Schau auf deinen Rail ⚡️\n{{url}}",
+    "botRechargeRedirect": "Dein Messenger-Kontingent ist leer — öffne die Aufladestation: {{url}}"
   },
   "notifications": {
     "externalIntentionTitle": "TellYouTo",
-    "externalIntentionBody": "Dein Ally hat eine neue Intention erfasst: {{title}}. Sie liegt auf deiner Schiene."
-  },
-  "recharge": {
-    "eyebrow": "SENSORISCHE STATION",
-    "title": "Aufladen",
-    "subtitle": "Wähle einen Rhythmus. Wir simulieren eine ruhige Werbefläche, dann 30 s Herz-Kohärenz — dein Co-Pilot gewinnt Energie.",
-    "modes": {
-      "flash": {
-        "title": "Flash",
-        "desc": "Schneller Reset — leicht, schnell zurück."
-      },
-      "breath": {
-        "title": "Atmung",
-        "desc": "Kohärenz-Tempo — sanfte Blase, ruhigeres System."
-      },
-      "immersion": {
-        "title": "Immersion",
-        "desc": "Tiefere Pause — mehr Guthaben für den Ally."
-      }
-    },
-    "adSim": {
-      "title": "Dopamin-Pause",
-      "sub": "Ethischer Slot — Sponsor-Simulation. Danach: Herz-Kohärenz."
-    },
-    "dopamine": {
-      "title": "Atme mit der Blase",
-      "hint": "Einatmen beim Steigen, ausatmen beim Fallen — ca. 10 s pro Welle."
-    },
-    "done": {
-      "title": "Aufladen abgeschlossen",
-      "sub": "Energie für deinen Co-Piloten hinzugefügt. Komm jederzeit wieder.",
-      "cta": "Weiter"
-    }
+    "externalIntentionBody": "Dein Ally hat eine neue Intention erfasst: {{title}}. Sie liegt auf deinem Rail.",
+    "offlineAudioReadyTitle": "Offline-Notiz verfügbar",
+    "offlineAudioReadyBody": "Eine Audio-Aufnahme wartet auf Analyse.",
+    "offlineAnalyzeAction": "Analysieren",
+    "offlineKeepAudioAction": "Audio behalten"
   },
   "ally": {
-    "calendarConflictTitle": "Zeitfenster belegt",
-    "calendarConflictBody": "Dein Kalender zeigt hier schon etwas. Du kannst die Kapsel trotzdem starten — oder etwas warten.",
-    "calendarConflictContinue": "Trotzdem starten",
-    "calendarConflictBack": "Abbrechen",
-    "hardRoutineConflictTitle": "Slot reserviert",
-    "hardRoutineConflictBody": "Dieser Slot ist für deine Routine {{name}} reserviert. Einen anderen Zeitpunkt suchen?",
-    "hardRoutineConflictDismiss": "OK",
-    "settingsTitle": "Co-Pilot",
-    "settingsLead": "Lege fest, wie TellYouTo klingt — Stimme, Ton und Sprachen.",
-    "messengerRemindersTitle": "Messenger-Erinnerungen",
-    "messengerRemindersSubtitle": "Der Bot kann dich vor jedem Rail-Slot warnen (Intentionen und Routinen).",
-    "messengerRemindersSwitch": "Erinnerungen per Messenger",
-    "messengerRemindersLead": "Minuten vor Beginn",
-    "messengerRemindersHint": "Kurztext für Handy und Uhr. Telegram sendet eine normale Benachrichtigung (Vibration wenn für diesen Chat aktiv). Stummschaltung für den Bot vermeiden.",
-    "sectionVoice": "Stimme",
-    "sectionTone": "Ton",
-    "sectionUiLang": "Oberflächensprache",
-    "sectionAiLang": "KI-Interaktionssprache",
-    "uiLangHint": "Menüs und Beschriftungen der App.",
-    "aiLangHint": "Sprache, die der Co-Pilot für Antworten bevorzugt (kann von der Oberfläche abweichen).",
-    "openSettings": "Einstellungen",
-    "externalHelp": "Mehr zum Fokus (Web)",
-    "versionLabel": "Version {{version}}",
-    "debugUnlockTitle": "Entwicklermodus",
-    "debugUnlockBody": "Zugriff gewährt.",
-    "sectionLegal": "Informationen",
-    "legalNav": "Über die App & Rechtliches",
-    "voice": {
-      "balanced": "Ausgewogen",
-      "warm": "Warm",
-      "crisp": "Klar"
-    },
-    "tone": {
-      "clear": "Klar",
-      "calm": "Ruhig",
-      "dynamic": "Dynamisch"
-    },
-    "lang": {
-      "fr": "Français",
-      "en": "English",
-      "es": "Español",
-      "de": "Deutsch",
-      "it": "Italiano",
-      "ja": "日本語",
-      "zh": "中文",
-      "ar": "العربية",
-      "ko": "한국어",
-      "nl": "Nederlands",
-      "sv": "Svenska"
-    }
+    "openSettings": "Einstellungen"
   },
   "health": {
-    "bannerLead": "Hinweis:",
+    "bannerLead": "Sanfter Hinweis:",
     "warnFirebase": "Cloud-Sync ist noch nicht eingerichtet",
-    "warnSqlite": "Lokale Datenbankprüfung fehlgeschlagen",
+    "warnSqlite": "Lokale Datenbankprüfung nicht bestanden",
     "warnNotifications": "Benachrichtigungen deaktiviert. Aktiviere sie in den Einstellungen, um neue Intentionen in Echtzeit zu erhalten.",
     "dismiss": "OK"
   },
-  "safeExternal": {
-    "title": "TellYouTo verlassen?",
-    "message": "Du bist in deiner Fokuszone. Externen Link wirklich öffnen?",
-    "stay": "Bleiben",
-    "leave": "Verlassen"
-  },
   "agent": {
-    "energyLine": "Energie: {{pct}} % · Energiesparmodus: {{low}}",
-    "yes": "ja",
-    "no": "nein",
-    "agentPool": "Co-Pilot-Zeitreserve: {{seconds}} s",
-    "allyPreview": "Stimme: {{voice}} · Ton: {{tone}} · KI-Sprache: {{lang}}",
     "alarmPermissionTitle": "Benachrichtigungen erforderlich",
-    "alarmPermissionBody": "Ohne Benachrichtigungsberechtigung kann der lokale Agent keine Rail-Alarme auf dem Gerät auslösen. Aktiviere Benachrichtigungen (und Alarme unter Android) in den Systemeinstellungen für diese App.",
+    "alarmPermissionBody": "Der lokale KI-Agent kann ohne Benachrichtigungsberechtigung keine Rail-Alarme auf diesem Gerät auslösen. Aktiviere Benachrichtigungen (und Alarme unter Android) in den Systemeinstellungen für diese App.",
     "railChannelName": "TellYouTo · Rail ({{soundId}})"
   },
   "common": {
-    "habits": "Gewohnheiten",
-    "projects": "Projekte",
-    "later": "Later",
-    "tryAgainSoon": "Try again in a moment.",
-    "active": "Active",
-    "inactive": "Inactive",
-    "premiumQuota": "Premium quota",
-    "premiumQuotaRemaining": "Premium quota remaining: {{count}}"
+    "cancel": "Abbrechen",
+    "habits": "Gewohnheiten"
   },
-  "eveningRitual": {
-    "title": "Star Ritual",
-    "summary": "Today, you freed your mind from {{count}} thoughts. Your sky is beautiful.",
-    "victoryLabel": "Victory of the day",
-    "tomorrowPlaceholder": "One thought for tomorrow?",
-    "cta": "One thought for tomorrow?",
-    "saving": "Anchoring...",
-    "gratitudeLine1": "You moved with clarity. Calm stays with you tonight.",
-    "gratitudeLine2": "Every step counts. Your sky opens this evening.",
-    "gratitudeLine3": "Your consistency lights your path. Beautiful close.",
-    "temperamentLabel": "Dein aktuelles Temperament: {{profile}}",
-    "profileOverride": {
-      "1": {
-        "action_tip": "Es ist okay, wenn nicht alles abgehakt ist. Eine klare Aktion reicht fur morgen."
-      },
-      "4": {
-        "insight": "Dein Geist ist klar, geordnet und sicher. Alles Wichtige ist in deinem Kalender verankert.",
-        "action_tip": "Du kannst die Last heute Abend loslassen: Dein System ist sauber und unter Kontrolle."
-      }
-    }
-  },
-  "economy": {
-    "labels": {
-      "zenPoints": "Zen Points",
-      "aiCredits": "AI Credits"
-    },
-    "aiCreditsCount": "{{count}} AI Credits",
-    "balanceInsufficientTitle": "Insufficient balance",
-    "recharge": {
-      "modalTitle": "AI Recharge",
-      "modalBody": "Your Ad-Free mode is active, but AI still needs fuel. Watch one video for +5 credits.",
-      "watchVideoCta": "Watch a video",
-      "dailyCapReached": "Daily recharge limit reached. Let your AI rest until tomorrow!",
-      "cooldown": "Please wait 60 seconds between recharge videos.",
-      "unavailableTitle": "Recharge unavailable",
-      "rewardToast": "+5 AI Credits"
-    },
-    "shop": {
-      "title": "Time Shop",
-      "zenModeActive": "Zen Mode Active",
-      "adFreeState": "Ad-free status: {{state}}.",
-      "serenityDescription": "Removes intrusive banners and ads. Note: manual AI video recharge stays available to fuel your projects.",
-      "buySerenity": "24h of Serenity - 500Z",
-      "buyBoost": "Intelligence Boost (+5 AI) - 300Z",
-      "purchaseSuccessTitle": "Purchase confirmed",
-      "serenityInsufficientBody": "You need 500Z to activate 24h of serenity.",
-      "boostInsufficientBody": "You need 300Z to buy this boost.",
-      "serenitySuccessBody": "24h of serenity activated.",
-      "boostSuccessBody": "+5 AI Credits added."
-    },
-    "debugAddZen": "+10 Zen",
-    "debugAddAiCredit": "+1 AI Credit"
-  },
-  "quests": {
-    "notReadyTitle": "Quest not ready",
-    "notReadyBody": "Requirements are not met yet.",
-    "bonusReceivedTitle": "Bonus received",
-    "claimedToast": "Quest completed +{{gain}}Z",
-    "dailyTitle": "Quest of the Day - {{title}}",
-    "progress": "Progress: {{current}}/{{target}}",
-    "alreadyClaimed": "Bonus already claimed",
-    "claimCta": "Claim my bonus"
-  },
-  "horizons": {
-    "rearbitrate": "To re-arbitrate",
-    "today": "Today",
-    "tomorrow": "Tomorrow",
-    "thisWeek": "This week",
-    "noPressure": "No pressure",
-    "optionalNoPressure": "Optional (No pressure)",
-    "rebalanceToToday": "Move to Today",
-    "rebalanceToNoPressure": "Move to No pressure"
+  "project": {
+    "title_placeholder": "Projekttitel",
+    "add_steps": "+",
+    "zoom_confirm_title": "Soll die KI diesen Schritt aufteilen?",
+    "zoom_action_start": "Aufteilen",
+    "zoom_generating_status": "Schritte werden erstellt",
+    "zoom_background_action": "Im Hintergrund verarbeiten",
+    "status_processing": "Verarbeitung…",
+    "zoom_view_steps": "Schritte anzeigen"
   },
   "talkHome": {
-    "frequencyLabel": "Frequency",
-    "whenLabel": "When?",
-    "habitFrequencyPlaceholder": "Daily, Week, Weekend",
-    "whenPlaceholder": "Optional (e.g. tomorrow, 6pm...)",
-    "frequencyDaily": "Daily",
-    "frequencyWeek": "Week",
-    "frequencyWeekend": "Weekend",
-    "brandName": "TalkNDone",
-    "talkieProjet": "PROJECT",
-    "talkieIntention": "INTENTION",
-    "talkieQuickNote": "QUICK NOTE",
-    "a11yTalkieProjet": "Project — expert capture to break down a complex idea",
-    "a11yTalkieIntention": "Intention — hold to capture, release for on-device triage",
-    "a11yTalkieQuickNote": "Quick note — raw capture with no analysis",
-    "profileButton": "Open profile",
-    "priorityHigh": "High-priority",
-    "questionHydration": "Drink a glass of water?",
-    "yes": "YES",
-    "no": "NO",
-    "localPrivacyHint": "Managed by local AI • Total Privacy",
-    "progressCurrent": "Current task: 1/3",
-    "progressNextAnchor": "Next anchor: Meditation (evening)",
-    "holdToTalk": "Hold to speak",
-    "status": {
-      "listening": "Listening",
-      "analyzing": "Analyzing…"
-    },
-    "button": {
-      "stop": "STOP"
-    },
-    "label": {
-      "quickIntent": "Quick mode — on-device",
-      "deepIntent": "Deep mode — Gemini"
-    },
-    "hintTapQuick": "Short tap: quick intent (on-device recognition).",
-    "hintHoldDeep": "Hold to unlock: hands-free recording, then STOP → Gemini.",
-    "a11yMainIdle": "Short tap for on-device speech, or hold for hands-free Gemini capture",
-    "a11yStopQuick": "Stop listening and analyze locally",
-    "a11yStopDeep": "Stop recording and send to Gemini",
-    "deepNoApiKeyTitle": "Gemini API key",
-    "deepNoApiKeyBody": "Gemini proxy not configured. Deploy the Cloud Function and restart the app.",
-    "orbital": {
-      "hintSlide": "Slide the bead to Task (right) or Project (left), then hold the mic.",
-      "holdRelease": "Release to finish",
-      "pickTitle": "Choose a mode",
-      "pickBody": "Snap the bead to Task or Project before speaking."
-    },
-    "a11yMicNeutral": "Mic: slide the bead to Task or Project first, then hold to speak",
-    "a11yMicQuick": "Mic: hold for on-device dictation (Task)",
-    "a11yMicDeep": "Mic: hold for Project recording sent to Gemini",
-    "microphonePermissionTitle": "Microphone access required",
-    "microphonePermissionBody": "Allow microphone access to record your voice with TalkNDone.",
-    "microphonePermissionDeniedTitle": "Microphone blocked",
-    "microphonePermissionDeniedBody": "Voice input cannot start without microphone access. Open system settings and allow the microphone for TalkNDone.",
-    "speechRecognitionUnavailableTitle": "Speech recognition unavailable",
-    "speechRecognitionUnavailableBody": "This device has no usable system speech recognizer (on Android this is often tied to the Google app and speech services). Install or update the Google app, check your system language, then try again.",
-    "speechErrorNotAllowed": "Microphone or speech recognition is denied for TalkNDone. Open system settings and allow access.",
-    "speechErrorService": "The system speech recognizer is not available. Check that Google Speech Services (Android) or Dictation (iOS) is enabled.",
-    "speechErrorNetwork": "Recognition failed due to a network issue. Try again or check your connection.",
-    "speechErrorNoSpeech": "No speech detected. Speak a little louder or closer to the microphone.",
-    "speechErrorClient": "Recognizer engine error. Please try again shortly.",
-    "speechErrorInterrupted": "Recognition was interrupted (call, Siri, or another audio app). Try again when audio is free.",
-    "speechErrorGeneric": "{{message}}",
-    "speechDebugTitle": "Technical detail (dev)",
-    "speechDebugBody": "{{detail}}",
-    "recordingErrorTitle": "Recording",
-    "recordingErrorStart": "Unable to start recording.",
-    "recordingErrorStop": "Unable to stop recording.",
-    "recordingErrorMissingFile": "Audio file not found after recording.",
-    "recordingTooShortTitle": "Recording too short",
-    "recordingTooShortBody": "Hold the button a little longer to capture audio.",
-    "transcriptionTitle": "Local transcription",
-    "listeningNow": "I'm listening...",
-    "confirmIntro": "Confirm to take this into account:",
-    "confirmTypePrefix": "Type",
-    "confirmActionLabel": "Action",
-    "confirmMomentLabel": "Moment",
-    "timeUnspecified": "Not specified",
-    "intentType": {
-      "habit": "Habit",
-      "task": "Task",
-      "project": "Project",
-      "note": "Note"
-    },
-    "editIntentA11y": "Edit action and moment",
-    "voiceLivePlaceholder": "…",
-    "voiceWebUnsupportedTitle": "Speech recognition",
-    "voiceWebUnsupportedBody": "Native dictation is not available on the web. Use the iOS or Android app.",
-    "voiceProcess": "PROCESS",
-    "voiceCallExpert": "CALL EXPERT",
-    "voiceCancel": "CANCEL",
-    "voiceValidate": "VALIDATE",
-    "voiceNote": "NOTE",
-    "scenarioLocal": "Scenario A · Quick local validation",
-    "scenarioComplex": "Scenario B · Expert refinement on demand",
-    "scenarioQuickNote": "Raw capture · Inbox (no triage)",
-    "scenarioComplexHint": "Scenario B ready: call the expert if needed.",
-    "transcriptionUnclearTitle": "Transcription",
-    "transcriptionUnclearBody": "Sorry, I did not understand.",
-    "titleRequiredTitle": "Title required",
-    "titleRequiredBody": "Add a short title before processing.",
-    "voicePersistErrorTitle": "Could not save",
-    "voicePersistErrorBody": "This intention could not be saved. Please try again shortly.",
-    "confirmEmptyTitle": "—"
+    "microphonePermissionTitle": "Mikrofonzugriff erforderlich",
+    "microphonePermissionDeniedBody": "Spracheingabe kann ohne Mikrofonzugriff nicht starten. Öffne die Systemeinstellungen und erlaube das Mikrofon für TalkNDone.",
+    "listeningNow": "Ich höre zu…"
   },
   "errorBoundary": {
     "brand": "TalkNDone",
-    "title": "A moment without a blank screen",
-    "body": "A tiny snag in the gears — nothing serious. Breathe; you can restart when you’re ready.",
-    "restartA11y": "Restart the app",
-    "restart": "Restart"
+    "title": "Ein Moment ohne leeren Bildschirm",
+    "body": "Ein kleiner Haken im Getriebe — nichts Schlimmes. Atme durch; du kannst neu starten, wenn du bereit bist.",
+    "restartA11y": "App neu starten",
+    "restart": "Neu starten"
   },
   "nativeModule": {
-    "missingTitle": "Native module error",
-    "missingBody": "{{name}} is missing or not linked to the current binary.\nContext: {{context}}\n→ Android rebuild required (npx expo prebuild --clean --platform android, then compile).\n\n{{detail}}",
-    "unknownModuleName": "(unknown module)",
-    "contextTalkHomeSpeech": "Talk · speech recognition",
-    "contextTalkHomePersist": "Talk · voice intention (local DB)",
-    "contextRadarSave": "Radar · save (local DB / notifications / alarms)",
-    "contextInsertIntention": "Insert intention (SQLite / notifications)"
+    "missingTitle": "Native-Modul-Fehler",
+    "missingBody": "{{name}} fehlt oder ist nicht mit der aktuellen Binary verknüpft.\nKontext: {{context}}\n→ Android-Rebuild erforderlich (npx expo prebuild --clean --platform android, dann kompilieren).\n\n{{detail}}",
+    "unknownModuleName": "(unbekanntes Modul)",
+    "contextTalkHomeSpeech": "Talk · Spracherkennung",
+    "contextTalkHomePersist": "Talk · Sprach-Intention (lokale DB)"
   },
-  "semanticLab": {
-    "kind": {
-      "habit": "Habit",
-      "task": "Task",
-      "project": "Project"
-    },
-    "yes": "yes",
-    "no": "no",
-    "alertWebUnsupportedTitle": "Not supported",
-    "alertWebUnsupportedBody": "expo-av recording: iOS / Android only.",
-    "alertMicTitle": "Microphone",
-    "alertMicDeniedBody": "Microphone permission denied.",
-    "alertRecordingTitle": "Recording",
-    "alertRecordingNoActiveBody": "No active recording — tap START first.",
-    "alertApiKeyTitle": "API key",
-    "alertApiKeyBody": "Gemini proxy not configured. Deploy the Cloud Function and restart the app.",
-    "pipelineErrorExpoAvRebuild": "Native expo-av module missing: rebuild required (npx expo prebuild + run:android / run:ios).",
-    "errorUriAfterStop": ".m4a file URI missing after stop.",
-    "webUnsupportedMessage": "Web not supported — use iOS or Android (expo-av).",
-    "lead": "Pipeline: .m4a (source of truth) → Gemini Flash transcription → [LOCAL AI] vs [GEMINI]. No SQLite / Firestore writes.",
-    "btnStart": "START (.m4a)",
-    "btnStopPipeline": "STOP & PIPELINE",
-    "btnReset": "RESET (memory + file)",
-    "loaderLabel": "Transcription + analysis…",
-    "sectionRaw": "— RAW TEXT (Gemini transcription)",
-    "sectionLocal": "— [LOCAL AI] (reformulateStructuredIntent + frequency)",
-    "sectionGemini": "— [GEMINI FLASH] (structured JSON)",
-    "sectionSynth": "— SUMMARY (comparison)",
-    "emptyPlaceholder": "—",
-    "localLineType": "Type: {{kind}} ({{kindCode}})",
-    "localLineFrequency": "Frequency: {{value}}",
-    "localLineTitle": "Title (cleaned): {{value}}",
-    "localLineTimeMarker": "timeMarker: {{value}}",
-    "synthNoGeminiHeader": "(No Gemini analysis — see pipeline error above.)\n",
-    "synthLocalOnlyLine": "[LOCAL AI] only: {{kind}} — frequency: {{freq}}",
-    "synthAligned": "Types aligned: {{localLabel}} = Gemini \"{{geminiType}}\".\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}",
-    "synthMismatch": "Mismatch: [LOCAL AI] said « {{localLabel}} », [GEMINI FLASH] said « {{geminiType}} ».\nLocal frequency: {{locFreq}}\nGemini frequency: {{gemFreq}}\nComplex project (Gemini): {{complex}}\nWhy (Gemini): {{reasoning}}"
+  "listIntention": {
+    "proTeaserTitle": "Pro",
+    "proTeaserBody": "Werde Pro, um deine Listen sofort zu skalieren (Gäste, Ausrüstung, Logistik).",
+    "unreadable": "Diese Liste konnte nicht geladen werden.",
+    "a11yDecrease": "Skalierung verringern",
+    "a11yIncrease": "Skalierung erhöhen"
   },
   "talkDebug": {
-    "noteSaved": "Notiz gespeichert",
-    "audioTitle": "Audio-Notiz",
-    "audioMissing": "Keine Audiodatei gefunden.",
-    "audioSaved": "Audio-Notiz gespeichert",
-    "actionSuccess": "Aktion erfolgreich abgeschlossen.",
     "sacredSpace": {
       "title": "Sacred Space"
+    },
+    "noteSaved": "Notiz gespeichert",
+    "audioSaved": "Audio-Memo gespeichert",
+    "captureTitle": "Capture",
+    "taskQuickRecapIntro": "Aufgabe gespeichert",
+    "habitQuickRecapIntro": "Gewohnheit gespeichert",
+    "birthdayLabel": "Geburtstag",
+    "listSavedToast": "Liste gespeichert",
+    "projectSavedToast": "Projekt gespeichert",
+    "intentionSuggestionsEyebrow": "Intention-Ideen",
+    "voiceWaveformA11y": "Live-Sprachpegel",
+    "micQuotaUpsellHint": "3 kostenlose Aktionen pro Tag. Werde PRO für unbegrenzten Zugang.",
+    "oneTapEmptyTranscript": "Nichts wurde transkribiert. Versuche es nochmal, näher am Mikrofon.",
+    "oneTapListSection": "Liste",
+    "oneTapListItems": "Zeilen zum Speichern",
+    "oneTapListUnitPlaceholder": "Personen, Tage…",
+    "oneTapTaskSection": "Aufgabe",
+    "oneTapWebDateLabel": "Datum (YYYY-MM-DD)",
+    "oneTapPickDate": "Datum wählen",
+    "oneTapClearDate": "Datum löschen",
+    "oneTapTaskDueTime": "Uhrzeit (optional)",
+    "oneTapTaskNotes": "Notizen",
+    "oneTapRecurringSection": "Wiederholung",
+    "oneTapCadence": "Rhythmus",
+    "oneTapAnchorNotes": "Anker-Notizen",
+    "oneTapHabitSection": "Gewohnheit",
+    "oneTapPreferredTime": "Bevorzugte Uhrzeit",
+    "oneTapAnniversarySection": "Jährliches Ereignis",
+    "oneTapPersonName": "Person oder Thema",
+    "oneTapMonthDay": "Datum (MM-DD oder YYYY-MM-DD)",
+    "oneTapReminderDays": "Erinnerung (Tage vorher)",
+    "oneTapUniversalReminderTitle": "Geplante Erinnerung",
+    "oneTapUniversalDueLabel": "Fällig",
+    "oneTapUniversalRecLabel": "Wiederholung",
+    "oneTapClearUniversalReminder": "Erinnerung entfernen",
+    "oneTapAddReminderCta": "+ Erinnerung hinzufügen",
+    "oneTapWebDueDateTimeIso": "ISO-Datum/Uhrzeit (Erinnerung)",
+    "oneTapReminderNotifTitle": "TellYouTo-Erinnerung",
+    "oneTapReminderRecurringTitle": "Wiederkehrende Erinnerung",
+    "oneTapNoteSection": "Memo",
+    "oneTapConfirm": "Speichern",
+    "oneTapPrintErrorTitle": "Drucken",
+    "oneTapPrintNeedsNativeBuild": "Das Druckmodul ist nicht in dieser App-Binary enthalten. Nutze einen Development Build (z. B. npx expo run:android) nach dem Hinzufügen von expo-print, oder baue die App neu. Expo Go enthält möglicherweise keine neu hinzugefügten Native-Module.",
+    "stepTransport": "Audio wird aufgenommen…",
+    "stepTranscription": "Audio wird transkribiert…",
+    "stepAnalysis": "Inhalt wird generiert…",
+    "stepComplete": "Fertig!",
+    "actionAddNote": "Notiz hinzufügen",
+    "errorNetwork": "Instabiles Netzwerk. Lokal gespeichert.",
+    "oneTapType": {
+      "TASK": "Aufgabe",
+      "RECURRING_TASK": "Wiederkehrende Aufgabe",
+      "HABIT": "Gewohnheit",
+      "TRIP": "Fahrt",
+      "LIST": "Liste",
+      "ANNIVERSARY": "Jahrestag",
+      "NOTE": "Notiz"
     }
   },
-  "navigation": {
-    "semanticBrainLabHeader": "Semantic Brain Lab"
+  "profiling": {
+    "kindness": {
+      "1": {
+        "insight": [
+          "Dein Kopf ist gerade voller Ideen, {{name}}.",
+          "Deine Vorstellungskraft fühlt sich heute sehr aktiv an, {{name}}.",
+          "Viele bedeutungsvolle Projekte leben in deinem Kopf, {{name}}."
+        ],
+        "action_tip": [
+          "Was wäre, wenn du nur einen winzigen Baustein zum Start wählst?",
+          "Mach eine Aktion, auch eine ganz kleine, um deinen Kopf zu entlasten.",
+          "Atme. Klarheit wächst, wenn du eine Sache nach der anderen machst."
+        ]
+      },
+      "2": {
+        "insight": [
+          "Dein Rhythmus wirkt in letzter Zeit ruhiger, {{name}}.",
+          "Das fühlt sich wie eine vorübergehende Pause an, {{name}}.",
+          "Dein Motor läuft gerade etwas im Leerlauf, {{name}}."
+        ],
+        "action_tip": [
+          "Komm mit einer 2-Minuten-Mikro-Aktion zurück.",
+          "Wähle jetzt eine einfache Bewegung, um Schwung zu holen.",
+          "Ein kleiner Check-in heute reicht, um wieder auf Kurs zu kommen."
+        ]
+      },
+      "3": {
+        "insight": [
+          "Wenn du dich engagierst, ist deine Umsetzung scharf, {{name}}.",
+          "Du wandelst schnell in Ergebnisse um, wenn du aktiv wirst, {{name}}.",
+          "Deine Effizienz ist stark, auch bei unregelmäßigem Rhythmus, {{name}}."
+        ],
+        "action_tip": [
+          "Füge ein kleines tägliches Ritual hinzu, um dein Tempo zu glätten.",
+          "Reserviere einen wiederkehrenden kurzen Slot, um deinen Rhythmus zu stabilisieren.",
+          "Kleine Beständigkeit schlägt isolierte Sprints."
+        ]
+      },
+      "4": {
+        "insight": [
+          "Du orchestrierst den Kalenderfluss sehr gut, {{name}}.",
+          "Deine Steuerung ist klar: synchronisieren, ausrichten, vorwärts, {{name}}.",
+          "Du bist gerade in einer starken Koordinationshaltung, {{name}}."
+        ],
+        "action_tip": [
+          "Behalte eine aktive lokale Intention, um täglich geerdet zu bleiben.",
+          "Reserviere ein kurzes Review-Fenster, um den Fluss voll im Griff zu behalten.",
+          "Halte es einfach: eine sichtbare Priorität zur Zeit."
+        ]
+      },
+      "5": {
+        "insight": [
+          "Dein Gleichgewicht aus Aktion und Beständigkeit ist sehr solide, {{name}}.",
+          "Du bewegst dich mit stetiger Klarheit, {{name}}.",
+          "Große Stabilität: Umsetzung und Engagement sind im Einklang, {{name}}."
+        ],
+        "action_tip": [
+          "Behalte diesen Rhythmus mit einem leichten Wochen-Review.",
+          "Schütze den Schwung, indem du jeden Tag einen kleinen Erfolg feierst.",
+          "Bewahre dein Gleichgewicht mit einem wiederkehrenden Reset-Slot."
+        ]
+      },
+      "defaultName": "du"
+    },
+    "profiles": {
+      "1": {
+        "label": "DER TRÄUMER",
+        "description": "Erfasst viele Intentionen, setzt aber nur einen kleinen Teil um."
+      },
+      "2": {
+        "label": "DER ABGELÖSTE",
+        "description": "Nutzung lässt nach, mit geringer Erledigungsquote und schwachem Engagement."
+      },
+      "3": {
+        "label": "DER SPRINTER",
+        "description": "Hohe Umsetzungskraft, aber über die Zeit noch unregelmäßig."
+      },
+      "4": {
+        "label": "DER DIRIGENT",
+        "description": "Starkes Orchestrierungsverhalten mit hohem Archiv-/Export-Verhältnis."
+      },
+      "5": {
+        "label": "DER ZEN-KONSTANTE",
+        "description": "Ausgewogenes Profil mit starker Umsetzung und regelmäßigem Engagement."
+      }
+    }
   },
-  "intentionDetail": {
-    "pin": "Pin",
-    "unpin": "Unpin",
-    "pinMaxReachedTitle": "Pin limit reached",
-    "pinMaxReachedBody": "You can pin at most {{max}} intentions. Unpin another one first."
-  }
+  "horizons": {
+    "rearbitrate": "Neu bewerten",
+    "today": "Heute",
+    "tomorrow": "Morgen",
+    "thisWeek": "Diese Woche",
+    "noPressure": "Kein Druck"
+  },
+  "TYPE_TASK": "Aufgabe",
+  "TYPE_HABIT": "Gewohnheit",
+  "TYPE_RECURRING_TASK": "Wiederkehrende Aufgabe",
+  "TYPE_LIST": "Liste",
+  "TYPE_ANNIVERSARY": "Jahrestag",
+  "TYPE_NOTE": "Notiz",
+  "MODAL_REFINING": "Verfeinern…",
+  "PLACEHOLDER_TITLE": "Titel…",
+  "DEFAULT_INTENTION_TITLE": "Neue Intention",
+  "PLACEHOLDER_LIST": "Liste (ein Eintrag pro Zeile)…",
+  "PLACEHOLDER_DESTINATION": "Ziel…",
+  "COMMON_MINUS": "−",
+  "COMMON_PLUS": "+",
+  "COMMON_YES": "Ja",
+  "COMMON_NO": "Nein",
+  "COMMON_CANCEL": "Abbrechen",
+  "MODAL_CONFIRM_OK": "OK",
+  "LOGISTICS_TRAFFIC_ADJUST": "Für Verkehr anpassen",
+  "LOGISTICS_BUY_TRAJET_PACK": "Aufladen",
+  "LOGISTICS_TRAJET_REMAINING_SUFFIX": "(übrig: {{n}})",
+  "SAS_SUMMARY_DEPART_RECOMMENDED": "Empfohlene Abfahrt um {{time}}",
+  "SAS_SUMMARY_SCHEDULED": "Geplant um {{time}}",
+  "SAS_SUMMARY_DESTINATION": "Nach {{destination}}",
+  "PLACEHOLDER_NOTE": "Memo eingeben…",
+  "PLACEHOLDER_DATE": "Datum (YYYY-MM-DD)…",
+  "PLACEHOLDER_TIME": "Uhrzeit (HH:MM)…",
+  "PLACEHOLDER_NOTES": "Notizen…",
+  "PLACEHOLDER_ADDRESS": "Adresse…",
+  "PLACEHOLDER_PERSON": "Name…",
+  "PLACEHOLDER_MONTHDAY": "Datum (MM-DD)…"
 }
