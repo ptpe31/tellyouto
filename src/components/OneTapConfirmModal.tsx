@@ -34,6 +34,7 @@ import {
 import { printOneTapListDraft } from '../services/oneTapListPdf';
 import { listItemDisplayQuantity } from '../utils/listQuantityDisplay';
 import { ensureSentinelQuotaInitialized, getSentinelQuotaSnapshotLocalOnly } from '../services/QuotaManager';
+import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
 
 export type OneTapConfirmModalProps = {
   visible: boolean;
@@ -51,6 +52,15 @@ export type OneTapConfirmModalProps = {
 };
 
 function StreamingIndicator() {
+  const { typography } = useDesignTokens();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        streamingRow: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 6 },
+        streamingDot: { fontSize: typography.headline, fontWeight: '900', color: '#0f766e', marginHorizontal: 2 },
+      }),
+    [typography],
+  );
   const dot = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const anim = Animated.loop(
@@ -378,6 +388,8 @@ export function OneTapConfirmModal({
   if (!draft) return null;
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
+  const { typography } = useDesignTokens();
+  const styles = useMemo(() => createOneTapConfirmStyles(typography), [typography]);
   const insets = useSafeAreaInsets();
   const debugModal = __DEV__ || process.env.EXPO_PUBLIC_ONETAP_MODAL_DEBUG === '1';
   const hapticsFiredRef = useRef(false);
@@ -1428,7 +1440,8 @@ export function OneTapConfirmModal({
   );
 }
 
-const styles = StyleSheet.create({
+function createOneTapConfirmStyles(typography: ZenTypography) {
+  return StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(245,245,247,0.92)',
@@ -1449,8 +1462,8 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   scroll: { maxHeight: '72%' },
-  cardTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
-  chatTranscript: { fontSize: 15, fontWeight: '600', color: '#0f172a', lineHeight: 20, marginTop: 4, marginBottom: 14 },
+  cardTitle: { fontSize: typography.headline, fontWeight: '800', color: '#0f172a' },
+  chatTranscript: { fontSize: typography.bodyLarge, fontWeight: '600', color: '#0f172a', lineHeight: 20, marginTop: 4, marginBottom: 14 },
   chatDivider: { height: 1, backgroundColor: 'rgba(15,23,42,0.10)', marginBottom: 10 },
   refineBanner: {
     flexDirection: 'row',
@@ -1461,7 +1474,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: 'rgba(15,118,110,0.07)',
   },
-  refineBannerText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0f766e' },
+  refineBannerText: { flex: 1, fontSize: typography.bodySmall, fontWeight: '600', color: '#0f766e' },
   section: { marginTop: 8, marginBottom: 4 },
   reminderSection: {
     marginTop: 4,
@@ -1472,7 +1485,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15,118,110,0.06)',
   },
   reminderTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  reminderLine: { fontSize: 14, fontWeight: '600', color: '#0f172a', marginBottom: 4 },
+  reminderLine: { fontSize: typography.body, fontWeight: '600', color: '#0f172a', marginBottom: 4 },
   addReminderBtn: {
     alignSelf: 'flex-start',
     marginTop: 4,
@@ -1483,8 +1496,8 @@ const styles = StyleSheet.create({
     borderColor: '#94a3b8',
     backgroundColor: '#fff',
   },
-  addReminderBtnText: { fontSize: 13, fontWeight: '700', color: '#475569' },
-  sectionTitle: { fontSize: 14, fontWeight: '800', color: '#008080', marginBottom: 8 },
+  addReminderBtnText: { fontSize: typography.bodySmall, fontWeight: '700', color: '#475569' },
+  sectionTitle: { fontSize: typography.body, fontWeight: '800', color: '#008080', marginBottom: 8 },
   intentCard: {
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -1512,11 +1525,11 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: '#fff',
   },
-  intentType: { fontSize: 12, fontWeight: '900', color: '#0f766e' },
-  intentBadge: { fontSize: 12, fontWeight: '800', color: '#475569' },
-  intentTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginTop: 6 },
+  intentType: { fontSize: typography.label, fontWeight: '900', color: '#0f766e' },
+  intentBadge: { fontSize: typography.label, fontWeight: '800', color: '#475569' },
+  intentTitle: { fontSize: typography.title, fontWeight: '800', color: '#0f172a', marginTop: 6 },
   streamingRow: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 6 },
-  streamingDot: { fontSize: 18, fontWeight: '900', color: '#0f766e', marginHorizontal: 2 },
+  streamingDot: { fontSize: typography.headline, fontWeight: '900', color: '#0f766e', marginHorizontal: 2 },
   listHeadRight: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 'auto' },
   listStepperInline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   listItemRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
@@ -1529,9 +1542,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 8,
   },
-  listBullet: { fontSize: 14, fontWeight: '900', color: 'rgba(15,23,42,0.25)', marginRight: 8 },
-  listItemLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: '#0f172a' },
-  listItemQty: { fontSize: 13, fontWeight: '800', color: '#475569', marginLeft: 10 },
+  listBullet: { fontSize: typography.body, fontWeight: '900', color: 'rgba(15,23,42,0.25)', marginRight: 8 },
+  listItemLabel: { flex: 1, fontSize: typography.body, fontWeight: '700', color: '#0f172a' },
+  listItemQty: { fontSize: typography.bodySmall, fontWeight: '800', color: '#475569', marginLeft: 10 },
   intentLoadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1543,14 +1556,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.70)',
     marginBottom: 14,
   },
-  intentLoadingText: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  intentLoadingText: { fontSize: typography.body, fontWeight: '800', color: '#0f172a' },
   loadingTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' },
   listTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
   listControlsBelow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
   tripAddressRow: { marginTop: 10 },
   intentLoadingInline: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  intentLoadingInlineText: { fontSize: 13, fontWeight: '800', color: '#475569' },
-  label: { fontSize: 12, fontWeight: '700', color: '#64748b', marginTop: 8 },
+  intentLoadingInlineText: { fontSize: typography.bodySmall, fontWeight: '800', color: '#475569' },
+  label: { fontSize: typography.label, fontWeight: '700', color: '#64748b', marginTop: 8 },
   input: {
     borderBottomWidth: 1,
     borderColor: 'rgba(15,23,42,0.10)',
@@ -1572,7 +1585,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: 'transparent',
   },
-  typeAnchorText: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  typeAnchorText: { fontSize: typography.title, fontWeight: '700', color: '#0f172a' },
   quantityRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1587,15 +1600,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepBtnText: { fontSize: 20, fontWeight: '800', color: '#007AFF' },
-  countText: { fontSize: 16, fontWeight: '800', color: '#0f172a', minWidth: 24, textAlign: 'center' },
+  stepBtnText: { fontSize: typography.headline, fontWeight: '800', color: '#007AFF' },
+  countText: { fontSize: typography.title, fontWeight: '800', color: '#0f172a', minWidth: 24, textAlign: 'center' },
   unitInput: { flex: 1, minWidth: 0 },
   catBlock: { marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  catName: { fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 6 },
+  catName: { fontSize: typography.bodySmall, fontWeight: '700', color: '#475569', marginBottom: 6 },
   checkRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 2 },
   checkLabelCol: { flex: 1 },
-  checkLabel: { fontSize: 15, fontWeight: '600', color: '#0f172a' },
-  checkSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  checkLabel: { fontSize: typography.bodyLarge, fontWeight: '600', color: '#0f172a' },
+  checkSub: { fontSize: typography.label, color: '#64748b', marginTop: 2 },
   logisticsWrap: {
     marginTop: 10,
     paddingTop: 10,
@@ -1609,11 +1622,11 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 4,
   },
-  logisticsLabel: { flex: 1, fontSize: 13, fontWeight: '600', color: '#64748b' },
-  logisticsTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
-  logisticsHint: { fontSize: 13, fontWeight: '600', color: '#475569', marginBottom: 8 },
-  logisticsWarn: { fontSize: 12, fontWeight: '700', color: '#b91c1c', marginTop: 6 },
-  logisticsQuota: { fontSize: 12, fontWeight: '700', color: '#0f766e', marginTop: 10 },
+  logisticsLabel: { flex: 1, fontSize: typography.bodySmall, fontWeight: '600', color: '#64748b' },
+  logisticsTitle: { fontSize: typography.body, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
+  logisticsHint: { fontSize: typography.bodySmall, fontWeight: '600', color: '#475569', marginBottom: 8 },
+  logisticsWarn: { fontSize: typography.label, fontWeight: '700', color: '#b91c1c', marginTop: 6 },
+  logisticsQuota: { fontSize: typography.label, fontWeight: '700', color: '#0f766e', marginTop: 10 },
   logisticsExhausted: {
     marginTop: 10,
     padding: 10,
@@ -1622,8 +1635,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(244,63,94,0.22)',
   },
-  logisticsExhaustedTitle: { fontSize: 13, fontWeight: '800', color: '#b91c1c', marginBottom: 2 },
-  logisticsExhaustedDesc: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  logisticsExhaustedTitle: { fontSize: typography.bodySmall, fontWeight: '800', color: '#b91c1c', marginBottom: 2 },
+  logisticsExhaustedDesc: { fontSize: typography.label, fontWeight: '600', color: '#475569' },
   dateCta: {
     marginTop: 6,
     paddingVertical: 12,
@@ -1633,9 +1646,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#008080',
   },
-  dateCtaText: { fontSize: 15, fontWeight: '700', color: '#008080', textAlign: 'center' },
+  dateCtaText: { fontSize: typography.bodyLarge, fontWeight: '700', color: '#008080', textAlign: 'center' },
   linkish: { alignSelf: 'flex-start', marginTop: 6, marginBottom: 4 },
-  linkishText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  linkishText: { fontSize: typography.bodySmall, fontWeight: '600', color: '#64748b' },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 8 },
   actionsWithPrint: { justifyContent: 'space-between', flexWrap: 'wrap' },
   actionsSpacer: { flex: 1, minWidth: 8 },
@@ -1643,7 +1656,7 @@ const styles = StyleSheet.create({
   btnPrimary: { backgroundColor: '#007AFF' },
   btnPrimaryText: { fontWeight: '800', color: '#fff' },
   synthHeader: { gap: 10 },
-  synthTitle: { fontSize: 20, fontWeight: '900', color: '#0f172a' },
+  synthTitle: { fontSize: typography.headline, fontWeight: '900', color: '#0f172a' },
   transcriptCard: {
     borderRadius: 18,
     paddingVertical: 12,
@@ -1652,11 +1665,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(15,23,42,0.06)',
   },
-  transcriptText: { fontSize: 13, fontWeight: '600', color: '#0f172a', lineHeight: 18 },
+  transcriptText: { fontSize: typography.bodySmall, fontWeight: '600', color: '#0f172a', lineHeight: 18 },
   synthScroll: { flex: 1 },
   intentList: { marginTop: 14, gap: 10 },
   sectionHeader: {
-    fontSize: 12,
+    fontSize: typography.label,
     fontWeight: '800',
     letterSpacing: 0.8,
     color: 'rgba(60,60,67,0.60)',
@@ -1690,15 +1703,15 @@ const styles = StyleSheet.create({
   },
   intentCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
-  badgeText: { fontSize: 12, fontWeight: '900' },
-  intentRowTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: '#0f172a', minWidth: 0 },
+  badgeText: { fontSize: typography.label, fontWeight: '900' },
+  intentRowTitle: { flex: 1, fontSize: typography.bodyLarge, fontWeight: '800', color: '#0f172a', minWidth: 0 },
   tripBlock: {
     paddingHorizontal: 14,
     paddingBottom: 14,
     paddingTop: 0,
     gap: 10,
   },
-  tripLabel: { fontSize: 12, fontWeight: '800', color: 'rgba(15,23,42,0.60)' },
+  tripLabel: { fontSize: typography.label, fontWeight: '800', color: 'rgba(15,23,42,0.60)' },
   tripAddressInput: {
     borderRadius: 10,
     paddingHorizontal: 12,
@@ -1722,7 +1735,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tripSegmentActive: { backgroundColor: '#fff' },
-  tripSegmentText: { fontSize: 12, fontWeight: '800', color: 'rgba(15,23,42,0.55)', textAlign: 'center' },
+  tripSegmentText: { fontSize: typography.label, fontWeight: '800', color: 'rgba(15,23,42,0.55)', textAlign: 'center' },
   tripSegmentTextActive: { color: '#0f172a' },
   emptyState: {
     borderRadius: 18,
@@ -1732,7 +1745,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(15,23,42,0.06)',
   },
-  emptyText: { fontSize: 14, fontWeight: '700', color: 'rgba(15,23,42,0.70)' },
+  emptyText: { fontSize: typography.body, fontWeight: '700', color: 'rgba(15,23,42,0.70)' },
   synthBottomPad: { height: 10 },
   synthFooter: { gap: 10, marginTop: 10 },
   primaryBtn: {
@@ -1743,15 +1756,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryBtnText: { fontSize: 15, fontWeight: '900', color: '#fff', letterSpacing: 0.3 },
+  primaryBtnText: { fontSize: typography.bodyLarge, fontWeight: '900', color: '#fff', letterSpacing: 0.3 },
   secondaryBtn: { alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 10 },
-  secondaryBtnText: { fontSize: 13, fontWeight: '700', color: 'rgba(15,23,42,0.55)' },
+  secondaryBtnText: { fontSize: typography.bodySmall, fontWeight: '700', color: 'rgba(15,23,42,0.55)' },
   detailEmpty: { flex: 1 },
   detailHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 6 },
-  backBtnText: { fontSize: 22, fontWeight: '900', color: '#007AFF', marginTop: -1 },
-  backBtnLabel: { fontSize: 14, fontWeight: '800', color: '#007AFF' },
-  detailTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '900', color: '#0f172a' },
+  backBtnText: { fontSize: typography.hero, fontWeight: '900', color: '#007AFF', marginTop: -1 },
+  backBtnLabel: { fontSize: typography.body, fontWeight: '800', color: '#007AFF' },
+  detailTitle: { flex: 1, textAlign: 'center', fontSize: typography.bodyLarge, fontWeight: '900', color: '#0f172a' },
   detailHeaderSpacer: { width: 56 },
   detailScroll: { flex: 1 },
   detailCard: {
@@ -1764,8 +1777,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 8,
   },
-  detailLabel: { fontSize: 12, fontWeight: '800', color: 'rgba(15,23,42,0.60)' },
-  detailValue: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  detailLabel: { fontSize: typography.label, fontWeight: '800', color: 'rgba(15,23,42,0.60)' },
+  detailValue: { fontSize: typography.body, fontWeight: '800', color: '#0f172a' },
   detailInput: {
     borderRadius: 14,
     paddingHorizontal: 12,
@@ -1788,11 +1801,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   listCheckOn: { backgroundColor: '#007AFF', borderColor: '#007AFF' },
-  listCheckText: { fontSize: 13, fontWeight: '900', color: 'transparent' },
+  listCheckText: { fontSize: typography.bodySmall, fontWeight: '900', color: 'transparent' },
   listCheckTextOn: { color: '#fff' },
-  listDetailLabel: { flex: 1, fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  listDetailLabel: { flex: 1, fontSize: typography.body, fontWeight: '800', color: '#0f172a' },
   listDeleteBtn: { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 10, backgroundColor: 'rgba(255,59,48,0.10)' },
-  listDeleteText: { fontSize: 12, fontWeight: '900', color: '#ff3b30' },
+  listDeleteText: { fontSize: typography.label, fontWeight: '900', color: '#ff3b30' },
   detailFooter: { marginTop: 10 },
   dangerBtn: {
     width: '100%',
@@ -1802,6 +1815,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dangerBtnText: { fontSize: 14, fontWeight: '900', color: '#ff3b30' },
+  dangerBtnText: { fontSize: typography.body, fontWeight: '900', color: '#ff3b30' },
   disabled: { opacity: 0.45 },
-});
+  });
+}

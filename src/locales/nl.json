@@ -75,6 +75,8 @@
     "prompt": "Herinner me wanneer ik moet vertrekken voor {{title}} om {{time}}?",
     "promptLine1": "Herinner me wanneer ik moet vertrekken voor {{tripName}}",
     "promptLine2": "(Gewenste aankomst: {{dueTimeHm}})",
+    "configureButton": "Instellen",
+    "configureButtonLocked": "Instellen 🔒",
     "departureTitle": "Vertrek naar {{name}}",
     "arrivalSubtitle": "Aankomst: {{time}}"
   },

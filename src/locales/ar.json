@@ -75,6 +75,8 @@
     "prompt": "ذكّرني متى أغادر إلى {{title}} في {{time}}؟",
     "promptLine1": "ذكّرني متى أغادر إلى {{tripName}}",
     "promptLine2": "(الوصول المطلوب: {{dueTimeHm}})",
+    "configureButton": "إعداد",
+    "configureButtonLocked": "إعداد 🔒",
     "departureTitle": "المغادرة إلى {{name}}",
     "arrivalSubtitle": "الوصول: {{time}}"
   },

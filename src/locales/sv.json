@@ -75,6 +75,8 @@
     "prompt": "Påminn mig när jag ska åka till {{title}} kl. {{time}}?",
     "promptLine1": "Påminn mig när jag ska åka till {{tripName}}",
     "promptLine2": "(Önskad ankomst: {{dueTimeHm}})",
+    "configureButton": "Konfigurera",
+    "configureButtonLocked": "Konfigurera 🔒",
     "departureTitle": "Åk till {{name}}",
     "arrivalSubtitle": "Ankomst: {{time}}"
   },

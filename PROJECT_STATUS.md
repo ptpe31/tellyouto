@@ -20,6 +20,7 @@
 - **Pass 2 LIST/PROJECT (mai 2026)** : `geminiEnrichGenericList` — prompt inline `PASS2_*_INLINE_PROMPT` + `Transcription:` · **sans** `systemInstruction` · `temperature: 0.18` · `maxOutputTokens: 2048` · modèle RC **`gemini-pro-latest`** (défaut compilé) · chaîne fallback proxy `[override, …shortlist]`. Unités naturelles préservées (`sachets`, `pincées`, `g`…) ; `unités` → affichage quantité seule. Détail : **SPEC.md § Prompt Pass 2**.
 - **Pass 3 / Expert** : même steering `gemini_pass2_model_id` ; warmup proxy cible **Pass 1** uniquement ; RC `[GEMINI-RC]` (mobile : défauts compilés, fetch réseau ignoré — Option A) ; re-fetch avant Pass 2 si source ≠ `remote` (**web**).
 - **Thèmes dynamiques (mai 2026)** : **TalkThemeRegistry** + showroom AsyncStorage (`@trankil_debug_theme_variant`) — 6 variantes interchangeables à la volée depuis **Debug** (🎨 EXPLORATION GRAPHIQUE) ; **Disposition Timeline** (`@trankil_debug_timeline_layout`, hub email par `category_id`) ; **Box / Routines** (carrousel Smart Clusters) ; `useDesignTokens()` réactif ; rollback = **Actuel (TellYouTo)** / **Cartes actuelles**. Tokens **`pressedOpacity` / `pressedScale`** (0,7 / 0,97). Détail : **SPEC.md § Architecture UI — 0)** et **§ 2.b–2.d**.
+- **Typographie Zen (juin 2026)** : échelle **`ZEN_TYPOGRAPHY`** exposée par `useDesignTokens().typography` (`caption` 11 → `hero` 24 px) ; remplace les `fontSize` littéraux par token. **Migrés** : `OneTapConfirmModal`, `IntentionDetailSheet`, `TimelineScreen`, `DebugScreen`. **Backlog** : ~29 fichiers `src/` encore en px bruts (carrousel, modales Pass 3, `SentinelFocusBadge`, etc.). Détail : **SPEC.md § 0) — Échelle typographique Zen**.
 - **Micro-interactions T=0 (mai 2026)** : harmonisation Talk · Timeline · IdeaBank — [`PressableScale`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/common/PressableScale.tsx) + [`haptics.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/haptics.ts) ; phase **`preparing`** micro ; overlay optimiste **T=0** au Send (TalkDebug) ; haptique Success synchronisée au **paint** overlay (double `rAF`) ; verrou **`isSubmitting`** toolbar ; **`busyRows`** IdeaBank (SQLite) ; reload Timeline **`LayoutAnimation` 300 ms** ; feedback pressed sur cartes, carrousel clusters, hub Living. Détail : **SPEC.md § Chronologie UX capture** et **§ 2.d.2**.
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents. **Calque global capture (mai 2026)** : [`GlobalCaptureOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/GlobalCaptureOverlay.tsx) monte **une fois** le micro + l’overlay pipeline ([`useCapturePipelineOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useCapturePipelineOverlay.ts) + [`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx)) au-dessus de toute la navigation ; présentation par écran via [`CapturePresentationContext`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/CapturePresentationContext.tsx). **Position overlay (mai 2026)** : micro **absolu** (`GlobalCaptureOverlay`), `bottom` via [`resolveGlobalCaptureOverlayBottom`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/constants/captureOverlayLayout.ts) (`TAB_BAR_CORE_HEIGHT` + safe area + `CAPTURE_OVERLAY_TAB_GAP` = **8 px**) — flotte au-dessus de la tab bar (overlay monté **hors** `NavigationContainer`). En capture Talk : toolbar ancrée en bas du dock (transcript + `maxHeight` au-dessus). **Réglage fin device** : si le micro est encore un peu haut ou bas, ajuster `CAPTURE_OVERLAY_TAB_GAP` dans `captureOverlayLayout.ts` (ex. **8 → 12 px**). Sur **TalkDebug** (`dashboardPipelineHost`), l’overlay couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline). **Audit post-centralisation (mai 2026)** : `TalkDebugScreen` / `TimelineScreen` **sans** micro ni overlay capture locaux ; peek Path B différé via **`CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH`** ; reset **DealerBoard** via `registerOverlayLifecycleHandlers({ onPipelineSprintComplete })` (plus de bus `CAPTURE_PIPELINE_SPRINT_COMPLETE`). **Correction STT optionnelle** : crayon → barre validation **Poubelle / Check** au-dessus du clavier (`translateY` + listeners clavier) → `transcript` final vers Gemini ; logs `transcript_manual_edit` / `[MIC] ✏️`.
 
@@ -82,7 +83,7 @@ Architecture **Thèmes Découplés** — permet de tester 5 directions visuelles
 | [`paperTheme.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/paperTheme.ts) | `createTellYouToLightTheme` / `createTellYouToDarkTheme` (MD3) |
 | [`neumorphism.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/neumorphism.ts) | `neumorphicRaised` / `neumorphicInset` — composants **non encore migrés** |
 | [`index.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/index.ts) | Ré-exports publics |
-| [`useDesignTokens.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useDesignTokens.ts) | Hook : `useDesignTokens()` → `DesignTokens` selon variante + schéma clair/sombre |
+| [`useDesignTokens.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useDesignTokens.ts) | Hook : `useDesignTokens()` → `DesignTokens` + **`typography`** (`ZEN_TYPOGRAPHY`) selon variante + schéma clair/sombre |
 
 **Variantes disponibles** (`DesignVariant`) :
 
@@ -107,30 +108,50 @@ Architecture **Thèmes Découplés** — permet de tester 5 directions visuelles
 - `backgroundColor`, `cardBackground`, `textPrimary`, `textSecondary`, `accentColor`, `borderRadius`
 - `pressedOpacity` (0,7), `pressedScale` (0,97) — feedback tactile uniforme
 - `shadowStyle` (relief raised), `cardShadowStyle` (relief inset)
+- **`typography`** — échelle Zen (`caption` 11, `label` 12, `bodySmall` 13, `body` 14, `bodyLarge` 15, `title` 16, `headline` 18, `hero` 24) ; **identique clair/sombre** ; remplace les `fontSize` px bruts lors de la migration progressive
+
+**Échelle typographique — fichiers migrés (juin 2026)** :
+
+| Fichier | Notes |
+|---------|-------|
+| [`OneTapConfirmModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/OneTapConfirmModal.tsx) | 50 styles via `createOneTapConfirmStyles(typography)` |
+| [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | Sheet + styles inline checklist / streak |
+| [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) | En-têtes, badges compacts (`caption`), titres (`hero`) |
+| [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Moniteurs monospace → `caption` ; titres → `hero` |
+
+**Pattern migration** :
+
+```typescript
+const { typography, ...designTokens } = useDesignTokens();
+const styles = useMemo(() => createMyStyles(typography), [typography]);
+// fontSize: typography.bodySmall  (ex. ancien 13)
+```
 
 **Intégration ThemeContext** : si variante ≠ `CURRENT`, `ThemeContext` fusionne les tokens dans `paperTheme.colors` (`primary`, `background`, `surface`, `onSurface`, etc.) — les composants Paper héritent du nouveau look sans migration.
 
 **Composants déjà migrés** (mai 2026) :
 
 - [`PressableScale.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/common/PressableScale.tsx) — wrapper T=0 (opacity/scale + haptique configurable).
-- [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) — fond racine ; liens roadmap / CTA jour vide ; `reload()` animé 300 ms.
+- [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) — fond racine ; liens roadmap / CTA jour vide ; `reload()` animé 300 ms ; **`typography`** (juin 2026).
 - [`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) — fond + Phoenix + bouton Envoyer (micro **global**, plus local).
-- [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) — fond, titres, panneau showroom.
+- [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) — fond, titres, panneau showroom ; **`typography`** (juin 2026).
 - [`GlobalCaptureOverlay.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/GlobalCaptureOverlay.tsx) — micro unique (overlay absolu, `bottom` via `captureOverlayLayout`) + overlay pipeline + quota lock.
 - [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) — STT / enregistrement ; phase **`preparing`** ; overlay T=0 ; toolbar verrouillée `isSubmitting`.
 - [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) — cartes Timeline + feedback pressed corps carte.
 - [`SmartClustersCarousel.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) — tuiles carrousel pressed tokens.
 - [`LivingHubBlockShell.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubBlockShell.tsx) — blocs hub EMAIL_HUB pressed tokens.
 - [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) — Tirelire : orbe validation ; cartes TRIP enrichies + rideau recherche inline ; pilule TRIP hybride ; `onPatchItem` optimiste ; cinématique Éditer 320 ms ; **`onEditItem`** → `IntentionDetailSheet`.
-- [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) — sheet + CTA principaux.
+- [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) — sheet + CTA principaux ; **`typography`** (juin 2026).
+- [`OneTapConfirmModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/OneTapConfirmModal.tsx) — modal confirmation OneTap ; **`typography`** (juin 2026).
 
-**Migration progressive recommandée** pour les autres composants :
+**Migration progressive recommandée** pour les autres composants (~29 fichiers encore en `fontSize` px bruts — voir [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) §17) :
 
 ```typescript
 import { useDesignTokens } from '../hooks/useDesignTokens';
 
-const designTokens = useDesignTokens();
-// style={{ backgroundColor: designTokens.backgroundColor }}
+const { typography, ...designTokens } = useDesignTokens();
+const styles = useMemo(() => createMyStyles(typography), [typography]);
+// style={{ backgroundColor: designTokens.backgroundColor, fontSize: typography.body }}
 // style={[designTokens.shadowStyle, styles.carte]}
 ```
 
@@ -634,5 +655,5 @@ Fichier **hors SPEC** : journal de travail pour la **suppression progressive** d
 17. `src/services/traffic/sentinelTripMission.ts` (cancel / reset mission)
 18. `src/services/NotificationService.ts` + `src/utils/formatDepartureCapsule.ts` + `dossier_de_soumission.md` (notifications Contrat de Départ)
 19. [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) (registre code mort / retraits feature)
-20. `src/theme/TalkThemeRegistry.ts` + `src/hooks/useDesignTokens.ts` (variantes visuelles / rollback `CURRENT`)
+20. `src/theme/TalkThemeRegistry.ts` + `src/hooks/useDesignTokens.ts` (variantes visuelles / rollback `CURRENT` / **`ZEN_TYPOGRAPHY`**)
 

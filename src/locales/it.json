@@ -75,6 +75,8 @@
     "prompt": "Avvisami quando partire per {{title}} alle {{time}}?",
     "promptLine1": "Avvisami quando partire per {{tripName}}",
     "promptLine2": "(Arrivo desiderato: {{dueTimeHm}})",
+    "configureButton": "Configura",
+    "configureButtonLocked": "Configura 🔒",
     "departureTitle": "Partenza per {{name}}",
     "arrivalSubtitle": "Arrivo: {{time}}"
   },

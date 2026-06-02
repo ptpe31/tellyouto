@@ -81,6 +81,9 @@ type Props = {
   onPatchItem?: (id: string, patch: Partial<TrankilV2TimelineItemRow>) => void;
   /** Ferme la tirelire puis ouvre la sheet trajet (adresse / heure manquante). */
   onOpenTripSetup?: (row: TrankilV2TimelineItemRow) => void;
+  /** À l’ouverture : déclenche la pilule TRIP « Me prévenir… » (Sentinel Focus, etc.). */
+  autoTripPillRowId?: string | null;
+  onAutoTripPillConsumed?: () => void;
 };
 
 /** Diamètre intérieur orbe validation (hors padding néomorphique). */
@@ -170,6 +173,8 @@ export function IdeaBankModal({
   onPass2Item,
   onPatchItem,
   onOpenTripSetup,
+  autoTripPillRowId,
+  onAutoTripPillConsumed,
 }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
@@ -180,6 +185,7 @@ export function IdeaBankModal({
   const pendingEditRowRef = useRef<TrankilV2TimelineItemRow | null>(null);
   const pendingPass2RowRef = useRef<TrankilV2TimelineItemRow | null>(null);
   const pendingTripSetupRowRef = useRef<TrankilV2TimelineItemRow | null>(null);
+  const autoTripPillFiredRef = useRef(false);
   const [localItemPatches, setLocalItemPatches] = useState<Map<string, Partial<TrankilV2TimelineItemRow>>>(
     () => new Map(),
   );
@@ -539,6 +545,28 @@ export function IdeaBankModal({
     },
     [applyLocalPatch, isProUser, openAddressSearch, openTripSetup, refresh, t, tripPillBusyIds],
   );
+
+  useEffect(() => {
+    if (!visible) {
+      autoTripPillFiredRef.current = false;
+      return;
+    }
+    const targetId = String(autoTripPillRowId ?? '').trim();
+    if (!targetId || autoTripPillFiredRef.current) return;
+
+    const row = items.find((source) => resolveRow(source).id === targetId);
+    if (!row) {
+      onAutoTripPillConsumed?.();
+      return;
+    }
+
+    autoTripPillFiredRef.current = true;
+    const timer = setTimeout(() => {
+      void handleTripPillPress(row);
+      onAutoTripPillConsumed?.();
+    }, IDEA_BANK_SHEET_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [autoTripPillRowId, handleTripPillPress, items, onAutoTripPillConsumed, resolveRow, visible]);
 
   const showCompleteOrb = status === 'TODO';
 

@@ -1,7 +1,7 @@
 # Nettoyage code mort — registre global
 
 Document de travail pour la suppression définitive du code commenté / stubé dans `src/`, `App.tsx`, et modules liés.  
-**Dernière mise à jour :** juin 2026 — registre Sentinel Focus + hub `TRIPS_HUB` (code actif, hors périmètre suppression).
+**Dernière mise à jour :** juin 2026 — registre Sentinel Focus + hub `TRIPS_HUB` + **backlog typographie Zen** (§17).
 
 ---
 
@@ -17,8 +17,9 @@ Document de travail pour la suppression définitive du code commenté / stubé d
 8. [Focus Protection](#13-focus-protection-context)
 9. [Nudge « 2 minutes disponibles »](#1-modale-2-minutes-disponibles-availability-nudge)
 10. [Sentinel Focus Badge — ne pas supprimer](#16-sentinel-focus-badge--code-actif-juin-2026)
-11. [Checklist suppression](#14-checklist-suppression-définitive)
-12. [Commandes `rg`](#15-commandes-utiles)
+11. [Typographie Zen — backlog migration](#17-typographie-zen--backlog-migration-juin-2026)
+12. [Checklist suppression](#14-checklist-suppression-définitive)
+13. [Commandes `rg`](#15-commandes-utiles)
 
 ---
 
@@ -260,6 +261,59 @@ rg "SentinelFocusBadge|pickSentinelFocus|useSentinelFocus|sentinelFocus" src
 
 ---
 
+## 17. Typographie Zen — backlog migration (juin 2026)
+
+**Statut : ACTIF — harmonisation en cours (≠ code mort).**
+
+L’échelle **`ZEN_TYPOGRAPHY`** est exposée par [`useDesignTokens().typography`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useDesignTokens.ts) pour éliminer le drift de tailles px (`11`, `13`, `13.5`, `22`, etc.).
+
+### Déjà migrés (`typography.*`)
+
+| Fichier | Rôle |
+|---------|------|
+| `OneTapConfirmModal.tsx` | Modal confirmation OneTap |
+| `IntentionDetailSheet.tsx` | Sheet détail + checklist / logistique |
+| `TimelineScreen.tsx` | Écran Timeline (badges compacts → `caption`) |
+| `DebugScreen.tsx` | Showroom thèmes + moniteurs monospace → `caption` |
+
+### Backlog (~29 fichiers — `fontSize: N` littéraux)
+
+Exemples prioritaires (forte densité ou écrans principaux) :
+
+- `ProjectListScreen.tsx`, `TalkDebugScreen.tsx`, `ProSubscriptionScreen.tsx`
+- `Pass3CleanupSasOverlay.tsx`, `TimelineFilterModal.tsx`, `OneTapBlueModal.tsx`
+- `SentinelFocusBadge.tsx`, `IntentionCard.tsx`, `PilotStatusHeader.tsx`
+- `LivingHubBlockShell.tsx`, `SmartClustersCarousel.tsx`, `IdeaBankModal.tsx` (styles texte)
+
+**Ne pas confondre avec suppression** : ces fichiers sont **prod actifs** ; la migration remplace les px par tokens sans changer la logique métier.
+
+### Grille de remplacement
+
+| px brut | Token |
+|---------|-------|
+| ≤ 11 | `typography.caption` |
+| 12 | `typography.label` |
+| 13 | `typography.bodySmall` |
+| 14 | `typography.body` |
+| 15 | `typography.bodyLarge` |
+| 16–17 | `typography.title` |
+| 18–20 | `typography.headline` |
+| ≥ 22 | `typography.hero` |
+
+### Recherche
+
+```bash
+# Fichiers encore en fontSize px bruts (hors typography.*)
+rg 'fontSize:\s*[0-9]' src --glob '*.{tsx,ts}'
+
+# Fichiers déjà migrés
+rg 'typography\.(caption|label|bodySmall|body|bodyLarge|title|headline|hero)' src --glob '*.{tsx,ts}'
+```
+
+**Contrat complet** : [`SPEC.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/SPEC.md) § Architecture UI — 0) — Structure de tokens.
+
+---
+
 ## 14. Checklist suppression définitive
 
 ```text
@@ -275,6 +329,7 @@ rg "SentinelFocusBadge|pickSentinelFocus|useSentinelFocus|sentinelFocus" src
 [ ] Évaluer suppression CaptureProcessingService (queue vide)
 [ ] Évaluer TrafficScheduler.ts après retrait DebugScreen
 [ ] Mettre à jour SPEC.md / PROJECT_STATUS.md / dossier_de_soumission.md
+[ ] Typographie Zen : migrer les ~29 fichiers restants (`rg 'fontSize:\s*[0-9]' src`) — voir §17
 [ ] npx tsc --noEmit
 ```
 
@@ -300,6 +355,10 @@ rg "useFocusProtection" src
 
 # Typecheck
 npx tsc --noEmit
+
+# Typographie — backlog px bruts
+rg 'fontSize:\s*[0-9]' src --glob '*.{tsx,ts}'
+rg 'typography\.' src --glob '*.{tsx,ts}'
 ```
 
 ---
@@ -326,6 +385,8 @@ npx tsc --noEmit
 | `SentinelMicroDashboard.tsx` | **prod — ne pas supprimer** (§16) |
 | `hubCategoryRegistry.ts` (TRIPS_HUB) | **prod — ne pas supprimer** |
 | `buildLivingHubBlocks.ts` (resolveHubBlockCategoryId) | **prod — ne pas supprimer** |
+| `useDesignTokens.ts` (`ZEN_TYPOGRAPHY`) | **prod — ne pas supprimer** (§17) |
+| `OneTapConfirmModal.tsx` / `IntentionDetailSheet.tsx` / `TimelineScreen.tsx` / `DebugScreen.tsx` | **typographie migrée** (§17) |
 
 ---
 

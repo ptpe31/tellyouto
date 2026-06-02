@@ -75,6 +75,8 @@
     "prompt": "Erinnere mich, wann ich für {{title}} um {{time}} losfahren soll?",
     "promptLine1": "Erinnere mich, wann ich für {{tripName}} losfahren soll",
     "promptLine2": "(Gewünschte Ankunft: {{dueTimeHm}})",
+    "configureButton": "Einrichten",
+    "configureButtonLocked": "Einrichten 🔒",
     "departureTitle": "Losfahren nach {{name}}",
     "arrivalSubtitle": "Ankunft: {{time}}"
   },

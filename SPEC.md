@@ -1046,7 +1046,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 | [`colors.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/colors.ts) | Palette TellYouTo d’origine (Teal / Orange / Off-white) |
 | [`paperTheme.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/paperTheme.ts) | Thèmes React Native Paper light/dark |
 | [`neumorphism.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/neumorphism.ts) | Helpers legacy `neumorphicRaised` / `neumorphicInset` (composants non migrés) |
-| [`useDesignTokens.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useDesignTokens.ts) | Hook React — tokens du design actif selon le schéma clair/sombre |
+| [`useDesignTokens.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useDesignTokens.ts) | Hook React — tokens du design actif + **`typography`** (`ZEN_TYPOGRAPHY`) selon le schéma clair/sombre |
 | [`ThemeContext.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/ThemeContext.tsx) | Hydrate `designVariant` depuis AsyncStorage ; `setDesignVariant` ; fusion Paper MD3 |
 | [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Showroom **🎨 EXPLORATION GRAPHIQUE** — sélecteur 6 variantes |
 
@@ -1059,7 +1059,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 | `readPersistedDesignVariant()` / `persistDesignVariant()` | Lecture / écriture AsyncStorage ([`TalkThemeRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/TalkThemeRegistry.ts)) |
 | `ThemeContext.designVariant` | Variante courante (réactive) |
 | `ThemeContext.setDesignVariant(variant)` | Change la variante + persiste + re-render global |
-| `useDesignTokens()` | Tokens du design actif (s’abonne à `designVariant` + clair/sombre) |
+| `useDesignTokens()` | Tokens du design actif (s’abonne à `designVariant` + clair/sombre) + **`typography`** |
 
 **Défaut** : si aucune valeur stockée → `DEFAULT_DESIGN_VARIANT = 'CURRENT'` (filet de sécurité 0 % régression).
 
@@ -1097,9 +1097,36 @@ type DesignTokens = {
   shadowStyle: ViewStyle;    // relief « raised » (boutons, dock)
   cardShadowStyle: ViewStyle; // relief « inset » (cartes, micro inner)
 };
+
+/** Exposé par useDesignTokens() — échelle Zen, identique clair/sombre (juin 2026). */
+const ZEN_TYPOGRAPHY = {
+  caption: 11,     // micro-badges, fragments, moniteurs debug
+  label: 12,       // étiquettes, tags secondaires
+  bodySmall: 13,   // métadonnées, descriptifs courts
+  body: 14,        // texte principal, items To-Do
+  bodyLarge: 15,   // emphase, messages IA
+  title: 16,       // en-têtes de cartes
+  headline: 18,    // titres modales / sheets
+  hero: 24,        // titres majeurs (Pro, erreur)
+} as const;
 ```
 
-Constantes exportées : `PRESSED_OPACITY = 0.7`, `PRESSED_SCALE = 0.97` ([`TalkThemeRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/TalkThemeRegistry.ts)).
+**Grille de remplacement** (migration `fontSize` px → token) :
+
+| Valeur px brute | Token |
+|-----------------|-------|
+| ≤ 11 | `typography.caption` |
+| 12 | `typography.label` |
+| 13 (ou 13,5) | `typography.bodySmall` |
+| 14 | `typography.body` |
+| 15 | `typography.bodyLarge` |
+| 16–17 | `typography.title` |
+| 18–20 | `typography.headline` |
+| ≥ 22 | `typography.hero` |
+
+**Pattern StyleSheet** : factory `createXStyles(typography: ZenTypography)` + `useMemo` dans le composant (les `StyleSheet.create` statiques ne peuvent pas lire le hook).
+
+Constantes exportées : `PRESSED_OPACITY = 0.7`, `PRESSED_SCALE = 0.97` ([`TalkThemeRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/theme/TalkThemeRegistry.ts)) ; `ZEN_TYPOGRAPHY` ([`useDesignTokens.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useDesignTokens.ts)).
 
 #### Composants & utilitaires micro-interactions T=0 (mai 2026)
 
@@ -1117,7 +1144,8 @@ Constantes exportées : `PRESSED_OPACITY = 0.7`, `PRESSED_SCALE = 0.97` ([`TalkT
 ```typescript
 import { useDesignTokens } from '../hooks/useDesignTokens';
 
-const designTokens = useDesignTokens();
+const { typography, ...designTokens } = useDesignTokens();
+const styles = useMemo(() => createMyStyles(typography), [typography]);
 ```
 
 2. Remplacer les styles en dur par les tokens (sans toucher à la logique) :
@@ -1125,6 +1153,9 @@ const designTokens = useDesignTokens();
 ```typescript
 // Fond d’écran
 <View style={{ backgroundColor: designTokens.backgroundColor }} />
+
+// Typographie harmonisée
+<Text style={{ fontSize: typography.bodySmall, color: designTokens.textPrimary }} />
 
 // Carte / bouton neumorphique
 <View style={[designTokens.shadowStyle, styles.maCarte]} />
@@ -1135,21 +1166,24 @@ const designTokens = useDesignTokens();
 
 3. Les composants déjà branchés sur `theme.colors.*` (React Native Paper) bénéficient **automatiquement** des variantes ≠ `CURRENT` via `ThemeContext` — aucune migration requise pour eux tant que la variante est active.
 
-#### Composants migrés (mai 2026)
+#### Composants migrés (mai–juin 2026)
 
 | Composant | Tokens consommés |
 |-----------|------------------|
-| [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) | `backgroundColor` ; liens roadmap / CTA jour vide → `PressableScale` ; `reload()` avec `LayoutAnimation` (300 ms) avant `loadPack` |
+| [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) | `backgroundColor` ; **`typography`** (en-têtes, badges, CTA) ; liens roadmap / CTA jour vide → `PressableScale` ; `reload()` avec `LayoutAnimation` (300 ms) avant `loadPack` |
 | [`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) | `backgroundColor`, Phoenix (`textPrimary`, `cardBackground`, `accentColor`) |
-| [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Fond scroll, titres, panneau showroom (`cardShadowStyle`, `cardBackground`, `accentColor`) |
+| [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Fond scroll, titres, panneau showroom ; **`typography`** (moniteurs → `caption`, titres → `hero`) |
+| [`OneTapConfirmModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/OneTapConfirmModal.tsx) | **`typography`** — modal confirmation OneTap (~50 styles) |
+| [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | Fond sheet, CTA Pass 2 / validation peek, bouton surveillance TRIP (`accentColor`) ; **`typography`** (checklist, logistique, streak) |
 | [`TalkCaptureMicButton.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TalkCaptureMicButton.tsx) | `shadowStyle`, `cardShadowStyle`, `accentColor` ; phase **`preparing`** + `PressableScale` ; overlay optimiste T=0 ; toolbar verrouillée `isSubmitting` |
 | [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) | `cardShadowStyle`, tokens texte ; corps carte `pressedOpacity` / `pressedScale` au tap |
 | [`SmartClustersCarousel.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) | Tuiles carrousel — feedback pressed tokens |
 | [`LivingHubBlockShell.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubBlockShell.tsx) | Blocs hub EMAIL_HUB — feedback pressed tokens |
 | [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) | Tirelire : orbe validation + cartes TRIP enrichies ([`IdeaBankTripItineraryBlock`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankTripItineraryBlock.tsx)) ; **rideau de recherche** inline départ/arrivée (overlay `zIndex: 9999`, Lazy-Fetch) ; pilule TRIP hybride (armement Sentinel inline si prêt, sinon sheet) ; **`onPatchItem`** optimiste ; cinématique Éditer **320 ms** ; **Fait ✓** aligné Timeline (§ 2.d.1) |
-| [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | Fond sheet, CTA Pass 2 / validation peek, bouton surveillance TRIP (`accentColor`) |
 
-**Composants candidats** (migration future) : `PilotStatusHeader`, `DealerBoard`, pied TRIP `IntentionCard` (badges métier inchangés).
+**Composants candidats typographie** (~29 fichiers encore en `fontSize` px bruts) : `PilotStatusHeader`, `Pass3CleanupSasOverlay`, `SentinelFocusBadge`, `ProjectListScreen`, `IntentionCard` (texte), etc. — voir [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) §17.
+
+**Composants candidats** (migration visuelle future) : `DealerBoard`, pied TRIP `IntentionCard` (badges métier inchangés).
 
 #### Contraintes contractuelles
 

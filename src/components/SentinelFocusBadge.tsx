@@ -4,6 +4,7 @@ import type { MD3Theme } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api';
+import { PressableScale } from './common/PressableScale';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useSentinelFocus } from '../hooks/useSentinelFocus';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
@@ -29,11 +30,21 @@ import {
 } from '../utils/sentinelFocusSelection';
 
 export const SENTINEL_FOCUS_BADGE_HEIGHT = 105;
-export const SENTINEL_FOCUS_BADGE_MARGIN_BOTTOM = 12;
-/** Hauteur slot FlatList : badge + marge inférieure (aucun layout shift). */
+export const SENTINEL_FOCUS_BADGE_MARGIN_BOTTOM = 16;
+
+/** Ombre 3D saillante (Spec v34 — éléments flottants). */
+export const SENTINEL_FOCUS_SHADOW_3D: ViewStyle = {
+  shadowColor: '#000000',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.15,
+  shadowRadius: 10,
+  elevation: 6,
+};
+
+/** Hauteur slot FlatList : badge + marge inférieure (aucun layout shift A↔B). */
 export const SENTINEL_FOCUS_SLOT_HEIGHT = SENTINEL_FOCUS_BADGE_HEIGHT + SENTINEL_FOCUS_BADGE_MARGIN_BOTTOM;
 
-/** Bulle Talk — rupture visuelle vs cartes To-Do (hauteur stricte 105dp). */
+/** État A — co-pilote scan actif (fond perle, hauteur stricte 105dp). */
 export const SENTINEL_FOCUS_BADGE_CONTAINER: ViewStyle = {
   width: '100%',
   height: SENTINEL_FOCUS_BADGE_HEIGHT,
@@ -44,6 +55,20 @@ export const SENTINEL_FOCUS_BADGE_CONTAINER: ViewStyle = {
   paddingBottom: 8,
   marginBottom: SENTINEL_FOCUS_BADGE_MARGIN_BOTTOM,
   overflow: 'hidden',
+};
+
+/** État B — message co-pilote suggestion (abricot 3D raised, cliquable). */
+export const SENTINEL_FOCUS_SUGGESTION_CONTAINER: ViewStyle = {
+  width: '100%',
+  height: SENTINEL_FOCUS_BADGE_HEIGHT,
+  backgroundColor: '#FFF2E6',
+  borderRadius: 16,
+  padding: 16,
+  marginBottom: SENTINEL_FOCUS_BADGE_MARGIN_BOTTOM,
+  justifyContent: 'center',
+  borderWidth: 1,
+  borderColor: '#FFE0CC',
+  ...SENTINEL_FOCUS_SHADOW_3D,
 };
 
 const CAPSULE_FLAT: ViewStyle = {
@@ -62,8 +87,8 @@ type SentinelFocusBadgeProps = {
   /** Ouvre la feuille détail (scan actif, même contrat que le hub). */
   onOpenDetail: (row: TrankilV2TimelineItemRow) => void;
   /**
-   * Suggestion « Me prévenir quand partir » — même handler que le CTA setup TRIP
-   * (`handleTripFooterPress` / `openDetail` sur Timeline).
+   * Suggestion « Me prévenir quand partir » — Timeline EMAIL_HUB : tirelire IdeaBank
+   * pour ce trajet seul (`handleTripPillPress`). Talk : feuille détail selon parent.
    */
   onPressSuggestion: (row: TrankilV2TimelineItemRow) => void;
   onOpenProPaywall?: () => void;
@@ -242,10 +267,11 @@ function SuggestionFocusContent({
   );
   const dueTimeHm = resolveSentinelFocusPromptTimeHm(row) ?? '--:--';
 
-  const line1 = isProUser
-    ? t('sentinelFocus.promptLine1', { tripName })
-    : t('intentionDetail.actionSetupAlertLocked');
-  const line2 = isProUser ? t('sentinelFocus.promptLine2', { dueTimeHm }) : null;
+  const line1 = t('sentinelFocus.promptLine1', { tripName });
+  const line2 = t('sentinelFocus.promptLine2', { dueTimeHm });
+  const configureLabel = isProUser
+    ? t('sentinelFocus.configureButton')
+    : t('sentinelFocus.configureButtonLocked');
 
   const onPress = useCallback(() => {
     if (!isProUser) {
@@ -255,24 +281,46 @@ function SuggestionFocusContent({
     onPressSuggestion(row);
   }, [isProUser, onPressSuggestion, onOpenProPaywall, row]);
 
-  const a11yLabel = line2 ? `${line1}. ${line2}` : line1;
+  const a11yLabel = `${line1}. ${line2}. ${configureLabel}`;
+  const brand = t('errorBoundary.brand');
 
   return (
-    <SentinelFocusBadgeShell
+    <PressableScale
+      accessibilityRole="button"
       accessibilityLabel={a11yLabel}
       onPress={onPress}
-      style={style}
+      hapticType="light"
+      style={[SENTINEL_FOCUS_SUGGESTION_CONTAINER, style]}
       testID={testID ?? 'sentinel-focus-suggestion'}
     >
-      <Text style={styles.suggestionLine1} numberOfLines={2} ellipsizeMode="tail">
-        {line1}
-      </Text>
-      {line2 ? (
-        <Text style={styles.suggestionLine2} numberOfLines={2} ellipsizeMode="tail">
-          {line2}
-        </Text>
-      ) : null}
-    </SentinelFocusBadgeShell>
+      <View style={styles.suggestionRowWrap}>
+        <View style={styles.suggestionRow}>
+          <View style={styles.suggestionTextCol}>
+            <Text style={styles.suggestionBrand} numberOfLines={1} ellipsizeMode="tail">
+              {`💬 ${brand}`}
+            </Text>
+            <Text style={styles.suggestionLine1} numberOfLines={2} ellipsizeMode="tail">
+              {line1}
+            </Text>
+            <Text style={styles.suggestionLine2} numberOfLines={1} ellipsizeMode="tail">
+              {line2}
+            </Text>
+          </View>
+          <View style={styles.configurePillCol}>
+            <View
+              style={styles.configurePill}
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <Text style={styles.configurePillText} numberOfLines={1} ellipsizeMode="tail">
+                {configureLabel}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    </PressableScale>
   );
 }
 
@@ -375,17 +423,71 @@ const styles = StyleSheet.create({
     width: '100%',
     marginTop: 3,
   },
+  suggestionRowWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 0,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+    minWidth: 0,
+    minHeight: 0,
+  },
+  suggestionTextCol: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+    justifyContent: 'center',
+  },
+  suggestionBrand: {
+    fontSize: 9,
+    fontWeight: '700',
+    lineHeight: 11,
+    color: 'rgba(198, 93, 0, 0.65)',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
   suggestionLine1: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
-    lineHeight: 18,
+    lineHeight: 15,
     color: '#1C1C1E',
   },
   suggestionLine2: {
-    marginTop: 2,
-    fontSize: 12,
+    marginTop: 1,
+    fontSize: 11,
     fontWeight: '600',
-    lineHeight: 16,
+    lineHeight: 14,
     color: 'rgba(60, 60, 67, 0.72)',
+  },
+  configurePillCol: {
+    flexShrink: 0,
+    maxWidth: '32%',
+    justifyContent: 'flex-end',
+    alignSelf: 'flex-end',
+    paddingBottom: 2,
+  },
+  configurePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FFE0CC',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  configurePillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1C1C1E',
+    textAlign: 'center',
   },
 });

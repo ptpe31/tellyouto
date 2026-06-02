@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -48,7 +48,7 @@ import {
 } from '../services/debugUserTierOverride';
 import { neumorphicRaised } from '../theme/neumorphism';
 import { useAppTheme } from '../context/ThemeContext';
-import { useDesignTokens } from '../hooks/useDesignTokens';
+import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
 import {
   ALL_TIMELINE_LAYOUT_MODES,
   type TimelineLayoutMode,
@@ -72,6 +72,8 @@ export function DebugScreen() {
   const theme = useTheme();
   const { designVariant, setDesignVariant, timelineLayoutMode, setTimelineLayoutMode } = useAppTheme();
   const designTokens = useDesignTokens();
+  const { typography } = designTokens;
+  const styles = useMemo(() => createDebugScreenStyles(typography), [typography]);
   const { spectrum, setProUser } = useUserSpectrum();
   const [busy, setBusy] = useState<
     'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | null
@@ -786,11 +788,12 @@ export function DebugScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createDebugScreenStyles(typography: ZenTypography) {
+  return StyleSheet.create({
   flex: { flex: 1 },
   pad: { padding: 16, paddingBottom: 40 },
-  heroTitle: { fontSize: 24, fontWeight: '800', marginBottom: 4 },
-  note: { fontSize: 13, marginBottom: 20 },
+  heroTitle: { fontSize: typography.hero, fontWeight: '800', marginBottom: 4 },
+  note: { fontSize: typography.bodySmall, marginBottom: 20 },
   iaCachePanel: {
     backgroundColor: '#fde2e4',
     borderRadius: 14,
@@ -799,9 +802,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   iaCacheRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 },
-  iaCacheLabel: { fontSize: 12, color: '#6b7280' },
+  iaCacheLabel: { fontSize: typography.label, color: '#6b7280' },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: typography.body,
     fontWeight: '700',
     marginBottom: 8,
     letterSpacing: 0.3,
@@ -816,8 +819,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  neoBtnText: { fontSize: 14, fontWeight: '800' },
-  help: { fontSize: 12, marginTop: 8, maxWidth: '100%' },
+  neoBtnText: { fontSize: typography.body, fontWeight: '800' },
+  help: { fontSize: typography.label, marginTop: 8, maxWidth: '100%' },
   godRow: { marginTop: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   btnCompact: { marginTop: 4 },
   row: {
@@ -825,9 +828,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  err: { marginBottom: 12, fontSize: 13 },
-  blockTitle: { fontSize: 14, fontWeight: '600', marginTop: 16, marginBottom: 8 },
-  mono: { fontFamily: 'monospace', fontSize: 11, lineHeight: 16 },
+  err: { marginBottom: 12, fontSize: typography.bodySmall },
+  blockTitle: { fontSize: typography.body, fontWeight: '600', marginTop: 16, marginBottom: 8 },
+  mono: { fontFamily: 'monospace', fontSize: typography.caption, lineHeight: 16 },
   countLine: { marginTop: 2, marginBottom: 8 },
   trafficMonitorPanel: {
     marginTop: 12,
@@ -840,13 +843,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   trafficMonitorTitle: {
-    fontSize: 13,
+    fontSize: typography.bodySmall,
     fontWeight: '800',
     color: '#5b21b6',
     marginBottom: 2,
   },
   trafficMonitorLine: {
-    fontSize: 12,
+    fontSize: typography.label,
     color: '#2C3E50',
     fontFamily: 'monospace',
   },
@@ -858,12 +861,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   themeShowroomTitle: {
-    fontSize: 15,
+    fontSize: typography.bodyLarge,
     fontWeight: '800',
     letterSpacing: 0.2,
   },
   themeShowroomHint: {
-    fontSize: 12,
+    fontSize: typography.label,
     lineHeight: 17,
   },
   themeVariantGrid: {
@@ -880,12 +883,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   themeVariantBtnLabel: {
-    fontSize: 13,
+    fontSize: typography.bodySmall,
     fontWeight: '700',
   },
   themeVariantBtnCode: {
     marginTop: 4,
-    fontSize: 10,
+    fontSize: typography.caption,
     fontFamily: 'monospace',
     opacity: 0.85,
   },
@@ -902,4 +905,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
   },
-});
+  });
+}

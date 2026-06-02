@@ -86,7 +86,7 @@ import {
 import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
-import { useDesignTokens } from '../hooks/useDesignTokens';
+import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
 import { AIUniversalProgressOverlay } from './AIUniversalProgressOverlay';
 import {
   AI_PROGRESS_REVEAL_HOLD_MS,
@@ -561,6 +561,8 @@ export function IntentionDetailSheet({
   const { t, i18n } = useTranslation();
   const { spectrum } = useUserSpectrum();
   const designTokens = useDesignTokens();
+  const { typography } = designTokens;
+  const styles = useMemo(() => createIntentionDetailStyles(typography), [typography]);
   const isProUser = spectrum.isProUser;
   const peekCapturePhase = peekCapturePhaseProp ?? 'idle';
   const rawPeek = Math.round(Number(peekHeightPx));
@@ -3148,13 +3150,13 @@ export function IntentionDetailSheet({
                   </Text>
                   <View style={styles.allDayRow}>
                     <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text style={{ color: theme.colors.onSurface, fontWeight: '700', fontSize: 15 }}>
+                      <Text style={{ color: theme.colors.onSurface, fontWeight: '700', fontSize: typography.bodyLarge }}>
                         {t('intentionDetail.trackStreak')}
                       </Text>
                       <Text
                         style={{
                           color: theme.colors.onSurfaceVariant,
-                          fontSize: 12,
+                          fontSize: typography.label,
                           marginTop: 4,
                           lineHeight: 16,
                         }}
@@ -4088,7 +4090,8 @@ export function IntentionDetailSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createIntentionDetailStyles(typography: ZenTypography) {
+  return StyleSheet.create({
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
   sheet: {
@@ -4127,19 +4130,19 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   tabInner: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8 },
-  tabText: { fontSize: 12, fontWeight: '800' },
+  tabText: { fontSize: typography.label, fontWeight: '800' },
   validationWrap: { paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
-  validationTitle: { fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  validationTitle: { fontSize: typography.headline, fontWeight: '900', lineHeight: 22 },
   validationFooter: { gap: 10 },
   fixedBlock: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
   divider: { height: StyleSheet.hairlineWidth, width: '100%', opacity: 0.65 },
-  sectionLabel: { fontSize: 12, fontWeight: '700', opacity: 0.7 },
+  sectionLabel: { fontSize: typography.label, fontWeight: '700', opacity: 0.7 },
   intentionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  intentionTitle: { flex: 1, minWidth: 0, fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  intentionTitle: { flex: 1, minWidth: 0, fontSize: typography.headline, fontWeight: '900', lineHeight: 22 },
   intentionTitleInput: {
     flex: 1,
     minWidth: 0,
-    fontSize: 18,
+    fontSize: typography.headline,
     fontWeight: '900',
     lineHeight: 22,
     borderBottomWidth: 1,
@@ -4156,33 +4159,33 @@ const styles = StyleSheet.create({
     borderColor: '#cbd5e1',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 13,
+    fontSize: typography.bodySmall,
     lineHeight: 18,
     fontStyle: 'italic',
   },
   subtitlePress: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, borderRadius: 12, paddingVertical: 2 },
-  subtitleInline: { fontSize: 13, fontWeight: '800', opacity: 0.88 },
+  subtitleInline: { fontSize: typography.bodySmall, fontWeight: '800', opacity: 0.88 },
   pickerBlock: { marginTop: -6 },
   allDayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
-  allDayLabel: { fontSize: 13, fontWeight: '800' },
+  allDayLabel: { fontSize: typography.bodySmall, fontWeight: '800' },
   addrBlock: { gap: 10 },
   addrRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   addrIconWrap: { marginTop: -6 },
   addrIcon: { margin: 0, padding: 0 },
   addrTextCol: { flex: 1, minWidth: 0, justifyContent: 'center' },
-  addrValue: { fontSize: 14, fontWeight: '800', lineHeight: 18 },
+  addrValue: { fontSize: typography.body, fontWeight: '800', lineHeight: 18 },
   content: { paddingHorizontal: 16, paddingBottom: 140 },
   section: { marginTop: 12, gap: 10 },
   checklist: { gap: 10 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  checkText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700' },
+  checkText: { flex: 1, minWidth: 0, fontSize: typography.body, fontWeight: '700' },
   temporalitasCardFlat: { borderRadius: 16, padding: 14, gap: 10, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' },
-  temporalitasTitle: { fontSize: 15, fontWeight: '600', color: '#000000' },
+  temporalitasTitle: { fontSize: typography.bodyLarge, fontWeight: '600', color: '#000000' },
   temporalitasDividerFlat: { height: StyleSheet.hairlineWidth, backgroundColor: '#e5e7eb' },
   temporalitasDatesRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  temporalitasStartLink: { fontSize: 13, fontWeight: '600', color: '#0f766e', textDecorationLine: 'underline' },
-  temporalitasEndText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  temporalitasStartLink: { fontSize: typography.bodySmall, fontWeight: '600', color: '#0f766e', textDecorationLine: 'underline' },
+  temporalitasEndText: { fontSize: typography.bodySmall, fontWeight: '600', color: '#64748b' },
   temporalitasCtaFlat: { borderRadius: 12, alignSelf: 'stretch' },
   milestonesWrap: { marginTop: 6 },
   milestonesList: { borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb', backgroundColor: '#ffffff' },
@@ -4190,40 +4193,40 @@ const styles = StyleSheet.create({
   milestoneRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e7eb' },
   milestoneCircle: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
   milestoneCircleChecked: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
-  milestoneCheck: { fontSize: 12, fontWeight: '800', color: 'transparent' },
+  milestoneCheck: { fontSize: typography.label, fontWeight: '800', color: 'transparent' },
   milestoneCheckOn: { color: '#ffffff' },
   milestoneTextColFlat: { flex: 1, minWidth: 0, gap: 4 },
-  milestoneTitleFlat: { fontSize: 14, fontWeight: '500', color: '#000000' },
+  milestoneTitleFlat: { fontSize: typography.body, fontWeight: '500', color: '#000000' },
   milestoneTitleExpanded: { fontWeight: '600' },
   milestoneTitleDoneFlat: { color: '#64748b', textDecorationLine: 'line-through' },
-  milestoneMetaFlat: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
+  milestoneMetaFlat: { fontSize: typography.label, fontWeight: '600', color: '#94a3b8' },
   milestoneMenuBtnFlat: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   milestoneMenuIconFlat: { margin: 0, padding: 0 },
   zoomBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#f1f5f9' },
-  zoomBadgeText: { fontSize: 12, fontWeight: '800', color: '#0f172a' },
+  zoomBadgeText: { fontSize: typography.label, fontWeight: '800', color: '#0f172a' },
   zoomProgressTrack: { height: 2, borderRadius: 2, backgroundColor: '#e5e7eb', overflow: 'hidden' },
   zoomProgressFill: { height: 2, borderRadius: 2, backgroundColor: '#0f766e' },
   zoomPanel: { marginLeft: 20, marginRight: 14, marginBottom: 8, marginTop: -2, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.03)' },
   zoomChildRowV34: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 12, paddingRight: 12, paddingVertical: 10 },
   zoomChildCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
   zoomChildCircleChecked: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
-  zoomChildCheck: { fontSize: 10, fontWeight: '800', color: 'transparent' },
+  zoomChildCheck: { fontSize: typography.caption, fontWeight: '800', color: 'transparent' },
   zoomChildCheckOn: { color: '#ffffff' },
   zoomConnectorColV34: { width: 16, height: 18, position: 'relative' },
   zoomChildTextColV34: { flex: 1, minWidth: 0 },
-  zoomChildTitleV34: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
+  zoomChildTitleV34: { fontSize: typography.body, fontWeight: '600', color: '#0f172a' },
   zoomChildrenWrap: { paddingLeft: 16, paddingBottom: 6 },
   zoomChildRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingLeft: 14, paddingRight: 14, paddingTop: 10 },
   zoomConnectorCol: { width: 22, height: 22, position: 'relative' },
   zoomConnectorV: { position: 'absolute', left: 7, top: -6, bottom: 0, width: StyleSheet.hairlineWidth, backgroundColor: '#cbd5e1' },
   zoomConnectorH: { position: 'absolute', left: 7, top: 9, width: 9, height: StyleSheet.hairlineWidth, backgroundColor: '#cbd5e1' },
   zoomChildTextCol: { flex: 1, minWidth: 0, gap: 4, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e7eb' },
-  zoomChildTitle: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
-  zoomChildMeta: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
+  zoomChildTitle: { fontSize: typography.bodySmall, fontWeight: '600', color: '#0f172a' },
+  zoomChildMeta: { fontSize: typography.label, fontWeight: '600', color: '#94a3b8' },
   zoomModalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 18 },
   zoomModalCard: { borderRadius: 18, padding: 14, gap: 10, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb' },
-  zoomModalText: { fontSize: 14, fontWeight: '700', color: '#0f172a', lineHeight: 20 },
-  zoomModalMeta: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  zoomModalText: { fontSize: typography.body, fontWeight: '700', color: '#0f172a', lineHeight: 20 },
+  zoomModalMeta: { fontSize: typography.bodySmall, fontWeight: '600', color: '#64748b' },
   zoomModalActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
   zoomModalBtn: { borderRadius: 14 },
   skeletonBarTitle: { height: 14, borderRadius: 7, backgroundColor: '#e5e7eb', width: '78%' },
@@ -4234,7 +4237,7 @@ const styles = StyleSheet.create({
   temporalitasSideRight: { flex: 1, minWidth: 0, alignItems: 'flex-end', justifyContent: 'center', paddingRight: 6 },
   temporalitasDividerV: { width: StyleSheet.hairlineWidth, height: 34, opacity: 0.75 },
   temporalitasIcon: { margin: 0, padding: 0 },
-  temporalitasText: { fontSize: 13, fontWeight: '900' },
+  temporalitasText: { fontSize: typography.bodySmall, fontWeight: '900' },
   temporalitasCta: { borderRadius: 14, alignSelf: 'stretch' },
   lifeWrap: { marginTop: 6, position: 'relative', paddingLeft: 22 },
   lifeLine: { position: 'absolute', left: 8, top: 8, bottom: 8, width: 6, borderRadius: 6, opacity: 0.95 },
@@ -4245,31 +4248,31 @@ const styles = StyleSheet.create({
   milePill: { minHeight: 64, borderRadius: 24, paddingVertical: 10, paddingLeft: 10, paddingRight: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
   mileDoneBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   mileTextCol: { flex: 1, minWidth: 0, gap: 6 },
-  mileTitle: { fontSize: 14, fontWeight: '900' },
+  mileTitle: { fontSize: typography.body, fontWeight: '900' },
   mileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   mileDateChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
-  mileDateText: { fontSize: 12, fontWeight: '900' },
+  mileDateText: { fontSize: typography.label, fontWeight: '900' },
   mileNoteIcon: { margin: 0, padding: 0 },
   mileHubBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   mileHubIcon: { margin: 0, padding: 0 },
   noteModalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 18 },
   noteModalCard: { borderRadius: 18, padding: 14, gap: 10 },
-  noteInput: { minHeight: 90, maxHeight: 220, borderRadius: 14, borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, lineHeight: 18 },
+  noteInput: { minHeight: 90, maxHeight: 220, borderRadius: 14, borderWidth: 1, borderColor: '#cbd5e1', paddingHorizontal: 12, paddingVertical: 10, fontSize: typography.bodySmall, lineHeight: 18 },
   noteModalActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
   noteModalBtn: { borderRadius: 14 },
   multiplierRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   multBtn: { width: 44, height: 36, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  multBtnText: { fontSize: 18, fontWeight: '900' },
-  multText: { fontSize: 14, fontWeight: '900' },
-  switchLabel: { fontSize: 13, fontWeight: '800' },
+  multBtnText: { fontSize: typography.headline, fontWeight: '900' },
+  multText: { fontSize: typography.body, fontWeight: '900' },
+  switchLabel: { fontSize: typography.bodySmall, fontWeight: '800' },
   transportRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 18, marginTop: 4 },
   transportBtn: { width: 52, height: 52, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   transportIcon: { margin: 0, padding: 0 },
   badge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
-  badgeText: { fontSize: 12, fontWeight: '900' },
-  co2Text: { fontSize: 12, fontWeight: '700' },
+  badgeText: { fontSize: typography.label, fontWeight: '900' },
+  co2Text: { fontSize: typography.label, fontWeight: '700' },
   impactSlot: { height: 32, justifyContent: 'center' },
-  comfortLine: { fontSize: 12, fontWeight: '700' },
+  comfortLine: { fontSize: typography.label, fontWeight: '700' },
   comfortDepartureCapsule: {
     alignSelf: 'stretch',
     width: '100%',
@@ -4285,11 +4288,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
   },
-  comfortDeparturePillText: { fontSize: 14, fontWeight: '800' },
+  comfortDeparturePillText: { fontSize: typography.body, fontWeight: '800' },
   comfortSlotRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   comfortSlotCol: { flex: 1, gap: 4 },
-  comfortSlotTag: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },
-  comfortSlotValue: { fontSize: 15, fontWeight: '800' },
+  comfortSlotTag: { fontSize: typography.caption, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },
+  comfortSlotValue: { fontSize: typography.bodyLarge, fontWeight: '800' },
   comfortProgressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', marginTop: 10 },
   comfortProgressFill: { height: 4, borderRadius: 2 },
   newtonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -4302,7 +4305,7 @@ const styles = StyleSheet.create({
   footerBtn: { borderRadius: 16 },
   tripSurveillanceBtn: { borderRadius: 16, width: '100%' },
   tripSurveillanceBtnContent: { paddingVertical: 8 },
-  launchRouteHint: { fontSize: 11, marginTop: 4, lineHeight: 14 },
+  launchRouteHint: { fontSize: typography.caption, marginTop: 4, lineHeight: 14 },
   pass2FooterBtn: {
     minHeight: 44,
     paddingHorizontal: 16,
@@ -4312,7 +4315,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     maxWidth: 240,
   },
-  pass2FooterBtnText: { fontSize: 14, fontWeight: '800', textAlign: 'center' },
+  pass2FooterBtnText: { fontSize: typography.body, fontWeight: '800', textAlign: 'center' },
   footerCloseBtn: { borderRadius: 16, marginLeft: 0 },
-  footerCloseLabel: { fontSize: 14, fontWeight: '700' },
-});
+  footerCloseLabel: { fontSize: typography.body, fontWeight: '700' },
+  });
+}

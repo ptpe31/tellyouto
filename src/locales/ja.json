@@ -75,6 +75,8 @@
     "prompt": "{{title}}（{{time}}）への出発を教えてもらえますか？",
     "promptLine1": "{{tripName}} への出発を教えて",
     "promptLine2": "（希望到着：{{dueTimeHm}}）",
+    "configureButton": "設定",
+    "configureButtonLocked": "設定 🔒",
     "departureTitle": "{{name}} へ出発",
     "arrivalSubtitle": "到着：{{time}}"
   },

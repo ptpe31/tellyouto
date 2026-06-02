@@ -75,6 +75,8 @@
     "prompt": "{{title}}({{time}})에 언제 출발할지 알려줄까요?",
     "promptLine1": "{{tripName}} 출발 시점 알림",
     "promptLine2": "(희망 도착: {{dueTimeHm}})",
+    "configureButton": "설정",
+    "configureButtonLocked": "설정 🔒",
     "departureTitle": "{{name}}(으)로 출발",
     "arrivalSubtitle": "도착: {{time}}"
   },

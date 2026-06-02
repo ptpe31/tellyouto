@@ -95,7 +95,7 @@ import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOve
 import { useAIProgressInertia } from '../hooks/useAIProgressInertia';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { neumorphicRaised } from '../theme/neumorphism';
-import { useDesignTokens } from '../hooks/useDesignTokens';
+import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
 import {
   buildLivingHubBlocks,
   buildRoutineHubBlocks,
@@ -403,6 +403,8 @@ export function TimelineScreen() {
     useCapturePresentation();
   const theme = useTheme();
   const designTokens = useDesignTokens();
+  const { typography } = designTokens;
+  const styles = useMemo(() => createTimelineScreenStyles(typography), [typography]);
   const { timelineLayoutMode } = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
@@ -429,6 +431,7 @@ export function TimelineScreen() {
   const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
   const [ideaBankHubItems, setIdeaBankHubItems] = useState<TrankilV2TimelineItemRow[] | null>(null);
   const [ideaBankHubTitle, setIdeaBankHubTitle] = useState<string | undefined>(undefined);
+  const [ideaBankAutoTripPillRowId, setIdeaBankAutoTripPillRowId] = useState<string | null>(null);
   const [boxViewOpen, setBoxViewOpen] = useState(false);
   const [boxStockRows, setBoxStockRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [routinesViewOpen, setRoutinesViewOpen] = useState(false);
@@ -547,14 +550,6 @@ export function TimelineScreen() {
       }
     },
     [openDetail],
-  );
-
-  /** Sentinel Focus — suggestion : même ouverture que le CTA « Me prévenir quand partir » sur carte TRIP. */
-  const onPressSentinelSuggestion = useCallback(
-    (row: TrankilV2TimelineItemRow) => {
-      handleTripFooterPress(row, { kind: 'setup' });
-    },
-    [handleTripFooterPress],
   );
 
   /** Met à jour une ligne dans les listes locales + détail si ouvert. */
@@ -1518,10 +1513,31 @@ export function TimelineScreen() {
       setIdeaBankCategoryFilter(null);
       setIdeaBankHubItems(block.items);
       setIdeaBankHubTitle(hubCategoryDisplayTitle(block.categoryId, t));
+      setIdeaBankAutoTripPillRowId(null);
       setIdeaBankOpen(true);
     },
     [t],
   );
+
+  /** Sentinel Focus — suggestion : tirelire IdeaBank dédiée à ce trajet (itinéraire + pilule). */
+  const openTripReminderInIdeaBank = useCallback(
+    (row: TrankilV2TimelineItemRow) => {
+      const tripTitle =
+        String(row.display_title || '').trim() ||
+        generateSmartTitle(row.content_raw || '', i18n.language) ||
+        t('intentionDetail.trip');
+
+      setIdeaBankMode('default');
+      setIdeaBankCategoryFilter(null);
+      setIdeaBankHubItems([row]);
+      setIdeaBankHubTitle(tripTitle);
+      setIdeaBankAutoTripPillRowId(row.id);
+      setIdeaBankOpen(true);
+    },
+    [i18n.language, t],
+  );
+
+  const onPressSentinelSuggestion = openTripReminderInIdeaBank;
 
   const openBoxBlock = useCallback(
     (block: HubBlock) => {
@@ -1872,8 +1888,11 @@ export function TimelineScreen() {
           setIdeaBankMode('default');
           setIdeaBankHubItems(null);
           setIdeaBankHubTitle(undefined);
+          setIdeaBankAutoTripPillRowId(null);
           setIdeaBankOpen(false);
         }}
+        autoTripPillRowId={ideaBankAutoTripPillRowId}
+        onAutoTripPillConsumed={() => setIdeaBankAutoTripPillRowId(null)}
         items={ideaBankModalItems}
         status={statusFilter}
         anchorDate={anchorDate}
@@ -1896,21 +1915,22 @@ export function TimelineScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createTimelineScreenStyles(typography: ZenTypography) {
+  return StyleSheet.create({
   root: { flex: 1 },
   listFlex: { flex: 1 },
   listContent: { flexGrow: 1 },
   navHeaderPill: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10, marginLeft: 12 },
-  navHeaderTitle: { fontSize: 16, fontWeight: '800' },
+  navHeaderTitle: { fontSize: typography.title, fontWeight: '800' },
   navHeaderFilterBtn: { width: 44, height: 44, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
   headerStack: { paddingHorizontal: 12, paddingTop: 8, gap: 10 },
   headTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
-  screenTitle: { fontSize: 22, fontWeight: '700' },
+  screenTitle: { fontSize: typography.hero, fontWeight: '700' },
   cardBlock: { marginBottom: 0 },
-  cardLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.35, marginBottom: 6, opacity: 0.92 },
+  cardLabel: { fontSize: typography.caption, fontWeight: '600', letterSpacing: 0.35, marginBottom: 6, opacity: 0.92 },
   segment: { marginTop: 0, minHeight: 36 },
   segmentBtnCompact: { minHeight: 32 },
-  segmentLabelCompact: { fontSize: 12, fontWeight: '600' },
+  segmentLabelCompact: { fontSize: typography.label, fontWeight: '600' },
   segmentLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   timeBadge: {
     minWidth: 22,
@@ -1921,7 +1941,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  timeBadgeText: { fontSize: 11, fontWeight: '800', color: '#7c2d12' },
+  timeBadgeText: { fontSize: typography.caption, fontWeight: '800', color: '#7c2d12' },
   bubbleRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
   contextBubble: {
     borderRadius: 999,
@@ -1932,7 +1952,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  bubbleLabel: { fontSize: 12, fontWeight: '600' },
+  bubbleLabel: { fontSize: typography.label, fontWeight: '600' },
   piggyBadge: {
     minWidth: 20,
     height: 20,
@@ -1942,7 +1962,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 5,
   },
-  piggyBadgeText: { fontSize: 11, fontWeight: '800', color: '#7c2d12' },
+  piggyBadgeText: { fontSize: typography.caption, fontWeight: '800', color: '#7c2d12' },
   statusRow: { flexDirection: 'row', gap: 10 },
   statusBtn: {
     flex: 1,
@@ -1951,10 +1971,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
   },
-  statusBtnText: { fontSize: 13, fontWeight: '600' },
+  statusBtnText: { fontSize: typography.bodySmall, fontWeight: '600' },
   section: { paddingHorizontal: 16, paddingVertical: 10 },
   sectionHeaderOnly: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+  sectionTitle: { fontSize: typography.title, fontWeight: '700', marginBottom: 8 },
   skeletonStack: { paddingHorizontal: 24, paddingTop: 24, gap: 12, width: '100%' },
   skeletonBar: { height: 96, borderRadius: 14, width: '100%' },
   listFooterLoading: { paddingVertical: 20, alignItems: 'center', justifyContent: 'center' },
@@ -1966,7 +1986,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   emptyWrap: { flex: 1, paddingHorizontal: 24, paddingVertical: 48, alignItems: 'center', justifyContent: 'center' },
-  skyClearText: { fontSize: 16, fontWeight: '600', textAlign: 'center', lineHeight: 24 },
+  skyClearText: { fontSize: typography.title, fontWeight: '600', textAlign: 'center', lineHeight: 24 },
   changeDateLink: {
     alignSelf: 'flex-start',
     marginTop: 8,
@@ -1975,14 +1995,14 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
   },
-  changeDateLinkText: { fontSize: 12, fontWeight: '600' },
+  changeDateLinkText: { fontSize: typography.label, fontWeight: '600' },
   customEmptyBlock: { alignItems: 'center', gap: 16, maxWidth: 320 },
   customEmptyCta: {
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 14,
   },
-  customEmptyCtaText: { fontSize: 15, fontWeight: '700', textAlign: 'center' },
+  customEmptyCtaText: { fontSize: typography.bodyLarge, fontWeight: '700', textAlign: 'center' },
   ideaBankPressable: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1996,6 +2016,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 0,
   },
-  ideaBankLabel: { fontSize: 16, fontWeight: '700' },
-  ideaBankClusterSubtitle: { fontSize: 13, fontWeight: '600', marginTop: 4, opacity: 0.92 },
-});
+  ideaBankLabel: { fontSize: typography.title, fontWeight: '700' },
+  ideaBankClusterSubtitle: { fontSize: typography.bodySmall, fontWeight: '600', marginTop: 4, opacity: 0.92 },
+  });
+}
