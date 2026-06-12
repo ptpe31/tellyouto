@@ -22,6 +22,7 @@
 - **Thèmes dynamiques (mai 2026)** : **TalkThemeRegistry** + showroom AsyncStorage (`@trankil_debug_theme_variant`) — 6 variantes interchangeables à la volée depuis **Debug** (🎨 EXPLORATION GRAPHIQUE) ; **Disposition Timeline** (`@trankil_debug_timeline_layout`, hub email par `category_id`) ; **Box / Routines** (carrousel Smart Clusters) ; `useDesignTokens()` réactif ; rollback = **Actuel (TellYouTo)** / **Cartes actuelles**. Tokens **`pressedOpacity` / `pressedScale`** (0,7 / 0,97). Détail : **SPEC.md § Architecture UI — 0)** et **§ 2.b–2.d**.
 - **Typographie Zen (juin 2026)** : échelle **`ZEN_TYPOGRAPHY`** exposée par `useDesignTokens().typography` (`caption` 11 → `hero` 24 px) ; remplace les `fontSize` littéraux par token. **Migrés** : `OneTapConfirmModal`, `IntentionDetailSheet`, `TimelineScreen`, `DebugScreen`. **Backlog** : ~29 fichiers `src/` encore en px bruts (carrousel, modales Pass 3, `SentinelFocusBadge`, etc.). Détail : **SPEC.md § 0) — Échelle typographique Zen**.
 - **Micro-interactions T=0 (mai 2026)** : harmonisation Talk · Timeline · IdeaBank — [`PressableScale`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/common/PressableScale.tsx) + [`haptics.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/haptics.ts) ; phase **`preparing`** micro ; overlay optimiste **T=0** au Send (TalkDebug) ; haptique Success synchronisée au **paint** overlay (double `rAF`) ; verrou **`isSubmitting`** toolbar ; **`busyRows`** IdeaBank (SQLite) ; reload Timeline **`LayoutAnimation` 300 ms** ; feedback pressed sur cartes, carrousel clusters, hub Living. Détail : **SPEC.md § Chronologie UX capture** et **§ 2.d.2**.
+- **Share Sheet → One-Tap (juin 2026)** : réception d’images (captures d’écran) via **`expo-share-intent`** — [`ShareIntentProvider`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx) + [`ShareIntentBootstrap`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ShareIntentBootstrap.tsx) ; stockage local `documentDirectory/share_intake/` ([`shareService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/share/shareService.ts)) ; Vision Gemini [`geminiAnalyzeImageBase64`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) → transcript → `submitCapturePayload` → SQLite (`talkndone.db`). **Mode local** : pas de sync Firebase Storage (`uploadToCloudIfEnabled` stub) ; log `[ShareService] Image reçue, envoi vers Gemini en mode LOCAL`. Cold-start : [`linking.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/navigation/linking.ts) (`getInitialURL` / `subscribe`). **Dev client requis** (pas Expo Go). Détail : **SPEC.md § Share Sheet système**.
 - Alignement SPEC : le flux “**Micro as Bulk(1)**” est **unifié** : micro/texte unitaire passent par le **séquenceur bulk** avec persistance **ventilée** (une seule “source de vérité”), et un `traceId` est propagé pour des logs cohérents. **Calque global capture (mai 2026)** : [`GlobalCaptureOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/GlobalCaptureOverlay.tsx) monte **une fois** le micro + l’overlay pipeline ([`useCapturePipelineOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useCapturePipelineOverlay.ts) + [`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx)) au-dessus de toute la navigation ; présentation par écran via [`CapturePresentationContext`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/CapturePresentationContext.tsx). **Position overlay (mai 2026)** : micro **absolu** (`GlobalCaptureOverlay`), `bottom` via [`resolveGlobalCaptureOverlayBottom`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/constants/captureOverlayLayout.ts) (`TAB_BAR_CORE_HEIGHT` + safe area + `CAPTURE_OVERLAY_TAB_GAP` = **8 px**) — flotte au-dessus de la tab bar (overlay monté **hors** `NavigationContainer`). En capture Talk : toolbar ancrée en bas du dock (transcript + `maxHeight` au-dessus). **Réglage fin device** : si le micro est encore un peu haut ou bas, ajuster `CAPTURE_OVERLAY_TAB_GAP` dans `captureOverlayLayout.ts` (ex. **8 → 12 px**). Sur **TalkDebug** (`dashboardPipelineHost`), l’overlay couvre l’attente Pass 1 (micro « échap » sans annuler le pipeline). **Audit post-centralisation (mai 2026)** : `TalkDebugScreen` / `TimelineScreen` **sans** micro ni overlay capture locaux ; peek Path B différé via **`CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH`** ; reset **DealerBoard** via `registerOverlayLifecycleHandlers({ onPipelineSprintComplete })` (plus de bus `CAPTURE_PIPELINE_SPRINT_COMPLETE`). **Correction STT optionnelle** : crayon → barre validation **Poubelle / Check** au-dessus du clavier (`translateY` + listeners clavier) → `transcript` final vers Gemini ; logs `transcript_manual_edit` / `[MIC] ✏️`.
 
 ---
@@ -35,9 +36,10 @@
   - bootstrap services : `initializeGeminiEngine()` (steering RC Gemini), `configureCaptureBackgroundTask()`, `requestBackgroundExecutionPermissions()`
   - **Foreground RC** : `AppState` → `scheduleGeminiForegroundRemoteConfigRefresh()` (refresh silencieux modèle Gemini)
   - bootstrap DB : `bootstrapTrankilV2Database()` (avec fallback timer 1.2s pour ne pas bloquer l’UI)
+  - **`ShareIntentProvider`** (`expo-share-intent`, désactivé sous Expo Go / web) enveloppe l’arbre UI après `dbReady`
   - injecte des Providers (ordre important car ils fournissent thème, i18n, profil, etc.)
-  - monte `NavigationContainer` (avec deep linking + `rootNavigationRef`).
-  - **`IntentionProvider` → `CapturePresentationProvider` → `AppNavigation` + `GlobalCaptureOverlay`** (micro + overlay pipeline persistants au-dessus des tabs/stack).
+  - monte `NavigationContainer` (avec deep linking + `rootNavigationRef` + handlers share intent cold-start).
+  - **`IntentionProvider` → `ShareIntentBootstrap` → `CapturePresentationProvider` → `AppNavigation` + `GlobalCaptureOverlay`** (micro + overlay pipeline persistants au-dessus des tabs/stack).
 
 ### 1.2 Navigation (React Navigation)
 
@@ -214,7 +216,8 @@ Point d’entrée : [`src/config/firebase.ts`](file:///Users/lala/Dev/trankil-v3
 | [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | **`getActivePass1ModelId()`** / **`getActivePass2ModelId()`** ; override Debug Pass 2 ; blacklist 404/503 ; foreground refresh ; **`logPass2ModelSteeringDiagnostics`** ; **`ensureFreshPassModelsFromRemoteConfig`** |
 | [`geminiModelCatalog.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelCatalog.ts) | Shortlist compilée ; défaut `gemini-3.1-flash-lite` |
 | [`geminiDirectClient.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiDirectClient.ts) | Routeur HTTP Gemini (proxy ou direct selon `IS_LOCAL_MODE`) |
-| [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | Appels via `executeGeminiCall` (SSE), verrou steering 2 s, retry candidats, exclusion session |
+| [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | Appels via `executeGeminiCall` (SSE) — types **TEXT**, **AUDIO** (`geminiTranscribeAudioBase64`), **IMAGE** (`geminiAnalyzeImageBase64`) ; verrou steering 2 s, retry candidats, exclusion session |
+| [`share/shareService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/share/shareService.ts) | Intake Share Sheet : stockage temporaire local, base64, stub cloud |
 | [`GeminiExpert.js`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js) | Idem verrou + self-healing pour flux Expert / atomize |
 | [`dailyRoadmapPass3.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/dailyRoadmapPass3.ts) | Pass 3 Feuille de route HTML |
 | [`geminiResponseGuards.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiResponseGuards.ts) | Parsing / guards |
@@ -279,11 +282,25 @@ Fichiers clés sous `src/services/traffic/` :
 
 ---
 
-## 2) Pipeline de capture (texte/audio → SQLite)
+## 2) Pipeline de capture (texte/audio/image → SQLite)
 
-> Vue “reverse-engineered” depuis les points d’entrée UI (TalkDebug/Timeline) et `IntentionContext`/`oneTap*`.
+> Vue “reverse-engineered” depuis les points d’entrée UI (TalkDebug/Timeline/Share Sheet) et `IntentionContext`/`oneTap*`.
 
-### 2.1 Entrée (UI) : texte et/ou audio
+### 2.1 Entrée (UI) : texte, audio ou image partagée
+
+#### Share Sheet système (image)
+
+| Fichier | Rôle |
+|---------|------|
+| [`app.json`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/app.json) | Plugin `expo-share-intent` — `image/*` + `text/*` (Android intent filters ; iOS activation rules) |
+| [`ShareIntentBootstrap.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ShareIntentBootstrap.tsx) | Écoute `useShareIntentContext` ; attend `isReady` ; déduplique l’intent |
+| [`shareService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/share/shareService.ts) | `saveSharedImageToLocal` → `documentDirectory/share_intake/` ; `readLocalImageAsBase64` ; `uploadToCloudIfEnabled` (stub) |
+| [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | `geminiAnalyzeImageBase64` — opération `lab.analyze_image` (inlineData + prompt Vision) |
+| [`linking.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/navigation/linking.ts) | Cold-start / background : `getInitialURL`, `subscribe`, `getStateFromPath` pour share extension |
+
+Flux : **Partage OS** → copie locale → Vision Gemini (transcript structuré) → `IntentionContext.submitCapturePayload({ transcript, audioUri: null })` → Path A peek → bulk Gemini → `talkndone.db`. Compatible **`IS_LOCAL_MODE`** (HTTP direct + stockage device-only). Rebuild natif : `expo prebuild` + `expo run:ios|android`.
+
+#### Texte et audio (dictée)
 
 - `TalkDebugScreen.tsx` : écran principal de capture (debug-friendly) :
   - **Phoenix** (champ texte) passe par `IntentionContext.submitCapturePayload` (Bulk(1) / OneTap). Le **micro** est global (`GlobalCaptureOverlay`, overlay **absolu**) ; TalkDebug configure `variant: talkDebug` + `dashboardPipelineHost: true` via `CapturePresentationContext`.
@@ -669,4 +686,5 @@ Fichier **hors SPEC** : journal de travail pour la **suppression progressive** d
 18. `src/services/NotificationService.ts` + `src/utils/formatDepartureCapsule.ts` + `dossier_de_soumission.md` (notifications Contrat de Départ)
 19. [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) (registre code mort / retraits feature)
 20. `src/theme/TalkThemeRegistry.ts` + `src/hooks/useDesignTokens.ts` (variantes visuelles / rollback `CURRENT` / **`ZEN_TYPOGRAPHY`**)
+21. `src/components/ShareIntentBootstrap.tsx` + `src/services/share/shareService.ts` (Share Sheet → Vision → One-Tap)
 

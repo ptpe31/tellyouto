@@ -1024,7 +1024,8 @@ Les trois paliers (peek immédiat, vue validation post–Pass 1, plein écran ca
 
 Composants principaux :
 - Capture & parsing : [oneTapUniversalCapture.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalCapture.ts)
-- Client réseau Gemini (streaming SSE) : [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/geminiSemanticLab.ts)
+- Client réseau Gemini (streaming SSE) : [geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) — entrées **TEXT**, **AUDIO** (`geminiTranscribeAudioBase64`), **IMAGE** (`geminiAnalyzeImageBase64`, Share Sheet)
+- Intake Share Sheet : [shareService.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/share/shareService.ts) + [ShareIntentBootstrap.tsx](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ShareIntentBootstrap.tsx)
 - Persistance intentions : [oneTapPersist.ts](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts)
 - Orchestration UI capture : [IntentionContext.tsx](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/context/IntentionContext.tsx)
 
@@ -2448,6 +2449,44 @@ Variables d’environnement principales (Expo public) :
 - [`QuotaManager.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/QuotaManager.ts) — skip `readRemote` / `writeRemote` ; quota Sentinel = AsyncStorage uniquement.
 
 **Invariants** : aucune modification du schéma SQLite ; Remote Config mobile continue d’utiliser les défauts compilés ; réactivation Firebase = retirer le flag local + restaurer `EXPO_PUBLIC_FIREBASE_*` (voir [README.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/README.md) → prompt agent).
+
+**Share Sheet (intake image)** : en `IS_LOCAL_MODE`, l’image reste sur l’appareil (`documentDirectory/share_intake/`) ; `uploadToCloudIfEnabled` est un no-op ; l’analyse Vision passe par le même routeur `executeGeminiCall` (API Google directe). Log attendu : `[ShareService] Image reçue, envoi vers Gemini en mode LOCAL`.
+
+### Share Sheet système → pipeline One-Tap (juin 2026)
+
+**Objectif** : recevoir une capture d’écran (ou image) depuis le Share Sheet iOS/Android et la traiter comme une dictée One-Tap (intention persistée en SQLite).
+
+**Dépendance native** : [`expo-share-intent`](https://www.npmjs.com/package/expo-share-intent) v5+ (Expo SDK 54). **Non compatible Expo Go** — dev client / build natif obligatoire (`expo prebuild` + `expo run:ios|android`).
+
+**Configuration** ([`app.json`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/app.json)) :
+- Plugin `expo-share-intent` avec `androidIntentFilters: ["text/*", "image/*"]` et règles iOS image + texte.
+- Schème deep link existant : `talkndone` (inchangé).
+
+**Composants** :
+
+| Couche | Fichier | Contrat |
+|--------|---------|---------|
+| Provider | [`App.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx) | `ShareIntentProvider` (désactivé si `Constants.appOwnership === 'expo'` ou web) |
+| Bootstrap | [`ShareIntentBootstrap.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ShareIntentBootstrap.tsx) | `useShareIntentContext` ; attend `isReady` + `IntentionProvider` monté |
+| Stockage | [`shareService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/share/shareService.ts) | `saveSharedImageToLocal` → `file://` sous `documentDirectory/share_intake/` |
+| Vision | [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | `geminiAnalyzeImageBase64` — `inlineData` + prompt : *« Analyse cette capture d'écran… »* ; opération `lab.analyze_image` |
+| Orchestration | [`IntentionContext.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/IntentionContext.tsx) | `submitCapturePayload({ transcript, audioUri: null })` — **même** pipeline Bulk(1) que Phoenix / micro |
+| Cold-start | [`linking.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/navigation/linking.ts) | `getInitialURL` / `subscribe` / `getStateFromPath` — app ouverte via partage alors qu’elle était fermée |
+
+**Flux** :
+
+```
+Share Sheet OS
+  → expo-share-intent (fichier local temporaire)
+  → shareService.saveSharedImageToLocal
+  → geminiAnalyzeImageBase64 (Vision → transcript texte)
+  → submitCapturePayload
+  → Path A peek → runGeminiBulkSequence → insertTrankilV2Intention (talkndone.db)
+```
+
+**Réversibilité Firebase** : `uploadToCloudIfEnabled(imagePath)` — stub aujourd’hui ; point d’extension unique pour Firebase Storage / métadonnées Firestore sans modifier la logique de capture.
+
+**Observabilité** : `[ShareService] Image reçue, envoi vers Gemini en mode LOCAL|PROXY` ; erreurs share intent loguées `[ShareService]`.
 
 ### Backend (Firebase / Cloud)
 - Auth : Firebase Auth (dont mode anonyme) côté client + vérification côté serveur

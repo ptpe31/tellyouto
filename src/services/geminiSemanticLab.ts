@@ -427,6 +427,37 @@ function normalizeOneTapWireText(raw: string): string {
   return s;
 }
 
+const IMAGE_VISION_PROMPT =
+  "Analyse cette capture d'écran, extrait l'intention principale, les dates éventuelles et les actions à mener. Retourne un résultat structuré conforme au format habituel de traitement des intentions.";
+
+/** Analyse Vision (IMAGE) — même modèle / route HTTP que TEXT et AUDIO. */
+export async function geminiAnalyzeImageBase64(
+  base64Image: string,
+  mimeType: string = 'image/jpeg',
+): Promise<string> {
+  if (!base64Image?.length) {
+    throw new Error('Image base64 vide');
+  }
+  const { text } = await callGeminiProxyStream({
+    request: {
+      contents: [
+        {
+          parts: [
+            { inlineData: { mimeType, data: base64Image } },
+            { text: IMAGE_VISION_PROMPT },
+          ],
+        },
+      ],
+    },
+    operation: 'lab.analyze_image',
+  });
+  const out = extractTextFromGenerateResponse(text);
+  if (!out) {
+    throw new Error('Gemini: analyse image vide');
+  }
+  return out;
+}
+
 export async function geminiTranscribeAudioBase64(
   base64Audio: string,
   mimeType: string = 'audio/mp4',

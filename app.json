@@ -85,6 +85,17 @@
     },
     "plugins": [
       "expo-dev-client",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsImageWithMaxCount": 1,
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1
+          },
+          "androidIntentFilters": ["text/*", "image/*"]
+        }
+      ],
       "expo-speech-recognition",
       "@react-native-community/datetimepicker",
       [

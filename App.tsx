@@ -1,8 +1,10 @@
 import { NavigationContainer } from '@react-navigation/native';
+import Constants from 'expo-constants';
+import { ShareIntentProvider } from 'expo-share-intent';
 import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, LogBox, View, type AppStateStatus } from 'react-native';
+import { AppState, LogBox, Platform, View, type AppStateStatus } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTheme } from 'react-native-paper';
@@ -25,6 +27,7 @@ import { FocusProtectionProvider } from './src/context/FocusProtectionContext';
 import { IntentionProvider } from './src/context/IntentionContext';
 import { CapturePresentationProvider } from './src/context/CapturePresentationContext';
 import { GlobalCaptureOverlay } from './src/components/GlobalCaptureOverlay';
+import { ShareIntentBootstrap } from './src/components/ShareIntentBootstrap';
 import { LanguageProvider } from './src/context/LanguageContext';
 import { PowerProvider } from './src/context/PowerContext';
 import { SaturationProvider, useSaturation } from './src/context/SaturationContext';
@@ -42,6 +45,9 @@ import { requestBackgroundExecutionPermissions } from './src/services/Permission
 import { navigationThemeFromPaper } from './src/theme/paperTheme';
 
 LogBox.ignoreLogs(['Method readAsStringAsync imported from "expo-file-system" is deprecated']);
+
+const SHARE_INTENT_DISABLED =
+  Constants.appOwnership === 'expo' || Platform.OS === 'web';
 
 /** `NavigationContainer` + deep linking + `RootNavigator` (hors providers). */
 function AppNavigation() {
@@ -118,44 +124,53 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <View style={{ flex: 1 }}>
-          <ErrorBoundary>
-            <ThemeProvider>
-              <LanguageProvider>
-                <DebugUnlockProvider>
-                  <AllyProvider>
-                    <PowerProvider>
-                      <UserSpectrumProvider>
-                        <CalendarIntegrationProvider>
-                          <SaturationProvider>
-                            <FocusProtectionProvider>
-                              <IntentionSyncBootstrap />
+        <ShareIntentProvider
+          options={{
+            disabled: SHARE_INTENT_DISABLED,
+            resetOnBackground: false,
+            scheme: 'talkndone',
+          }}
+        >
+          <View style={{ flex: 1 }}>
+            <ErrorBoundary>
+              <ThemeProvider>
+                <LanguageProvider>
+                  <DebugUnlockProvider>
+                    <AllyProvider>
+                      <PowerProvider>
+                        <UserSpectrumProvider>
+                          <CalendarIntegrationProvider>
+                            <SaturationProvider>
+                              <FocusProtectionProvider>
+                                <IntentionSyncBootstrap />
                                 <SentinelBootstrap />
-                              <OfflineFirstPendingBootstrap />
-                              <SystemHealthBanner />
-                              {/* TODO: supprimer ce bloc commenté + réimporter EveningStarModal si la modale « Rituel des étoiles » revient. */}
-                              {/* <EveningStarModal /> */}
-                              {/* DEPRECATED: AvailabilityNudgeModal — nettoyage-code-mort.md */}
-                              <IntentionProvider>
-                                <CapturePresentationProvider>
-                                  <AppNavigation />
-                                  <GlobalCaptureOverlay />
-                                </CapturePresentationProvider>
-                              </IntentionProvider>
-                              <StartupPerfBanner />
-                              <StatusBarRoot />
-                            </FocusProtectionProvider>
-                            <SaturationOverlay />
-                          </SaturationProvider>
-                        </CalendarIntegrationProvider>
-                      </UserSpectrumProvider>
-                    </PowerProvider>
-                  </AllyProvider>
-                </DebugUnlockProvider>
-              </LanguageProvider>
-            </ThemeProvider>
-          </ErrorBoundary>
-        </View>
+                                <OfflineFirstPendingBootstrap />
+                                <SystemHealthBanner />
+                                {/* TODO: supprimer ce bloc commenté + réimporter EveningStarModal si la modale « Rituel des étoiles » revient. */}
+                                {/* <EveningStarModal /> */}
+                                {/* DEPRECATED: AvailabilityNudgeModal — nettoyage-code-mort.md */}
+                                <IntentionProvider>
+                                  <ShareIntentBootstrap />
+                                  <CapturePresentationProvider>
+                                    <AppNavigation />
+                                    <GlobalCaptureOverlay />
+                                  </CapturePresentationProvider>
+                                </IntentionProvider>
+                                <StartupPerfBanner />
+                                <StatusBarRoot />
+                              </FocusProtectionProvider>
+                              <SaturationOverlay />
+                            </SaturationProvider>
+                          </CalendarIntegrationProvider>
+                        </UserSpectrumProvider>
+                      </PowerProvider>
+                    </AllyProvider>
+                  </DebugUnlockProvider>
+                </LanguageProvider>
+              </ThemeProvider>
+            </ErrorBoundary>
+          </View>
+        </ShareIntentProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
