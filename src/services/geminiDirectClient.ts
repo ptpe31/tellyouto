@@ -4,6 +4,7 @@
  * @module geminiDirectClient
  */
 
+import { Platform } from 'react-native';
 import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
 import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
 import { IS_LOCAL_MODE, LOCAL_GEMINI_API_KEY } from '../config/appConfig';
@@ -128,31 +129,42 @@ function transformGoogleSseToProxySse(
         const parts = buffer.split('\n');
         const rest = parts.pop() ?? '';
         for (const line of parts) {
-          const trimmed = line.replace(/\r$/, '');
+          // Google AI SSE : lignes souvent préfixées d'un espace (` data:{…}`).
+          const trimmed = line.trim();
           if (!trimmed.startsWith('data:')) continue;
           processGooglePayload(trimmed.slice(5).trim());
         }
-        if (flushPartial && rest.trim().startsWith('data:')) {
-          processGooglePayload(rest.trim().slice(5).trim());
+        if (flushPartial) {
+          const restTrimmed = rest.trim();
+          if (restTrimmed.startsWith('data:')) {
+            processGooglePayload(restTrimmed.slice(5).trim());
+          }
         }
         return rest;
       };
 
       try {
-        if (!googleBody || typeof googleBody.getReader !== 'function') {
-          let buf = googleTextFallback;
-          buf = processBuffer(buf, true);
-          if (buf.trim()) processBuffer(`${buf}\n`);
-        } else {
+        let rawSse = googleTextFallback;
+        if (!rawSse && googleBody && typeof googleBody.getReader === 'function') {
           const reader = googleBody.getReader();
-          let buf = '';
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
-            if (value) buf += decoder.decode(value, { stream: true });
-            buf = processBuffer(buf);
+            if (value) rawSse += decoder.decode(value, { stream: true });
           }
-          if (buf) processBuffer(`${buf}\n`, true);
+        }
+
+        if (rawSse) {
+          let buf = rawSse;
+          buf = processBuffer(buf, true);
+          if (buf.trim()) processBuffer(`${buf}\n`, true);
+        }
+
+        if (__DEV__ && rawSse.trim() && !accumulated.trim()) {
+          console.warn(
+            '[GEMINI-LOCAL] SSE reçu mais texte extrait vide — preview:',
+            rawSse.slice(0, 240),
+          );
         }
 
         controller.enqueue(
@@ -213,17 +225,15 @@ async function executeLocalGeminiCall(params: GeminiCallParams): Promise<Respons
     return googleRes;
   }
 
-  const bodyStream = googleRes.body;
-  if (bodyStream && typeof bodyStream.getReader === 'function') {
-    const proxyStream = transformGoogleSseToProxySse(bodyStream, '');
-    return new Response(proxyStream, {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
-    });
+  // React Native (iOS/Android) : fetch.body ReadableStream souvent vide — bufferiser d'abord.
+  const preferBufferedSse = Platform.OS !== 'web';
+  const googleSseText = preferBufferedSse ? await googleRes.text().catch(() => '') : '';
+  if (__DEV__ && preferBufferedSse && !googleSseText.trim()) {
+    console.warn('[GEMINI-LOCAL] SSE buffer vide après HTTP 200 — vérifier clé API / modèle');
   }
-
-  const fallbackText = await googleRes.text().catch(() => '');
-  const proxyStream = transformGoogleSseToProxySse(null, fallbackText);
+  const proxyStream = preferBufferedSse
+    ? transformGoogleSseToProxySse(null, googleSseText)
+    : transformGoogleSseToProxySse(googleRes.body, '');
   return new Response(proxyStream, {
     status: 200,
     headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },

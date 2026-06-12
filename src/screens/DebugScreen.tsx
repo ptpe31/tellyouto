@@ -1,3 +1,6 @@
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,7 +21,10 @@ import { Button, useTheme } from 'react-native-paper';
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
 import {
   clearTrankilV2IntentionsForDebug,
+  closeTrankilV2DatabaseForVault,
+  getTrankilV2DatabaseFilePath,
   getTrankilV2IntentionTaskCounts,
+  reopenTrankilV2DatabaseAfterVault,
   rebuildTrankilV2IntentionsTableForDebug,
   withTrankilV2Database,
 } from '../api/trankilV2Db';
@@ -64,6 +70,12 @@ import {
   DESIGN_VARIANT_LABELS,
   type DesignVariant,
 } from '../theme/TalkThemeRegistry';
+import { reloadApplication } from '../utils/reloadApp';
+
+function formatVaultBackupFilename(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `TalkNDone_backup_${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}.db`;
+}
 
 /**
  * Onglet **Debug** : reset / vidage SQLite, comptages, steering Gemini (Remote Config, health check, cache),
@@ -82,7 +94,7 @@ export function DebugScreen() {
   const styles = useMemo(() => createDebugScreenStyles(typography), [typography]);
   const { spectrum, setProUser } = useUserSpectrum();
   const [busy, setBusy] = useState<
-    'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | null
+    'db' | 'simElastic' | 'remoteModel' | 'iaHealth' | 'vaultBackup' | 'vaultRestore' | null
   >(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [rcPass1Display, setRcPass1Display] = useState<string | null>(null);
@@ -159,6 +171,81 @@ export function DebugScreen() {
       subTalkCapture.remove();
     };
   }, [refreshDbCounts]);
+
+  const handleBackup = useCallback(async () => {
+    setLastError(null);
+    setBusy('vaultBackup');
+    const cacheDir = FileSystem.cacheDirectory;
+    if (!cacheDir) {
+      setLastError('FILE_CACHE_UNAVAILABLE');
+      setBusy(null);
+      return;
+    }
+    const sourcePath = getTrankilV2DatabaseFilePath();
+    const tempPath = `${cacheDir}${formatVaultBackupFilename()}`;
+    try {
+      await closeTrankilV2DatabaseForVault();
+      await FileSystem.copyAsync({ from: sourcePath, to: tempPath });
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        throw new Error('SHARING_UNAVAILABLE');
+      }
+      await Sharing.shareAsync(tempPath, {
+        dialogTitle: t('debug.vaultShareDialogTitle'),
+        mimeType: 'application/x-sqlite3',
+        UTI: 'public.database',
+      });
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      await reopenTrankilV2DatabaseAfterVault();
+      await FileSystem.deleteAsync(tempPath, { idempotent: true });
+      setBusy(null);
+    }
+  }, [t]);
+
+  const performVaultRestore = useCallback(async () => {
+    setLastError(null);
+    setBusy('vaultRestore');
+    try {
+      const pick = await DocumentPicker.getDocumentAsync({
+        type: ['application/x-sqlite3', 'application/octet-stream'],
+        copyToCacheDirectory: true,
+      });
+      if (pick.canceled || !pick.assets?.[0]?.uri) {
+        return;
+      }
+      const pickedUri = pick.assets[0].uri;
+      const targetPath = getTrankilV2DatabaseFilePath();
+      await closeTrankilV2DatabaseForVault();
+      try {
+        await FileSystem.copyAsync({ from: pickedUri, to: targetPath });
+        await FileSystem.deleteAsync(`${targetPath}-wal`, { idempotent: true });
+        await FileSystem.deleteAsync(`${targetPath}-shm`, { idempotent: true });
+      } catch (e) {
+        await reopenTrankilV2DatabaseAfterVault();
+        throw e;
+      }
+      await reopenTrankilV2DatabaseAfterVault();
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME, { reason: 'vault_restore' });
+      await reloadApplication();
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  const handleRestore = useCallback(() => {
+    Alert.alert(t('debug.vaultImportConfirmTitle'), t('debug.vaultImportWarning'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('debug.vaultImportConfirm'),
+        style: 'destructive',
+        onPress: () => void performVaultRestore(),
+      },
+    ]);
+  }, [performVaultRestore, t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -634,6 +721,47 @@ export function DebugScreen() {
         <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>
           {t('debug.dashboardSectionSysteme')}
         </Text>
+        <View
+          style={[
+            designTokens.cardShadowStyle,
+            styles.vaultPanel,
+            {
+              borderRadius: designTokens.borderRadius,
+              backgroundColor: designTokens.cardBackground,
+              borderColor: designTokens.accentColor,
+            },
+          ]}
+        >
+          <Text style={[styles.vaultTitle, { color: designTokens.textPrimary }]}>
+            {t('debug.vaultSectionTitle')}
+          </Text>
+          <Text style={[styles.vaultHint, { color: designTokens.textSecondary }]}>
+            {t('debug.vaultSectionHint')}
+          </Text>
+          <Text style={[styles.vaultWarning, { color: theme.colors.error }]}>
+            {t('debug.vaultImportWarning')}
+          </Text>
+          <View style={styles.godRow}>
+            <Button
+              mode="contained"
+              onPress={() => void handleBackup()}
+              disabled={busy !== null}
+              loading={busy === 'vaultBackup'}
+              style={styles.btnCompact}
+            >
+              {t('debug.vaultExport')}
+            </Button>
+            <Button
+              mode="outlined"
+              onPress={handleRestore}
+              disabled={busy !== null}
+              loading={busy === 'vaultRestore'}
+              style={styles.btnCompact}
+            >
+              {t('debug.vaultImport')}
+            </Button>
+          </View>
+        </View>
         <Text style={[styles.mono, styles.countLine, { color: theme.colors.onSurfaceVariant }]}>
           {t('debug.sqliteCountsLine', {
             intentions: dbCounts.intentionsCount,
@@ -802,7 +930,11 @@ export function DebugScreen() {
                   ? t('debug.busyRemoteModel')
                   : busy === 'iaHealth'
                     ? t('debug.busyIaHealth')
-                    : ''}
+                    : busy === 'vaultBackup'
+                      ? t('debug.vaultBusyBackup')
+                      : busy === 'vaultRestore'
+                        ? t('debug.vaultBusyRestore')
+                        : ''}
           </Text>
         </View>
       )}
@@ -932,6 +1064,26 @@ function createDebugScreenStyles(typography: ZenTypography) {
     borderWidth: 1.5,
     paddingHorizontal: 10,
     paddingVertical: 10,
+  },
+  vaultPanel: {
+    marginBottom: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  vaultTitle: {
+    fontSize: typography.bodyLarge,
+    fontWeight: '800',
+  },
+  vaultHint: {
+    fontSize: typography.label,
+    lineHeight: 17,
+  },
+  vaultWarning: {
+    fontSize: typography.label,
+    lineHeight: 17,
+    fontWeight: '600',
   },
   });
 }

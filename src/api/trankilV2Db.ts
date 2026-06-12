@@ -221,6 +221,41 @@ export function waitForTrankilV2SqliteIdle(): Promise<void> {
   return sqliteQueueTail.then(() => undefined);
 }
 
+/** Chemin absolu du fichier `talkndone.db` sur l’appareil. */
+export function getTrankilV2DatabaseFilePath(): string {
+  const dir = SQLite.defaultDatabaseDirectory;
+  if (!dir) {
+    throw new Error('SQLITE_DIRECTORY_UNAVAILABLE');
+  }
+  const normalized = String(dir).replace(/\/*$/, '');
+  return `${normalized}/${DB_NAME}`;
+}
+
+/**
+ * Ferme proprement la connexion SQLite (copie à froid TalkNDone-Vault).
+ * Attend la fin de la file puis `closeAsync` natif.
+ */
+export async function closeTrankilV2DatabaseForVault(): Promise<void> {
+  await waitForTrankilV2SqliteIdle();
+  const stale = currentDb;
+  currentDb = null;
+  dbPromise = null;
+  pragmasApplied = false;
+  sqliteReentrantDepth = 0;
+  sqliteExplicitTransactionDepth = 0;
+  sqliteMetadataPatchSavepointDepth = 0;
+  sqliteMetadataPatchInProgress = 0;
+  if (stale) {
+    await stale.closeAsync();
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 100));
+}
+
+/** Rouvre la connexion SQLite après restauration Vault. */
+export async function reopenTrankilV2DatabaseAfterVault(): Promise<void> {
+  await getDb();
+}
+
 /** Barrière temporelle après écriture UI — laisse SQLite libérer ses locks natifs. */
 export const SQLITE_UI_BARRIER_MS = 500;
 
