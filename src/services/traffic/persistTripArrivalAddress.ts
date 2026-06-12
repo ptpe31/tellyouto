@@ -1,6 +1,7 @@
 import { patchMetadata, updateTrankilV2IntentionLocationAddress } from '../../api/trankilV2Db';
 import type { AddressSelection } from '../addressResolver';
 import { getTripMetaFromRoot } from '../../utils/tripTimelineCard';
+import { upsertLocalPlaceFromSelection } from '../localPlaces';
 import { upsertLocationFavorite } from './locationFavorites';
 
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
@@ -45,7 +46,7 @@ export async function persistTripArrivalAddress(input: {
     location_place_id: input.place.placeId,
     location_lat: input.place.lat,
     location_lng: input.place.lng,
-    location_source: 'places',
+    location_source: input.place.placeId.startsWith('favorite:') ? 'local' : 'mapbox',
   });
 
   await updateTrankilV2IntentionLocationAddress(
@@ -54,6 +55,12 @@ export async function persistTripArrivalAddress(input: {
     { silent: true },
   );
   await patchMetadata(input.intentionId, { trip: tripPatch }, { silent: true });
+
+  try {
+    await upsertLocalPlaceFromSelection(input.place, str(tripMeta, 'destination_name') ?? undefined);
+  } catch {
+    /* silent — no UI */
+  }
 
   const alias = str(tripMeta, 'destination_name');
   if (alias) {

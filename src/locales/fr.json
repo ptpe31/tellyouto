@@ -42,11 +42,13 @@
   "sentinel": {
     "validationTitle": "Validation d'adresse",
     "detectedPlace": "Lieu détecté : {{place}}",
-    "addressLabel": "Adresse validée (Google Places)",
+    "addressLabel": "Adresse validée",
     "addressPlaceholder": "Rechercher une adresse…",
     "validationRequired": "Sélectionne une adresse valide pour activer Sentinel.",
     "placesMissingKey": "Clé Google Places manquante (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "mapboxMissingKey": "Clé Mapbox manquante (EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN).",
     "addressResolveFailed": "Adresse introuvable. Vérifiez la saisie et réessayez.",
+    "addressSearchUnavailable": "Impossible de contacter le service de recherche. Réessayez.",
     "notifTitle": "Vers : {{destination}} • Arrivée {{arrival}}",
     "notifUpdatedAt": "Mis à jour à {{time}}",
     "notifStatusBlue": "Trafic surveillé",
@@ -379,7 +381,17 @@
     "trafficDebugTripDestination": "Muret → Toulouse",
     "sqliteCountsLine": "intentions={{intentions}} | tâches={{tasks}}",
     "busySimElastic": "Simulation trafic…",
-    "busyRemoteModel": "Remote Config…"
+    "busyRemoteModel": "Remote Config…",
+    "vaultSectionTitle": "TalkNDone-Vault",
+    "vaultSectionHint": "Exporte ou importe talkndone.db via le partage natif (Drive, Fichiers, AirDrop…).",
+    "vaultExport": "Exporter ma base de données",
+    "vaultImport": "Importer une base de données",
+    "vaultImportWarning": "Importer une base écrasera toutes vos données actuelles.",
+    "vaultImportConfirmTitle": "Importer une base ?",
+    "vaultImportConfirm": "Importer",
+    "vaultShareDialogTitle": "Sauvegarder TalkNDone",
+    "vaultBusyBackup": "Export Vault…",
+    "vaultBusyRestore": "Import Vault…"
   },
   "connector": {
     "defaultFirstName": "toi",

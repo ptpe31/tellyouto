@@ -46,6 +46,8 @@
     "addressPlaceholder": "搜索地址…",
     "validationRequired": "请选择有效地址以启用 Sentinel。",
     "placesMissingKey": "缺少 Google Places 密钥（EXPO_PUBLIC_GOOGLE_PLACES_API_KEY）。",
+    "mapboxMissingKey": "缺少 Mapbox 密钥（EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN）。",
+    "addressSearchUnavailable": "无法连接搜索服务，请重试。",
     "addressResolveFailed": "未找到地址。请检查输入后重试。",
     "notifTitle": "前往：{{destination}} • 到达 {{arrival}}",
     "notifUpdatedAt": "更新于 {{time}}",

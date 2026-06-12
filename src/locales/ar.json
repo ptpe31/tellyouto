@@ -46,6 +46,8 @@
     "addressPlaceholder": "ابحث عن عنوان…",
     "validationRequired": "اختر عنوانًا صالحًا لتفعيل Sentinel.",
     "placesMissingKey": "مفتاح Google Places مفقود (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "mapboxMissingKey": "مفتاح Mapbox مفقود (EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN).",
+    "addressSearchUnavailable": "تعذّر الاتصال بخدمة البحث. حاول مجددًا.",
     "addressResolveFailed": "العنوان غير موجود. تحقق من الإدخال وحاول مجددًا.",
     "notifTitle": "إلى: {{destination}} • الوصول {{arrival}}",
     "notifUpdatedAt": "تم التحديث في {{time}}",

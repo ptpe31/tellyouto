@@ -306,6 +306,7 @@ Ce verrou garantit que le séquenceur ne lance jamais le chunk N+1 tant que la p
 - Instance singleton & re-open : l’instance SQLite est maintenue en singleton côté JS. En cas de `NativeDatabase.prepareAsync` rejeté (ou NPE natif), le système invalide l’instance courante et force une réouverture propre de la connexion avant de retenter l’opération.
 - Stabilité Android (New Architecture) : le bootstrap SQLite ne doit jamais bloquer l’UI. En cas de stall SQLite au démarrage, l’app continue à afficher l’interface, et l’initialisation DB reste best-effort en arrière-plan.
 - **Permissions arrière-plan Android (local-first)** : au cold start, `requestBackgroundExecutionPermissions()` ([`PermissionService.js`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/PermissionService.js)) demande les notifications puis, sur Android uniquement, ouvre l’intent système d’exclusion de l’optimisation batterie. La sollicitation est **mémorisée** via AsyncStorage (`@trankil_battery_permission_requested`) : pas de re-demande après reload ni Fast Refresh. Le bootstrap services dans [`App.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/App.tsx) est protégé par un garde session (`appServicesBootstrapDone`). **Debug** : bouton « Réinitialiser la demande batterie Android » dans [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) (`clearBatteryPermissionRequestedFlag` + relance intent).
+- **TalkNDone-Vault — export / import SQLite (juin 2026)** : sauvegarde portable de `talkndone.db` via **partage natif** (pas d’API Google Drive ni OAuth). UI : carte **TalkNDone-Vault** dans [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) (section **[SYSTÈME]**). **Export** : `closeTrankilV2DatabaseForVault()` → copie à froid vers `FileSystem.cacheDirectory` (`TalkNDone_backup_YYYYMMDD_HHMM.db`) → [`Sharing.shareAsync`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/node_modules/expo-sharing) (Drive, Fichiers, AirDrop…) → `reopenTrankilV2DatabaseAfterVault()`. **Import** : confirmation Alert → [`DocumentPicker.getDocumentAsync`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/node_modules/expo-document-picker) (`application/x-sqlite3`) → fermeture SQLite → `FileSystem.copyAsync` vers le chemin local → suppression sidecars `-wal` / `-shm` → réouverture + `INTENTIONS_CHANGED_EVENT_NAME` + `reloadApplication()`. Helpers : [`getTrankilV2DatabaseFilePath`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts), `closeTrankilV2DatabaseForVault`, `reopenTrankilV2DatabaseAfterVault`. **Ne pas confondre** avec le dossier images `TalknDone-Vault/` ([`fileStorage.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/fileStorage.ts), Share Sheet). Détail : **SPEC.md § TalkNDone-Vault — backup SQLite**.
 - Stratégie anti-deadlock : sérialiser **toutes** les opérations async SQLite côté JS (`runAsync`, `execAsync`, **`getFirstAsync`**, **`getAllAsync`**) via une queue unique (`runSerializedSqlite` dans [`trankilV2Db.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts)). Seules les écritures sérialisées provoquaient des race conditions avec les lectures concurrentes (ex. `patchMetadata` UI vs reconcile Sentinel → crash `prepareAsync rejected`). Les lectures critiques Sentinel passent aussi par `withTrankilV2Database` (ex. `getTrankilV2IntentionById`).
 
 ### 2.c) Refonte DB Local-First / Cloud-Ready (Snapshot + Sync asynchrone)
@@ -662,30 +663,46 @@ PROBE1 est toujours immédiat (`now`) à l’activation ou après reset destinat
 - Logs audit : `[API-CALL] 💸 GOOGLE DISTANCE MATRIX | CACHE HIT (memory|storage)` ou `| NETWORK |`.
 - Compteurs : `api_calls_total` (réseau), `api_calls_avoided_cache` (hit cache).
 
-##### 8.a) Saisie d’adresse — Lazy-Fetch Autocomplete (mai 2026)
+##### 8.a) Saisie d’adresse — Trio « Zéro Gaspillage » (juin 2026)
 
-Architecture **hook + UI** (pattern wrapper) :
+Architecture **local-first + Mapbox Search Box** (pattern wrapper) :
 
 | Couche | Fichier | Rôle |
 |--------|---------|------|
-| Service | [`addressResolver.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/addressResolver.ts) | `resolveManual(text)` → Geocoding (1 appel) ; `resolveFromPlaceId` → Place Details ; `fetchAutocompletePredictions` → Autocomplete **à la demande** (session token) |
-| Hook | [`useAddressLogic.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAddressLogic.ts) | Seuil **12 caractères**, loupe volontaire, état `isValidated`, liste à plat après loupe |
-| UI | [`AddressInput.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/AddressInput.tsx) | Icônes contextuelles : ✕ (< 12 car.), 🔍 loupe (≥ 12), ✓ verte (validé) |
+| Config | [`mapConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/mapConfig.ts) | `MAP_PROVIDER = 'mapbox'` ; seuil **12 car.** ; session Mapbox idle 5 min |
+| Cache SQLite | [`localPlaces.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/localPlaces.ts) | Table `local_places` (`LIKE %query%`, `last_used_at`, seed transactionnel depuis `location_favorites`, purge 6 mois) |
+| Service distant | [`mapSearchService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/mapSearchService.ts) | Mapbox `/suggest` (limit 5) + `/retrieve` + `/forward` ; branche `google` → [`addressResolver.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/addressResolver.ts) |
+| Hook | [`usePlaceSearch.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/usePlaceSearch.ts) | `fetchPlaces` : SQLite d’abord ; auto Mapbox si local vide et **≥ 12 car.** ; loupe = **insister** (fusion local + distant) |
+| Wrapper | [`useAddressLogic.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAddressLogic.ts) | Alias rétrocompat vers `usePlaceSearch` |
+| UI | [`AddressInput.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/AddressInput.tsx) | Spinner **uniquement** pendant appel Mapbox ; 📍 sur lignes locales ; loupe si résultats locaux + seuil atteint |
 | Intégration | [`AddressInputField.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/traffic/AddressInputField.tsx) | Drop-in (`GooglePlacesAutocompleteField` = re-export) |
 
-**Principe économique** : **0 appel Autocomplete pendant la frappe**. La recherche approfondie est un acte volontaire via la loupe.
+**Principe économique** :
 
-| État saisie | Icône trailing | Action |
-|-------------|----------------|--------|
-| Texte libre **< 12** car. | ✕ (si non vide) | Vide le champ ; **Done** clavier → 1 Geocoding (`resolveManual`) |
-| Texte **≥ 12** car. | 🔍 Loupe | Lance **1** Autocomplete + liste à plat sous le champ |
-| Adresse validée | ✓ verte + ✕ | Champ `editable={false}` ; ✕ réinitialise tout |
+1. **Filtre local (coût 0)** : à chaque frappe (debounce 200 ms), `searchLocalPlaces` affiche instantanément les lieux déjà connus.
+2. **Garde-fou 12 car.** : aucun appel distant en dessous du seuil (sauf match local ou Done avec match local exact).
+3. **Mapbox auto** : si local vide et **≥ 12 car.**, `/suggest` automatique (pas de clic loupe requis).
+4. **Loupe insister** : si résultats locaux affichés, la loupe lance Mapbox et **fusionne** local + distant (dédupliqué par `placeId`).
+5. **Mémorisation** : sélection Mapbox → `/retrieve` → `upsertLocalPlace` ; prochaine recherche = coût 0.
 
-**Flux choix suggestion** : tap ligne → `resolveFromPlaceId` → encoche verte + verrouillage + `onSelect`.
+**Session token Mapbox** : UUID v4 au montage du champ ; renouvelé après sélection, clear, ou champ vide **> 5 min** (facturation par session).
 
-**Logs audit** : `[API-CALL] 💸 GOOGLE GEOCODING` (manuel) ; `[API-CALL] 💸 GOOGLE PLACES AUTOCOMPLETE` (loupe uniquement).
+| État saisie | Comportement | Coût API |
+|-------------|--------------|----------|
+| Frappe, match local | Liste instantanée + loupe si **≥ 12** car. | 0 |
+| Frappe, local vide, **< 12** car. | Aucun distant | 0 |
+| Frappe, local vide, **≥ 12** car. | Auto `/suggest` Mapbox | 1 suggest |
+| Loupe (résultats locaux) | `/suggest` + fusion local + distant | 1 suggest |
+| Tap suggestion locale | `touchLocalPlaceLastUsed` + validation | 0 |
+| Tap suggestion Mapbox | `/retrieve` + upsert `local_places` | 1 retrieve |
+| **Done** clavier | Match local → validation ; sinon `/forward` si **≥ 12** car. | 0 ou 1 forward |
+| Adresse validée | ✓ verte + ✕ ; champ verrouillé | — |
 
-**Legacy** : [`features.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/features.ts) `ENABLE_AUTOCOMPLETE = false` — l’ancien debounce auto (≥ 4 car., 500 ms) est **remplacé** par Lazy-Fetch ; ne pas réactiver sans revue coûts API.
+**Erreurs réseau** : `MapSearchError` (`network`) → message i18n `sentinel.addressSearchUnavailable` (pas de spinner infini).
+
+**Logs audit** : `[API-CALL] 💸 MAPBOX SUGGEST` ; `[API-CALL] 💸 MAPBOX RETRIEVE` ; `[API-CALL] 💸 MAPBOX FORWARD`. Google conservé derrière `MAP_PROVIDER === 'google'`.
+
+**Legacy** : [`features.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/features.ts) `ENABLE_AUTOCOMPLETE = false` — l’ancien debounce auto (≥ 4 car., 500 ms) reste désactivé.
 
 ##### 8.b) UI — Capsule Contrat de Départ
 
@@ -2480,7 +2497,7 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 - Stockage local : expo-sqlite (intentions locales, cache), AsyncStorage
 - Réseau / état : @react-native-community/netinfo
 - Places / géoloc :
-  - **Lazy-Fetch (prod)** : saisie libre + Geocoding au **Done** (< 12 car.) ; Autocomplete **uniquement via loupe** (≥ 12 car.) — [`addressResolver.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/addressResolver.ts) + [`useAddressLogic.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAddressLogic.ts)
+  - **Trio Zéro Gaspillage (prod)** : SQLite `local_places` + Mapbox Search Box (seuil 12 car., auto si local vide) — [`usePlaceSearch.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/usePlaceSearch.ts) + [`mapSearchService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/mapSearchService.ts) ; Google via `MAP_PROVIDER=google` uniquement
   - Distance Matrix : [`DistanceMatrixMapsService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/DistanceMatrixMapsService.ts) — cache grid + AsyncStorage
   - Rappel Horloge OS : [`alarmService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts) (`openAlarmSelection`) — intent `SET_ALARM` (Android) / deep link Horloge iOS ; [`useIntentAlarm`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useIntentAlarm.ts) ; flag `metadata_json.is_alarm_set` ; `expo-intent-launcher` ; queries [`app.json`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/app.json)
 
@@ -2488,7 +2505,8 @@ Variables d’environnement principales (Expo public) :
 - Firebase : `EXPO_PUBLIC_FIREBASE_*`
 - Proxy Gemini : `EXPO_PUBLIC_GEMINI_PROXY_URL`
 - **Mode Solo Local** : `EXPO_PUBLIC_LOCAL_MODE=true` + `EXPO_PUBLIC_GEMINI_API_KEY` (dev uniquement — jamais build store)
-- Google Places / Geocoding : `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
+- Mapbox Search Box (prod) : `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN`
+- Google Places / Geocoding (legacy `MAP_PROVIDER=google`) : `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
 - Google Distance Matrix (optionnel, fallback clé Places) : `EXPO_PUBLIC_GOOGLE_DISTANCE_MATRIX_API_KEY`
 
 ### Mode Solo Local 100 % autonome (juin 2026)
@@ -2557,6 +2575,47 @@ Share Sheet OS
 **Réversibilité Firebase** : `syncVaultImageToCloudIfEnabled(intentionId)` + `uploadToCloudIfEnabled(imagePath)` — stubs aujourd’hui ; points d’extension Firebase Storage sans modifier la logique de capture.
 
 **Observabilité** : `[ShareService] Image reçue, envoi vers Gemini en mode LOCAL|PROXY` ; phases pipeline `mic_stop_audio_done` / `mic_submit_invoke` émises depuis Share ; erreurs share intent loguées `[ShareService]`.
+
+### TalkNDone-Vault — backup SQLite (export / import natif)
+
+**Objectif** : traiter `talkndone.db` comme un **document portable** — copie binaire complète, zéro sync incrémentale, indépendance cloud (l’utilisateur choisit la destination via le sheet OS : Drive, Fichiers, messagerie…).
+
+**Principe Trankil** : pas de compte Firebase requis ; pas de conflit de fusion ; restauration = état exact du fichier choisi.
+
+| Composant | Fichier | Rôle |
+|-----------|---------|------|
+| UI | [`DebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/DebugScreen.tsx) | Carte **TalkNDone-Vault** : « Exporter ma base » / « Importer une base » + avertissement d’écrasement |
+| SQLite (copie à froid) | [`trankilV2Db.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) | `getTrankilV2DatabaseFilePath`, `closeTrankilV2DatabaseForVault`, `reopenTrankilV2DatabaseAfterVault` |
+| Export | `expo-sharing` + `expo-file-system/legacy` | `Sharing.shareAsync(tempPath, { mimeType: 'application/x-sqlite3' })` |
+| Import | `expo-document-picker` | `getDocumentAsync({ type: ['application/x-sqlite3', 'application/octet-stream'], copyToCacheDirectory: true })` |
+| Reload post-import | [`reloadApp.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/reloadApp.ts) | `DevSettings.reload()` en dev ; rebuild natif requis après ajout de `expo-document-picker` |
+
+**Workflow export** :
+
+```
+closeTrankilV2DatabaseForVault
+  → FileSystem.copyAsync(source → cache/TalkNDone_backup_YYYYMMDD_HHMM.db)
+  → Sharing.shareAsync(tempPath)
+  → reopenTrankilV2DatabaseAfterVault
+  → deleteAsync(tempPath)
+```
+
+**Workflow import** (atomique) :
+
+```
+Alert confirmation
+  → DocumentPicker.getDocumentAsync
+  → closeTrankilV2DatabaseForVault
+  → copyAsync(picked → talkndone.db)
+  → deleteAsync(talkndone.db-wal | -shm)
+  → reopenTrankilV2DatabaseAfterVault
+  → emit INTENTIONS_CHANGED_EVENT_NAME
+  → reloadApplication()
+```
+
+**Sécurité / intégrité** : la base locale n’est remplacée qu’après sélection explicite ; sidecars WAL/SHM supprimés pour éviter un état SQLite incohérent ; en cas d’échec de copie à l’import, réouverture de l’ancienne connexion avant propagation de l’erreur.
+
+**i18n** : clés `debug.vault*` dans [`fr.json`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/locales/fr.json) / [`en.json`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/locales/en.json).
 
 ### Backend (Firebase / Cloud)
 - Auth : Firebase Auth (dont mode anonyme) côté client + vérification côté serveur

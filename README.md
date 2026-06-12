@@ -30,7 +30,8 @@ Définir au minimum :
 Clés / APIs :
 
 - `EXPO_PUBLIC_GEMINI_PROXY_URL` (URL Cloud Run du proxy Gemini, ex. `https://geminiproxystream-xxxx-ew.a.run.app`)
-- `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` (Google Places côté client, restreinte par Bundle ID / Package Name + API restrictions)
+- `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN` (Mapbox Search Box — recherche d'adresses, prod)
+- `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` (legacy si `MAP_PROVIDER=google` dans `src/config/mapConfig.ts`)
 
 #### Mode Solo Local 100 % autonome (dev / coupure Firebase)
 

@@ -46,6 +46,8 @@
     "addressPlaceholder": "住所を検索…",
     "validationRequired": "Sentinel を有効にするには有効な住所を選んでください。",
     "placesMissingKey": "Google Places キーがありません（EXPO_PUBLIC_GOOGLE_PLACES_API_KEY）。",
+    "mapboxMissingKey": "Mapbox キーがありません（EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN）。",
+    "addressSearchUnavailable": "検索サービスに接続できません。もう一度お試しください。",
     "addressResolveFailed": "住所が見つかりません。入力を確認してもう一度お試しください。",
     "notifTitle": "行先：{{destination}} • 到着 {{arrival}}",
     "notifUpdatedAt": "{{time}} に更新",

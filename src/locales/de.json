@@ -46,6 +46,8 @@
     "addressPlaceholder": "Adresse suchen…",
     "validationRequired": "Wähle eine gültige Adresse, um Sentinel zu aktivieren.",
     "placesMissingKey": "Google-Places-Schlüssel fehlt (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "mapboxMissingKey": "Mapbox-Schlüssel fehlt (EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN).",
+    "addressSearchUnavailable": "Suchdienst nicht erreichbar. Bitte erneut versuchen.",
     "addressResolveFailed": "Adresse nicht gefunden. Prüfe deine Eingabe und versuche es erneut.",
     "notifTitle": "Nach: {{destination}} • Ankunft {{arrival}}",
     "notifUpdatedAt": "Aktualisiert um {{time}}",

@@ -46,6 +46,8 @@
     "addressPlaceholder": "Sök en adress…",
     "validationRequired": "Välj en giltig adress för att aktivera Sentinel.",
     "placesMissingKey": "Google Places-nyckel saknas (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "mapboxMissingKey": "Mapbox-nyckel saknas (EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN).",
+    "addressSearchUnavailable": "Kan inte nå söktjänsten. Försök igen.",
     "addressResolveFailed": "Adress hittades inte. Kontrollera din inmatning och försök igen.",
     "notifTitle": "Till: {{destination}} • Ankomst {{arrival}}",
     "notifUpdatedAt": "Uppdaterad kl. {{time}}",

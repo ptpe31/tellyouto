@@ -46,6 +46,8 @@
     "addressPlaceholder": "Zoek een adres…",
     "validationRequired": "Selecteer een geldig adres om Sentinel te activeren.",
     "placesMissingKey": "Google Places-sleutel ontbreekt (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "mapboxMissingKey": "Mapbox-sleutel ontbreekt (EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN).",
+    "addressSearchUnavailable": "Kan de zoekdienst niet bereiken. Probeer opnieuw.",
     "addressResolveFailed": "Adres niet gevonden. Controleer je invoer en probeer opnieuw.",
     "notifTitle": "Naar: {{destination}} • Aankomst {{arrival}}",
     "notifUpdatedAt": "Bijgewerkt om {{time}}",

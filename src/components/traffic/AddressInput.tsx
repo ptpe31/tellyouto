@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { IconButton } from 'react-native-paper';
 
+import type { PlacePrediction } from '../../hooks/usePlaceSearch';
+
 export type AddressInputProps = {
   value: string;
   onChangeText: (text: string) => void;
@@ -18,17 +20,19 @@ export type AddressInputProps = {
   onClearPress: () => void;
   loading?: boolean;
   error?: string | null;
-  predictions?: Array<{ placeId: string; description: string }>;
-  onPickPrediction?: (prediction: { placeId: string; description: string }) => void;
+  predictions?: PlacePrediction[];
+  onPickPrediction?: (prediction: PlacePrediction) => void;
   isSearchable?: boolean;
   isValidated?: boolean;
   predictionsVisible?: boolean;
+  showLoupe?: boolean;
   placeholder?: string;
   disabled?: boolean;
   autoFocus?: boolean;
   missingKeyLabel?: string;
   missingApiKey?: boolean;
   errorResolveFailedLabel?: string;
+  errorSearchUnavailableLabel?: string;
 };
 
 export function AddressInput(props: AddressInputProps) {
@@ -45,12 +49,14 @@ export function AddressInput(props: AddressInputProps) {
     isSearchable = false,
     isValidated = false,
     predictionsVisible = false,
+    showLoupe = false,
     placeholder,
     disabled = false,
     autoFocus,
     missingKeyLabel,
     missingApiKey = false,
     errorResolveFailedLabel,
+    errorSearchUnavailableLabel,
   } = props;
 
   if (missingApiKey && missingKeyLabel) {
@@ -107,7 +113,7 @@ export function AddressInput(props: AddressInputProps) {
         </View>
       );
     }
-    if (isSearchable) {
+    if (showLoupe && isSearchable) {
       return (
         <IconButton
           icon="magnify"
@@ -145,6 +151,9 @@ export function AddressInput(props: AddressInputProps) {
       {error === 'resolve_failed' && errorResolveFailedLabel ? (
         <Text style={styles.errorText}>{errorResolveFailedLabel}</Text>
       ) : null}
+      {error === 'search_unavailable' && errorSearchUnavailableLabel ? (
+        <Text style={styles.errorText}>{errorSearchUnavailableLabel}</Text>
+      ) : null}
       {showPredictions ? (
         <View style={styles.resultsList}>
           {predictions.map((p, index) => (
@@ -153,7 +162,10 @@ export function AddressInput(props: AddressInputProps) {
               style={[styles.item, index === 0 ? styles.itemFirst : null]}
               onPress={() => onPickPrediction(p)}
             >
-              <Text style={styles.itemText}>{p.description}</Text>
+              <Text style={styles.itemText}>
+                {p.source === 'local' ? '📍 ' : ''}
+                {p.description}
+              </Text>
             </Pressable>
           ))}
         </View>

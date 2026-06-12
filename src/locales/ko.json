@@ -46,6 +46,8 @@
     "addressPlaceholder": "주소 검색…",
     "validationRequired": "Sentinel을 활성화하려면 유효한 주소를 선택하세요.",
     "placesMissingKey": "Google Places 키가 없어요 (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).",
+    "mapboxMissingKey": "Mapbox 키가 없어요 (EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN).",
+    "addressSearchUnavailable": "검색 서비스에 연결할 수 없어요. 다시 시도하세요.",
     "addressResolveFailed": "주소를 찾을 수 없어요. 입력을 확인하고 다시 시도하세요.",
     "notifTitle": "목적지: {{destination}} • 도착 {{arrival}}",
     "notifUpdatedAt": "{{time}}에 업데이트",
