@@ -10,7 +10,35 @@ export {
 } from './timelineLayoutRegistry';
 
 export { buildLivingHubBlocks, buildRoutineHubBlocks, type HubBlock, type BuildLivingHubBlocksOptions, type BuildRoutineHubBlocksOptions } from './buildLivingHubBlocks';
+export {
+  buildNarrativeTimelineBlocks,
+  type NarrativeTimelineBlock,
+  type BuildNarrativeTimelineBlocksOptions,
+} from './buildNarrativeTimelineBlocks';
 export { formatHubItemLine, hubItemSortKey, type HubItemLine } from './formatHubItemLine';
+export { formatNarrativeItemLine, narrativeItemSortKey, type NarrativeItemLine } from './formatNarrativeItemLine';
+export { resolveNarrativeSubtitle } from './resolveNarrativeSubtitle';
+export { resolveNarrativeTitle } from './resolveNarrativeTitle';
+export {
+  computeDaysUntilDue,
+  extractReminderBlockRows,
+  isRowDueOnYmd,
+  isRowPinned,
+  normalizeRowDueYmd,
+  resolveDueConstraintFromCapture,
+  shouldAutoPinOnCapturePersist,
+  shouldRowAppearInTimeSegments,
+  sortReminderBlockRows,
+} from './narrativePinRules';
+export {
+  TIME_SEGMENT_ORDER,
+  isTimeSegmentPast,
+  resolveCurrentTimeSegment,
+  resolveTimeSegmentFromHm,
+  timeSegmentDisplayTitle,
+  timeSegmentSortIndex,
+  type TimeSegmentId,
+} from './timeSegmentRegistry';
 export { formatRoutineItemLine, type RoutineHubItemLine } from './formatRoutineItemLine';
 export { HabitStreakCompact } from './HabitStreakCompact';
 export { getHabitStreakData, type HabitOccurrenceState, type HabitStreakData } from './getHabitStreakData';
@@ -33,6 +61,7 @@ export {
   type HabitRecurrenceRule,
 } from './habitRecurrenceEvaluator';
 export { LivingHubBlockShell } from './LivingHubBlockShell';
+export { NarrativeTimelineBlockShell } from './NarrativeTimelineBlockShell';
 export { LivingHubCategoryModal } from './LivingHubCategoryModal';
 
 import { useAppTheme } from '../../context/ThemeContext';

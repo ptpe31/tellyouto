@@ -282,6 +282,15 @@
       "title": "Rutinas",
       "empty": "No hay rutinas activas."
     },
+    "narrativeTimeline": {
+      "morning": "Mañana",
+      "afternoon": "Tarde",
+      "evening": "Noche",
+      "reminder": "Recordatorio",
+      "pending": "Pendiente",
+      "daysBadge": "D-{{days}}",
+      "progress": "{{done}} de {{total}} hechas"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "{{count}} hoy",

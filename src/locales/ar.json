@@ -282,6 +282,15 @@
       "title": "روتينات",
       "empty": "لا روتينات نشطة."
     },
+    "narrativeTimeline": {
+      "morning": "الصباح",
+      "afternoon": "بعد الظهر",
+      "evening": "المساء",
+      "reminder": "تذكير",
+      "pending": "قيد الانتظار",
+      "daysBadge": "ي-{{days}}",
+      "progress": "{{done}} من {{total}} منجزة"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "{{count}} اليوم",

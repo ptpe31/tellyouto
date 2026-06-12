@@ -1675,7 +1675,11 @@ export async function listTrankilV2PinnedIntentions(limit = 8): Promise<TrankilV
 }
 
 /** Épingle ou désépingle une intention (respecte le plafond côté UI). */
-export async function updateTrankilV2IntentionPinnedState(id: string, isPinned: boolean): Promise<void> {
+export async function updateTrankilV2IntentionPinnedState(
+  id: string,
+  isPinned: boolean,
+  opts?: { silent?: boolean },
+): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
   const now = Date.now();
@@ -1683,6 +1687,8 @@ export async function updateTrankilV2IntentionPinnedState(id: string, isPinned: 
     `UPDATE intentions SET is_pinned = ?, updated_at = ?, is_dirty = 1 WHERE id = ?`,
     [isPinned ? 1 : 0, now, id],
   );
+  await patchMetadata(id, { is_pinned: isPinned ? 1 : 0 }, { silent: true });
+  if (opts?.silent) return;
   await syncAfterIntentionWrite('updateTrankilV2IntentionPinnedState');
   notifyIntentionsChanged({ id, reason: isPinned ? 'pin' : 'unpin' });
 }
@@ -2055,7 +2061,11 @@ function intentionDueOnLocalYmdSql(alias = 'i'): string {
   )`;
 }
 
-/** Feuille de route : échéance du jour sélectionné ou épinglé (indépendant de l'Inbox journal). */
+/**
+ * Feuille de route : échéance du jour sélectionné ou épinglé (indépendant de l'Inbox journal).
+ * Le routage narratif (Matin/AM/Soir vs bloc « Rappel ») est appliqué côté UI :
+ * les épinglées sans échéance aujourd'hui résident uniquement dans le bloc Rappel.
+ */
 function intentionExecutionRoadmapSql(_selectedDateYmd: string): string {
   return `
     AND (

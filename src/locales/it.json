@@ -282,6 +282,15 @@
       "title": "Routine",
       "empty": "Nessuna routine attiva."
     },
+    "narrativeTimeline": {
+      "morning": "Mattina",
+      "afternoon": "Pomeriggio",
+      "evening": "Sera",
+      "reminder": "Promemoria",
+      "pending": "In attesa",
+      "daysBadge": "G-{{days}}",
+      "progress": "{{done}} su {{total}} completate"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "{{count}} oggi",

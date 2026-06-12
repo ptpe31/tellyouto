@@ -282,6 +282,15 @@
       "title": "Rutiner",
       "empty": "Inga aktiva rutiner."
     },
+    "narrativeTimeline": {
+      "morning": "Morgon",
+      "afternoon": "Eftermiddag",
+      "evening": "Kväll",
+      "reminder": "Påminnelse",
+      "pending": "Väntande",
+      "daysBadge": "D-{{days}}",
+      "progress": "{{done}} av {{total}} klara"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "{{count}} idag",

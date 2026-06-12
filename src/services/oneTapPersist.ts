@@ -31,6 +31,11 @@ import { NOTE_FALLBACK_LABEL } from './timelineIntentionVisibility';
 import { coerceRecurrenceRule } from '../utils/habitRecurrenceRule';
 import { parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import { logCaptureFlow } from '../utils/captureFlowLog';
+import {
+  resolveDueConstraintFromCapture,
+  shouldAutoPinOnCapturePersist,
+} from '../features/livingHub/narrativePinRules';
+import { formatYmdLocal } from './TimeSorter';
 
 
 export type PersistOneTapSuccess =
@@ -140,6 +145,38 @@ function resolveOneTapTemporalFields(data: Record<string, unknown>): {
     timeMarker,
     dueDateTime,
     isAllDay: timeMarker === 'ALL_DAY' ? 1 : 0,
+  };
+}
+
+function applyAutoPinFromCapture(
+  row: TrankilV2IntentionInsert,
+  data: Record<string, unknown>,
+  transcript: string,
+  temporal: ReturnType<typeof resolveOneTapTemporalFields>,
+): TrankilV2IntentionInsert {
+  const todayYmd = formatYmdLocal(new Date());
+  const constraint = resolveDueConstraintFromCapture(data, transcript);
+  const pin = shouldAutoPinOnCapturePersist({
+    data,
+    transcript,
+    dueDateYmd: temporal.dueDateYmd ?? (row.due_date?.trim() || null),
+    timeMarker: temporal.timeMarker,
+    dueTimeHm: temporal.dueTimeHm,
+    todayYmd,
+  });
+  if (!pin && constraint !== 'BEFORE') return row;
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
+  } catch {
+    meta = {};
+  }
+  if (constraint === 'BEFORE') meta.due_constraint = 'BEFORE';
+  if (pin) meta.is_pinned = 1;
+  return {
+    ...row,
+    is_pinned: pin ? 1 : row.is_pinned,
+    metadata_json: JSON.stringify(meta, null, 2),
   };
 }
 
@@ -334,7 +371,12 @@ async function materializeOneTapIntentionRow(params: {
         is_pending_ai: isPendingAi,
         created_at,
       });
-      return { ...row, parent_id: params.parentId ?? null, context_tag: contextTagDb, ...aiMeta };
+      return applyAutoPinFromCapture(
+        { ...row, parent_id: params.parentId ?? null, context_tag: contextTagDb, ...aiMeta },
+        draft.data as Record<string, unknown>,
+        raw,
+        temporal,
+      );
     }
     case 'TRIP': {
       const temporal = resolveOneTapTemporalFields(draft.data as Record<string, unknown>);
@@ -361,13 +403,18 @@ async function materializeOneTapIntentionRow(params: {
         is_pending_ai: isPendingAi,
         created_at,
       });
-      return {
-        ...row,
-        parent_id: params.parentId ?? null,
-        context_tag: contextTagDb,
-        ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>),
-        ...aiMeta,
-      };
+      return applyAutoPinFromCapture(
+        {
+          ...row,
+          parent_id: params.parentId ?? null,
+          context_tag: contextTagDb,
+          ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>),
+          ...aiMeta,
+        },
+        draft.data as Record<string, unknown>,
+        raw,
+        temporal,
+      );
     }
     case 'HABIT': {
       const habitTitle = (title || habitsDefaultTitle).slice(0, 200);

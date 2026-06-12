@@ -282,6 +282,15 @@
       "title": "Routines",
       "empty": "No active routines."
     },
+    "narrativeTimeline": {
+      "morning": "Morning",
+      "afternoon": "Afternoon",
+      "evening": "Evening",
+      "reminder": "Reminder",
+      "pending": "Pending",
+      "daysBadge": "D-{{days}}",
+      "progress": "{{done}} of {{total}} done"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "{{count}} today",
@@ -350,7 +359,7 @@
     "timelineLayoutTitle": "Timeline layout",
     "timelineLayoutHint": "Switch between current cards and email hub. Rollback: Current cards. Works with all themes above.",
     "timelineLayoutCurrent": "Current cards",
-    "timelineLayoutEmailHub": "Email hub",
+    "timelineLayoutEmailHub": "Narrative timeline",
     "trafficLaunchElastic": "Start elastic jump simulation",
     "trafficMonitorTitle": "Traffic monitoring (simulation)",
     "trafficSimulatedTime": "Simulated time: {{time}}",

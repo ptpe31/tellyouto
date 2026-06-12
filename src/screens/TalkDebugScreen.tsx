@@ -21,10 +21,9 @@ import {
   getTrankilV2IntentionById,
   getTrankilV2UnorganizedCount,
   listTrankilV2MergedTodayTimelineWithLowPressure,
-  listTrankilV2PinnedIntentions,
   type TrankilIntentStatus,
 } from '../api/trankilV2Db';
-import { MAX_PINS_COUNT } from '../config/appConfig';
+import { extractReminderBlockRows, sortReminderBlockRows } from '../features/livingHub/narrativePinRules';
 import {
   CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH_EVENT_NAME,
   INTENTION_PEEK_FIRST_SAVE_EVENT_NAME,
@@ -206,16 +205,16 @@ export function TalkDebugScreen() {
   const refreshPilotHeader = useCallback(async () => {
     const ymd = formatYmdLocal(new Date());
     const status: TrankilIntentStatus = 'TODO';
-    const [unorg, todayN, snap, pinned, todayTimeline] = await Promise.all([
+    const [unorg, todayN, snap, todayTimeline] = await Promise.all([
       getTrankilV2UnorganizedCount(),
       countTrankilV2RootTodoTasksDueOnLocalDate(ymd),
       spectrum.isProUser ? Promise.resolve(null) : getFreeCaptureQuotaSnapshot(),
-      listTrankilV2PinnedIntentions(MAX_PINS_COUNT),
       listTrankilV2MergedTodayTimelineWithLowPressure(ymd, status, 'ALL', { limit: 200, offset: 0 }),
     ]);
     setHeaderUnorganizedCount(unorg);
     setTodayTodoCount(todayN);
-    setPinnedRows(pinned.map(mapTrankilIntentionToTimelineItemRow));
+    const reminderRows = sortReminderBlockRows(extractReminderBlockRows(todayTimeline), ymd);
+    setPinnedRows(reminderRows);
     setTodayFocusRows(todayTimeline);
     if (snap) {
       setFreeQuotaSnapshot({ remaining: snap.remaining, max: snap.max });

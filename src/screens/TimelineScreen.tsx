@@ -99,11 +99,16 @@ import { neumorphicRaised } from '../theme/neumorphism';
 import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
 import {
   buildLivingHubBlocks,
+  buildNarrativeTimelineBlocks,
   buildRoutineHubBlocks,
   hubCategoryDisplayTitle,
+  isTimeSegmentPast,
   LivingHubBlockShell,
   LivingHubCategoryModal,
+  NarrativeTimelineBlockShell,
+  timeSegmentDisplayTitle,
   type HubBlock,
+  type NarrativeTimelineBlock,
 } from '../features/livingHub';
 import { useAppTheme } from '../context/ThemeContext';
 import { Platform as RPlatform } from '../utils/rnPlatform';
@@ -321,7 +326,18 @@ function offlineAiChipForRow(row: TrankilV2TimelineItemRow, translate: (key: str
 
 const SECTION_HEADER_H = 36;
 const CARD_ROW_H = 120;
+const NARRATIVE_BLOCK_HEADER_H = 44;
+const NARRATIVE_LINE_H = 28;
+const NARRATIVE_SUBTITLE_H = 18;
 const SENTINEL_FOCUS_FALLBACK_H = SENTINEL_FOCUS_SLOT_HEIGHT;
+
+function estimateNarrativeBlockHeight(block: NarrativeTimelineBlock): number {
+  let linesH = 0;
+  for (const line of block.lines) {
+    linesH += NARRATIVE_LINE_H + (line.subtitle ? NARRATIVE_SUBTITLE_H : 0);
+  }
+  return NARRATIVE_BLOCK_HEADER_H + linesH + 24;
+}
 
 function sqlContextFromBubble(bubble: ContextBubble): TimelineSqlContext {
   if (bubble === 'HOME') return 'HOME';
@@ -339,6 +355,7 @@ function takePage<T>(rows: T[], pageSize: number): { slice: T[]; hasMore: boolea
 type TimelineFlatItem =
   | { kind: 'section'; id: string; titleText: string }
   | { kind: 'sentinelFocus'; id: string; rows: TrankilV2TimelineItemRow[] }
+  | { kind: 'narrativeBlock'; id: string; block: NarrativeTimelineBlock; isPast?: boolean }
   | { kind: 'hubBlock'; id: string; block: HubBlock }
   | {
       kind: 'card';
@@ -374,6 +391,7 @@ function flattenForVirtualList(
 function buildFlatListLayouts(
   items: TimelineFlatItem[],
   sentinelFocusHeightById: Map<string, number>,
+  narrativeBlockHeightById?: Map<string, number>,
 ): { length: number; offset: number }[] {
   let off = 0;
   return items.map((it) => {
@@ -382,6 +400,8 @@ function buildFlatListLayouts(
         ? SECTION_HEADER_H
         : it.kind === 'sentinelFocus'
           ? (sentinelFocusHeightById.get(it.id) ?? SENTINEL_FOCUS_FALLBACK_H)
+          : it.kind === 'narrativeBlock'
+            ? (narrativeBlockHeightById?.get(it.id) ?? estimateNarrativeBlockHeight(it.block))
           : it.kind === 'hubBlock'
             ? CARD_ROW_H
             : CARD_ROW_H;
@@ -1349,15 +1369,25 @@ export function TimelineScreen() {
     timeNav,
   ]);
 
-  const hubBlocks = useMemo(() => {
+  const narrativeBlocks = useMemo(() => {
     if (!hubEligible) return null;
     const todayYmd = toYmd(anchorDate);
     const todayEntry = listEntries.find((e) => e.id === todayYmd);
-    return buildLivingHubBlocks(todayEntry?.rows ?? [], {
+    return buildNarrativeTimelineBlocks(todayEntry?.rows ?? [], {
       activeHabits: activeHabitRows,
       targetDate: anchorDate,
+      todayYmd,
+      locale: i18n.language,
     });
-  }, [activeHabitRows, anchorDate, hubEligible, listEntries]);
+  }, [activeHabitRows, anchorDate, hubEligible, i18n.language, listEntries]);
+
+  const narrativeClockActive = hubEligible && timeNav === 'TODAY' && toYmd(anchorDate) === toYmd(new Date());
+  const narrativeNowMs = useProbeScheduleClock(narrativeClockActive, 60_000);
+
+  useEffect(() => {
+    if (!narrativeBlocks?.length) return;
+    configureTimelineListReloadAnimation();
+  }, [narrativeBlocks, narrativeNowMs]);
 
   const flatRowIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1432,9 +1462,16 @@ export function TimelineScreen() {
           ) {
             out.push({ kind: 'sentinelFocus', id: 'sentinel-focus', rows: todayRows });
           }
-          if (hubBlocks) {
-            for (const block of hubBlocks) {
-              out.push({ kind: 'hubBlock', id: `hub-${block.categoryId}`, block });
+          if (narrativeBlocks) {
+            const now = new Date(narrativeNowMs);
+            const dimPastSegments = toYmd(anchorDate) === todayYmd;
+            for (const block of narrativeBlocks) {
+              out.push({
+                kind: 'narrativeBlock',
+                id: `narrative-${block.segmentId}`,
+                block,
+                isPast: dimPastSegments ? isTimeSegmentPast(block.segmentId, now) : false,
+              });
             }
           }
         }
@@ -1445,7 +1482,8 @@ export function TimelineScreen() {
   }, [
     anchorDate,
     contextBubble,
-    hubBlocks,
+    narrativeBlocks,
+    narrativeNowMs,
     hubEligible,
     i18n.language,
     listEntries,
@@ -1457,20 +1495,25 @@ export function TimelineScreen() {
 
   const flatListLayouts = useMemo(() => {
     const todayYmd = toYmd(anchorDate);
-    const heightById = new Map<string, number>();
+    const sentinelHeightById = new Map<string, number>();
+    const narrativeHeightById = new Map<string, number>();
     for (const it of flatListItems) {
-      if (it.kind !== 'sentinelFocus') continue;
-      heightById.set(
-        it.id,
-        estimateSentinelFocusBadgeHeight(it.rows, {
-          todayYmd,
-          isProUser: spectrum.isProUser,
-          locale: i18n.language,
-          nowMs: sentinelFocusNowMs,
-        }) || SENTINEL_FOCUS_FALLBACK_H,
-      );
+      if (it.kind === 'sentinelFocus') {
+        sentinelHeightById.set(
+          it.id,
+          estimateSentinelFocusBadgeHeight(it.rows, {
+            todayYmd,
+            isProUser: spectrum.isProUser,
+            locale: i18n.language,
+            nowMs: sentinelFocusNowMs,
+          }) || SENTINEL_FOCUS_FALLBACK_H,
+        );
+      }
+      if (it.kind === 'narrativeBlock') {
+        narrativeHeightById.set(it.id, estimateNarrativeBlockHeight(it.block));
+      }
     }
-    return buildFlatListLayouts(flatListItems, heightById);
+    return buildFlatListLayouts(flatListItems, sentinelHeightById, narrativeHeightById);
   }, [anchorDate, flatListItems, i18n.language, sentinelFocusNowMs, spectrum.isProUser]);
 
   const getItemLayout = useCallback(
@@ -1543,6 +1586,18 @@ export function TimelineScreen() {
       setIdeaBankCategoryFilter(null);
       setIdeaBankHubItems(block.items);
       setIdeaBankHubTitle(hubCategoryDisplayTitle(block.categoryId, t));
+      setIdeaBankAutoTripPillRowId(null);
+      setIdeaBankOpen(true);
+    },
+    [t],
+  );
+
+  const openNarrativeBlock = useCallback(
+    (block: NarrativeTimelineBlock) => {
+      setIdeaBankMode('default');
+      setIdeaBankCategoryFilter(null);
+      setIdeaBankHubItems(block.items);
+      setIdeaBankHubTitle(timeSegmentDisplayTitle(block.segmentId, t));
       setIdeaBankAutoTripPillRowId(null);
       setIdeaBankOpen(true);
     },
@@ -1639,6 +1694,18 @@ export function TimelineScreen() {
           </View>
         );
       }
+      if (item.kind === 'narrativeBlock') {
+        return (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
+            <NarrativeTimelineBlockShell
+              block={item.block}
+              designTokens={designTokens}
+              isPast={item.isPast}
+              onPress={() => openNarrativeBlock(item.block)}
+            />
+          </View>
+        );
+      }
       if (item.kind === 'hubBlock') {
         return (
           <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
@@ -1693,6 +1760,7 @@ export function TimelineScreen() {
       handleToggleRowComplete,
       anchorDate,
       openHubBlock,
+      openNarrativeBlock,
       onPressSentinelSuggestion,
       openDetail,
       handleTripFooterPress,

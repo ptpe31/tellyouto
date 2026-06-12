@@ -5,13 +5,13 @@ export type TimelineLayoutMode = 'CURRENT' | 'EMAIL_HUB';
 
 export const TIMELINE_LAYOUT_STORAGE_KEY = '@trankil_debug_timeline_layout';
 
-export const DEFAULT_TIMELINE_LAYOUT_MODE: TimelineLayoutMode = 'CURRENT';
+export const DEFAULT_TIMELINE_LAYOUT_MODE: TimelineLayoutMode = 'EMAIL_HUB';
 
 export const ALL_TIMELINE_LAYOUT_MODES: TimelineLayoutMode[] = ['CURRENT', 'EMAIL_HUB'];
 
 export const TIMELINE_LAYOUT_LABELS: Record<TimelineLayoutMode, string> = {
   CURRENT: 'Cartes actuelles',
-  EMAIL_HUB: 'Hub email',
+  EMAIL_HUB: 'Chronologie narrative',
 };
 
 export function isTimelineLayoutMode(value: string): value is TimelineLayoutMode {

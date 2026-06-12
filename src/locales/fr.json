@@ -282,6 +282,15 @@
       "title": "Routines",
       "empty": "Aucune routine active."
     },
+    "narrativeTimeline": {
+      "morning": "Matin",
+      "afternoon": "Après-midi",
+      "evening": "Soir",
+      "reminder": "Rappel",
+      "pending": "En attente",
+      "daysBadge": "J-{{days}}",
+      "progress": "{{done}} sur {{total}} effectuées"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "{{count}} aujourd'hui",
@@ -350,7 +359,7 @@
     "timelineLayoutTitle": "Disposition Timeline",
     "timelineLayoutHint": "Bascule entre cartes actuelles et hub email. Rollback : Cartes actuelles. Compatible avec tous les thèmes ci-dessus.",
     "timelineLayoutCurrent": "Cartes actuelles",
-    "timelineLayoutEmailHub": "Hub email",
+    "timelineLayoutEmailHub": "Chronologie narrative",
     "trafficLaunchElastic": "Lancer simulation saut élastique",
     "trafficMonitorTitle": "Monitoring trafic (simulation)",
     "trafficSimulatedTime": "Heure simulée : {{time}}",

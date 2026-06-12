@@ -282,6 +282,15 @@
       "title": "Vaste routines",
       "empty": "Geen actieve routines."
     },
+    "narrativeTimeline": {
+      "morning": "Ochtend",
+      "afternoon": "Middag",
+      "evening": "Avond",
+      "reminder": "Herinnering",
+      "pending": "In afwachting",
+      "daysBadge": "D-{{days}}",
+      "progress": "{{done}} van {{total}} gedaan"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "{{count}} vandaag",

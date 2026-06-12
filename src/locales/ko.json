@@ -282,6 +282,15 @@
       "title": "루틴",
       "empty": "활성 루틴 없음."
     },
+    "narrativeTimeline": {
+      "morning": "아침",
+      "afternoon": "오후",
+      "evening": "저녁",
+      "reminder": "리마인더",
+      "pending": "대기",
+      "daysBadge": "D-{{days}}",
+      "progress": "{{total}}개 중 {{done}}개 완료"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "오늘 {{count}}",

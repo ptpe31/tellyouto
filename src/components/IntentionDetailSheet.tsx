@@ -973,10 +973,13 @@ export function IntentionDetailSheet({
     const id = row.id;
     if (isPinned) {
       setPinBusy(true);
+      setIsPinned(false);
+      onPatchRow?.(id, { is_pinned: 0 });
       try {
         await updateTrankilV2IntentionPinnedState(id, false);
-        setIsPinned(false);
-        onPatchRow?.(id, { is_pinned: 0 });
+      } catch {
+        setIsPinned(true);
+        onPatchRow?.(id, { is_pinned: 1 });
       } finally {
         setPinBusy(false);
       }
@@ -991,10 +994,13 @@ export function IntentionDetailSheet({
       return;
     }
     setPinBusy(true);
+    setIsPinned(true);
+    onPatchRow?.(id, { is_pinned: 1 });
     try {
       await updateTrankilV2IntentionPinnedState(id, true);
-      setIsPinned(true);
-      onPatchRow?.(id, { is_pinned: 1 });
+    } catch {
+      setIsPinned(false);
+      onPatchRow?.(id, { is_pinned: 0 });
     } finally {
       setPinBusy(false);
     }

@@ -282,6 +282,15 @@
       "title": "例行事项",
       "empty": "没有活跃的例行事项。"
     },
+    "narrativeTimeline": {
+      "morning": "上午",
+      "afternoon": "下午",
+      "evening": "晚上",
+      "reminder": "提醒",
+      "pending": "待定",
+      "daysBadge": "D-{{days}}",
+      "progress": "已完成 {{done}}/{{total}}"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "今天 {{count}}",

@@ -49,7 +49,7 @@ Ce qui existe réellement comme routine de qualification/robustesse (terrain) :
 | `gemini_pass2_model_id` | Modèle Pass 2 / Pass 3 / Expert / lab (raisonnement) — défaut `gemini-pro-latest` |
 | `gemini_model_fallbacks` | CSV optionnel remplaçant la shortlist compilée pour la chaîne Pass 2 (ex. `gemini-pro-latest,gemini-3.1-flash-lite`) |
 | `prompt_pass3_synth_v1` | Template system Pass 3 (Feuille de route) |
-| `max_pins_count` | Plafond d’intentions épinglées dans l’Espace Sacré (Cockpit) — défaut compilé `2` via [`MAX_PINS_COUNT`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/appConfig.ts) |
+| `max_pins_count` | Plafond d’intentions épinglées (toggle manuel + bloc **Rappel** Timeline + Espace Sacré Cockpit) — défaut compilé `2` via [`MAX_PINS_COUNT`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/appConfig.ts) |
 
 **Chaîne de résolution (boot)**
 
@@ -748,7 +748,7 @@ Composants : [`SentinelFocusBadge.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-tr
 
 **Emplacements** :
 
-- **Hub Email** ([`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)) : item `sentinelFocus` sous « Aujourd’hui », avant blocs hub — `EMAIL_HUB` + `TODAY` / `ALL` / `TODO` ; pool = `todayRows` (tous les trajets du jour, y compris hors cartes hub masquées par `skipTodayYmd`).
+- **Chronologie narrative** ([`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)) : item `sentinelFocus` sous « Aujourd’hui », avant blocs Matin/AM/Soir/Rappel — `EMAIL_HUB` + `TODAY` / `ALL` / `TODO` ; pool = `todayRows` (tous les trajets du jour, y compris hors liste cartes masquée par `skipTodayYmd`).
 - **Talk** ([`TalkDebugScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx)) : même composant ; `listTrankilV2MergedTodayTimelineWithLowPressure` ; `INTENTIONS_CHANGED_EVENT_NAME`.
 
 **Source de vérité** : projection SQLite du jour — pas de table dédiée ; `category_id` Pass 1 inchangé en base.
@@ -1066,7 +1066,7 @@ Cette section définit les contrats UI pour la refonte de la Timeline afin de pa
 
 **UI Showroom** : onglet **Debug** → section **🎨 EXPLORATION GRAPHIQUE (TEST THÈMES)** (sous « Vider la base ») — grille de 6 boutons tactiles ; bascule **instantanée** sans recompiler. Le panneau consomme lui-même les tokens (`cardBackground`, `cardShadowStyle`, `accentColor`).
 
-**Disposition Timeline (Debug, orthogonal aux skins)** : panneau **Disposition Timeline** sous le showroom — `CURRENT` (cartes plate) vs `EMAIL_HUB` (hub email) ; persisté `@trankil_debug_timeline_layout` via [`timelineLayoutRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/timelineLayoutRegistry.ts) + `ThemeContext.timelineLayoutMode`. Rollback = **Cartes actuelles**. En mode `EMAIL_HUB`, le [**Sentinel Focus Badge**](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) (§ 8.c) précède les blocs catégorie sous « Aujourd’hui ».
+**Disposition Timeline (Debug, orthogonal aux skins)** : panneau **Disposition Timeline** sous le showroom — `CURRENT` (cartes plate) vs `EMAIL_HUB` (**Chronologie narrative** : Matin / AM / Soir / Rappel) ; persisté `@trankil_debug_timeline_layout` via [`timelineLayoutRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/timelineLayoutRegistry.ts) + `ThemeContext.timelineLayoutMode`. Rollback = **Cartes actuelles**. En mode `EMAIL_HUB`, le [**Sentinel Focus Badge**](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) (§ 8.c) précède les blocs narratifs sous « Aujourd’hui » (§ 2.c).
 
 **Rollback** : sélectionner **Actuel (TellYouTo)** dans le showroom Debug → retour exact au design d’origine. En mode `CURRENT`, `applyDesignVariantToPaperTheme` reste un **no-op** et les tokens reproduisent `palette` + `paperTheme.ts`.
 
@@ -1284,7 +1284,7 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 |-----|--------------|------------|------|
 | **Inbox** | Aujourd’hui | Peu importe | Journal des captures du jour |
 | **Box** | Avant aujourd’hui | NULL / vide | Stock à froid |
-| **Timeline** | Peu importe | Échéance du jour ou épinglé | Exécution |
+| **Timeline** | Peu importe | Échéance du jour ou épinglé | Exécution (créneaux Matin/AM/Soir + bloc **Rappel** si épinglé) |
 
 - **Chevauchement volontaire** : une intention capturée aujourd’hui et datée pour aujourd’hui apparaît dans **Inbox** et dans la **feuille de route** (`intentionExecutionRoadmapSql` n’exclut plus l’Inbox).
 - **Sortie du flux** : **Fait ✓** (`status = DONE`), archivage ou suppression — pas via `is_organized` seul (le bouton **Tout retirer** Inbox est retiré de [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) en mode `inbox`).
@@ -1312,17 +1312,32 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - **i18n** : `timeline.smartClusters.routinesTitle|routinesSubtitle`, `timeline.routines.title|empty|streakFire|streakPause`.
 - **À venir** : bouton pause habitude dans la bottom sheet ; mini-calendrier série dans le détail.
 
-#### 2.c) Living Hub — disposition email (Debug)
+#### 2.c) Chronologie narrative — Matin / Après-midi / Soir / Rappel (juin 2026)
 
-- **Objectif** : sous **Aujourd’hui**, remplacer la liste plate de cartes par un **récap email** groupé par **`category_id` Pass 1** (HOME, WORK, HEALTH, …) — miroir direct de la classification IA, sans blocs inventés (Éphéméride / Routine / Reste).
-- **Activation** : `timelineLayoutMode === 'EMAIL_HUB'` **et** mêmes filtres que Smart Clusters — vue **Aujourd’hui**, contexte **ALL**, statut **TODO** (`hubEligible` dans [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)).
-- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (**Inbox · À acheter · Box · Routines · Projets**) — **Inbox** = journal 24h (captures du jour), **Box** = inventaire froid (captures antérieures sans date), **HABIT** dans **Routines** ; zéro double comptage Inbox ↔ Box (découpage temporel `created_at`).
-- **Agrégation** : [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) — `groupBy` via [`resolveHubBlockCategoryId`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) sur le pool du jour ; **blocs vides masqués** ; tri via [`hubCategoryRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) ; lignes avec heure inline + marqueur habitude 🔁 ([`formatHubItemLine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/formatHubItemLine.ts)).
-- **Court-circuit TRIP (juin 2026, projection UI)** : toute ligne `type === 'TRIP'` ou avec `metadata_json.trip` est **forcée** dans le bloc virtuel **`TRIPS_HUB`** (🏁, libellé i18n `timeline.smartClusters.tripsTitle` → **TRAJETS**), **indépendamment** du `category_id` Pass 1 (ex. dictée « aller à l’école » classée LEARN n’apparaît plus sous APPRENTISSAGE). **`category_id` SQLite inchangé** ; le bloc `TRAVEL` (✈️ Voyage) reste pour les intentions non-TRIP encore taguées Voyage. Ordre d’affichage : `TRIPS_HUB` en tête de `HUB_CATEGORY_ORDER`.
-- **Habitudes JIT** : injection virtuelle des HABIT actives (`listActiveHabitsForHub` + [`isHabitRowActiveForDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts)) dans le groupBy catégorie.
-- **Focus modal** : tap bloc → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtré sur les items du bloc (`onEditItem` / `ideaBankHubItems`).
-- **Performance** : `getItemLayout` **désactivé** quand `hubEligible` (hauteurs variables des blocs email).
-- **Rollback code** : supprimer `src/features/livingHub/` + branche `hubEligible` ; défaut `CURRENT` = zéro régression.
+- **Objectif** : sous **Aujourd’hui**, remplacer la liste plate de cartes par une **chronologie temporelle** (segments Matin · Après-midi · Soir) + un bloc **Rappel** en bas de page — seul foyer des priorités long-terme et des échéances « Avant le ».
+- **Activation** : `timelineLayoutMode === 'EMAIL_HUB'` (libellé Debug **Chronologie narrative**) **et** mêmes filtres que Smart Clusters — vue **Aujourd’hui**, contexte **ALL**, statut **TODO** (`hubEligible` dans [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)).
+- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (**Inbox · À acheter · Box · Routines · Projets**) ; [`SentinelFocusBadge`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) sous l’en-tête « Aujourd’hui ».
+- **Agrégation** : [`buildNarrativeTimelineBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildNarrativeTimelineBlocks.ts) — routage via [`timeSegmentRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/timeSegmentRegistry.ts) (`MORNING` / `AFTERNOON` / `EVENING` / `REMINDER`) et règles partagées [`narrativePinRules.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/narrativePinRules.ts).
+- **Segments horaires** : heure depuis `metadata_json` (`dueTimeHm`, `trip.dueTimeHm`, `recurrence_rule.time_target`, ISO `due_date`) — Matin 06h–12h, Après-midi 12h–18h, Soir 18h–23h ; sans heure → bucket **Soir** (intentions non épinglées du jour).
+- **Bloc Rappel (`REMINDER`)** — fusion avec le concept **épinglé** (`is_pinned`) :
+  - Toute intention `is_pinned = 1` visible dans la feuille du jour apparaît **uniquement** dans ce bloc (pas de doublon Matin/AM/Soir).
+  - **Exception** : épinglée avec `due_date` = jour courant **et** heure résolue → visible dans son créneau horaire **et** dans Rappel (double visibilité volontaire).
+  - **Tri interne** : (1) intentions datées, échéance croissante, badge **J-X** / **D-X** ; (2) sans date, `updated_at` DESC (épinglage manuel).
+  - **Ligne 1** : `[Heure] • [Titre]` ; **ligne 2** (retrait 30 px) : `📍 [Adresse]` si présente ([`resolveNarrativeSubtitle`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/resolveNarrativeSubtitle.ts)).
+- **Auto-épingle capture** : intentions « Avant le [date] » → `is_pinned = 1` à la persistance ([`oneTapPersist.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts)) si `due_constraint: 'BEFORE'` (IA) ou deadline future sans heure précise ; metadata `due_constraint: 'BEFORE'` conservé.
+- **Toggle manuel** : bouton Épingler / Désépingler dans [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) — plafond `MAX_PINS_COUNT` ; patch optimiste `onPatchRow` + [`updateTrankilV2IntentionPinnedState`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) (colonne SQLite + miroir `metadata_json.is_pinned` via `patchMetadata` silent).
+- **SQL feuille de route** : [`intentionExecutionRoadmapSql`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) inchangé — `(is_pinned = 1 OR échéance du jour)` ; le routage Matin/AM/Soir vs Rappel est **côté UI** uniquement.
+- **Espace Sacré (Cockpit / TalkDebug)** : section « L'Espace Sacré » = **même contenu** que le bloc Rappel Timeline du jour (`extractReminderBlockRows` + `sortReminderBlockRows` sur `listTrankilV2MergedTodayTimelineWithLowPressure`).
+- **Focus modal** : tap segment → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) filtré sur les items du bloc.
+- **Performance** : `getItemLayout` estimé par bloc narratif (`estimateNarrativeBlockHeight`) ; segments passés grisés via `isTimeSegmentPast` (Rappel jamais « passé »).
+- **i18n** : `timeline.narrativeTimeline.morning|afternoon|evening|reminder|daysBadge|progress`.
+- **Rollback** : `timelineLayoutMode === 'CURRENT'` = cartes plate ; module [`src/features/livingHub/`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/) débranchable.
+
+#### 2.c bis) Living Hub — blocs catégorie (Box / Routines / modales)
+
+- **Objectif** : rendu **groupé par `category_id` Pass 1** pour les vues modales **Box** et **Routines** (et legacy hub email si réactivé) — [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) + [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx).
+- **Court-circuit TRIP (juin 2026)** : toute ligne TRIP → bloc virtuel **`TRIPS_HUB`** (🏁 TRAJETS), `category_id` SQLite inchangé ([`resolveHubBlockCategoryId`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts)).
+- **Habitudes JIT** : injection `listActiveHabitsForHub` + [`isHabitRowActiveForDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts).
 
 #### 2.d) Tirelire — actions par ligne (Inbox / hub / cluster)
 

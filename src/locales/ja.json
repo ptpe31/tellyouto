@@ -282,6 +282,15 @@
       "title": "ルーティン",
       "empty": "アクティブなルーティンはありません。"
     },
+    "narrativeTimeline": {
+      "morning": "朝",
+      "afternoon": "午後",
+      "evening": "夜",
+      "reminder": "リマインダー",
+      "pending": "未定",
+      "daysBadge": "D-{{days}}",
+      "progress": "{{total}}件中{{done}}件完了"
+    },
     "smartClusters": {
       "inbox": "Inbox",
       "inboxSubtitle": "今日 {{count}} 件",
