@@ -181,7 +181,7 @@ function canShowCompleteOrb(listKey: string, status: TrankilIntentStatus, dimmed
   return listKey === 'tasks' || listKey === 'habits' || listKey === 'projects';
 }
 
-type TimeNav = 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM';
+type TimeNav = 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM' | 'ALL';
 type ContextBubble = 'ALL' | 'HOME' | 'WORK' | 'PIGGY' | 'ARCHIVES';
 
 function pad2(n: number): string {
@@ -232,6 +232,7 @@ function resolveAnchor(
   if (timeNav === 'TODAY') return { anchor: now, mode: 'DAY' };
   if (timeNav === 'TOMORROW') return { anchor: addDays(now, 1), mode: 'DAY' };
   if (timeNav === 'WEEK') return { anchor: now, mode: 'WEEK' };
+  if (timeNav === 'ALL') return { anchor: now, mode: 'ALL' };
   const anchor = customPickedDate ? dateAtNoon(customPickedDate) : now;
   return { anchor, mode: 'DAY' };
 }
@@ -1265,9 +1266,12 @@ export function TimelineScreen() {
     const todayYmd = toYmd(anchorDate);
     const isTodayView =
       timeNav === 'TODAY' && contextBubble !== 'PIGGY' && contextBubble !== 'ARCHIVES';
-    const pool = isTodayView
-      ? filteredPool
-      : filteredPool.filter((r) => Boolean(normalizeDueDateLocal(r.due_date)));
+    const isAllDatesView =
+      timeNav === 'ALL' && contextBubble !== 'PIGGY' && contextBubble !== 'ARCHIVES';
+    const pool =
+      isTodayView || isAllDatesView
+        ? filteredPool
+        : filteredPool.filter((r) => Boolean(normalizeDueDateLocal(r.due_date)));
 
     const enriched = pool
       .map((r) => {
@@ -1275,6 +1279,12 @@ export function TimelineScreen() {
         let effectiveYmd: string | null = dueYmd;
         if (!effectiveYmd && isTodayView && (r.is_pinned ?? 0) === 1) {
           effectiveYmd = todayYmd;
+        }
+        if (!effectiveYmd && isAllDatesView) {
+          const created = new Date(Number(r.created_at));
+          if (Number.isFinite(created.getTime())) {
+            effectiveYmd = toYmd(created);
+          }
         }
         if (!effectiveYmd) return null;
         const sortMs = (() => {

@@ -92,7 +92,7 @@ export type TrankilV2TimelineItemRow = {
   is_pinned?: number;
 };
 
-export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
+export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK' | 'ALL';
 
 /** Plafond offre Free : captures micro réussies / jour (date locale), sans cumul. */
 export const FREE_DAILY_CAPTURE_MAX = 3;
@@ -918,12 +918,16 @@ export async function listTrankilV2TimelineItemsByDate(
         ? = 'WEEK'
         AND effective_date BETWEEN ? AND date(?, '+6 day')
       )
+      OR (
+        ? = 'ALL'
+      )
     ORDER BY
+      effective_date ASC,
       section_order ASC,
       (due_date IS NULL) ASC,
       due_date ASC,
       created_at DESC`;
-  const baseParams = [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd];
+  const baseParams = [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd, mode];
   const { sql, params } = appendTimelinePaging(inner, baseParams, opts?.paging);
   return db.getAllAsync<TrankilV2TimelineItemRow>(sql, params);
 }

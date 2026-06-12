@@ -9,7 +9,7 @@ import { NeumorphicCard } from './NeumorphicCard';
 import { neumorphicInset, neumorphicRaised } from '../theme/neumorphism';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 
-type TimeNav = 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM';
+type TimeNav = 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM' | 'ALL';
 type ContextBubble = 'ALL' | 'HOME' | 'WORK' | 'PIGGY' | 'ARCHIVES';
 
 export type TimelineFilterModalProps = {
@@ -69,7 +69,7 @@ export function TimelineFilterModal({
         setDatePickerOpen(true);
         return;
       }
-      setTimeNav(v as 'TODAY' | 'TOMORROW' | 'WEEK');
+      setTimeNav(v as 'TODAY' | 'TOMORROW' | 'WEEK' | 'ALL');
       setCustomPickedDate(null);
     },
     [setCustomPickedDate, setDatePickerOpen, setTimeNav],
@@ -77,7 +77,7 @@ export function TimelineFilterModal({
 
   const timeNavButtons = useMemo(() => {
     const base: {
-      value: 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM';
+      value: 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM' | 'ALL';
       label: string;
       style: typeof styles.segmentBtnCompact;
       labelStyle: typeof styles.segmentLabelCompact;
@@ -101,13 +101,20 @@ export function TimelineFilterModal({
         labelStyle: styles.segmentLabelCompact,
       },
     ];
-    if (RPlatform.OS === 'web') return base;
+    if (RPlatform.OS !== 'web') {
+      base.push({
+        value: 'CUSTOM',
+        label:
+          timeNav === 'CUSTOM' && customPickedDate
+            ? t('timeline.pilot.pickedDateShort', { date: formatPilotDayChip(customPickedDate) })
+            : t('timeline.pilot.specificDate'),
+        style: styles.segmentBtnCompact,
+        labelStyle: styles.segmentLabelCompact,
+      });
+    }
     base.push({
-      value: 'CUSTOM',
-      label:
-        timeNav === 'CUSTOM' && customPickedDate
-          ? t('timeline.pilot.pickedDateShort', { date: formatPilotDayChip(customPickedDate) })
-          : t('timeline.pilot.specificDate'),
+      value: 'ALL',
+      label: t('timeline.pilot.contextAll'),
       style: styles.segmentBtnCompact,
       labelStyle: styles.segmentLabelCompact,
     });

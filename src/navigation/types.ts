@@ -13,7 +13,7 @@ export type RootStackParamList = {
 
 /** Paramètres optionnels pour ouvrir la Timeline sur un pilote précis (ex. depuis Talk Debug). */
 export type TimelineTabParams = {
-  initialTimeNav?: 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM';
+  initialTimeNav?: 'TODAY' | 'TOMORROW' | 'WEEK' | 'CUSTOM' | 'ALL';
   initialContext?: 'ALL' | 'HOME' | 'WORK' | 'PIGGY' | 'ARCHIVES';
 };
 
