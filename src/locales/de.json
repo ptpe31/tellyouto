@@ -88,6 +88,12 @@
     "iosManualHint": "Öffne die Uhr-App und stelle einen Wecker auf {{time}}.\nVorgeschlagener Name: {{label}}",
     "androidUnavailable": "Uhr-App konnte nicht geöffnet werden. Stelle einen Wecker auf {{time}} ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "Erinnerung stellen",
+    "reminderSet": "Erinnerung gesetzt",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "Erinnerung für diese Absicht gesetzt"
+  },
   "intentionDetail": {
     "source": "Quelle",
     "checklist": "Checkliste",

@@ -88,6 +88,12 @@
     "iosManualHint": "Open Klok en maak een alarm om {{time}}.\nVoorgestelde naam: {{label}}",
     "androidUnavailable": "Kon Klok niet openen. Stel een alarm in om {{time}} ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "Herinnering instellen",
+    "reminderSet": "Herinnering ingesteld",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "Herinnering ingesteld voor deze intentie"
+  },
   "intentionDetail": {
     "source": "Bron",
     "checklist": "Controlelijst",

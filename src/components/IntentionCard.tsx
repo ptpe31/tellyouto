@@ -3,15 +3,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
 import { IconButton } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
-import { Navigation2 } from 'lucide-react-native';
+import { Bell, Navigation2 } from 'lucide-react-native';
 
 import type { TrankilV2TimelineItemRow } from '../api';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { generateSmartTitle } from '../services/smartTitle';
-import { AlarmService } from '../services/alarmService';
-import { readTripPromiseReference } from '../services/traffic/sentinelElasticTripMetadata';
+import { useIntentAlarm } from '../hooks/useIntentAlarm';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
 import { formatCreationSubtitle } from '../utils/timeFormat';
@@ -23,8 +22,6 @@ import {
 import { TripNeumorphicOrb, TRIP_ORB_SIZE } from './TripNeumorphicOrb';
 import { hasTripStandardDurationMin, isTripAllDay } from '../utils/tripElasticDisplay';
 import {
-  resolveElasticDepartureAlarmUnixSec,
-  resolveTripAlarmPlaceLabel,
   resolveTripNavigationDestination,
   resolveTripTimelineCapsuleBundle,
 } from '../utils/tripElasticCapsuleModel';
@@ -131,13 +128,6 @@ function getTripTransportIcon(raw: string | null | undefined): string | null {
   return 'car';
 }
 
-function formatHmFromUnix(unixSec: number): string {
-  const d = new Date(unixSec * 1000);
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
-}
-
 function tripFooterLabel(footer: TripTimelineFooter, t: (key: string, opts?: Record<string, unknown>) => string): string {
   if (!footer || typeof footer.kind !== 'string') return '';
   switch (footer.kind) {
@@ -229,10 +219,7 @@ export function IntentionCard({
   const tripCapsuleClockActive = Boolean(tripCapsuleModel);
   const tripCapsuleNowMs = useProbeScheduleClock(tripCapsuleClockActive);
 
-  const tripPromiseRef = useMemo(() => {
-    if (!trip) return null;
-    return readTripPromiseReference(trip);
-  }, [trip]);
+  const { isAlarmSet } = useIntentAlarm(row, { tripCapsuleModel: tripCapsuleModel ?? null });
 
   const tripNavOrbColor = useMemo(() => {
     if (!tripCapsuleModel) return ELASTIC_CAPSULE_COLORS.green;
@@ -265,25 +252,6 @@ export function IntentionCard({
       });
     },
     [meta, row.display_title, row.id, row.transport_mode, trip],
-  );
-
-  const tripAlarmPlace = useMemo(
-    () => resolveTripAlarmPlaceLabel(trip, row.display_title, titleText),
-    [row.display_title, titleText, trip],
-  );
-
-  const onPressTripAlarm = useCallback(
-    (e?: { stopPropagation?: () => void }) => {
-      e?.stopPropagation?.();
-      const model = tripCapsuleModel;
-      if (!model) return;
-      const alarmUnix = resolveElasticDepartureAlarmUnixSec(model.startMs, model.endMs);
-      if (alarmUnix == null) return;
-      const time = formatHmFromUnix(alarmUnix);
-      const label = t('tripAlarm.departureLabel', { place: tripAlarmPlace, time });
-      void AlarmService.openAlarmSelection(alarmUnix, label);
-    },
-    [tripAlarmPlace, tripCapsuleModel, t],
   );
 
   const subtitle = useMemo(() => {
@@ -394,12 +362,22 @@ export function IntentionCard({
         },
       ]}
     >
+      {isAlarmSet ? (
+        <View
+          style={styles.alarmWitness}
+          pointerEvents="none"
+          accessible
+          accessibilityLabel={t('intentAlarm.a11yWitness')}
+        >
+          <Bell size={15} color={designTokens.textSecondary} strokeWidth={2.2} opacity={0.72} />
+        </View>
+      ) : null}
       {vaultImageUri ? (
         <IconButton
           icon="image-outline"
           size={18}
           iconColor={designTokens.textSecondary}
-          style={styles.vaultIcon}
+          style={[styles.vaultIcon, isAlarmSet ? styles.vaultIconWithAlarm : null]}
           onPress={onPressVaultImage}
           accessibilityLabel={t('timeline.vaultImageA11y', { defaultValue: 'Voir l’image associée' })}
         />
@@ -457,10 +435,7 @@ export function IntentionCard({
             nowMs={tripCapsuleNowMs}
             ratioD={tripCapsuleModel.ratioD}
             onNavigationPress={() => onPressTripNavigation()}
-            onAlarmPress={tripPromiseRef ? () => onPressTripAlarm() : undefined}
-            showAlarmIcon={Boolean(tripPromiseRef)}
             navigationLabel={t('intentionDetail.launchRoute')}
-            alarmA11yLabel={t('tripAlarm.a11yOpenAlarm')}
             variant="compact"
             lateVariant="graphite"
             theme={theme}
@@ -553,12 +528,21 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     position: 'relative',
   },
+  alarmWitness: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    zIndex: 2,
+  },
   vaultIcon: {
     position: 'absolute',
     top: 0,
     right: 0,
     margin: 0,
     zIndex: 2,
+  },
+  vaultIconWithAlarm: {
+    right: 28,
   },
   cardTrip: {
     height: undefined,

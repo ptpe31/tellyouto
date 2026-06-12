@@ -689,14 +689,14 @@ Architecture **hook + UI** (pattern wrapper) :
 
 ##### 8.b) UI — Capsule Contrat de Départ
 
-Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx), résolutions partagées [`tripElasticCapsuleModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), navigation [`tripNavigation.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripNavigation.ts), alarme [`alarmService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts).
+Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx), résolutions partagées [`tripElasticCapsuleModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), navigation [`tripNavigation.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripNavigation.ts). Rappel Horloge OS : [`useIntentAlarm`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useIntentAlarm.ts) + [`alarmService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts) (§ 2.c ter).
 
 **Contrat props** : `startMs`, `endMs`, `nowMs`, `ratioD`, `onNavigationPress`, `onAlarmPress?`, `showAlarmIcon?`, `variant`, `lateVariant`, `theme`.
 
 **Affichage actif** (`nowMs <= endMs`) :
 - Piste « pill-shaped », labels `HH:mm` aux extrémités, mur vertical deadline à droite.
 - **Zone exécution (gauche)** : badge GPS cliquable → `onNavigationPress` (deep link Maps/Waze).
-- **Zone planification (droite)** : slot **réveil** (`AlarmClock`) si `showAlarmIcon` (promesse P1 validée, masqué après `endMs`) → `onAlarmPress` → intent natif Horloge ([`AlarmService.openAlarmSelection`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts)) ; heure prédéfinie = **20 % avant `endMs`** sur la fenêtre `[startMs, endMs]` ([`resolveElasticDepartureAlarmUnixSec`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), constante `ELASTIC_DEPARTURE_ALARM_LEAD_RATIO = 0.2`).
+- **Zone planification (droite)** : slot **réveil** (`AlarmClock`) optionnel si `showAlarmIcon` + `onAlarmPress` — **désactivé** sur [`IntentionCard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) et [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) (juin 2026) ; heure prédéfinie TRIP = **20 % avant `endMs`** ([`resolveElasticDepartureAlarmUnixSec`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), `ELASTIC_DEPARTURE_ALARM_LEAD_RATIO = 0.2`) consommée par `useIntentAlarm` pour le bouton « Régler Rappel ».
 - Couleur système iOS selon `D` : vert `#34C759` si `< 1.1`, orange `#FF9500` si `< 1.3`, rouge `#FF3B30` sinon.
 - Heure basse (`startMs`) quasi invisible quand déjà passée.
 
@@ -737,7 +737,7 @@ Composants : [`SentinelFocusBadge.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-tr
 
 | État | Condition | Rendu |
 |------|-----------|--------|
-| **A — Scan actif** | Micro actif retenu par Priorité 1 ; **`nowMs < endMs`** | Bulle `#F2F2F7` + en-tête `💬 TalkNDone` ; `sentinelFocus.departureTitle` / `arrivalSubtitle` ; [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) `variant="compact"`, `showAlarmIcon` si promesse P1, réveil à −20 % de `endMs` (§ 8.b). Clic → `onOpenDetail` → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx). |
+| **A — Scan actif** | Micro actif retenu par Priorité 1 ; **`nowMs < endMs`** | Bulle `#F2F2F7` + en-tête `💬 TalkNDone` ; `sentinelFocus.departureTitle` / `arrivalSubtitle` ; [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) `variant="compact"` (GPS ; slot réveil legacy si promesse P1 — § 2.c ter). Clic → `onOpenDetail` → [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) (rappel via bouton footer). |
 | **B — Suggestion** | Aucun micro actif ; gagnant cascade ; **`nowMs < arrivalDue`** | Même bulle 105 dp ; i18n `sentinelFocus.promptLine1` / `promptLine2` (2 lignes, `ellipsizeMode="tail"`) ; `onPressSuggestion(row)` → même handler que CTA setup TRIP (`handleTripFooterPress` / `openDetail` Timeline ; `openTalkTripDetail` Talk) ; FREE → paywall (`intentionDetail.actionSetupAlertLocked`). |
 | **—** | Aucun candidat ou tout expiré | `null` — slot FlatList **0 dp** (`isSentinelFocusSlotVisible` miroir exact du pick) |
 
@@ -1333,6 +1333,33 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - **Performance** : `getItemLayout` estimé par bloc narratif (`estimateNarrativeBlockHeight`) ; segments passés grisés via `isTimeSegmentPast` (Rappel jamais « passé »).
 - **i18n** : `timeline.narrativeTimeline.morning|afternoon|evening|reminder|daysBadge|progress`.
 - **Rollback** : `timelineLayoutMode === 'CURRENT'` = cartes plate ; module [`src/features/livingHub/`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/) débranchable.
+
+#### 2.c ter) Rappel natif Horloge OS — témoin d’état (juin 2026)
+
+**Paradigme** : séparation **déclencheur** (création du rappel) vs **indicateur** (témoin visuel sur la carte).
+
+| Zone | Rôle |
+|------|------|
+| [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | **Action** — bouton « Régler Rappel » / « Rappel réglé » (intentions **du jour** uniquement) → intent Horloge OS + flag interne |
+| [`IntentionCard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) | **Témoin** — icône cloche discrète (coin sup. droit), **non cliquable** ; visible seulement si rappel réglé |
+| [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) (Timeline + sheet) | **GPS uniquement** — plus de slot réveil sur carte / fiche TRIP (réveil centralisé via le bouton footer) |
+
+**État persisté** : `metadata_json.is_alarm_set === true` (via [`patchMetadata`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts)) — **aucune lecture** des alarmes système (Android/iOS interdisent l’accès à la liste).
+
+**Hook partagé** : [`useIntentAlarm.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useIntentAlarm.ts) + résolutions [`intentAlarmTemporal.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/intentAlarmTemporal.ts) :
+- `isAlarmSet` : flag `is_alarm_set` **et** `Date.now() < heure_effective + 15 min` (`INTENT_ALARM_WITNESS_GRACE_MS`).
+- `onSetAlarm` : `resolveIntentionAlarmUnixSec` → [`AlarmService.openAlarmSelection`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts) → si succès intent, `patchMetadata({ is_alarm_set: true })` + `onPatchRow` optimiste.
+- **Heure cible** : horaire résolu (`dueTimeHm` / ISO / `parseRowTemporalMeta`) ; **TRIP** avec capsule élastique → `resolveElasticDepartureAlarmUnixSec` (−20 % `endMs`, § 8.b) ; toute la journée → fin de journée locale (23:59) pour l’expiration du témoin.
+- **Horloge UI** : [`useProbeScheduleClock`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) (tick 60 s) pour masquer le témoin après la fenêtre de grâce sans reload.
+
+**Cycle de vie** :
+1. Utilisateur tape « Régler Rappel » → Horloge native s’ouvre (heure préremplie) ; app pose `is_alarm_set = true`.
+2. Carte Timeline affiche la cloche tant que le flag est actif et dans la fenêtre +15 min.
+3. Après l’heure de l’intention + 15 min, le témoin disparaît automatiquement (le flag peut rester en base ; l’UI ne l’affiche plus).
+
+**i18n** : `intentAlarm.setReminder`, `intentAlarm.reminderSet`, `intentAlarm.label`, `intentAlarm.a11yWitness` (11 locales).
+
+**Legacy** : [`SentinelFocusBadge`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) conserve encore le slot réveil capsule (promesse P1) — migration vers `useIntentAlarm` à prévoir.
 
 #### 2.c bis) Living Hub — blocs catégorie (Box / Routines / modales)
 
@@ -2455,7 +2482,7 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 - Places / géoloc :
   - **Lazy-Fetch (prod)** : saisie libre + Geocoding au **Done** (< 12 car.) ; Autocomplete **uniquement via loupe** (≥ 12 car.) — [`addressResolver.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/addressResolver.ts) + [`useAddressLogic.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAddressLogic.ts)
   - Distance Matrix : [`DistanceMatrixMapsService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/traffic/DistanceMatrixMapsService.ts) — cache grid + AsyncStorage
-  - Alarme départ : [`alarmService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts) — intent `SET_ALARM` (Android) / Horloge iOS ; `expo-intent-launcher` ; queries `app.json`
+  - Rappel Horloge OS : [`alarmService.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts) (`openAlarmSelection`) — intent `SET_ALARM` (Android) / deep link Horloge iOS ; [`useIntentAlarm`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useIntentAlarm.ts) ; flag `metadata_json.is_alarm_set` ; `expo-intent-launcher` ; queries [`app.json`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/app.json)
 
 Variables d’environnement principales (Expo public) :
 - Firebase : `EXPO_PUBLIC_FIREBASE_*`

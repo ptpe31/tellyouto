@@ -88,6 +88,12 @@
     "iosManualHint": "시계 앱을 열고 {{time}}에 알람을 만드세요.\n추천 이름: {{label}}",
     "androidUnavailable": "시계 앱을 열 수 없어요. {{time}}에 알람을 설정하세요 ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "알림 설정",
+    "reminderSet": "알림 설정됨",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "이 의도에 알림이 설정됨"
+  },
   "intentionDetail": {
     "source": "소스",
     "checklist": "체크리스트",

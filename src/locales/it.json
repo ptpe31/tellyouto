@@ -88,6 +88,12 @@
     "iosManualHint": "Apri Orologio e crea una sveglia alle {{time}}.\nNome suggerito: {{label}}",
     "androidUnavailable": "Impossibile aprire Orologio. Imposta una sveglia alle {{time}} ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "Imposta promemoria",
+    "reminderSet": "Promemoria impostato",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "Promemoria impostato per questa intenzione"
+  },
   "intentionDetail": {
     "source": "Fonte",
     "checklist": "Checklist",

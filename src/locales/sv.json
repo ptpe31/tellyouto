@@ -88,6 +88,12 @@
     "iosManualHint": "Öppna Klocka och skapa ett alarm kl. {{time}}.\nFöreslaget namn: {{label}}",
     "androidUnavailable": "Kunde inte öppna Klocka. Ställ in alarm kl. {{time}} ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "Ställ in påminnelse",
+    "reminderSet": "Påminnelse inställd",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "Påminnelse inställd för denna avsikt"
+  },
   "intentionDetail": {
     "source": "Källa",
     "checklist": "Checklista",

@@ -88,6 +88,12 @@
     "iosManualHint": "Abre Reloj y crea una alarma a las {{time}}.\nNombre sugerido: {{label}}",
     "androidUnavailable": "No se pudo abrir Reloj. Pon una alarma a las {{time}} ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "Poner recordatorio",
+    "reminderSet": "Recordatorio puesto",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "Recordatorio puesto para esta intención"
+  },
   "intentionDetail": {
     "source": "Fuente",
     "checklist": "Checklist",

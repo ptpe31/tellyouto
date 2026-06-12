@@ -88,6 +88,12 @@
     "iosManualHint": "時計アプリを開き {{time}} のアラームを作成してください。\n推奨名：{{label}}",
     "androidUnavailable": "時計アプリを開けませんでした。{{time}} にアラームを設定してください（{{label}}）。"
   },
+  "intentAlarm": {
+    "setReminder": "リマインダーを設定",
+    "reminderSet": "リマインダー設定済み",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "この意図にリマインダーが設定されています"
+  },
   "intentionDetail": {
     "source": "ソース",
     "checklist": "チェックリスト",

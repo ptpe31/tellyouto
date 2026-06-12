@@ -53,15 +53,14 @@ import {
   wakeTripMissionAfterTimedRestore,
 } from '../services/traffic/sentinelReconciler';
 import { clearAllDepartureNotifications } from '../services/NotificationService';
-import { AlarmService } from '../services/alarmService';
-import { readTripPromiseReference } from '../services/traffic/sentinelElasticTripMetadata';
+
+import { useIntentAlarm } from '../hooks/useIntentAlarm';
 import { cancelTripMission, suspendTripMissionForAllDay } from '../services/traffic/sentinelTripMission';
 import { toggleTripSurveillanceForRow } from '../services/traffic/tripSurveillanceToggle';
 import { showAppToast } from '../services/appToast';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { isPass2UnlockedMeta } from '../utils/tripTimelineCard';
 import { isTripAllDay, hasTripStandardDurationMin, resolveElasticSlotDisplay } from '../utils/tripElasticDisplay';
-import { resolveElasticDepartureAlarmUnixSec } from '../utils/tripElasticCapsuleModel';
 import { resolveProbeScheduleLabel } from '../utils/tripProbeScheduleDisplay';
 import { resolveTripSurveillanceUiState, tripSurveillanceLabelKey } from '../utils/tripSurveillanceButton';
 import {
@@ -1391,10 +1390,16 @@ export function IntentionDetailSheet({
     return { startMs, endMs, ratioD };
   }, [elasticSlotDisplay, isProUser, isTrip, trip, tripIsAllDay]);
 
-  const tripPromiseRef = useMemo(() => {
-    if (!row) return null;
-    return readTripPromiseReference(trip as Record<string, unknown> | null);
-  }, [row, trip]);
+  const { isAlarmSet, isDueToday, onSetAlarm } = useIntentAlarm(row, {
+    metadataJson: metadataJsonLive ?? row?.metadata_json,
+    tripCapsuleModel: elasticDepartureCapsuleModel,
+    onPatchRow,
+    onMetadataPatched: (nextJson) => {
+      metadataJsonLiveRef.current = nextJson;
+      setMetadataJsonLive(nextJson);
+    },
+    patchMetadataFn: patchMetadataIfSheetUnfrozen,
+  });
 
   const elasticDepartureTextFallback = useMemo(() => {
     if (!elasticSlotDisplay?.windowLabel) return null;
@@ -2459,23 +2464,6 @@ export function IntentionDetailSheet({
     });
   }, [destinationLabel, originText, row?.id, savedArrivalAddress, transportMode]);
 
-  const launchTripDepartureAlarm = useCallback(() => {
-    const model = elasticDepartureCapsuleModel;
-    if (!model) return;
-    const alarmUnix = resolveElasticDepartureAlarmUnixSec(model.startMs, model.endMs);
-    if (alarmUnix == null) return;
-    const d = new Date(alarmUnix * 1000);
-    const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    const tripRecord = trip as Record<string, unknown> | null;
-    const place =
-      destinationLabel ||
-      String(tripRecord?.destination ?? tripRecord?.destination_name ?? '').trim() ||
-      String(row?.display_title ?? '').trim() ||
-      t('intentionDetail.labelItinerary');
-    const label = t('tripAlarm.departureLabel', { place, time });
-    void AlarmService.openAlarmSelection(alarmUnix, label);
-  }, [destinationLabel, elasticDepartureCapsuleModel, row?.display_title, t, trip]);
-
   const projectCalendarMode = useMemo(() => {
     if (!isProject || !projectPayload) return false;
     if (projectStartDraftYmd) return true;
@@ -3341,10 +3329,7 @@ export function IntentionDetailSheet({
                       nowMs={elasticCapsuleNowMs}
                       ratioD={elasticDepartureCapsuleModel.ratioD}
                       onNavigationPress={launchTripNavigation}
-                      onAlarmPress={tripPromiseRef ? launchTripDepartureAlarm : undefined}
-                      showAlarmIcon={Boolean(tripPromiseRef)}
                       navigationLabel={t('intentionDetail.launchRoute')}
-                      alarmA11yLabel={t('tripAlarm.a11yOpenAlarm')}
                       theme={theme}
                       style={[
                         styles.comfortDepartureCapsule,
@@ -3890,6 +3875,16 @@ export function IntentionDetailSheet({
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+              {isDueToday && row && row.id !== 'peek_pending' && !isValidationView ? (
+                <Button
+                  mode="outlined"
+                  icon={isAlarmSet ? 'bell' : 'bell-outline'}
+                  onPress={() => void onSetAlarm()}
+                  style={styles.footerReminderBtn}
+                >
+                  {isAlarmSet ? t('intentAlarm.reminderSet') : t('intentAlarm.setReminder')}
+                </Button>
+              ) : null}
               {isTrip ? (
                 <View style={styles.footerTripCol}>
                   <Button
@@ -4306,6 +4301,7 @@ function createIntentionDetailStyles(typography: ZenTypography) {
   footerActionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' },
   footerPinBtn: { marginRight: 'auto' },
+  footerReminderBtn: { borderRadius: 16, width: '100%', marginBottom: 10 },
   footerTripCol: { width: '100%', gap: 10, marginBottom: 10 },
   footerLaunchCol: { flexShrink: 1, maxWidth: '58%' },
   footerBtn: { borderRadius: 16 },

@@ -88,6 +88,12 @@
     "iosManualHint": "Open Clock and create an alarm at {{time}}.\nSuggested name: {{label}}",
     "androidUnavailable": "Could not open Clock. Set an alarm at {{time}} ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "Set reminder",
+    "reminderSet": "Reminder set",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "Reminder set for this intention"
+  },
   "intentionDetail": {
     "source": "Source",
     "checklist": "Checklist",

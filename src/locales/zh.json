@@ -88,6 +88,12 @@
     "iosManualHint": "打开时钟应用，在 {{time}} 创建闹钟。\n建议名称：{{label}}",
     "androidUnavailable": "无法打开时钟。请在 {{time}} 设置闹钟（{{label}}）。"
   },
+  "intentAlarm": {
+    "setReminder": "设置提醒",
+    "reminderSet": "已设置提醒",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "已为此意图设置提醒"
+  },
   "intentionDetail": {
     "source": "来源",
     "checklist": "清单",

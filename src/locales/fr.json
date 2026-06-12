@@ -88,6 +88,12 @@
     "iosManualHint": "Ouvrez Horloge et créez une alarme à {{time}}.\nNom suggéré : {{label}}",
     "androidUnavailable": "Impossible d’ouvrir l’horloge. Réglez une alarme à {{time}} ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "Régler Rappel",
+    "reminderSet": "Rappel réglé",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "Rappel réglé pour cette intention"
+  },
   "intentionDetail": {
     "source": "Source",
     "checklist": "Checklist",

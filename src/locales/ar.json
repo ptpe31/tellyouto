@@ -88,6 +88,12 @@
     "iosManualHint": "افتح الساعة وأنشئ منبّهًا في {{time}}.\nالاسم المقترح: {{label}}",
     "androidUnavailable": "تعذّر فتح الساعة. اضبط منبّهًا في {{time}} ({{label}})."
   },
+  "intentAlarm": {
+    "setReminder": "ضبط تذكير",
+    "reminderSet": "تم ضبط التذكير",
+    "label": "{{title}} · {{time}}",
+    "a11yWitness": "تم ضبط تذكير لهذه النية"
+  },
   "intentionDetail": {
     "source": "المصدر",
     "checklist": "قائمة التحقق",
