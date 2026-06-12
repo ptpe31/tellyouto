@@ -248,6 +248,29 @@ export async function notifyOfflineAudioPendingAnalysis(): Promise<void> {
   });
 }
 
+/** Vide toute la file offline (tous statuts) et supprime les fichiers audio copiés. */
+export async function purgeEntireOfflineAudioQueue(): Promise<number> {
+  return withTrankilV2Database(async (db) => {
+    const rows = await db.getAllAsync<{ audio_path: string | null }>(
+      `SELECT audio_path FROM offline_audio_queue`,
+    );
+    for (const row of rows) {
+      const path = typeof row.audio_path === 'string' ? row.audio_path.trim() : '';
+      if (!path) continue;
+      try {
+        await FileSystem.deleteAsync(path, { idempotent: true });
+      } catch {
+        /* best effort */
+      }
+    }
+    const before = await db.getFirstAsync<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM offline_audio_queue`,
+    );
+    await db.execAsync(`DELETE FROM offline_audio_queue;`);
+    return Number(before?.total ?? 0);
+  });
+}
+
 /** Supprime entrées `done`/`kept` anciennes et leurs fichiers audio résiduels. */
 export async function purgeProcessedQueue(): Promise<number> {
   const cutoff = Date.now() - PROCESSED_RETENTION_MS;

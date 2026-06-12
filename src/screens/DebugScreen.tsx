@@ -17,6 +17,7 @@ import { Button, useTheme } from 'react-native-paper';
 
 import { showFirebaseProjectIdDebugAlert } from '../components/FirebaseProjectIdDebugAlert';
 import {
+  clearTrankilV2IntentionsForDebug,
   getTrankilV2IntentionTaskCounts,
   rebuildTrankilV2IntentionsTableForDebug,
   withTrankilV2Database,
@@ -196,18 +197,19 @@ export function DebugScreen() {
     }
   }, [refreshDbCounts, t]);
 
-  /** `DELETE FROM intentions` — garde le schéma, vide les lignes. */
+  /** Vide intentions + file offline + sentinel (évite les fantômes au replay réseau). */
   const runClearDatabases = useCallback(async () => {
     setLastError(null);
     setBusy('db');
     try {
-      await withTrankilV2Database(async (db) => {
-        await db.execAsync(`DELETE FROM intentions;`);
-      });
-      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+      const cleared = await clearTrankilV2IntentionsForDebug();
+      DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME, { reason: 'clear_db' });
       void refreshDbCounts();
-      console.log('[DATABASE] 🧹 Base vidée avec succès');
-      showAppToast('[DATABASE] 🧹 Base vidée avec succès', 1200);
+      console.log('[DATABASE] 🧹 Base vidée avec succès', cleared);
+      showAppToast(
+        `[DATABASE] 🧹 ${cleared.intentionsDeleted} intention(s), file offline ${cleared.offlineQueueDeleted}`,
+        1600,
+      );
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
     } finally {

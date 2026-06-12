@@ -1389,9 +1389,41 @@ export async function purgeTrankilV2IntentionsCascade(): Promise<{
   intentionsDeleted: number;
   tasksDeleted: number;
 }> {
+  const result = await clearTrankilV2IntentionsForDebug();
+  return {
+    intentionsDeleted: result.intentionsDeleted,
+    tasksDeleted: result.tasksDeleted,
+  };
+}
+
+export type ClearTrankilV2IntentionsForDebugResult = {
+  intentionsDeleted: number;
+  tasksDeleted: number;
+  offlineQueueDeleted: number;
+  sentinelTripsDeleted: number;
+  dailySummariesDeleted: number;
+};
+
+/**
+ * Vidage debug : intentions + files offline (évite le replay NetInfo) + sentinel + résumés jour.
+ * N’efface pas les préférences (`app_prefs` / AsyncStorage).
+ */
+export async function clearTrankilV2IntentionsForDebug(): Promise<ClearTrankilV2IntentionsForDebugResult> {
   await initTrankilV2Schema();
+  const { purgeEntireOfflineAudioQueue } = await import('../services/intention/offlineAudioQueue');
+  const offlineQueueDeleted = await purgeEntireOfflineAudioQueue();
+
   const db = await getDb();
   const before = await getTrankilV2IntentionTaskCounts();
+  const sentinelBefore = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM sentinel_trips`,
+  );
+  const summariesBefore = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM daily_summaries`,
+  );
+
+  await db.execAsync(`DELETE FROM sentinel_trips;`);
+  await db.execAsync(`DELETE FROM daily_summaries;`);
   await db.execAsync(`DELETE FROM intentions;`);
   const hasTasksTable = await db.getFirstAsync<{ name: string }>(
     `SELECT name FROM sqlite_master WHERE type='table' AND name='tasks' LIMIT 1`,
@@ -1399,9 +1431,26 @@ export async function purgeTrankilV2IntentionsCascade(): Promise<{
   if (hasTasksTable) {
     await db.execAsync(`DELETE FROM tasks;`);
   }
+
+  try {
+    const { clearAllDepartureNotifications } = await import('../services/NotificationService');
+    await clearAllDepartureNotifications();
+  } catch {
+    /* notifications indisponibles (Expo Go, etc.) */
+  }
+  try {
+    const { cancelAllLocalScheduledNotifications } = await import('../services/notifications');
+    await cancelAllLocalScheduledNotifications();
+  } catch {
+    /* ignore */
+  }
+
   return {
     intentionsDeleted: before.intentionsCount,
     tasksDeleted: before.tasksCount,
+    offlineQueueDeleted,
+    sentinelTripsDeleted: Number(sentinelBefore?.total ?? 0),
+    dailySummariesDeleted: Number(summariesBefore?.total ?? 0),
   };
 }
 
