@@ -40,7 +40,11 @@ import {
 } from '../utils/capturePeekLayout';
 import { getIntentionColor } from '../utils/intentionColorHash';
 import { mapTrankilIntentionToTimelineItemRow, type TrankilV2TimelineItemRow } from '../api';
-import { resolveTalkDebugSuggestionsBottomOffset, TALK_DEBUG_MIC_DOCK_MIN_HEIGHT } from '../constants/captureOverlayLayout';
+import {
+  INTENTION_SUGGESTIONS_BANNER_ENABLED,
+  resolveTalkDebugSuggestionsBottomOffset,
+  TALK_DEBUG_MIC_DOCK_MIN_HEIGHT,
+} from '../constants/captureOverlayLayout';
 import { useCapturePresentation } from '../context/CapturePresentationContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { DealerBoard } from '../components/DealerBoard';
@@ -541,7 +545,9 @@ export function TalkDebugScreen() {
       </View>
 
       <IntentionSuggestionsBanner
-        visible={!captureRecordingActive && !isPipelineOverlayVisible}
+        visible={
+          INTENTION_SUGGESTIONS_BANNER_ENABLED && !captureRecordingActive && !isPipelineOverlayVisible
+        }
         bottomOffset={resolveTalkDebugSuggestionsBottomOffset()}
       />
 

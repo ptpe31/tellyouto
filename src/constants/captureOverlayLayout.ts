@@ -9,6 +9,9 @@ export const CAPTURE_OVERLAY_TAB_GAP = 80;
 /** Zone minimale du micro Talk au repos (bouton 72 + marges). */
 export const TALK_DEBUG_MIC_DOCK_MIN_HEIGHT = 88;
 
+/** Bandeau « Suggestions d’Intentions » (Talk) — désactivé, code conservé. */
+export const INTENTION_SUGGESTIONS_BANNER_ENABLED = false;
+
 /**
  * `bottom` pour {@link GlobalCaptureOverlay} : flotte au-dessus de la tab bar.
  * L’overlay est monté hors `NavigationContainer` → le décalage tab bar est explicite.
