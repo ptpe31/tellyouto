@@ -92,7 +92,7 @@ export type TrankilV2TimelineItemRow = {
   is_pinned?: number;
 };
 
-export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK' | 'ALL';
+export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
 
 /** Plafond offre Free : captures micro réussies / jour (date locale), sans cumul. */
 export const FREE_DAILY_CAPTURE_MAX = 3;
@@ -918,22 +918,131 @@ export async function listTrankilV2TimelineItemsByDate(
         ? = 'WEEK'
         AND effective_date BETWEEN ? AND date(?, '+6 day')
       )
-      OR (
-        ? = 'ALL'
-      )
     ORDER BY
-      effective_date ASC,
       section_order ASC,
       (due_date IS NULL) ASC,
       due_date ASC,
       created_at DESC`;
-  const baseParams = [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd, mode];
+  const baseParams = [status, status, status, mode, selectedDateYmd, mode, selectedDateYmd, selectedDateYmd];
+  const { sql, params } = appendTimelinePaging(inner, baseParams, opts?.paging);
+  return db.getAllAsync<TrankilV2TimelineItemRow>(sql, params);
+}
+
+/** Timeline sans filtre temporel : toutes les intentions actives éligibles, triées par fraîcheur. */
+export async function listTrankilV2AllTimelineItems(
+  status: TrankilIntentStatus,
+  opts?: { paging?: TimelinePaging; context?: TimelineSqlContext },
+): Promise<TrankilV2TimelineItemRow[]> {
+  const ctx = timelineContextWhere(opts?.context ?? 'ALL');
+  const reserved = `AND i.title != 'System Ready'`;
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const inner = `
+    SELECT id, type, status, due_date, created_at, updated_at, is_dirty, content_raw, parent_id, project_title, display_title, section, is_synced_calendar, category_id, suggested_tags, metadata_json, is_pending_ai, transport_mode, remind_to_leave
+    FROM (
+      SELECT
+        i.id AS id,
+        i.type AS type,
+        i.status AS status,
+        i.due_date AS due_date,
+        i.created_at AS created_at,
+        i.updated_at AS updated_at,
+        i.is_dirty AS is_dirty,
+        i.content_raw AS content_raw,
+        i.parent_id AS parent_id,
+        NULL AS project_title,
+        i.title AS display_title,
+        'TASK_HABIT' AS section,
+        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+        i.category_id AS category_id,
+        i.suggested_tags AS suggested_tags,
+        i.metadata_json AS metadata_json,
+        COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+        i.transport_mode AS transport_mode,
+        COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
+        1 AS section_order
+      FROM intentions i
+      WHERE i.status = ?
+        AND COALESCE(i.is_archived, 0) = 0
+        AND i.type IN ('TASK', 'HABIT')
+        AND (i.parent_id IS NULL OR trim(i.parent_id) = '')
+        ${reserved}
+        ${ctx}
+
+      UNION ALL
+
+      SELECT
+        i.id AS id,
+        i.type AS type,
+        i.status AS status,
+        i.due_date AS due_date,
+        i.created_at AS created_at,
+        i.updated_at AS updated_at,
+        i.is_dirty AS is_dirty,
+        i.content_raw AS content_raw,
+        i.parent_id AS parent_id,
+        p.title AS project_title,
+        i.title AS display_title,
+        'PROJECT_SUBTASK' AS section,
+        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+        i.category_id AS category_id,
+        i.suggested_tags AS suggested_tags,
+        i.metadata_json AS metadata_json,
+        COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+        i.transport_mode AS transport_mode,
+        COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
+        2 AS section_order
+      FROM intentions i
+      LEFT JOIN intentions p ON p.id = i.parent_id AND p.type = 'PROJECT'
+      WHERE i.status = ?
+        AND COALESCE(i.is_archived, 0) = 0
+        AND i.type = 'TASK'
+        AND i.parent_id IS NOT NULL
+        AND trim(i.parent_id) != ''
+        ${reserved}
+        ${ctx}
+
+      UNION ALL
+
+      SELECT
+        i.id AS id,
+        i.type AS type,
+        i.status AS status,
+        i.due_date AS due_date,
+        i.created_at AS created_at,
+        i.updated_at AS updated_at,
+        i.is_dirty AS is_dirty,
+        i.content_raw AS content_raw,
+        i.parent_id AS parent_id,
+        NULL AS project_title,
+        i.title AS display_title,
+        CASE WHEN i.type IN ('LIST', 'PROJECT') THEN 'LIST_CARD' ELSE 'NOTE_AUDIO' END AS section,
+        COALESCE(i.is_synced_calendar, 0) AS is_synced_calendar,
+        i.category_id AS category_id,
+        i.suggested_tags AS suggested_tags,
+        i.metadata_json AS metadata_json,
+        COALESCE(i.is_pending_ai, 0) AS is_pending_ai,
+        i.transport_mode AS transport_mode,
+        COALESCE(i.remind_to_leave, 0) AS remind_to_leave,
+        3 AS section_order
+      FROM intentions i
+      WHERE i.status = ?
+        AND COALESCE(i.is_archived, 0) = 0
+        AND i.type IN ('NOTE', 'AUDIO', 'LIST', 'PROJECT')
+        ${reserved}
+        ${ctx}
+    )
+    ORDER BY
+      updated_at DESC,
+      section_order ASC,
+      created_at DESC`;
+  const baseParams = [status, status, status];
   const { sql, params } = appendTimelinePaging(inner, baseParams, opts?.paging);
   return db.getAllAsync<TrankilV2TimelineItemRow>(sql, params);
 }
 
 /**
- * Feuille de route « Aujourd’hui » : items traités (échéance du jour ou épinglé), hors Inbox brut.
+ * Feuille de route « Aujourd’hui » : échéance du jour sélectionné ou épinglé (peut chevaucher l'Inbox journal).
  */
 export async function listTrankilV2MergedTodayTimelineWithLowPressure(
   selectedDateYmd: string,
@@ -1934,21 +2043,9 @@ const INTENTION_IS_SHOP_SQL = `${INTENTION_CATEGORY_ID_NORM_SQL} = 'SHOP'`;
 
 const INTENTION_NOT_SHOP_SQL = `${INTENTION_CATEGORY_ID_NORM_SQL} != 'SHOP'`;
 
-/** Item trié / planifié (hors sas Inbox brut du jour). */
-const INTENTION_IS_PROCESSED_SQL = `(
-  COALESCE(i.is_organized, 0) = 1
-  OR COALESCE(i.is_pinned, 0) = 1
-  OR (i.due_date IS NOT NULL AND trim(i.due_date) != '')
-)`;
-
 const INTENTION_CREATED_ON_LOCAL_YMD_SQL = `date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) = ?`;
 
-/** Encore dans l'Inbox du jour : capturé aujourd'hui, sans échéance, non épinglé. */
-const INTENTION_INBOX_ONLY_TODAY_SQL = `(
-  ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}
-  AND (i.due_date IS NULL OR trim(i.due_date) = '')
-  AND COALESCE(i.is_pinned, 0) = 0
-)`;
+const INTENTION_CREATED_BEFORE_LOCAL_YMD_SQL = `date(datetime(i.created_at / 1000, 'unixepoch', 'localtime')) < ?`;
 
 function intentionDueOnLocalYmdSql(alias = 'i'): string {
   return `(
@@ -1957,27 +2054,24 @@ function intentionDueOnLocalYmdSql(alias = 'i'): string {
   )`;
 }
 
-/** Feuille de route : échéance du jour ou épinglé, et item traité (hors Inbox brut). */
-function intentionExecutionRoadmapSql(selectedDateYmd: string): string {
-  const ymdCompact = selectedDateYmd.replace(/-/g, '');
+/** Feuille de route : échéance du jour sélectionné ou épinglé (indépendant de l'Inbox journal). */
+function intentionExecutionRoadmapSql(_selectedDateYmd: string): string {
   return `
     AND (
       COALESCE(i.is_pinned, 0) = 1
       OR ${intentionDueOnLocalYmdSql('i')}
-    )
-    AND ${INTENTION_IS_PROCESSED_SQL}
-    AND NOT ${INTENTION_INBOX_ONLY_TODAY_SQL}`;
+    )`;
 }
 
 const INTENTION_ACTIVE_TODO_SQL = `
   i.status = 'TODO'
   AND COALESCE(i.is_archived, 0) = 0`;
 
+/** Journal des captures du jour (sas 24h) — toute intention TODO créée aujourd'hui, datée ou non. */
 const INBOX_TODAY_WHERE = `
   ${INTENTION_ACTIVE_TODO_SQL}
   ${INTENTION_SYSTEM_RESERVED_SQL}
-  AND ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}
-  AND NOT ${INTENTION_IS_PROCESSED_SQL}`;
+  AND ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}`;
 
 /** Raccourci « À acheter » : toutes les intentions SHOP actives. */
 const SHOP_SHORTCUT_WHERE = `
@@ -1992,16 +2086,13 @@ const LIST_SHORTCUT_WHERE = `
   AND i.status != 'ARCHIVED'
   ${INTENTION_SYSTEM_RESERVED_SQL}`;
 
-/** Stock « Box » : TODO sans date, hors Inbox du jour, hors SHOP et hors HABIT (param : ymd local). */
+/** Stock « Box » : inventaire froid — capturé avant aujourd'hui, sans échéance, hors SHOP et HABIT (param : ymd local). */
 const BOX_STOCK_WHERE = `
   ${INTENTION_ACTIVE_TODO_SQL}
   ${INTENTION_SYSTEM_RESERVED_SQL}
   AND i.type != 'HABIT'
   AND (i.due_date IS NULL OR trim(i.due_date) = '')
-  AND NOT (
-    ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}
-    AND NOT ${INTENTION_IS_PROCESSED_SQL}
-  )
+  AND ${INTENTION_CREATED_BEFORE_LOCAL_YMD_SQL}
   AND NOT ${INTENTION_IS_SHOP_SQL}`;
 
 /** Routines actives : habitudes racine avec signaux de récurrence. */
@@ -2021,7 +2112,7 @@ export async function countNewIntentionsToday(todayYmd?: string): Promise<number
   return countInboxToday(todayYmd);
 }
 
-/** Compte l'Inbox du jour (toutes captures d'aujourd'hui). */
+/** Compte l'Inbox journal (toutes les captures TODO d'aujourd'hui). */
 export async function countInboxToday(todayYmd?: string): Promise<number> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();
@@ -2038,7 +2129,7 @@ export async function listTrankilV2NewInboxToday(todayYmd?: string): Promise<Tra
   return listTrankilV2InboxToday(todayYmd);
 }
 
-/** Inbox : captures du jour encore à trier (tri récent → ancien). */
+/** Inbox journal : toutes les captures TODO du jour (tri récent → ancien). */
 export async function listTrankilV2InboxToday(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();
@@ -2051,7 +2142,7 @@ export async function listTrankilV2InboxToday(todayYmd?: string): Promise<Tranki
   );
 }
 
-/** Retire une intention de l'Inbox (marquée triée / traitée, sans suppression). */
+/** Marque une intention comme triée (`is_organized`) — n'affecte plus la visibilité Inbox journal. */
 export async function markTrankilV2IntentionRemovedFromInbox(id: string): Promise<void> {
   await initTrankilV2Schema();
   const db = await getDb();
@@ -2066,7 +2157,7 @@ export async function markTrankilV2IntentionRemovedFromInbox(id: string): Promis
   notifyIntentionsChanged({ id, reason: 'inbox_remove' });
 }
 
-/** Retire en masse les intentions visibles de l'Inbox (marquées triées / traitées). */
+/** Marque en masse des intentions comme triées — n'affecte plus la visibilité Inbox journal. */
 export async function bulkMarkTrankilV2InboxRemoved(ids: string[]): Promise<void> {
   const unique = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
   if (unique.length === 0) return;
@@ -2103,7 +2194,7 @@ export async function listTrankilV2ShopClusterIntentions(): Promise<TrankilV2Int
   );
 }
 
-/** Compte le stock « Box » (idées TODO sans date, hors Inbox / SHOP). */
+/** Compte le stock « Box » (captures antérieures à aujourd'hui, sans date, hors SHOP / HABIT). */
 export async function countBoxStockIntentions(todayYmd?: string): Promise<number> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();
@@ -2115,7 +2206,7 @@ export async function countBoxStockIntentions(todayYmd?: string): Promise<number
   return Number(row?.n ?? 0);
 }
 
-/** Stock « Box » — toutes les idées TODO sans date (hors Inbox du jour, hors SHOP). */
+/** Stock « Box » — inventaire froid (créé avant aujourd'hui, sans date, hors SHOP / HABIT). */
 export async function listTrankilV2BoxStockIntentions(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
   const ymd = resolveLocalTodayYmd(todayYmd);
   await initTrankilV2Schema();

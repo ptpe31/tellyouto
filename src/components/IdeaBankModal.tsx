@@ -18,7 +18,6 @@ import { IconButton, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  bulkMarkTrankilV2InboxRemoved,
   deleteTrankilV2IntentionById,
   logTrankilV2HabitOccurrence,
   markTrankilV2IntentionDone,
@@ -71,7 +70,7 @@ type Props = {
   anchorDate: Date;
   onChanged: () => void;
   title?: string;
-  /** `inbox` : toutes les captures du jour (Smart Clusters « Inbox »). */
+  /** `inbox` : journal des captures TODO du jour (Smart Clusters « Inbox », sas 24h). */
   mode?: 'default' | 'inbox';
   /** Ferme la tirelire puis ouvre l’édition (IntentionDetailSheet côté parent). */
   onEditItem: (row: TrankilV2TimelineItemRow) => void;
@@ -362,21 +361,6 @@ export function IdeaBankModal({
 
   const onClearAll = useCallback(() => {
     if (items.length === 0) return;
-    if (mode === 'inbox') {
-      Alert.alert(t('inbox.action.removeAllConfirmTitle'), t('inbox.action.removeAllConfirmBody', { count: items.length }), [
-        { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
-        {
-          text: t('inbox.action.removeAll'),
-          style: 'destructive',
-          onPress: async () => {
-            await bulkMarkTrankilV2InboxRemoved(items.map((row) => row.id));
-            await syncNativeRailAlarmsAfterIntentionWrite('ideaBankInboxRemoveAll');
-            await refresh();
-          },
-        },
-      ]);
-      return;
-    }
     Alert.alert(t('timeline.ideaBank.clearAllTitle'), t('timeline.ideaBank.clearAllBody'), [
       { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
       {
@@ -392,9 +376,7 @@ export function IdeaBankModal({
         },
       },
     ]);
-  }, [items, mode, onClose, refresh, t]);
-
-  const clearAllActionLabel = mode === 'inbox' ? t('inbox.action.removeAll') : t('timeline.ideaBank.clearAll');
+  }, [items, onClose, refresh, t]);
 
   const openDetail = useCallback(
     (row: TrankilV2TimelineItemRow) => {
@@ -785,13 +767,13 @@ export function IdeaBankModal({
             </ScrollView>
           )}
 
-          {items.length > 0 ? (
+          {items.length > 0 && mode !== 'inbox' ? (
             <Pressable
               style={[styles.clearAllBtn, { borderColor: theme.colors.error, borderRadius: designTokens.borderRadius * 0.5 }]}
               onPress={onClearAll}
             >
               <Text style={{ color: theme.colors.error, fontWeight: '700', textAlign: 'center' }}>
-                {clearAllActionLabel}
+                {t('timeline.ideaBank.clearAll')}
               </Text>
             </Pressable>
           ) : null}

@@ -1273,9 +1273,26 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - **Stockage** : `INSERT` dans `daily_summaries` ; ouverture du rapport en WebView ; **Partager / Imprimer** : PDF via `expo-print` puis partage natif `expo-sharing` (hors web).
 - **Accès secondaire** : sous le sticky header **Aujourd’hui**, lien dédié (`roadmapLink`) pour ouvrir le dernier rapport du jour ou inviter à générer via l’imprimante.
 
-#### 2.b) Box — stock d’idées sans date (remplace le nudge cluster orphelin)
+#### 2.a bis) Inbox — journal des captures (sas 24h, juin 2026)
 
-- **Objectif** : séparer l’**exécution du jour** (corps EMAIL_HUB) du **stock à froid** — toutes les intentions **TODO sans `due_date`**, hors **Inbox du jour**, hors catégorie **SHOP** et hors **HABIT** (→ vue Routines).
+- **Objectif** : **sas temporel** — tout ce qui a été **capturé aujourd’hui** reste visible jusqu’à minuit, qu’il ait été planifié ou non. Remplace l’ancien filtre « non traité » (`due_date` / `is_organized` / `is_pinned`) qui faisait disparaître les intentions datées dès la capture.
+- **Cycle de vie** : **In → Process → Store** — l’Inbox = flux du jour ; la Box = inventaire froid (captures antérieures sans date).
+- **SQL** : [`INBOX_TODAY_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `listTrankilV2InboxToday`, `countInboxToday` ; critères : `status = TODO`, non archivé, `created_at` = jour local courant, hors sentinel `System Ready`.
+- **Matrice** :
+
+| Vue | `created_at` | `due_date` | Rôle |
+|-----|--------------|------------|------|
+| **Inbox** | Aujourd’hui | Peu importe | Journal des captures du jour |
+| **Box** | Avant aujourd’hui | NULL / vide | Stock à froid |
+| **Timeline** | Peu importe | Échéance du jour ou épinglé | Exécution |
+
+- **Chevauchement volontaire** : une intention capturée aujourd’hui et datée pour aujourd’hui apparaît dans **Inbox** et dans la **feuille de route** (`intentionExecutionRoadmapSql` n’exclut plus l’Inbox).
+- **Sortie du flux** : **Fait ✓** (`status = DONE`), archivage ou suppression — pas via `is_organized` seul (le bouton **Tout retirer** Inbox est retiré de [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) en mode `inbox`).
+- **Carrousel** : tuile i18n **Inbox** ; compteur `inboxToday` dans `getTrankilV2SmartClusterCounts`.
+
+#### 2.b) Box — inventaire froid (remplace le nudge cluster orphelin)
+
+- **Objectif** : **stock à froid** — uniquement les vieilles idées **non planifiées** laissées de côté : `created_at` **avant** le jour local, `due_date` vide, hors catégorie **SHOP** et hors **HABIT** (→ vue Routines). Plus de pollution par les captures récentes du jour.
 - **SQL** : [`BOX_STOCK_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `listTrankilV2BoxStockIntentions`, `countBoxStockIntentions`, `bulkDeleteTrankilV2IntentionsByIds` ; compteur carrousel `boxCount` dans `getTrankilV2SmartClusterCounts`.
 - **Carrousel** : tuile **Box** (libellé hardcodé, sans i18n) dans [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) — ordre **Inbox · À acheter · Box · Routines · Projets** (nudge cluster orphelin et tuile Listes retirés).
 - **Vue catégories** : tap **Box** → [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) — même rendu bloc/catégorie que le corps hub (`buildLivingHubBlocks` sur `boxStockRows`).
@@ -1299,7 +1316,7 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 
 - **Objectif** : sous **Aujourd’hui**, remplacer la liste plate de cartes par un **récap email** groupé par **`category_id` Pass 1** (HOME, WORK, HEALTH, …) — miroir direct de la classification IA, sans blocs inventés (Éphéméride / Routine / Reste).
 - **Activation** : `timelineLayoutMode === 'EMAIL_HUB'` **et** mêmes filtres que Smart Clusters — vue **Aujourd’hui**, contexte **ALL**, statut **TODO** (`hubEligible` dans [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)).
-- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (**Inbox · À acheter · Box · Routines · Projets**) — l’Inbox reste un sas séparé, le stock sans date vit dans **Box**, les **HABIT** dans **Routines**, zéro double comptage.
+- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (**Inbox · À acheter · Box · Routines · Projets**) — **Inbox** = journal 24h (captures du jour), **Box** = inventaire froid (captures antérieures sans date), **HABIT** dans **Routines** ; zéro double comptage Inbox ↔ Box (découpage temporel `created_at`).
 - **Agrégation** : [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) — `groupBy` via [`resolveHubBlockCategoryId`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) sur le pool du jour ; **blocs vides masqués** ; tri via [`hubCategoryRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts) ; lignes avec heure inline + marqueur habitude 🔁 ([`formatHubItemLine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/formatHubItemLine.ts)).
 - **Court-circuit TRIP (juin 2026, projection UI)** : toute ligne `type === 'TRIP'` ou avec `metadata_json.trip` est **forcée** dans le bloc virtuel **`TRIPS_HUB`** (🏁, libellé i18n `timeline.smartClusters.tripsTitle` → **TRAJETS**), **indépendamment** du `category_id` Pass 1 (ex. dictée « aller à l’école » classée LEARN n’apparaît plus sous APPRENTISSAGE). **`category_id` SQLite inchangé** ; le bloc `TRAVEL` (✈️ Voyage) reste pour les intentions non-TRIP encore taguées Voyage. Ordre d’affichage : `TRIPS_HUB` en tête de `HUB_CATEGORY_ORDER`.
 - **Habitudes JIT** : injection virtuelle des HABIT actives (`listActiveHabitsForHub` + [`isHabitRowActiveForDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts)) dans le groupBy catégorie.

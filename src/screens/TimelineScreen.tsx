@@ -35,6 +35,7 @@ import {
   listTrankilV2ListClusterIntentions,
   listTrankilV2ShopClusterIntentions,
   listActiveProjectsToday,
+  listTrankilV2AllTimelineItems,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
   listTrankilV2UnorganizedIntentions,
@@ -232,7 +233,7 @@ function resolveAnchor(
   if (timeNav === 'TODAY') return { anchor: now, mode: 'DAY' };
   if (timeNav === 'TOMORROW') return { anchor: addDays(now, 1), mode: 'DAY' };
   if (timeNav === 'WEEK') return { anchor: now, mode: 'WEEK' };
-  if (timeNav === 'ALL') return { anchor: now, mode: 'ALL' };
+  if (timeNav === 'ALL') return { anchor: now, mode: 'DAY' };
   const anchor = customPickedDate ? dateAtNoon(customPickedDate) : now;
   return { anchor, mode: 'DAY' };
 }
@@ -346,10 +347,15 @@ type TimelineFlatItem =
       rowVariant: 'default' | 'noPressure';
     };
 
-function flattenForVirtualList(entries: ListEntry[], options?: { skipTodayYmd?: string }): TimelineFlatItem[] {
+function flattenForVirtualList(
+  entries: ListEntry[],
+  options?: { skipTodayYmd?: string; hideSectionHeaders?: boolean },
+): TimelineFlatItem[] {
   const out: TimelineFlatItem[] = [];
   for (const e of entries) {
-    out.push({ kind: 'section', id: `sec-${e.id}`, titleText: e.titleText });
+    if (!options?.hideSectionHeaders && e.titleText.trim()) {
+      out.push({ kind: 'section', id: `sec-${e.id}`, titleText: e.titleText });
+    }
     if (options?.skipTodayYmd && e.id === options.skipTodayYmd) {
       continue;
     }
@@ -768,9 +774,13 @@ export function TimelineScreen() {
         };
       }
 
-      const mergeToday = nav === 'TODAY';
       let raw: TrankilV2TimelineItemRow[];
-      if (mergeToday) {
+      if (nav === 'ALL') {
+        raw = await listTrankilV2AllTimelineItems(status, {
+          paging: { limit: pageLimit, offset },
+          context: ctx,
+        });
+      } else if (nav === 'TODAY') {
         raw = await listTrankilV2MergedTodayTimelineWithLowPressure(ymd, status, ctx, {
           limit: pageLimit,
           offset,
@@ -1035,8 +1045,12 @@ export function TimelineScreen() {
           context: ctx,
         });
       } else {
-        const mergeToday = timeNav === 'TODAY';
-        if (mergeToday) {
+        if (timeNav === 'ALL') {
+          raw = await listTrankilV2AllTimelineItems(statusFilter, {
+            paging: { limit: pageLimit, offset: primaryRows.length },
+            context: ctx,
+          });
+        } else if (timeNav === 'TODAY') {
           raw = await listTrankilV2MergedTodayTimelineWithLowPressure(ymd, statusFilter, ctx, {
             limit: pageLimit,
             offset: primaryRows.length,
@@ -1266,12 +1280,20 @@ export function TimelineScreen() {
     const todayYmd = toYmd(anchorDate);
     const isTodayView =
       timeNav === 'TODAY' && contextBubble !== 'PIGGY' && contextBubble !== 'ARCHIVES';
-    const isAllDatesView =
+    const isAllTimeView =
       timeNav === 'ALL' && contextBubble !== 'PIGGY' && contextBubble !== 'ARCHIVES';
-    const pool =
-      isTodayView || isAllDatesView
-        ? filteredPool
-        : filteredPool.filter((r) => Boolean(normalizeDueDateLocal(r.due_date)));
+
+    if (isAllTimeView) {
+      const rows = [...filteredPool].sort(
+        (a, b) => Number(b.updated_at ?? b.created_at) - Number(a.updated_at ?? a.created_at),
+      );
+      if (rows.length === 0) return [];
+      return [{ kind: 'rows', id: 'all-time', titleText: '', rows }];
+    }
+
+    const pool = isTodayView
+      ? filteredPool
+      : filteredPool.filter((r) => Boolean(normalizeDueDateLocal(r.due_date)));
 
     const enriched = pool
       .map((r) => {
@@ -1279,12 +1301,6 @@ export function TimelineScreen() {
         let effectiveYmd: string | null = dueYmd;
         if (!effectiveYmd && isTodayView && (r.is_pinned ?? 0) === 1) {
           effectiveYmd = todayYmd;
-        }
-        if (!effectiveYmd && isAllDatesView) {
-          const created = new Date(Number(r.created_at));
-          if (Number.isFinite(created.getTime())) {
-            effectiveYmd = toYmd(created);
-          }
         }
         if (!effectiveYmd) return null;
         const sortMs = (() => {
@@ -1381,7 +1397,11 @@ export function TimelineScreen() {
     const todayRows = todayEntry?.rows ?? [];
     const base = flattenForVirtualList(
       listEntries,
-      hubEligible ? { skipTodayYmd: todayYmd } : undefined,
+      hubEligible
+        ? { skipTodayYmd: todayYmd }
+        : timeNav === 'ALL'
+          ? { hideSectionHeaders: true }
+          : undefined,
     );
     const out: TimelineFlatItem[] = [];
     let inserted = false;

@@ -40,6 +40,7 @@ export {
   listTrankilV2OrganizedIntentions,
   listTrankilV2Intentions,
   listTrankilV2TimelineItemsByDate,
+  listTrankilV2AllTimelineItems,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2UndatedRootTasks,
   listTrankilV2LowPressureRootTasks,
