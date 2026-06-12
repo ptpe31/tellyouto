@@ -111,8 +111,6 @@ export type TrankilV2UserStatsRow = {
   recharge_window_started_at: number | null;
   recharge_videos_in_window: number;
   recharge_last_video_at: number | null;
-  /** Optionnel — colonne absente tant que non migrée. */
-  morning_focus_item_id?: string | null;
 };
 
 export type EmergencyLogRow = {
@@ -3873,14 +3871,6 @@ export async function spendZenPoints(cost: number): Promise<{
   }
   const next = await adjustZenPoints(-safeCost);
   return { ok: true, stats: next };
-}
-
-export async function setMorningFocusSelection(
-  itemId: string,
-  dateKey: string,
-): Promise<void> {
-  void itemId;
-  void dateKey;
 }
 
 export async function setEveningRitualDateKey(dateKey: string): Promise<void> {

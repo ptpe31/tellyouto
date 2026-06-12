@@ -92,8 +92,6 @@ export const STRINGS = {
   },
   CAPTURE: {
     LOCAL_MAX: 'Efficacite Max ! ⚡',
-    FOCUS_ACTIVATING: 'Activation du focus...',
-    TAP_CARD_TO_START: 'Touchez une carte pour lancer la journee',
     NOISE_WARNING: "Desole, je n'ai pas bien saisi l'intention ?",
   },
   FLOWER: {
@@ -107,7 +105,6 @@ export const STRINGS = {
     DEBUG_SOBRIETY: 'sobriete',
   },
   GARDEN_RITUALS: {
-    MORNING_CAPTAIN: 'Choisis ton capitaine du matin',
     VRAC: 'Vrac',
     FOCUS_CIRCLES: 'Focus Circles',
     LIFE_CARD: 'Carte de Vie',
@@ -214,7 +211,6 @@ export const STRINGS = {
   },
   rituals: {
     eveningPrompt: 'Une pensee pour demain ?',
-    morningCaptain: 'Choisis ton capitaine du matin',
     chargingPrompt: 'Tu recharges tes batteries... On recharge ton esprit aussi ?',
     nightThoughtPlaceholder: "Depose ici ta derniere pensee pour dormir l'esprit vide",
     nightThoughtVoice: 'Dicter ma pensee',

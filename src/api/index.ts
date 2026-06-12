@@ -61,7 +61,6 @@ export {
   insertDailySummary,
   getLatestDailySummaryForDate,
   // DEPRECATED — nudge disponibilité : pickAvailabilityTask,
-  setMorningFocusSelection,
   setAdState,
   recordLocalAffinityEvent,
   saveEmergencyLog,

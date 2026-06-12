@@ -14,7 +14,6 @@ import { bootstrapTrankilV2Database, cleanOldArchives } from './src/api';
 // import { EveningStarModal } from './src/components/EveningStarModal';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { IntentionSyncBootstrap } from './src/components/IntentionSyncBootstrap';
-import { MorningDewModal } from './src/components/MorningDewModal';
 import { OfflineFirstPendingBootstrap } from './src/components/OfflineFirstPendingBootstrap';
 import { SentinelBootstrap } from './src/components/SentinelBootstrap';
 import { StartupPerfBanner } from './src/components/StartupPerfBanner';
@@ -134,7 +133,6 @@ export default function App() {
                                 <SentinelBootstrap />
                               <OfflineFirstPendingBootstrap />
                               <SystemHealthBanner />
-                              <MorningDewModal />
                               {/* TODO: supprimer ce bloc commenté + réimporter EveningStarModal si la modale « Rituel des étoiles » revient. */}
                               {/* <EveningStarModal /> */}
                               {/* DEPRECATED: AvailabilityNudgeModal — nettoyage-code-mort.md */}
