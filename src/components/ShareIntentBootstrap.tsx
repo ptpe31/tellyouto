@@ -1,14 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { useShareIntentContext } from 'expo-share-intent';
 
+import { useOptionalCapturePresentation } from '../context/CapturePresentationContext';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
+import { saveAndCompressImage, syncVaultImageToCloudIfEnabled } from '../services/fileStorage';
 import { showAppToast } from '../services/appToast';
 import {
   extractTranscriptFromSharedImage,
-  saveSharedImageToLocal,
   uploadToCloudIfEnabled,
   type SharedImageFile,
 } from '../services/share/shareService';
+import { notifyCapturePipelineProgress } from '../utils/captureFlowLog';
 import { newUuidV4 } from '../utils/uuid';
 
 function pickFirstImageFile(files: SharedImageFile[] | undefined): SharedImageFile | null {
@@ -24,6 +26,7 @@ function pickFirstImageFile(files: SharedImageFile[] | undefined): SharedImageFi
 export function ShareIntentBootstrap() {
   const { isReady, hasShareIntent, shareIntent, resetShareIntent, error } = useShareIntentContext();
   const intentionFlow = useOptionalIntentionContext();
+  const capturePresentation = useOptionalCapturePresentation();
   const processingRef = useRef(false);
   const lastIntentKeyRef = useRef('');
 
@@ -54,28 +57,47 @@ export function ShareIntentBootstrap() {
 
     processingRef.current = true;
     const traceId = newUuidV4();
+    const preassignedIntentionId = newUuidV4();
 
     void (async () => {
       try {
         let transcript = sharedText;
+
         if (imageFile?.path) {
-          const localPath = await saveSharedImageToLocal(imageFile.path, imageFile.fileName);
-          await uploadToCloudIfEnabled(localPath);
-          const visionTranscript = await extractTranscriptFromSharedImage(localPath, imageFile.mimeType);
+          capturePresentation?.onProfilerStopRecordingT0();
+          capturePresentation?.onPipelineDashboardOpenImmediate({ traceId });
+          notifyCapturePipelineProgress(traceId, 'mic_stop_audio_done', { source: 'share_intent' });
+
+          const vaultPath = await saveAndCompressImage(imageFile.path, preassignedIntentionId);
+          notifyCapturePipelineProgress(traceId, 'mic_submit_invoke', {
+            source: 'share_intent',
+            intentionId: preassignedIntentionId,
+          });
+          await syncVaultImageToCloudIfEnabled(preassignedIntentionId);
+          await uploadToCloudIfEnabled(vaultPath);
+
+          const visionTranscript = await extractTranscriptFromSharedImage(vaultPath, 'image/jpeg');
           if (visionTranscript) {
             transcript = visionTranscript;
           }
         }
+
         if (!transcript.trim()) {
+          if (imageFile?.path) {
+            capturePresentation?.onPipelineDashboardCancelImmediate();
+          }
           showAppToast('Partage ignoré : contenu vide');
           return;
         }
+
         await intentionFlow.submitCapturePayload({
           transcript: transcript.trim(),
           audioUri: null,
           traceId,
+          preassignedIntentionId: imageFile?.path ? preassignedIntentionId : undefined,
         });
       } catch (e) {
+        capturePresentation?.onPipelineDashboardCancelImmediate();
         console.warn('[ShareService] processing failed:', e instanceof Error ? e.message : String(e));
         showAppToast('Échec du traitement du partage');
       } finally {
@@ -84,7 +106,7 @@ export function ShareIntentBootstrap() {
         lastIntentKeyRef.current = '';
       }
     })();
-  }, [isReady, hasShareIntent, shareIntent, intentionFlow, resetShareIntent]);
+  }, [capturePresentation, isReady, hasShareIntent, shareIntent, intentionFlow, resetShareIntent]);
 
   return null;
 }

@@ -1,8 +1,11 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { IS_LOCAL_MODE } from '../../config/appConfig';
+import { syncVaultImageToCloudIfEnabled } from '../fileStorage';
 import { geminiAnalyzeImageBase64 } from '../geminiSemanticLab';
 import { newUuidV4 } from '../../utils/uuid';
+
+export { syncVaultImageToCloudIfEnabled };
 
 const SHARE_TEMP_DIR = `${FileSystem.documentDirectory ?? ''}share_intake/`;
 

@@ -59,6 +59,8 @@ type CapturePayload = {
   traceId?: string;
   /** Transcript STT d’origine si l’utilisateur a corrigé manuellement avant envoi. */
   transcriptOriginal?: string;
+  /** ID SQLite pré-assigné (ex. image Vault partagée avant persistance). */
+  preassignedIntentionId?: string;
 };
 
 /** Données proxy DealerBoard (Talk) : une ligne par intention persistée dans un bulk ventilé. */
@@ -192,6 +194,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const geminiStartedRef = useRef(false);
   const bulkProcessingRef = useRef(false);
   const bulkProgressIndexRef = useRef(-1);
+  const preassignedIntentionIdRef = useRef<string | null>(null);
 
   /** Réinitialise les refs capture au début d’une dictée / saisie. */
   const startCapture = useCallback(() => {
@@ -280,6 +283,20 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         console.log(`[SEQUENCER] 🔎 TRACE: ${trace}`);
       }
       let safeToDrainOfflineReplaySource = false;
+      const preassignedId = String(preassignedIntentionIdRef.current || '').trim();
+      let preassignedConsumed = false;
+      const effectiveDeps: CaptureStrategyDeps = preassignedId
+        ? {
+            ...deps,
+            newId: () => {
+              if (!preassignedConsumed) {
+                preassignedConsumed = true;
+                return preassignedId;
+              }
+              return newId();
+            },
+          }
+        : deps;
       try {
         const chunks = Array.isArray(params.chunks) && params.chunks.length ? params.chunks : splitBulkTranscript(base);
         logCaptureFlow(trace || undefined, 'bulk_start', {
@@ -434,7 +451,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             }
             logCaptureFlow(trace || undefined, 'chunk_ventilated_await', { idx: i + 1, total });
             const vr = await persistOneTapDraftVentilated({
-              deps,
+              deps: effectiveDeps,
               draft: hydrated,
               transcript: chunk,
               habitsDefaultTitle,
@@ -506,10 +523,11 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         bulkProgressIndexRef.current = -1;
         bulkProcessingRef.current = false;
         geminiStartedRef.current = false;
+        preassignedIntentionIdRef.current = null;
       }
       return { safeToDrainOfflineReplaySource };
     },
-    [proposeOfflineFallback, spectrum.isProUser, spectrum.locale],
+    [deps, proposeOfflineFallback, spectrum.isProUser, spectrum.locale],
   );
 
   /**
@@ -517,11 +535,19 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
    * `traceId` propagé pour les logs micro.
    */
   const submitCapturePayload = useCallback(
-    async ({ transcript: rawTranscript, audioUri, lang, traceId, transcriptOriginal }: CapturePayload): Promise<boolean> => {
+    async ({
+      transcript: rawTranscript,
+      audioUri,
+      lang,
+      traceId,
+      transcriptOriginal,
+      preassignedIntentionId,
+    }: CapturePayload): Promise<boolean> => {
       const cleaned = rawTranscript.trim();
       if (!cleaned) return false;
       const isMic = Boolean(audioUri);
       const trace = String(traceId || '').trim() || (isMic ? newId() : '');
+      preassignedIntentionIdRef.current = String(preassignedIntentionId || '').trim() || null;
       const hadManualTranscript = transcriptOriginal !== undefined;
       const originalStt = hadManualTranscript ? String(transcriptOriginal || '').trim() : '';
       const manualEdit = hadManualTranscript && (originalStt !== cleaned || (!originalStt && cleaned.length > 0));
@@ -612,7 +638,13 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
           }
         } else {
-          const queued = await queueOfflineTextCapture({ transcript: cleaned, title, lang });
+          const preId = String(preassignedIntentionIdRef.current || '').trim() || undefined;
+          const queued = await queueOfflineTextCapture({
+            transcript: cleaned,
+            title,
+            lang,
+            intentionId: preId,
+          });
           logCaptureFlow(trace || undefined, 'submit_offline_queued', {
             mode: 'text',
             queueId: queued.queueId,
@@ -623,6 +655,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
           }
         }
+        preassignedIntentionIdRef.current = null;
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
         logOfflineStability('submit_branch_offline_queued', { trace: trace || null, hasAudio: Boolean(audioUri) });
         return true;

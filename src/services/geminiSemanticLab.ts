@@ -428,7 +428,7 @@ function normalizeOneTapWireText(raw: string): string {
 }
 
 const IMAGE_VISION_PROMPT =
-  "Analyse cette capture d'écran, extrait l'intention principale, les dates éventuelles et les actions à mener. Retourne un résultat structuré conforme au format habituel de traitement des intentions.";
+  "Analyse cette image pour extraire les intentions. Aucun résumé textuel n'est nécessaire, l'image suffit. Retourne un résultat structuré conforme au format habituel de traitement des intentions.";
 
 /** Analyse Vision (IMAGE) — même modèle / route HTTP que TEXT et AUDIO. */
 export async function geminiAnalyzeImageBase64(

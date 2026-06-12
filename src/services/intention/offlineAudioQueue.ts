@@ -109,6 +109,7 @@ export async function queueOfflineTextCapture(params: {
   transcript: string;
   title: string;
   lang?: string;
+  intentionId?: string;
 }): Promise<{ intentionId: string; queueId: string }> {
   if (__DEV__ && VERBOSE_DEBUG) {
     const now = new Date();
@@ -118,7 +119,7 @@ export async function queueOfflineTextCapture(params: {
     console.log(`[OFFLINE_QUEUE] 🎧 AUDIO_URI: no | LANG: ${params.lang || '—'}`);
   }
   const queueId = newQueueId();
-  const intentionId = newIntentionId();
+  const intentionId = String(params.intentionId || '').trim() || newIntentionId();
   const now = Date.now();
   await insertTrankilV2Intention({
     id: intentionId,

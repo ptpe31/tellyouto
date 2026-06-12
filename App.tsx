@@ -150,8 +150,8 @@ export default function App() {
                                 {/* <EveningStarModal /> */}
                                 {/* DEPRECATED: AvailabilityNudgeModal — nettoyage-code-mort.md */}
                                 <IntentionProvider>
-                                  <ShareIntentBootstrap />
                                   <CapturePresentationProvider>
+                                    <ShareIntentBootstrap />
                                     <AppNavigation />
                                     <GlobalCaptureOverlay />
                                   </CapturePresentationProvider>

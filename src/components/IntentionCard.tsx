@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MD3Theme } from 'react-native-paper';
+import { IconButton } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { Navigation2 } from 'lucide-react-native';
 
@@ -35,6 +36,8 @@ import {
 import { launchNavigation } from '../utils/tripNavigation';
 import { isTripMissionActive } from '../utils/tripTripReadiness';
 import { normalizeTripTransportMode } from '../utils/tripTransportMode';
+import { getImagePath } from '../services/fileStorage';
+import { VaultImageViewerModal } from './VaultImageViewerModal';
 
 type Props = {
   row: TrankilV2TimelineItemRow;
@@ -163,6 +166,21 @@ export function IntentionCard({
   const { spectrum } = useUserSpectrum();
   const designTokens = useDesignTokens();
   const isProUser = spectrum.isProUser;
+  const [vaultImageUri, setVaultImageUri] = useState<string | null>(null);
+  const [vaultViewerVisible, setVaultViewerVisible] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const path = await getImagePath(row.id);
+      if (!cancelled) {
+        setVaultImageUri(path);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [row.id]);
   const meta = useMemo(() => safeParseJsonObject(row.metadata_json), [row.metadata_json]);
   const trip = useMemo(() => getTripMetaFromRoot(meta), [meta]);
   const isTripCard = Boolean(trip);
@@ -341,6 +359,15 @@ export function IntentionCard({
   const pendingAiLabel =
     (row.type === 'NOTE' || row.type === 'AUDIO') && row.is_pending_ai === 1 ? t('timeline.aiPendingChip') : null;
 
+  const onPressVaultImage = useCallback(
+    (e?: { stopPropagation?: () => void }) => {
+      e?.stopPropagation?.();
+      if (!vaultImageUri) return;
+      setVaultViewerVisible(true);
+    },
+    [vaultImageUri],
+  );
+
   if (isHiddenTechnicalNoteFallbackRow(row)) {
     return null;
   }
@@ -351,6 +378,7 @@ export function IntentionCard({
   const footerLabel = tripFooter ? tripFooterLabel(tripFooter, t) : '';
 
   return (
+    <>
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
@@ -366,6 +394,16 @@ export function IntentionCard({
         },
       ]}
     >
+      {vaultImageUri ? (
+        <IconButton
+          icon="image-outline"
+          size={18}
+          iconColor={designTokens.textSecondary}
+          style={styles.vaultIcon}
+          onPress={onPressVaultImage}
+          accessibilityLabel={t('timeline.vaultImageA11y', { defaultValue: 'Voir l’image associée' })}
+        />
+      ) : null}
       <View style={styles.row}>
         {showTripGpsOrb ? (
           <TripNeumorphicOrb
@@ -482,6 +520,12 @@ export function IntentionCard({
         </View>
       ) : null}
     </Pressable>
+    <VaultImageViewerModal
+      visible={vaultViewerVisible}
+      imageUri={vaultImageUri}
+      onClose={() => setVaultViewerVisible(false)}
+    />
+    </>
   );
 }
 
@@ -507,6 +551,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginHorizontal: 0,
     marginBottom: 12,
+    position: 'relative',
+  },
+  vaultIcon: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    margin: 0,
+    zIndex: 2,
   },
   cardTrip: {
     height: undefined,
