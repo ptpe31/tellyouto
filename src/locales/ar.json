@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "أدخل عنوان المغادرة"
     },
     "box": {
+      "title": "للتخطيط",
+      "subtitle": "{{count}} أفكار",
       "clearAll": "حذف الكل",
-      "clearAllTitle": "تفريغ الصندوق؟",
+      "clearAllTitle": "تفريغ « للتخطيط »؟",
       "clearAllBody": "أنت على وشك حذف {{count}} فكرة معلّقة نهائيًا. لا يمكن التراجع.",
       "clearAllConfirm": "حذف الكل",
       "empty": "لا أفكار في التخزين."

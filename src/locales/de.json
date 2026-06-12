@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "Abfahrtsadresse eingeben"
     },
     "box": {
+      "title": "Zu planen",
+      "subtitle": "{{count}} Ideen",
       "clearAll": "Alle löschen",
-      "clearAllTitle": "Box leeren?",
+      "clearAllTitle": "« Zu planen » leeren?",
       "clearAllBody": "Du bist dabei, deine {{count}} ausstehenden Ideen dauerhaft zu löschen. Das lässt sich nicht rückgängig machen.",
       "clearAllConfirm": "Alle löschen",
       "empty": "Keine Ideen im Speicher."

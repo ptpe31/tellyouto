@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "Vertrekadres invoeren"
     },
     "box": {
+      "title": "Te plannen",
+      "subtitle": "{{count}} ideeën",
       "clearAll": "Alles verwijderen",
-      "clearAllTitle": "De Box legen?",
+      "clearAllTitle": "« Te plannen » legen?",
       "clearAllBody": "Je staat op het punt {{count}} wachtende ideeën permanent te verwijderen. Dit kan niet ongedaan worden gemaakt.",
       "clearAllConfirm": "Alles verwijderen",
       "empty": "Geen ideeën in opslag."

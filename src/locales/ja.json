@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "出発住所を入力"
     },
     "box": {
+      "title": "予定に入れる",
+      "subtitle": "{{count}} 件のアイデア",
       "clearAll": "すべて削除",
-      "clearAllTitle": "Box を空にしますか？",
+      "clearAllTitle": "「予定に入れる」を空にしますか？",
       "clearAllBody": "保留中の {{count}} 件のアイデアを完全に削除しようとしています。元に戻せません。",
       "clearAllConfirm": "すべて削除",
       "empty": "ストレージにアイデアはありません。"

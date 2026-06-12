@@ -138,12 +138,12 @@ export function SmartClustersCarousel({
         />
       ) : null}
       <ClusterTile
-        title="Box"
-        subtitle={boxCount > 0 ? `${boxCount} idées` : undefined}
+        title={t('timeline.box.title')}
+        subtitle={boxCount > 0 ? t('timeline.box.subtitle', { count: boxCount }) : undefined}
         badge={boxCount > 0 ? boxCount : undefined}
         tileBackground={designTokens.carouselBoxBg}
         useCarouselText
-        onPress={pressWithClusterDebug('Box', debug.box, onPressBox)}
+        onPress={pressWithClusterDebug(t('timeline.box.title'), debug.box, onPressBox)}
       />
       <ClusterTile
         title={t('timeline.smartClusters.routinesTitle')}

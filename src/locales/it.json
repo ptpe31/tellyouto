@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "Inserisci indirizzo di partenza"
     },
     "box": {
+      "title": "Da pianificare",
+      "subtitle": "{{count}} idee",
       "clearAll": "Elimina tutto",
-      "clearAllTitle": "Svuotare la Box?",
+      "clearAllTitle": "Svuotare « Da pianificare »?",
       "clearAllBody": "Stai per eliminare definitivamente le tue {{count}} idee in sospeso. Questa azione non può essere annullata.",
       "clearAllConfirm": "Elimina tutto",
       "empty": "Nessuna idea in archivio."

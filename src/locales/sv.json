@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "Ange avreseadress"
     },
     "box": {
+      "title": "Att planera",
+      "subtitle": "{{count}} idéer",
       "clearAll": "Radera alla",
-      "clearAllTitle": "Tömma Boxen?",
+      "clearAllTitle": "Tömma « Att planera »?",
       "clearAllBody": "Du håller på att permanent radera dina {{count}} väntande idéer. Detta kan inte ångras.",
       "clearAllConfirm": "Radera alla",
       "empty": "Inga idéer i lagring."

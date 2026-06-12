@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "Introducir dirección de salida"
     },
     "box": {
+      "title": "Por planificar",
+      "subtitle": "{{count}} ideas",
       "clearAll": "Eliminar todo",
-      "clearAllTitle": "¿Vaciar la Box?",
+      "clearAllTitle": "¿Vaciar « Por planificar »?",
       "clearAllBody": "Estás a punto de eliminar permanentemente tus {{count}} ideas pendientes. Esta acción no se puede deshacer.",
       "clearAllConfirm": "Eliminar todo",
       "empty": "No hay ideas en reserva."

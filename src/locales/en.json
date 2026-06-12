@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "Enter departure address"
     },
     "box": {
+      "title": "To plan",
+      "subtitle": "{{count}} ideas",
       "clearAll": "Delete all",
-      "clearAllTitle": "Empty the Box?",
+      "clearAllTitle": "Clear « To plan »?",
       "clearAllBody": "You are about to permanently delete your {{count}} pending ideas. This action cannot be undone.",
       "clearAllConfirm": "Delete all",
       "empty": "No ideas in storage."

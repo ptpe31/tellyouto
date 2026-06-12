@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "输入出发地址"
     },
     "box": {
+      "title": "待安排",
+      "subtitle": "{{count}} 条想法",
       "clearAll": "全部删除",
-      "clearAllTitle": "清空 Box？",
+      "clearAllTitle": "清空「待安排」？",
       "clearAllBody": "你即将永久删除 {{count}} 条待处理想法。此操作无法撤销。",
       "clearAllConfirm": "全部删除",
       "empty": "存储中没有想法。"

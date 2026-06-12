@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "출발 주소 입력"
     },
     "box": {
+      "title": "계획하기",
+      "subtitle": "{{count}}개 아이디어",
       "clearAll": "모두 삭제",
-      "clearAllTitle": "Box를 비울까요?",
+      "clearAllTitle": "「계획하기」를 비울까요?",
       "clearAllBody": "대기 중인 {{count}}개의 아이디어를 영구 삭제하려고 해요. 되돌릴 수 없어요.",
       "clearAllConfirm": "모두 삭제",
       "empty": "저장된 아이디어가 없어요."

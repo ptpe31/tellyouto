@@ -270,8 +270,10 @@
       "tripSearchOriginTitle": "Saisir l'adresse de départ"
     },
     "box": {
+      "title": "À planifier",
+      "subtitle": "{{count}} idées",
       "clearAll": "Tout supprimer",
-      "clearAllTitle": "Vider la Box ?",
+      "clearAllTitle": "Vider « À planifier » ?",
       "clearAllBody": "Vous êtes sur le point de supprimer définitivement vos {{count}} idées en attente. Cette action est irréversible.",
       "clearAllConfirm": "Supprimer tout",
       "empty": "Aucune idée en réserve."

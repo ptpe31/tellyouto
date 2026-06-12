@@ -1881,7 +1881,7 @@ export function TimelineScreen() {
 
       <LivingHubCategoryModal
         visible={boxViewOpen}
-        title="Box"
+        title={t('timeline.box.title')}
         blocks={boxBlocks}
         totalCount={boxStockRows.length}
         designTokens={designTokens}
