@@ -1055,7 +1055,8 @@ export async function listTrankilV2MergedTodayTimelineWithLowPressure(
   const ymdCompact = selectedDateYmd.replace(/-/g, '');
   const lim = Math.max(1, Math.min(500, Math.floor(Number(paging.limit ?? TIMELINE_PAGE_SIZE))));
   const off = Math.max(0, Math.floor(Number(paging.offset ?? 0)));
-  const execParams = [selectedDateYmd, ymdCompact, selectedDateYmd] as const;
+  /** 2 placeholders par branche : `intentionDueOnLocalYmdSql` (YYYY-MM-DD + compact). */
+  const execParams = [selectedDateYmd, ymdCompact] as const;
   await initTrankilV2Schema();
   const db = await getDb();
   const roadmap = intentionExecutionRoadmapSql(selectedDateYmd);
