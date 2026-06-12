@@ -1,9 +1,8 @@
-import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
-import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
 import {
   getActivePass1ModelId,
   getGeminiCandidateModelIds,
 } from './geminiRemoteModelSteering';
+import { executeGeminiCall } from './geminiDirectClient';
 
 export type GeminiHealthCheckResult = {
   pass1Id: string;
@@ -14,20 +13,20 @@ export type GeminiHealthCheckResult = {
   pass2CandidateCount: number;
 };
 
-async function probeModel(token: string, modelId: string): Promise<boolean> {
-  const res = await fetch(getGeminiProxyStreamUrl(), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      modelId,
-      request: {
-        contents: [{ role: 'user', parts: [{ text: 'ok' }] }],
-        generationConfig: { temperature: 0, topP: 0.1, topK: 1, candidateCount: 1, maxOutputTokens: 16 },
+async function probeModel(modelId: string): Promise<boolean> {
+  const res = await executeGeminiCall({
+    modelId,
+    request: {
+      contents: [{ role: 'user', parts: [{ text: 'ok' }] }],
+      generationConfig: {
+        temperature: 0,
+        topP: 0.1,
+        topK: 1,
+        candidateCount: 1,
+        maxOutputTokens: 16,
       },
-    }),
+    },
+    stream: false,
   });
   return res.ok;
 }
@@ -36,13 +35,8 @@ async function probeModel(token: string, modelId: string): Promise<boolean> {
  * Sonde Pass 1 (extraction) puis chaîne Pass 2 (raisonnement) — écran Debug.
  */
 export async function runGeminiModelHealthCheck(): Promise<GeminiHealthCheckResult> {
-  await ensureFirebaseAnonymousAuth();
-  const auth = getFirebaseAuth();
-  const token = await auth?.currentUser?.getIdToken();
-  if (!token) throw new Error('geminiModelHealthCheck: missing id token');
-
   const pass1Id = getActivePass1ModelId();
-  const pass1Ok = await probeModel(token, pass1Id);
+  const pass1Ok = await probeModel(pass1Id);
 
   const ordered = getGeminiCandidateModelIds();
   const MAX_PROBES = 16;
@@ -52,7 +46,7 @@ export async function runGeminiModelHealthCheck(): Promise<GeminiHealthCheckResu
 
   for (const id of toProbe) {
     pass2TestedCount += 1;
-    if (await probeModel(token, id)) {
+    if (await probeModel(id)) {
       return {
         pass1Id,
         pass1Ok,

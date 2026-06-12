@@ -2426,8 +2426,28 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 Variables d’environnement principales (Expo public) :
 - Firebase : `EXPO_PUBLIC_FIREBASE_*`
 - Proxy Gemini : `EXPO_PUBLIC_GEMINI_PROXY_URL`
+- **Mode Solo Local** : `EXPO_PUBLIC_LOCAL_MODE=true` + `EXPO_PUBLIC_GEMINI_API_KEY` (dev uniquement — jamais build store)
 - Google Places / Geocoding : `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
 - Google Distance Matrix (optionnel, fallback clé Places) : `EXPO_PUBLIC_GOOGLE_DISTANCE_MATRIX_API_KEY`
+
+### Mode Solo Local 100 % autonome (juin 2026)
+
+**Objectif** : couper Firebase (Auth, Firestore, Cloud Functions) pendant une période de développement ou de mise en sommeil GCP, sans altérer SQLite ni le schéma local.
+
+**Activation** : `EXPO_PUBLIC_LOCAL_MODE === 'true'` **et** `EXPO_PUBLIC_GEMINI_API_KEY` renseignée ([`appConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/appConfig.ts) : `IS_LOCAL_MODE`, `LOCAL_GEMINI_API_KEY`).
+
+**Routeur Gemini** : [`geminiDirectClient.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiDirectClient.ts) — `executeGeminiCall` :
+- **Local** : `generativelanguage.googleapis.com` (`generateContent` / `streamGenerateContent?alt=sse`) ; pas de Bearer Firebase ; flux Google adapté au format SSE proxy (`delta` / `done`) pour compatibilité `readProxySse`.
+- **Défaut** (flag absent ou faux) : proxy Firebase inchangé + `Authorization: Bearer <Firebase ID token>`.
+
+**Points d’entrée branchés** : [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts), [`GeminiExpert.js`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js), [`geminiModelHealthCheck.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelHealthCheck.ts).
+
+**Sync cloud en sommeil** :
+- [`ProfileSyncBootstrap.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ProfileSyncBootstrap.tsx) — log `[OFFLINE-STABILITY] Mode Solo Local Actif - Synchronisation Firestore désactivée.` ; aucun listener Firestore.
+- [`UserSpectrumContext.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/UserSpectrumContext.tsx) — skip `pushDeviceProfileToFirestore` / `pushUserEntitlementsToFirestore`.
+- [`QuotaManager.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/QuotaManager.ts) — skip `readRemote` / `writeRemote` ; quota Sentinel = AsyncStorage uniquement.
+
+**Invariants** : aucune modification du schéma SQLite ; Remote Config mobile continue d’utiliser les défauts compilés ; réactivation Firebase = retirer le flag local + restaurer `EXPO_PUBLIC_FIREBASE_*` (voir [README.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/README.md) → prompt agent).
 
 ### Backend (Firebase / Cloud)
 - Auth : Firebase Auth (dont mode anonyme) côté client + vérification côté serveur
@@ -2447,11 +2467,12 @@ Variables d’environnement principales (Expo public) :
   - Gestion d’erreur : en cas d’échec Gemini, l’événement SSE est `{ type:'error', code:'gemini_failed', error:'gemini_failed', details:<message Google> }` ; log serveur `[geminiProxyStream]`. Côté app, `readProxySse` lève `details` en priorité.
   - **Fallback modèles (app)** : `callGeminiProxyStream` enchaîne `[modelOverride, …getGeminiCandidateModelIds()]` quand un `modelOverride` est fourni (Pass 2, One-Tap, etc.) — repli automatique sur la shortlist compilée si le modèle principal échoue.
 
-### IA (Gemini, via proxy)
+### IA (Gemini, via proxy ou mode local)
 - **Stratégie long terme** : instructions système + charge utile minimale + pré‑warming + Context Caching Vertex lorsque disponible — voir **« ARCHITECTURE IA (Latence) »** plus haut dans ce document.
 - **Steering modèle** : Remote Config (`gemini_pass1_model_id`, `gemini_pass2_model_id`, `gemini_model_fallbacks`) + override Debug Pass 2 + blacklist session — voir § **0.b) Steering modèle Gemini (RC)**.
-- Modèles : routés côté client (`getGeminiCandidateModelIds`) mais appelés uniquement via proxy ; défaut compilé `gemini-3.1-flash-lite`.
-- Client n’embarque pas de clé Gemini : la clé (`GEMINI_API_KEY`) reste côté serveur (Secret Manager)
+- Modèles : routés côté client (`getGeminiCandidateModelIds`) ; transport via `executeGeminiCall` (proxy ou direct) ; défaut compilé `gemini-3.1-flash-lite`.
+- **Proxy (défaut)** : client n’embarque pas de clé Gemini ; `GEMINI_API_KEY` côté serveur (Secret Manager).
+- **Mode local** : `EXPO_PUBLIC_GEMINI_API_KEY` dans `.env` dev uniquement — voir § **Mode Solo Local** ci-dessus.
 - Objectif : extraction structurée low‑latency en streaming (SSE)
 - Headers client : l’app envoie `Authorization: Bearer <Firebase ID token>` et accepte SSE/JSON ([geminiSemanticLab.ts](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts)).
 - Refresh token : si `401/403`, l’app force un refresh du token puis retente une fois.

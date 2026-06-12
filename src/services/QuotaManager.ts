@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { IS_LOCAL_MODE } from '../config/appConfig';
 import { ensureFirebaseAnonymousAuth, getFirestoreDb } from '../api/firebase';
 import { sanitizeFirestoreMap } from '../api/firestoreSanitize';
 import { getOrCreateDeviceId } from '../api/syncService';
@@ -48,6 +49,7 @@ async function writeLocal(deviceId: string, balance: number, syncedAtMs: number 
 }
 
 async function readRemote(deviceId: string): Promise<number | null> {
+  if (IS_LOCAL_MODE) return null;
   const db = getFirestoreDb();
   if (!db) return null;
   await ensureFirebaseAnonymousAuth();
@@ -61,6 +63,7 @@ async function readRemote(deviceId: string): Promise<number | null> {
 }
 
 async function writeRemote(deviceId: string, balance: number): Promise<void> {
+  if (IS_LOCAL_MODE) return;
   const db = getFirestoreDb();
   if (!db) return;
   await ensureFirebaseAnonymousAuth();

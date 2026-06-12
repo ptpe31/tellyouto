@@ -12,6 +12,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { Platform } from '../utils/rnPlatform';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { IS_LOCAL_MODE } from '../config/appConfig';
 import { setAppPreference } from '../api/localDb';
 import {
   APP_PREF_RAIL_ALARM_SOUND_KEY,
@@ -290,8 +291,10 @@ export function UserSpectrumProvider({
     spectrumRef.current = merged;
     setSpectrum(merged);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-    await pushUserEntitlementsToFirestore({ is_pro_user: value });
-    await pushDeviceProfileToFirestore({});
+    if (!IS_LOCAL_MODE) {
+      await pushUserEntitlementsToFirestore({ is_pro_user: value });
+      await pushDeviceProfileToFirestore({});
+    }
   }, []);
 
   const setPreferredAlarmSound = useCallback(async (sound: RailAlarmSoundId) => {
@@ -327,8 +330,10 @@ export function UserSpectrumProvider({
     spectrumRef.current = merged;
     setSpectrum(merged);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-    await pushUserEntitlementsToFirestore({ ad_free_until_ms: nextUntil });
-    await pushDeviceProfileToFirestore({});
+    if (!IS_LOCAL_MODE) {
+      await pushUserEntitlementsToFirestore({ ad_free_until_ms: nextUntil });
+      await pushDeviceProfileToFirestore({});
+    }
   }, []);
 
   const applyMessengerReminderPrefs = useCallback(
@@ -344,10 +349,12 @@ export function UserSpectrumProvider({
         return merged;
       });
       await persist();
-      await pushDeviceProfileToFirestore({
-        messenger_reminders_enabled: enabled,
-        messenger_reminder_lead_minutes: n,
-      });
+      if (!IS_LOCAL_MODE) {
+        await pushDeviceProfileToFirestore({
+          messenger_reminders_enabled: enabled,
+          messenger_reminder_lead_minutes: n,
+        });
+      }
     },
     [persist],
   );

@@ -1,5 +1,4 @@
-import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
-import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
+import { executeGeminiCall } from './geminiDirectClient';
 import {
   awaitGeminiSteeringBeforeNetworkCall,
   excludeGeminiModelForSession,
@@ -125,22 +124,6 @@ type ProxyStreamEvent =
       tokens_total?: number | null;
     }
   | { type: 'error'; error: string; code?: string; details?: string };
-
-async function getFirebaseIdToken(): Promise<string> {
-  await ensureFirebaseAnonymousAuth();
-  const auth = getFirebaseAuth();
-  const token = await auth?.currentUser?.getIdToken(false);
-  if (!token) throw new Error('Missing Firebase ID token');
-  return token;
-}
-
-async function refreshFirebaseIdToken(): Promise<string> {
-  await ensureFirebaseAnonymousAuth();
-  const auth = getFirebaseAuth();
-  const token = await auth?.currentUser?.getIdToken(true);
-  if (!token) throw new Error('Missing Firebase ID token');
-  return token;
-}
 
 async function readAllTextFromResponse(res: Response): Promise<string> {
   try {
@@ -346,54 +329,24 @@ async function callGeminiProxyStream(params: {
 
   const candidates = buildGeminiProxyCandidateChain(params.modelOverride);
 
-  let token = await getFirebaseIdToken();
-  let tokenRefreshed = false;
   const t0 = perfNowMs();
   let lastError: unknown;
 
   for (let i = 0; i < candidates.length; i += 1) {
     const modelId = candidates[i];
-    const url = getGeminiProxyStreamUrl();
     console.log(
-      '[GEMINI-API] Appel lancé vers le proxy | ModelId:',
+      '[GEMINI-API] Appel Gemini | ModelId:',
       modelId,
       '| Operation:',
       params.operation,
-      '| URL:',
-      url,
     );
 
-    let res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream, application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        modelId,
-        request: params.request,
-        ...(params.systemInstruction ? { systemInstruction: params.systemInstruction } : {}),
-      }),
+    let res = await executeGeminiCall({
+      modelId,
+      request: params.request as Record<string, unknown>,
+      systemInstruction: params.systemInstruction,
+      stream: true,
     });
-
-    if ((res.status === 401 || res.status === 403) && !tokenRefreshed) {
-      token = await refreshFirebaseIdToken();
-      tokenRefreshed = true;
-      res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream, application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          modelId,
-          request: params.request,
-          ...(params.systemInstruction ? { systemInstruction: params.systemInstruction } : {}),
-        }),
-      });
-    }
 
     if (res.status === 401 || res.status === 403) {
       const bodyText = await readAllTextFromResponse(res);

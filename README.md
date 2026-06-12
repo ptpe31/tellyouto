@@ -16,6 +16,8 @@ npm i
 
 ### Variables d’environnement (Expo)
 
+#### Mode production (proxy Firebase — défaut)
+
 Définir au minimum :
 
 - `EXPO_PUBLIC_FIREBASE_API_KEY`
@@ -29,6 +31,36 @@ Clés / APIs :
 
 - `EXPO_PUBLIC_GEMINI_PROXY_URL` (URL Cloud Run du proxy Gemini, ex. `https://geminiproxystream-xxxx-ew.a.run.app`)
 - `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` (Google Places côté client, restreinte par Bundle ID / Package Name + API restrictions)
+
+#### Mode Solo Local 100 % autonome (dev / coupure Firebase)
+
+Dans `.env` à la racine :
+
+```bash
+EXPO_PUBLIC_LOCAL_MODE=true
+EXPO_PUBLIC_GEMINI_API_KEY=<clé Google AI Studio>
+# EXPO_PUBLIC_GEMINI_MODEL=gemini-2.0-flash   # optionnel
+```
+
+- Firebase (Auth, Firestore, proxy Functions) est contourné.
+- Gemini appelle directement `generativelanguage.googleapis.com`.
+- Profil, quotas Sentinel et tier Pro restent sur SQLite + AsyncStorage.
+- **Ne jamais** embarquer `EXPO_PUBLIC_GEMINI_API_KEY` dans un build store.
+
+Relancer : `npx expo start -c`
+
+#### Réactiver Firebase (prompt agent)
+
+Copier-coller ce prompt dans Cursor pour rebasculer sur le proxy :
+
+```
+Réactive le mode Firebase production pour TalkNDone / Trankil v34 :
+1. Dans `.env`, supprime ou mets `EXPO_PUBLIC_LOCAL_MODE=false`, restaure toutes les variables `EXPO_PUBLIC_FIREBASE_*` et `EXPO_PUBLIC_GEMINI_PROXY_URL`.
+2. Supprime `EXPO_PUBLIC_GEMINI_API_KEY` du `.env` (clé dev uniquement).
+3. Vérifie que `firebase deploy --only functions` a bien `geminiProxyStream` actif (minInstances selon besoin latence).
+4. Lance `npx expo start -c` et confirme dans les logs : Firebase initialisé, appels Gemini via proxy (pas `[GEMINI-LOCAL]`).
+5. Valide ProfileSyncBootstrap (sync Firestore) et un appel OneTap Gemini en ligne.
+```
 
 ### Lancer l’app
 
@@ -44,8 +76,16 @@ Voir : [MODELS_ROUTING_STRATEGY.md](file:///Users/lala/Dev/trankil-v3/Dev-tranki
 
 Voir : [STABILITY_SPEC_ONETAP_GEMINI.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/docs/STABILITY_SPEC_ONETAP_GEMINI.md).
 
-## Gemini (Proxy sécurisé)
+## Gemini
+
+### Proxy sécurisé (défaut)
 
 La clé Gemini n’est jamais dans l’app. Le client appelle un proxy (Functions Gen2 / Cloud Run) avec un Firebase ID token, et le proxy détient `GEMINI_API_KEY` via Secret Manager.
 
+Routeur : [`src/services/geminiDirectClient.ts`](src/services/geminiDirectClient.ts) (`executeGeminiCall`).
+
 Voir : [MODELS_ROUTING_STRATEGY.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/docs/MODELS_ROUTING_STRATEGY.md) → “Sécurité & APIs”.
+
+### Mode local (`EXPO_PUBLIC_LOCAL_MODE=true`)
+
+Même routeur, branche directe Google AI Studio — voir section variables ci-dessus.

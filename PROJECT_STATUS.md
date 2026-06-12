@@ -176,6 +176,18 @@ Repères dans `src/services/*` :
 - `api/trankilV2Db.ts` : **repository SQLite** (schema, writes sérialisées, queries Timeline, patchMetadata, quotas, Pass 3 cleanup `listIntentionsForPass3Cleanup`, `daily_summaries`, etc.).
 - `api/localDb.ts` : petit KV local (table `app_prefs`), lui aussi sérialisé.
 
+#### Mode Solo Local 100 % autonome (juin 2026)
+
+| Fichier | Rôle |
+|---------|------|
+| [`appConfig.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/appConfig.ts) | `IS_LOCAL_MODE`, `LOCAL_GEMINI_API_KEY` |
+| [`geminiDirectClient.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiDirectClient.ts) | `executeGeminiCall` — proxy Firebase **ou** Google AI Studio direct |
+| [`ProfileSyncBootstrap.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ProfileSyncBootstrap.tsx) | Sync Firestore désactivée si `IS_LOCAL_MODE` |
+| [`UserSpectrumContext.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/context/UserSpectrumContext.tsx) | Skip push Firestore profil / entitlements |
+| [`QuotaManager.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/QuotaManager.ts) | Quota Sentinel AsyncStorage seul |
+
+Activation : `EXPO_PUBLIC_LOCAL_MODE=true` + `EXPO_PUBLIC_GEMINI_API_KEY`. Réactivation Firebase : [README.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/README.md).
+
 #### Firebase (Option A — web JS SDK, mai 2026)
 
 Point d’entrée : [`src/config/firebase.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/firebase.ts) → `FirebaseProvider` :
@@ -201,7 +213,8 @@ Point d’entrée : [`src/config/firebase.ts`](file:///Users/lala/Dev/trankil-v3
 | [`initializeGeminiEngine.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/initializeGeminiEngine.ts) | Boot steering + shortlist Pass 2 si pas de `gemini_model_fallbacks` RC |
 | [`geminiRemoteModelSteering.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiRemoteModelSteering.ts) | **`getActivePass1ModelId()`** / **`getActivePass2ModelId()`** ; override Debug Pass 2 ; blacklist 404/503 ; foreground refresh ; **`logPass2ModelSteeringDiagnostics`** ; **`ensureFreshPassModelsFromRemoteConfig`** |
 | [`geminiModelCatalog.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiModelCatalog.ts) | Shortlist compilée ; défaut `gemini-3.1-flash-lite` |
-| [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | Appels proxy (SSE), verrou steering 2 s, retry candidats, exclusion session |
+| [`geminiDirectClient.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiDirectClient.ts) | Routeur HTTP Gemini (proxy ou direct selon `IS_LOCAL_MODE`) |
+| [`geminiSemanticLab.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiSemanticLab.ts) | Appels via `executeGeminiCall` (SSE), verrou steering 2 s, retry candidats, exclusion session |
 | [`GeminiExpert.js`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/GeminiExpert.js) | Idem verrou + self-healing pour flux Expert / atomize |
 | [`dailyRoadmapPass3.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/dailyRoadmapPass3.ts) | Pass 3 Feuille de route HTML |
 | [`geminiResponseGuards.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/geminiResponseGuards.ts) | Parsing / guards |

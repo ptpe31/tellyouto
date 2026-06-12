@@ -2,6 +2,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { useEffect } from 'react';
 import { InteractionManager } from 'react-native';
 
+import { IS_LOCAL_MODE } from '../config/appConfig';
 import {
   ensureFirebaseAnonymousAuth,
   getFirebaseAuth,
@@ -19,6 +20,15 @@ export function ProfileSyncBootstrap() {
   const { mergeRemoteProfile, persist } = useUserSpectrum();
 
   useEffect(() => {
+    if (IS_LOCAL_MODE) {
+      console.log(
+        '[OFFLINE-STABILITY] Mode Solo Local Actif - Synchronisation Firestore désactivée.',
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (IS_LOCAL_MODE) return;
     let cancelled = false;
     const task = InteractionManager.runAfterInteractions(() => {
       void (async () => {
@@ -36,6 +46,7 @@ export function ProfileSyncBootstrap() {
   }, [mergeRemoteProfile, persist]);
 
   useEffect(() => {
+    if (IS_LOCAL_MODE) return;
     const db = getFirestoreDb();
     if (!db) return;
     let unsub: (() => void) | undefined;
@@ -75,6 +86,7 @@ export function ProfileSyncBootstrap() {
   }, [mergeRemoteProfile]);
 
   useEffect(() => {
+    if (IS_LOCAL_MODE) return;
     const db = getFirestoreDb();
     if (!db) return;
     let unsub: (() => void) | undefined;

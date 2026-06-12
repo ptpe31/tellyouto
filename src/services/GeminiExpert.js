@@ -7,8 +7,7 @@ import {
   shouldExcludeGeminiModelForSession,
 } from './geminiRemoteModelSteering';
 
-import { getGeminiProxyStreamUrl } from '../config/cloudFunctions';
-import { ensureFirebaseAnonymousAuth, getFirebaseAuth } from '../api/firebase';
+import { executeGeminiCall } from './geminiDirectClient';
 
 function log(stage, detail) {
   const line = `[GeminiExpert] ${stage}`;
@@ -44,14 +43,6 @@ function extractTextFromGenerateResponse(data) {
     .map((p) => (typeof p?.text === 'string' ? p.text : ''))
     .join('')
     .trim();
-}
-
-async function getFirebaseIdToken() {
-  await ensureFirebaseAnonymousAuth();
-  const auth = getFirebaseAuth();
-  const token = await auth?.currentUser?.getIdToken();
-  if (!token) throw new Error('Missing Firebase ID token');
-  return token;
 }
 
 async function readAllText(res) {
@@ -119,25 +110,17 @@ async function readProxySse(res) {
 async function generateContentWithFallback(prompt, generationConfig) {
   await awaitGeminiSteeringBeforeNetworkCall();
   const candidates = getGeminiCandidateModelIds();
-  const token = await getFirebaseIdToken();
   const effectiveGenerationConfig = withLightGenerationConfig(generationConfig);
 
   const doFetch = async (modelId) => {
-    const url = getGeminiProxyStreamUrl();
-    log('request.start', { model: modelId, endpoint: url });
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+    log('request.start', { model: modelId });
+    const res = await executeGeminiCall({
+      modelId,
+      request: {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: effectiveGenerationConfig,
       },
-      body: JSON.stringify({
-        modelId,
-        request: {
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: effectiveGenerationConfig,
-        },
-      }),
+      stream: true,
     });
     const text = res.ok ? await readProxySse(res) : await readAllText(res);
     log('request.response', {

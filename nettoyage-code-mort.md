@@ -1,7 +1,7 @@
 # Nettoyage code mort — registre global
 
 Document de travail pour la suppression définitive du code commenté / stubé dans `src/`, `App.tsx`, et modules liés.  
-**Dernière mise à jour :** juin 2026 — registre Sentinel Focus + hub `TRIPS_HUB` + **backlog typographie Zen** (§17).
+**Dernière mise à jour :** juin 2026 — registre Sentinel Focus + hub `TRIPS_HUB` + **backlog typographie Zen** (§17) + **mode Solo Local** (§18).
 
 ---
 
@@ -18,8 +18,9 @@ Document de travail pour la suppression définitive du code commenté / stubé d
 9. [Nudge « 2 minutes disponibles »](#1-modale-2-minutes-disponibles-availability-nudge)
 10. [Sentinel Focus Badge — ne pas supprimer](#16-sentinel-focus-badge--code-actif-juin-2026)
 11. [Typographie Zen — backlog migration](#17-typographie-zen--backlog-migration-juin-2026)
-12. [Checklist suppression](#14-checklist-suppression-définitive)
-13. [Commandes `rg`](#15-commandes-utiles)
+12. [Mode Solo Local — ne pas supprimer](#18-mode-solo-local--code-actif-juin-2026)
+13. [Checklist suppression](#14-checklist-suppression-définitive)
+14. [Commandes `rg`](#15-commandes-utiles)
 
 ---
 
@@ -387,6 +388,33 @@ rg 'typography\.' src --glob '*.{tsx,ts}'
 | `buildLivingHubBlocks.ts` (resolveHubBlockCategoryId) | **prod — ne pas supprimer** |
 | `useDesignTokens.ts` (`ZEN_TYPOGRAPHY`) | **prod — ne pas supprimer** (§17) |
 | `OneTapConfirmModal.tsx` / `IntentionDetailSheet.tsx` / `TimelineScreen.tsx` / `DebugScreen.tsx` | **typographie migrée** (§17) |
+
+---
+
+## 18. Mode Solo Local — code actif (juin 2026)
+
+### Résumé
+
+- **Type :** bascule runtime via `EXPO_PUBLIC_LOCAL_MODE=true` (dev / coupure Firebase).
+- **But :** contourner Auth, Firestore et proxy Functions ; Gemini direct Google AI Studio.
+- **Statut :** **ACTIF** — ne pas supprimer lors d’un nettoyage code mort.
+
+### Fichiers impactés
+
+| Fichier | Rôle | Action ultérieure |
+|---------|------|-------------------|
+| `src/config/appConfig.ts` | `IS_LOCAL_MODE`, `LOCAL_GEMINI_API_KEY` | Conserver |
+| `src/services/geminiDirectClient.ts` | `executeGeminiCall` (routeur proxy / direct) | Conserver |
+| `src/services/geminiSemanticLab.ts` | Consommateur routeur | Conserver branche `executeGeminiCall` |
+| `src/services/GeminiExpert.js` | Idem | Conserver |
+| `src/services/geminiModelHealthCheck.ts` | Idem | Conserver |
+| `src/components/ProfileSyncBootstrap.tsx` | Skip sync Firestore | Conserver garde `IS_LOCAL_MODE` |
+| `src/context/UserSpectrumContext.tsx` | Skip push Firestore | Conserver |
+| `src/services/QuotaManager.ts` | Skip read/write Firestore quota | Conserver |
+
+### Réactivation Firebase
+
+Voir prompt agent dans [README.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/README.md) (section « Réactiver Firebase »).
 
 ---
 
