@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   DeviceEventEmitter,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -38,6 +39,10 @@ import {
   getResolvedPass2ModelFromRemoteConfig,
 } from '../services/geminiRemoteModelSteering';
 import { runGeminiModelHealthCheck } from '../services/geminiModelHealthCheck';
+import {
+  clearBatteryPermissionRequestedFlag,
+  requestIgnoreBatteryOptimizationAndroid,
+} from '../services/PermissionService';
 import { TrafficScheduler, type TrafficMonitoringSnapshot } from '../services/traffic/TrafficScheduler';
 import { TrafficSimulator } from '../services/traffic/TrafficSimulator';
 import { computeDurationTargetSec } from '../services/traffic/TrafficEngine';
@@ -404,6 +409,17 @@ export function DebugScreen() {
     }
   }, [t]);
 
+  /** Réinitialise le flag batterie Android pour retester la modale système. */
+  const onResetBatteryPermissionFlag = useCallback(async () => {
+    try {
+      await clearBatteryPermissionRequestedFlag();
+      await requestIgnoreBatteryOptimizationAndroid();
+      showAppToast(t('debug.batteryPermissionResetDone'));
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    }
+  }, [t]);
+
   /** Simule Free / Pro côté client (`debugUserTierOverride` + `UserSpectrum`). */
   const onApplyTierOverride = useCallback(
     async (next: DebugUserTierOverride) => {
@@ -622,6 +638,16 @@ export function DebugScreen() {
             tasks: dbCounts.tasksCount,
           })}
         </Text>
+        {Platform.OS === 'android' ? (
+          <Button
+            mode="outlined"
+            onPress={() => void onResetBatteryPermissionFlag()}
+            disabled={busy !== null}
+            style={styles.btn}
+          >
+            {t('debug.batteryPermissionReset')}
+          </Button>
+        ) : null}
         <Button mode="outlined" onPress={onRebuildDb} disabled={busy !== null} style={styles.btn}>
           {t('debug.rebuildDb')}
         </Button>

@@ -305,6 +305,8 @@
     "pilotTitle": "Cleanup & piloting (debug)",
     "note": "Internal cockpit — Remote Config vs local model, simulated traffic, factory reset.",
     "firebaseProjectIdButton": "Show Firebase projectId (SDK vs .env)",
+    "batteryPermissionReset": "Reset Android battery permission prompt",
+    "batteryPermissionResetDone": "Battery flag cleared — system dialog relaunched.",
     "rebuildDb": "Rebuild database",
     "rebuildDbHelp": "Rebuilds the intentions table (talkndone.db) sequentially.",
     "clearDb": "Clear database",

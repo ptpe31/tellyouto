@@ -49,6 +49,9 @@ LogBox.ignoreLogs(['Method readAsStringAsync imported from "expo-file-system" is
 const SHARE_INTENT_DISABLED =
   Constants.appOwnership === 'expo' || Platform.OS === 'web';
 
+/** Évite de relancer Gemini / BackgroundFetch / permissions à chaque Fast Refresh. */
+let appServicesBootstrapDone = false;
+
 /** `NavigationContainer` + deep linking + `RootNavigator` (hors providers). */
 function AppNavigation() {
   const theme = useTheme();
@@ -73,9 +76,12 @@ export default function App() {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
-    void initializeGeminiEngine();
-    void configureCaptureBackgroundTask();
-    void requestBackgroundExecutionPermissions();
+    if (!appServicesBootstrapDone) {
+      appServicesBootstrapDone = true;
+      void initializeGeminiEngine();
+      void configureCaptureBackgroundTask();
+      void requestBackgroundExecutionPermissions();
+    }
 
     const appStateSub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       const prev = appStateRef.current;

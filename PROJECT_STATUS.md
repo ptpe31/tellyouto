@@ -34,7 +34,8 @@
 
 - `index.ts` : charge i18n (`./src/locales/i18n`) puis enregistre `App`.
 - `App.tsx` :
-  - bootstrap services : `initializeGeminiEngine()` (steering RC Gemini), `configureCaptureBackgroundTask()`, `requestBackgroundExecutionPermissions()`
+  - bootstrap services (une fois par session JS, garde module `appServicesBootstrapDone` — évite le spam Fast Refresh) : `initializeGeminiEngine()` (steering RC Gemini), `configureCaptureBackgroundTask()`, `requestBackgroundExecutionPermissions()`
+  - **Permissions Android batterie** : `requestIgnoreBatteryOptimizationAndroid()` mémorise `@trankil_battery_permission_requested` (AsyncStorage) — la modale système n’est sollicitée qu’une fois ; reset via **Debug** → section Système
   - **Foreground RC** : `AppState` → `scheduleGeminiForegroundRemoteConfigRefresh()` (refresh silencieux modèle Gemini)
   - bootstrap DB : `bootstrapTrankilV2Database()` (avec fallback timer 1.2s pour ne pas bloquer l’UI)
   - **`ShareIntentProvider`** (`expo-share-intent`, désactivé sous Expo Go / web) enveloppe l’arbre UI après `dbReady`

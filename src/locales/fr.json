@@ -305,6 +305,8 @@
     "pilotTitle": "Grand ménage & pilotage (debug)",
     "note": "Cockpit interne — Remote Config vs modèle local, trafic simulé, reset usine.",
     "firebaseProjectIdButton": "Voir projectId Firebase (SDK vs .env)",
+    "batteryPermissionReset": "Réinitialiser la demande batterie Android",
+    "batteryPermissionResetDone": "Flag batterie effacé — modale système relancée.",
     "rebuildDb": "Reconstruire la base de données",
     "rebuildDbHelp": "Reconstruit la table intentions (talkndone.db) de façon séquentielle.",
     "clearDb": "Vider la base de données",
