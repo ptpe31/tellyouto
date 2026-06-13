@@ -56,6 +56,7 @@ import {
 import { clearAllDepartureNotifications } from '../services/NotificationService';
 
 import { useIntentAlarm } from '../hooks/useIntentAlarm';
+import { buildIntentAlarmVisibilityDebug } from '../utils/intentAlarmTemporal';
 import { cancelTripMission, suspendTripMissionForAllDay } from '../services/traffic/sentinelTripMission';
 import { toggleTripSurveillanceForRow } from '../services/traffic/tripSurveillanceToggle';
 import { showAppToast } from '../services/appToast';
@@ -1404,6 +1405,50 @@ export function IntentionDetailSheet({
     },
     patchMetadataFn: patchMetadataIfSheetUnfrozen,
   });
+
+  useEffect(() => {
+    if (!__DEV__ || !visible || !row?.id) return;
+    const footerBranch = isValidationView ? 'validation' : gateLocked ? 'gate_locked' : 'full';
+    const alarmButtonEligible = Boolean(hasDueDate && row.id !== 'peek_pending' && !isValidationView);
+    const actuallyRendered = alarmButtonEligible && footerBranch === 'full';
+    console.log('[IntentAlarm] DetailSheet footer', {
+      ...buildIntentAlarmVisibilityDebug(row, { tripCapsuleModel: elasticDepartureCapsuleModel }),
+      sheetPosition,
+      visible,
+      gateLocked,
+      gateFullTripBypass,
+      isValidationView,
+      pass2Unlocked,
+      pass2UnlockedFromMeta,
+      isTrip,
+      footerBranch,
+      alarmButtonEligible,
+      actuallyRendered,
+      hideReason: !actuallyRendered
+        ? !hasDueDate
+          ? 'no_due_date'
+          : row.id === 'peek_pending'
+            ? 'peek_pending'
+            : isValidationView
+              ? 'validation_view'
+              : gateLocked
+                ? 'gate_locked_footer_has_no_alarm_button'
+                : 'unknown'
+        : null,
+    });
+  }, [
+    visible,
+    row,
+    hasDueDate,
+    gateLocked,
+    gateFullTripBypass,
+    isValidationView,
+    pass2Unlocked,
+    pass2UnlockedFromMeta,
+    isTrip,
+    sheetPosition,
+    elasticDepartureCapsuleModel,
+  ]);
 
   const elasticDepartureTextFallback = useMemo(() => {
     if (!elasticSlotDisplay?.windowLabel) return null;

@@ -56,6 +56,7 @@ export function resolveIntentionDueYmd(row: TrankilV2TimelineItemRow): string | 
   return (
     parseDueDateYmd(row.due_date) ??
     str(meta, 'dueDateYmd') ??
+    str(meta, 'due_date') ??
     str(trip, 'dueDateYmd') ??
     extractYmdFromIso(str(meta, 'dueDateTime')) ??
     extractYmdFromIso(str(trip, 'dueDateTime')) ??
@@ -160,4 +161,42 @@ export function isIntentionAlarmWitnessVisible(
   const effectiveMs = resolveIntentionEffectiveEventMs(row, opts);
   if (effectiveMs == null) return true;
   return nowMs < effectiveMs + INTENT_ALARM_WITNESS_GRACE_MS;
+}
+
+/** Diagnostic DEV — comprendre pourquoi le bouton « Planifier une alarme » est masqué. */
+export function buildIntentAlarmVisibilityDebug(
+  row: TrankilV2TimelineItemRow | null | undefined,
+  opts?: ResolveAlarmOpts,
+): Record<string, unknown> {
+  if (!row) {
+    return { intentionId: null, hasDueDate: false, reason: 'no_row' };
+  }
+  const meta = safeParseJsonObject(row.metadata_json);
+  const trip =
+    meta?.trip && typeof meta.trip === 'object' && !Array.isArray(meta.trip)
+      ? (meta.trip as Record<string, unknown>)
+      : null;
+  const { hasStrictTime, dueTimeHm, timeMarker } = parseRowTemporalMeta(row);
+  const resolvedDueYmd = resolveIntentionDueYmd(row);
+  return {
+    intentionId: row.id,
+    type: row.type,
+    hasDueDate: resolvedDueYmd != null,
+    resolvedDueYmd,
+    sources: {
+      sqliteDueDate: row.due_date ?? null,
+      metaDueDateYmd: str(meta, 'dueDateYmd'),
+      metaDueDateLower: str(meta, 'due_date'),
+      metaDueDateTime: str(meta, 'dueDateTime'),
+      tripDueDateYmd: str(trip, 'dueDateYmd'),
+      tripArrivalDue: str(trip, 'arrivalDue'),
+    },
+    temporal: {
+      timeMarker,
+      hasStrictTime,
+      dueTimeHm,
+      alarmUnixSec: resolveIntentionAlarmUnixSec(row, opts),
+      dueDateTimeIso: resolveIntentionDueDateTimeIso(row, opts),
+    },
+  };
 }

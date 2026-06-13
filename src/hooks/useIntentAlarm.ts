@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +9,7 @@ import { showAppToast } from '../services/appToast';
 import { scheduleOneTapUniversalReminders } from '../services/oneTapUniversalReminders';
 import type { TripElasticCapsuleModel } from '../utils/tripElasticCapsuleModel';
 import {
+  buildIntentAlarmVisibilityDebug,
   formatHmFromUnix,
   hasIntentionSchedulableDueDate,
   isIntentionAlarmWitnessVisible,
@@ -64,6 +65,14 @@ export function useIntentAlarm(
   }, [metadataJson, nowMs, row, tripCapsuleModel]);
 
   const hasDueDate = useMemo(() => (row ? hasIntentionSchedulableDueDate(row) : false), [row]);
+
+  useEffect(() => {
+    if (!__DEV__ || !row?.id) return;
+    console.log(
+      '[IntentAlarm] useIntentAlarm',
+      buildIntentAlarmVisibilityDebug(row, { tripCapsuleModel }),
+    );
+  }, [row, tripCapsuleModel]);
 
   const commitAlarmSet = useCallback(
     async (active: boolean): Promise<boolean> => {
