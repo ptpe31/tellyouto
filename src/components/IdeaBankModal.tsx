@@ -30,6 +30,7 @@ import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { toggleTripSurveillanceForRow } from '../services/traffic/tripSurveillanceToggle';
 import { persistTripArrivalAddress, persistTripOriginAddress } from '../services/traffic/persistTripArrivalAddress';
 import { showAppToast } from '../services/appToast';
+import { runIntentionAlarmSchedule } from '../services/intentionAlarmSchedule';
 import { Platform as RPlatform } from '../utils/rnPlatform';
 import { PressableScale } from './common/PressableScale';
 import { IdeaBankTripItineraryBlock } from './IdeaBankTripItineraryBlock';
@@ -60,6 +61,10 @@ import {
 } from '../utils/tripItineraryDisplay';
 import { resolveTripSurveillanceUiState } from '../utils/tripSurveillanceButton';
 import { getTripMetaFromRoot } from '../utils/tripTimelineCard';
+import {
+  hasIntentionSchedulableDueDate,
+  readIntentionAlarmSetFlag,
+} from '../utils/intentAlarmTemporal';
 import { TaskCompletionOrb } from './TaskCompletionOrb';
 
 type Props = {
@@ -189,6 +194,7 @@ export function IdeaBankModal({
     () => new Map(),
   );
   const [tripPillBusyIds, setTripPillBusyIds] = useState<Set<string>>(() => new Set());
+  const [alarmPillBusyIds, setAlarmPillBusyIds] = useState<Set<string>>(() => new Set());
   const [searchTarget, setSearchTarget] = useState<TripAddressSearchTarget | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingLocalDone, setPendingLocalDone] = useState<Set<string>>(() => new Set());
@@ -528,6 +534,29 @@ export function IdeaBankModal({
     [applyLocalPatch, isProUser, openAddressSearch, openTripSetup, refresh, t, tripPillBusyIds],
   );
 
+  const handleAlarmPillPress = useCallback(
+    async (row: TrankilV2TimelineItemRow) => {
+      if (alarmPillBusyIds.has(row.id)) return;
+      setAlarmPillBusyIds((prev) => new Set(prev).add(row.id));
+      try {
+        const ok = await runIntentionAlarmSchedule({
+          row,
+          translate: t,
+          metadataJson: row.metadata_json,
+          onPatchRow: applyLocalPatch,
+        });
+        if (ok) await safeSuccessHaptic();
+      } finally {
+        setAlarmPillBusyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(row.id);
+          return next;
+        });
+      }
+    },
+    [alarmPillBusyIds, applyLocalPatch, t],
+  );
+
   useEffect(() => {
     if (!visible) {
       autoTripPillFiredRef.current = false;
@@ -635,6 +664,22 @@ export function IdeaBankModal({
                     })
                   : '';
                 const tripPillBusy = tripPillBusyIds.has(row.id);
+                const showAlarmPill = !isTripCard && hasIntentionSchedulableDueDate(row);
+                const alarmPillActive = readIntentionAlarmSetFlag(metaRoot);
+                const alarmPillBusy = alarmPillBusyIds.has(row.id);
+                const alarmPillLabel = alarmPillActive
+                  ? t('intentAlarm.alarmActive')
+                  : t('intentAlarm.planAlarm');
+
+                if (__DEV__ && !isTripCard) {
+                  console.log('[IntentAlarm] IdeaBank card', {
+                    intentionId: row.id,
+                    showAlarmPill,
+                    dueDate: row.due_date,
+                    metaDueDateYmd: metaRoot?.dueDateYmd,
+                    metaDueDate: metaRoot?.due_date,
+                  });
+                }
 
                 return (
                   <View
@@ -738,6 +783,31 @@ export function IdeaBankModal({
                       >
                         <Text style={styles.pass2PillText} numberOfLines={2}>
                           {tripPillLabel}
+                        </Text>
+                      </PressableScale>
+                    ) : null}
+
+                    {showAlarmPill ? (
+                      <PressableScale
+                        style={[
+                          styles.pass2Pill,
+                          alarmPillActive ? styles.pass2PillActive : null,
+                          {
+                            backgroundColor: alarmPillActive
+                              ? `${designTokens.accentColor}CC`
+                              : designTokens.accentColor,
+                            borderRadius: 999,
+                            opacity: alarmPillBusy ? 0.65 : 1,
+                          },
+                        ]}
+                        hapticType="medium"
+                        disabled={alarmPillBusy}
+                        onPress={() => void handleAlarmPillPress(row)}
+                        accessibilityRole="button"
+                        accessibilityLabel={alarmPillLabel}
+                      >
+                        <Text style={styles.pass2PillText} numberOfLines={2}>
+                          {alarmPillLabel}
                         </Text>
                       </PressableScale>
                     ) : null}

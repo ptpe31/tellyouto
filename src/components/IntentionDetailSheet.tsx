@@ -88,6 +88,7 @@ import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
+import { PressableScale } from './common/PressableScale';
 import { AIUniversalProgressOverlay } from './AIUniversalProgressOverlay';
 import {
   AI_PROGRESS_REVEAL_HOLD_MS,
@@ -1410,7 +1411,7 @@ export function IntentionDetailSheet({
     if (!__DEV__ || !visible || !row?.id) return;
     const footerBranch = isValidationView ? 'validation' : gateLocked ? 'gate_locked' : 'full';
     const alarmButtonEligible = Boolean(hasDueDate && row.id !== 'peek_pending' && !isValidationView);
-    const actuallyRendered = alarmButtonEligible && footerBranch === 'full';
+    const actuallyRendered = alarmButtonEligible;
     console.log('[IntentAlarm] DetailSheet footer', {
       ...buildIntentAlarmVisibilityDebug(row, { tripCapsuleModel: elasticDepartureCapsuleModel }),
       sheetPosition,
@@ -1432,7 +1433,7 @@ export function IntentionDetailSheet({
             : isValidationView
               ? 'validation_view'
               : gateLocked
-                ? 'gate_locked_footer_has_no_alarm_button'
+                ? 'gate_locked_but_button_should_render'
                 : 'unknown'
         : null,
     });
@@ -1449,6 +1450,28 @@ export function IntentionDetailSheet({
     sheetPosition,
     elasticDepartureCapsuleModel,
   ]);
+
+  const alarmEngagementPill =
+    !isTrip && hasDueDate && row && row.id !== 'peek_pending' && !isValidationView ? (
+      <PressableScale
+        style={[
+          styles.engagementPill,
+          isAlarmSet ? styles.engagementPillActive : null,
+          {
+            backgroundColor: isAlarmSet ? `${designTokens.accentColor}CC` : designTokens.accentColor,
+            borderRadius: 999,
+          },
+        ]}
+        hapticType="medium"
+        onPress={() => void onSetAlarm()}
+        accessibilityRole="button"
+        accessibilityLabel={isAlarmSet ? t('intentAlarm.alarmActive') : t('intentAlarm.planAlarm')}
+      >
+        <Text style={styles.engagementPillText} numberOfLines={2}>
+          {isAlarmSet ? t('intentAlarm.alarmActive') : t('intentAlarm.planAlarm')}
+        </Text>
+      </PressableScale>
+    ) : null;
 
   const elasticDepartureTextFallback = useMemo(() => {
     if (!elasticSlotDisplay?.windowLabel) return null;
@@ -3010,6 +3033,7 @@ export function IntentionDetailSheet({
                       </Text>
                     </>
                   ) : null}
+                  {alarmEngagementPill}
                   <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
                   <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.noteMemoSection')}</Text>
                   <TextInput
@@ -3187,6 +3211,8 @@ export function IntentionDetailSheet({
                   ) : null}
                 </>
               ) : null}
+
+              {!isTrip ? alarmEngagementPill : null}
 
               {isHabit && sheetPosition === 'full' && !isValidationView ? (
                 <>
@@ -3933,16 +3959,6 @@ export function IntentionDetailSheet({
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-              {hasDueDate && row && row.id !== 'peek_pending' && !isValidationView ? (
-                <Button
-                  mode="outlined"
-                  icon={isAlarmSet ? 'bell-check' : 'bell-plus-outline'}
-                  onPress={() => void onSetAlarm()}
-                  style={styles.footerReminderBtn}
-                >
-                  {isAlarmSet ? t('intentAlarm.alarmActive') : t('intentAlarm.planAlarm')}
-                </Button>
-              ) : null}
               {isTrip ? (
                 <View style={styles.footerTripCol}>
                   <Button
@@ -4359,6 +4375,23 @@ function createIntentionDetailStyles(typography: ZenTypography) {
   footerActionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' },
   footerPinBtn: { marginRight: 'auto' },
+  engagementPill: {
+    marginTop: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  engagementPillActive: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
+  },
+  engagementPillText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   footerReminderBtn: { borderRadius: 16, width: '100%', marginBottom: 10 },
   footerTripCol: { width: '100%', gap: 10, marginBottom: 10 },
   footerLaunchCol: { flexShrink: 1, maxWidth: '58%' },
