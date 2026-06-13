@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { DeviceEventEmitter, StyleSheet, View } from 'react-native';
+import { DeviceEventEmitter, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,6 +9,7 @@ import { TalkCaptureMicButton } from './TalkCaptureMicButton';
 import { TALK_CAPTURE_DEBUG_EVENT } from '../constants/talkCaptureDebug';
 import {
   resolveGlobalCaptureOverlayBottom,
+  resolveTalkDebugMicDockTopPx,
   TALK_DEBUG_MIC_DOCK_MIN_HEIGHT,
 } from '../constants/captureOverlayLayout';
 import { useCapturePresentation } from '../context/CapturePresentationContext';
@@ -19,6 +20,7 @@ import { useCapturePresentation } from '../context/CapturePresentationContext';
 export function GlobalCaptureOverlay() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const {
     config,
     captureRecordingActive,
@@ -51,6 +53,15 @@ export function GlobalCaptureOverlay() {
     [insets.bottom],
   );
 
+  const pipelineVerticalAnchorBand = useMemo(() => {
+    if (!isTalkDebug) return null;
+    const topPx = config.pipelineAnchorTopPx;
+    if (topPx == null || topPx <= 0) return null;
+    const bottomPx = resolveTalkDebugMicDockTopPx(windowHeight, insets.bottom);
+    if (bottomPx <= topPx) return null;
+    return { topPx, bottomPx };
+  }, [config.pipelineAnchorTopPx, insets.bottom, isTalkDebug, windowHeight]);
+
   return (
     <>
       <PassProModal visible={passProVisible} onDismiss={() => setPassProVisible(false)} />
@@ -59,6 +70,7 @@ export function GlobalCaptureOverlay() {
         progress={pipelineDisplayedPct}
         label={pipelineTitleText}
         barColor={pipelineBarColor}
+        verticalAnchorBand={pipelineVerticalAnchorBand}
       />
       {showGlobalMic ? (
         <View

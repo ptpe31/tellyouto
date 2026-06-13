@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   type StyleProp,
   type TextStyle,
   View,
@@ -59,6 +60,11 @@ export function CaptureTranscriptEditor({
   );
 }
 
+export type VerticalAnchorBand = {
+  topPx: number;
+  bottomPx: number;
+};
+
 export type AIUniversalProgressOverlayProps = {
   isVisible: boolean;
   /** 0–100, valeur déjà lissée côté hook / parent. */
@@ -67,6 +73,8 @@ export type AIUniversalProgressOverlayProps = {
   label: string;
   /** Couleur de remplissage de la barre (ex. résilience orange). */
   barColor?: string;
+  /** TalkDebug : centre la carte dans la bande verticale [topPx, bottomPx] (coordonnées fenêtre). */
+  verticalAnchorBand?: VerticalAnchorBand | null;
   /** Transcript STT optionnel (lecture ou édition selon `isEditingTranscription`). */
   transcript?: string;
   isEditingTranscription?: boolean;
@@ -85,14 +93,27 @@ export function AIUniversalProgressOverlay({
   progress,
   label,
   barColor = DEFAULT_BAR,
+  verticalAnchorBand,
   transcript,
   isEditingTranscription = false,
   onTranscriptChange,
   transcriptPlaceholder,
 }: AIUniversalProgressOverlayProps) {
+  const { height: windowHeight } = useWindowDimensions();
   const pct = Math.max(0, Math.min(100, progress));
   const rounded = Math.round(pct);
   const showTranscript = typeof transcript === 'string';
+  const band =
+    verticalAnchorBand && verticalAnchorBand.bottomPx > verticalAnchorBand.topPx ? verticalAnchorBand : null;
+  const centerStyle = band
+    ? [
+        styles.center,
+        {
+          paddingTop: band.topPx,
+          paddingBottom: Math.max(0, windowHeight - band.bottomPx),
+        },
+      ]
+    : styles.center;
 
   return (
     <Modal visible={isVisible} transparent animationType="fade" statusBarTranslucent>
@@ -103,7 +124,7 @@ export function AIUniversalProgressOverlay({
       >
         <View style={styles.backdropSolid} pointerEvents="none" />
         <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-        <View style={styles.center} pointerEvents="box-none">
+        <View style={centerStyle} pointerEvents="box-none">
           <View style={styles.card} pointerEvents="box-none">
             {showTranscript ? (
               <View style={styles.transcriptShell}>

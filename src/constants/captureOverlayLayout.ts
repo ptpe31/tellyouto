@@ -27,3 +27,9 @@ export function resolveGlobalCaptureOverlayBottom(safeAreaBottom: number): numbe
 export function resolveTalkDebugSuggestionsBottomOffset(): number {
   return TALK_DEBUG_MIC_DOCK_MIN_HEIGHT + 24;
 }
+
+/** Bord supérieur du dock micro Talk (coordonnée fenêtre) — ancre basse overlay pipeline. */
+export function resolveTalkDebugMicDockTopPx(windowHeight: number, safeAreaBottom: number): number {
+  const overlayBottom = resolveGlobalCaptureOverlayBottom(safeAreaBottom);
+  return windowHeight - overlayBottom - TALK_DEBUG_MIC_DOCK_MIN_HEIGHT;
+}

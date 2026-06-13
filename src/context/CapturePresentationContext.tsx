@@ -30,6 +30,8 @@ export type CapturePresentationConfig = {
   compact?: boolean;
   /** TalkDebug : ouvre l’overlay pipeline au relâchement micro. */
   dashboardPipelineHost?: boolean;
+  /** TalkDebug : bas de la pastille pro (Y fenêtre) pour centrer l’overlay pipeline. */
+  pipelineAnchorTopPx?: number | null;
   disabled?: boolean;
   lockedHintText?: string;
   waveformA11yLabel?: string;

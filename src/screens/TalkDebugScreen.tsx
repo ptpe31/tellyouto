@@ -177,6 +177,15 @@ export function TalkDebugScreen() {
   const [todayFocusRows, setTodayFocusRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [sacredDetailOpen, setSacredDetailOpen] = useState(false);
   const [sacredDetailRow, setSacredDetailRow] = useState<TrankilV2TimelineItemRow | null>(null);
+  const pilotAnchorRef = useRef<View>(null);
+
+  const reportPipelineAnchorTop = useCallback(() => {
+    pilotAnchorRef.current?.measureInWindow((_x, y, _w, h) => {
+      if (h > 0) {
+        setPresentation({ pipelineAnchorTopPx: y + h });
+      }
+    });
+  }, [setPresentation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -470,33 +479,35 @@ export function TalkDebugScreen() {
             <Text style={[styles.phoenixSendText, { color: '#FFFFFF' }]}>Envoyer</Text>
           </TouchableOpacity>
         </View>
-        <PilotStatusHeader
-          variant="talkDebug"
-          isProUser={spectrum.isProUser}
-          freeRemaining={freeQuotaSnapshot?.remaining ?? 0}
-          freeMax={freeQuotaSnapshot?.max ?? 3}
-          dayOfMonth={new Date().getDate()}
-          todayTodoCount={todayTodoCount}
-          piggyCount={headerUnorganizedCount}
-          onPressCredits={() => {
-            if (rootNavigationRef.isReady()) {
-              rootNavigationRef.navigate('ProSubscription');
+        <View ref={pilotAnchorRef} collapsable={false} onLayout={reportPipelineAnchorTop}>
+          <PilotStatusHeader
+            variant="talkDebug"
+            isProUser={spectrum.isProUser}
+            freeRemaining={freeQuotaSnapshot?.remaining ?? 0}
+            freeMax={freeQuotaSnapshot?.max ?? 3}
+            dayOfMonth={new Date().getDate()}
+            todayTodoCount={todayTodoCount}
+            piggyCount={headerUnorganizedCount}
+            onPressCredits={() => {
+              if (rootNavigationRef.isReady()) {
+                rootNavigationRef.navigate('ProSubscription');
+              }
+            }}
+            onPressCalendar={() =>
+              navigation.navigate('Timeline', {
+                initialTimeNav: 'TODAY',
+                initialContext: 'ALL',
+              })
             }
-          }}
-          onPressCalendar={() =>
-            navigation.navigate('Timeline', {
-              initialTimeNav: 'TODAY',
-              initialContext: 'ALL',
-            })
-          }
-          onPressPiggy={() =>
-            navigation.navigate('Timeline', {
-              initialTimeNav: 'TODAY',
-              initialContext: 'PIGGY',
-            })
-          }
-          translate={t}
-        />
+            onPressPiggy={() =>
+              navigation.navigate('Timeline', {
+                initialTimeNav: 'TODAY',
+                initialContext: 'PIGGY',
+              })
+            }
+            translate={t}
+          />
+        </View>
         {pinnedRows.length > 0 ? (
           <View style={styles.sacredSpace}>
             <Text style={[styles.sacredTitle, { color: designTokens.textSecondary }]}>
