@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { executeGeminiCall } from './geminiDirectClient';
 import {
   awaitGeminiSteeringBeforeNetworkCall,
@@ -159,7 +160,7 @@ async function readProxySse(
       buffer = buffer.slice(sepIndex + 2);
       const lines = rawEvent.split('\n');
       for (const line of lines) {
-        const trimmed = line.replace(/\r$/, '');
+        const trimmed = line.trim();
         if (!trimmed.startsWith('data:')) continue;
         const payload = trimmed.slice(5).trim();
         if (!payload) continue;
@@ -193,8 +194,10 @@ async function readProxySse(
     }
   };
 
+  // Hermes : ReadableStream (fetch ou synthétique) livre souvent 0 octet — bufferiser.
+  const preferBufferedSse = Platform.OS !== 'web';
   const stream = (res.body as ReadableStream<Uint8Array> | null) ?? null;
-  if (!stream || typeof stream.getReader !== 'function') {
+  if (preferBufferedSse || !stream || typeof stream.getReader !== 'function') {
     const text = await readAllTextFromResponse(res);
     processChunkText(text);
     return { text: doneText ?? accumulated, serverLatencyMs, serverModelId, usageMetadata };

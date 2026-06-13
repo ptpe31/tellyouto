@@ -76,120 +76,74 @@ function encodeProxySseEvent(payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
-/**
- * Transforme le flux SSE natif Google (`alt=sse`) en événements proxy
- * (`delta` / `done`) attendus par `readProxySse` dans l'app.
- */
-function transformGoogleSseToProxySse(
-  googleBody: ReadableStream<Uint8Array> | null,
-  googleTextFallback: string,
-): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
+/** Parse le corps SSE Google (`alt=sse`) et renvoie un événement proxy `done` prêt à lire. */
+function buildProxyDoneSseFromGoogleSse(googleSseText: string): string {
+  let accumulated = '';
+  let lastUsage:
+    | { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }
+    | undefined;
 
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let accumulated = '';
-      let lastUsage:
-        | { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }
-        | undefined;
+  const processGooglePayload = (payload: string) => {
+    const trimmed = payload.trim();
+    if (!trimmed || trimmed === '[DONE]') return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+    const chunkText = extractTextFromGoogleResponse(parsed);
+    const usage = extractUsageFromGoogleResponse(parsed);
+    if (usage) lastUsage = usage;
+    if (!chunkText) return;
+    if (chunkText.startsWith(accumulated)) {
+      accumulated = chunkText;
+    } else {
+      accumulated += chunkText;
+    }
+  };
 
-      const emitDelta = (delta: string) => {
-        if (!delta) return;
-        controller.enqueue(encoder.encode(encodeProxySseEvent({ type: 'delta', text: delta })));
-      };
-
-      const processGooglePayload = (payload: string) => {
-        const trimmed = payload.trim();
-        if (!trimmed || trimmed === '[DONE]') return;
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(trimmed);
-        } catch {
-          return;
-        }
-        const chunkText = extractTextFromGoogleResponse(parsed);
-        const usage = extractUsageFromGoogleResponse(parsed);
-        if (usage) lastUsage = usage;
-
-        if (!chunkText) return;
-
-        let delta = '';
-        if (chunkText.startsWith(accumulated)) {
-          delta = chunkText.slice(accumulated.length);
-          accumulated = chunkText;
-        } else {
-          delta = chunkText;
-          accumulated += chunkText;
-        }
-        emitDelta(delta);
-      };
-
-      const processBuffer = (buffer: string, flushPartial = false) => {
-        const parts = buffer.split('\n');
-        const rest = parts.pop() ?? '';
-        for (const line of parts) {
-          // Google AI SSE : lignes souvent préfixées d'un espace (` data:{…}`).
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          processGooglePayload(trimmed.slice(5).trim());
-        }
-        if (flushPartial) {
-          const restTrimmed = rest.trim();
-          if (restTrimmed.startsWith('data:')) {
-            processGooglePayload(restTrimmed.slice(5).trim());
-          }
-        }
-        return rest;
-      };
-
-      try {
-        let rawSse = googleTextFallback;
-        if (!rawSse && googleBody && typeof googleBody.getReader === 'function') {
-          const reader = googleBody.getReader();
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            if (value) rawSse += decoder.decode(value, { stream: true });
-          }
-        }
-
-        if (rawSse) {
-          let buf = rawSse;
-          buf = processBuffer(buf, true);
-          if (buf.trim()) processBuffer(`${buf}\n`, true);
-        }
-
-        if (__DEV__ && rawSse.trim() && !accumulated.trim()) {
-          console.warn(
-            '[GEMINI-LOCAL] SSE reçu mais texte extrait vide — preview:',
-            rawSse.slice(0, 240),
-          );
-        }
-
-        controller.enqueue(
-          encoder.encode(
-            encodeProxySseEvent({
-              type: 'done',
-              text: accumulated,
-              usageMetadata: lastUsage,
-              tokens_prompt: lastUsage?.promptTokenCount ?? null,
-              tokens_completion: lastUsage?.candidatesTokenCount ?? null,
-              tokens_total: lastUsage?.totalTokenCount ?? null,
-            }),
-          ),
-        );
-        controller.close();
-      } catch (e) {
-        const details = e instanceof Error ? e.message : String(e);
-        controller.enqueue(
-          encoder.encode(
-            encodeProxySseEvent({ type: 'error', error: 'gemini_failed', code: 'gemini_failed', details }),
-          ),
-        );
-        controller.close();
+  const processBuffer = (buffer: string, flushPartial = false) => {
+    const parts = buffer.split('\n');
+    const rest = parts.pop() ?? '';
+    for (const line of parts) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      processGooglePayload(trimmed.slice(5).trim());
+    }
+    if (flushPartial) {
+      const restTrimmed = rest.trim();
+      if (restTrimmed.startsWith('data:')) {
+        processGooglePayload(restTrimmed.slice(5).trim());
       }
-    },
+    }
+    return rest;
+  };
+
+  let buf = googleSseText;
+  buf = processBuffer(buf, true);
+  if (buf.trim()) processBuffer(`${buf}\n`, true);
+
+  return encodeProxySseEvent({
+    type: 'done',
+    text: accumulated,
+    usageMetadata: lastUsage,
+    tokens_prompt: lastUsage?.promptTokenCount ?? null,
+    tokens_completion: lastUsage?.candidatesTokenCount ?? null,
+    tokens_total: lastUsage?.totalTokenCount ?? null,
+  });
+}
+
+function buildProxyDoneSseFromGoogleJson(json: unknown): string {
+  const text = extractTextFromGoogleResponse(json);
+  const usage = extractUsageFromGoogleResponse(json);
+  return encodeProxySseEvent({
+    type: 'done',
+    text,
+    usageMetadata: usage,
+    tokens_prompt: usage?.promptTokenCount ?? null,
+    tokens_completion: usage?.candidatesTokenCount ?? null,
+    tokens_total: usage?.totalTokenCount ?? null,
   });
 }
 
@@ -199,7 +153,10 @@ async function executeLocalGeminiCall(params: GeminiCallParams): Promise<Respons
   }
 
   const stream = params.stream !== false;
-  const url = googleAiBaseUrl(params.modelId, stream);
+  // Natif : generateContent JSON (ReadableStream fetch + re-stream proxy = vide sur Hermes).
+  const preferNativeJson = Platform.OS !== 'web';
+  const useGoogleStream = stream && !preferNativeJson;
+  const url = googleAiBaseUrl(params.modelId, useGoogleStream);
   const body = buildGoogleAiRequestBody({
     request: params.request,
     systemInstruction: params.systemInstruction,
@@ -207,7 +164,7 @@ async function executeLocalGeminiCall(params: GeminiCallParams): Promise<Respons
 
   if (__DEV__) {
     console.log(
-      `[GEMINI-LOCAL] Appel direct Google AI | ModelId: ${params.modelId} | Stream: ${stream}`,
+      `[GEMINI-LOCAL] Appel direct Google AI | ModelId: ${params.modelId} | Stream: ${useGoogleStream}`,
     );
   }
 
@@ -225,16 +182,31 @@ async function executeLocalGeminiCall(params: GeminiCallParams): Promise<Respons
     return googleRes;
   }
 
-  // React Native (iOS/Android) : fetch.body ReadableStream souvent vide — bufferiser d'abord.
-  const preferBufferedSse = Platform.OS !== 'web';
-  const googleSseText = preferBufferedSse ? await googleRes.text().catch(() => '') : '';
-  if (__DEV__ && preferBufferedSse && !googleSseText.trim()) {
-    console.warn('[GEMINI-LOCAL] SSE buffer vide après HTTP 200 — vérifier clé API / modèle');
+  let proxySseText = '';
+  if (preferNativeJson) {
+    const json = await googleRes.json().catch(() => null);
+    proxySseText = buildProxyDoneSseFromGoogleJson(json);
+    if (__DEV__) {
+      const preview = extractTextFromGoogleResponse(json);
+      if (!preview.trim()) {
+        console.warn(
+          '[GEMINI-LOCAL] generateContent texte vide — preview:',
+          JSON.stringify(json ?? {}).slice(0, 300),
+        );
+      } else {
+        console.log(`[GEMINI-LOCAL] OK texte extrait (${preview.length} chars)`);
+      }
+    }
+  } else {
+    const googleSseText = await googleRes.text().catch(() => '');
+    if (__DEV__ && !googleSseText.trim()) {
+      console.warn('[GEMINI-LOCAL] SSE buffer vide après HTTP 200 — vérifier clé API / modèle');
+    }
+    proxySseText = buildProxyDoneSseFromGoogleSse(googleSseText);
   }
-  const proxyStream = preferBufferedSse
-    ? transformGoogleSseToProxySse(null, googleSseText)
-    : transformGoogleSseToProxySse(googleRes.body, '');
-  return new Response(proxyStream, {
+
+  // Corps texte (pas ReadableStream) : readProxySse bufferise sur natif.
+  return new Response(proxySseText, {
     status: 200,
     headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
   });
