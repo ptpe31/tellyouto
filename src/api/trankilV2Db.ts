@@ -11,6 +11,8 @@ import { DeviceEventEmitter } from 'react-native';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { newUuidV4 } from '../utils/uuid';
+import type { SourcingV1 } from '../utils/sourcingV1';
+import { parseSourcingV1 } from '../utils/sourcingV1';
 
 export type TrankilIntentType = 'TASK' | 'HABIT' | 'NOTE' | 'AUDIO' | 'PROJECT' | 'LIST';
 export type TrankilIntentStatus = 'TODO' | 'DONE' | 'ARCHIVED';
@@ -90,6 +92,10 @@ export type TrankilV2TimelineItemRow = {
   transport_mode?: string | null;
   remind_to_leave?: number;
   is_pinned?: number;
+  /** Lieu d'exécution Pass 1 (colonne native SQLite). */
+  context_tag?: string | null;
+  /** Ancrage source parsé depuis metadata_json.sourcing_v1. */
+  sourcing_v1?: SourcingV1 | null;
 };
 
 export type TrankilV2TimelineDateMode = 'DAY' | 'WEEK';
@@ -1726,6 +1732,8 @@ export function mapTrankilIntentionToTimelineItemRow(row: TrankilV2IntentionRow)
     transport_mode: row.transport_mode ?? null,
     remind_to_leave: row.remind_to_leave ?? 0,
     is_pinned: row.is_pinned ?? 0,
+    context_tag: row.context_tag ?? null,
+    sourcing_v1: parseSourcingV1(row.metadata_json),
   };
 }
 

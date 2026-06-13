@@ -41,6 +41,7 @@
 import * as chrono from 'chrono-node';
 
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
+import { SOURCING_V1_ENABLED } from '../config/features';
 import { logCaptureFlow } from '../utils/captureFlowLog';
 import { aiLogTokensFromHttpMeta, isAiLoggingEnabled, logAiInteraction } from '../utils/logAiInteraction';
 import { applyPass1DueFields, parsePass1DueDateTime } from '../utils/pass1DueDateParse';
@@ -89,6 +90,12 @@ export function logOneTapCaptureCycleStartBanner(): void {
   );
 }
 import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
+import {
+  coerceEventSeriesFromIntent,
+  isSourcingTitleMode,
+  normalizeSourceHint,
+  type SourcingTitleMode,
+} from '../utils/sourcingV1';
 
 /**
  * Découpe un transcript « bulk » côté client sur le séparateur `**` (sinon un seul chunk).
@@ -370,6 +377,10 @@ export type OneTapIntentJson = {
   lat?: unknown;
   lng?: unknown;
   arrivalDue?: string;
+  /** Sourced Intelligence — mot-clé verbatim du document. */
+  source_hint?: string;
+  title_mode?: SourcingTitleMode;
+  event_series?: Array<{ due: string; label?: string }>;
 };
 
 function shouldSuggestDueFromTranscript(transcript: string): boolean {
@@ -380,6 +391,37 @@ function shouldSuggestDueFromTranscript(transcript: string): boolean {
   if (/\b\d{4}-\d{2}-\d{2}\b/.test(t)) return true;
   if (/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/.test(t)) return true;
   return false;
+}
+
+function enforceDisplayTitleContract(content: string, locale?: string): string {
+  const cleaned = generateSmartTitle(content, locale);
+  return cleaned || content.trim();
+}
+
+function annotateSourcingFields(intents: OneTapIntentJson[], locale?: string): OneTapIntentJson[] {
+  if (!SOURCING_V1_ENABLED) return intents;
+  return intents.map((it) => {
+    const titleMode: SourcingTitleMode = isSourcingTitleMode(it.title_mode) ? it.title_mode : 'ACTION';
+    const sourceHint = normalizeSourceHint(it.source_hint);
+    const contentRaw = typeof it.content === 'string' ? it.content.trim() : '';
+    const titleRaw = typeof it.title === 'string' ? it.title.trim() : '';
+    const primary = contentRaw || titleRaw;
+    const content = primary ? enforceDisplayTitleContract(primary, locale) : primary;
+    const eventSeries = coerceEventSeriesFromIntent(it.event_series);
+    const due =
+      eventSeries && eventSeries.slots.length > 0
+        ? eventSeries.slots[0].due
+        : typeof it.due === 'string'
+          ? it.due.trim()
+          : it.due;
+    return {
+      ...it,
+      content: content || it.content,
+      title_mode: titleMode,
+      ...(sourceHint ? { source_hint: sourceHint } : {}),
+      ...(eventSeries ? { event_series: eventSeries.slots, due } : {}),
+    };
+  });
 }
 
 function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, skeleton: OneTapUniversalResult): OneTapIntentJson[] {
@@ -399,7 +441,8 @@ function annotateIncompletes(intents: OneTapIntentJson[], transcript: string, sk
     }
     if (type === 'TASK') {
       const due = String(it.due ?? '').trim();
-      return { ...it, incomplete: suggestDue && !due };
+      const hasSeries = Array.isArray(it.event_series) && it.event_series.length > 0;
+      return { ...it, incomplete: suggestDue && !due && !hasSeries };
     }
     if (type === 'LIST' || type === 'PROJECT') {
       return { ...it, incomplete: false };
@@ -1049,8 +1092,15 @@ function mergeIntentArrayIntoOneTapSkeleton(
     if (type === 'TASK') {
       const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
       if (content) title = content.slice(0, 200);
-      const due = typeof rawIntent.due === 'string' ? rawIntent.due.trim() : '';
+      const eventSeries = coerceEventSeriesFromIntent(rawIntent.event_series);
+      const due =
+        eventSeries && eventSeries.slots.length > 0
+          ? eventSeries.slots[0].due
+          : typeof rawIntent.due === 'string'
+            ? rawIntent.due.trim()
+            : '';
       if (due) applyPass1DueFields(out, due);
+      if (eventSeries) out.event_series_v1 = eventSeries;
       const notes = typeof rawIntent.notes === 'string' ? rawIntent.notes.trim() : '';
       if (notes) out.notes = notes.slice(0, 2000);
     }
@@ -1457,6 +1507,35 @@ Reply ONLY with a single raw JSON object. No markdown. No explanation. No text b
 Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","recurrence_rule":{…}}]}`;
 }
 
+/** Pass 1 Sourced Intelligence — verbatim keywords, event_series, multi-block. */
+export function buildOneTapPass1SystemInstructionSourced(now: Date): string {
+  const base = buildOneTapPass1SystemInstruction(now);
+  const { tz, weekdayEn } = buildPass1TemporalFields(now);
+  const nowFmt = formatLocalYYYYMMDDHHmm(now);
+  return `${base}
+
+SOURCED INTELLIGENCE (when input is a document, flyer, or image transcript with multiple blocks):
+- source_hint: VERBATIM keyword from the document (e.g. "Tenues", "Fête du club"). NEVER replace with generic infinitives like "Gérer le matériel".
+- title_mode: "ACTION" (default) or "DESCRIPTIVE" for announcements/events. CONTENT must STILL follow DISPLAY TITLE CONTRACT — zero dates/times in content.
+- event_series: array of {"due":"YYYY-MM-DD HH:mm","label":"…"} when ONE intention has MULTIPLE time slots. Set "due" to the FIRST slot.
+- MULTI-BLOCK: one intent per distinct block — do NOT merge unrelated items.
+
+EXAMPLE (fencing club flyer — dates from NOW ${nowFmt} | ${weekdayEn} | ${tz}):
+Input: "Fête du club le 24, dernier cours le 19, retour tenues créneaux 12/01 14h, 15/01 10h, 18/01 16h"
+Output: {"intents":[
+  {"type":"TASK","content":"Fête du club","title_mode":"DESCRIPTIVE","source_hint":"Fête du club","due":"YYYY-MM-DD 00:00","category":"SOCIAL","context":"EXTERIEUR"},
+  {"type":"TASK","content":"Dernier cours","title_mode":"DESCRIPTIVE","source_hint":"Dernier cours","due":"YYYY-MM-DD 00:00","category":"PERSO","context":"EXTERIEUR"},
+  {"type":"TASK","content":"Retour des tenues","title_mode":"ACTION","source_hint":"Tenues","due":"YYYY-MM-DD HH:mm","category":"PERSO","context":"EXTERIEUR","event_series":[{"due":"YYYY-MM-DD HH:mm","label":"Créneau 1"},{"due":"YYYY-MM-DD HH:mm"},{"due":"YYYY-MM-DD HH:mm"}]}
+]}
+
+Schema extension: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","source_hint":"…","title_mode":"ACTION|DESCRIPTIVE","event_series":[{"due":"…","label":"…"}],"recurrence_rule":{…}}]}`;
+}
+
+/** Sélection prompt Pass 1 selon feature flag (rollback = flag OFF). */
+export function resolvePass1SystemInstruction(now: Date): string {
+  return SOURCING_V1_ENABLED ? buildOneTapPass1SystemInstructionSourced(now) : buildOneTapPass1SystemInstruction(now);
+}
+
 // LEGACY PROMPT (Bullet-Pipe) — kept for rollback reference.
 function buildOneTapPass1UserContentLegacy(transcript: string, seedLine: string): string {
   const safe = transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript;
@@ -1682,7 +1761,7 @@ export async function refineOneTapWithGeminiCompressed(
   const seed = wireLineFromSkeleton(skeleton);
   const now = new Date();
   const activeModelId = getActivePass1ModelId();
-  const systemInstruction = buildOneTapPass1SystemInstruction(now);
+  const systemInstruction = resolvePass1SystemInstruction(now);
   const userText = buildOneTapPass1UserContent(transcript, seed, now);
   const useStream = options.useStream !== false;
   const pathBGeminiStart = perfNowMs();
@@ -1695,8 +1774,9 @@ export async function refineOneTapWithGeminiCompressed(
   let lastEmittedCount = 0;
   let lastPartialSig = '';
   const normalizeIncompletes = (intents: OneTapIntentJson[]) => {
-    if (options.forceComplete) return intents.map((it) => ({ ...it, incomplete: false }));
-    return annotateIncompletes(intents, transcript, skeleton);
+    const annotated = annotateSourcingFields(intents, options.uiLocale);
+    if (options.forceComplete) return annotated.map((it) => ({ ...it, incomplete: false }));
+    return annotateIncompletes(annotated, transcript, skeleton);
   };
   const applyBuffer = (buf: string) => {
     let extractedIntents = parseJsonIntentsFromBuffer(buf, useStream);

@@ -1306,7 +1306,20 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 
 - **Chevauchement volontaire** : une intention capturée aujourd’hui et datée pour aujourd’hui apparaît dans **Inbox** et dans la **feuille de route** (`intentionExecutionRoadmapSql` n’exclut plus l’Inbox).
 - **Sortie du flux** : **Fait ✓** (`status = DONE`), archivage ou suppression — pas via `is_organized` seul (le bouton **Tout retirer** Inbox est retiré de [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) en mode `inbox`).
-- **Carrousel** : tuile i18n **Inbox** ; compteur `inboxToday` dans `getTrankilV2SmartClusterCounts`.
+- **Carrousel** : tuile i18n **Inbox** ; compteur `inboxToday` dans `getTrankilV2SmartClusterCounts` ; si `SOURCING_V1_ENABLED`, badge carrousel dérivé de `buildInboxRootsView().rootCount` (évite double-comptage enfants TASK).
+
+#### 2.a ter) Concept Sourced Intelligence (juin 2026)
+
+- **Feature flag** : `SOURCING_V1_ENABLED` dans [`src/config/features.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/config/features.ts) — rollback instantané sans migration.
+- **Contrat Pass 1** (extension JSON) :
+  - `source_hint` : mot-clé **verbatim** du document (ex. « Tenues ») — interdit de généraliser en infinitif.
+  - `title_mode` : `ACTION` (défaut) ou `DESCRIPTIVE` ; **DISPLAY TITLE CONTRACT** toujours actif sur `content`.
+  - `event_series[]` : créneaux multiples pour une même intention ; `due` = premier slot.
+- **Persistance** : `metadata_json.sourcing_v1` (via `patchMetadata`) + `context_tag` colonne native ; `CaptureBatchContext` pré-alloué dans `submitCapturePayload` avant NetInfo/offline.
+- **Multi-bloc** : ventilation → PROJECT parent auto (`auto_parent_id`) + TASK enfants liés ; mono-intention inchangée.
+- **EVENT_SERIES** : type SQLite `TASK` ; `due_date` index Timeline = 1er créneau ; série complète dans `sourcing_v1.event_series_v1`.
+- **Inbox UI** : [`InboxLineTitle.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) — Ligne 1 titre purifié, Ligne 2 `source_hint • moment/série` ; `numberOfLines={1}` strict ; pastille catégorie ; **pas d’image Vault en liste** (perf scroll).
+- **Hiérarchie Inbox** : filtrage racines via [`buildInboxRootsView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxRootsView.ts) (JS pur, requête SQL `listTrankilV2InboxToday` inchangée) ; accordéon PROJECT dépliable dans `IdeaBankModal`.
 
 #### 2.b) Box — inventaire froid (remplace le nudge cluster orphelin)
 

@@ -70,6 +70,8 @@ import {
 } from '../utils/capturePeekLayout';
 import { PressableScale } from '../components/common/PressableScale';
 import { IdeaBankModal } from '../components/IdeaBankModal';
+import { buildInboxRootsView } from '../utils/inboxRootsView';
+import { SOURCING_V1_ENABLED } from '../config/features';
 import { SmartClustersCarousel, type SmartClusterDebugContents } from '../components/SmartClustersCarousel';
 import type { SmartClusterDebugEntry } from '../utils/clusterDebugLog';
 import { DailyRoadmapReportModal } from '../components/dailyRoadmap/DailyRoadmapReportModal';
@@ -1217,9 +1219,13 @@ export function TimelineScreen() {
 
   const inboxTodayItems = inboxTodayRows;
 
+  const inboxRootsView = useMemo(() => buildInboxRootsView(inboxTodayItems), [inboxTodayItems]);
+
   const ideaBankModalItems = useMemo(() => {
     if (ideaBankHubItems) return ideaBankHubItems;
-    if (ideaBankMode === 'inbox') return inboxTodayItems;
+    if (ideaBankMode === 'inbox') {
+      return SOURCING_V1_ENABLED ? inboxRootsView.roots : inboxTodayItems;
+    }
     if (ideaBankCategoryFilter === 'SHOP') return shopClusterRows;
     if (ideaBankCategoryFilter) {
       return boxStockRows.filter((r) => normalizeCategoryId(r.category_id) === ideaBankCategoryFilter);
@@ -1231,6 +1237,7 @@ export function TimelineScreen() {
     ideaBankHubItems,
     ideaBankMode,
     inboxTodayItems,
+    inboxRootsView.roots,
     shopClusterRows,
   ]);
 
@@ -1251,13 +1258,13 @@ export function TimelineScreen() {
 
   const smartClusterProps = useMemo(
     () => ({
-      inboxCount: smartClusterCounts.inboxToday,
+      inboxCount: SOURCING_V1_ENABLED ? inboxRootsView.rootCount : smartClusterCounts.inboxToday,
       shopCount: smartClusterCounts.shopCount,
       boxCount: smartClusterCounts.boxCount,
       routinesCount: smartClusterCounts.routinesCount,
       projectsCount: smartClusterCounts.projectsToday,
     }),
-    [smartClusterCounts],
+    [smartClusterCounts, inboxRootsView.rootCount],
   );
 
   const clusterDebugContents = useMemo((): SmartClusterDebugContents => {
@@ -2008,6 +2015,7 @@ export function TimelineScreen() {
         onPass2Item={openDetailWithPass2}
         onPatchItem={patchRow}
         onOpenTripSetup={openDetailWithTripSetup}
+        inboxChildrenByParentId={ideaBankMode === 'inbox' ? inboxRootsView.childrenByParentId : undefined}
       />
     </View>
   );

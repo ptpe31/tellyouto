@@ -11,13 +11,22 @@ import i18n from '../../locales/i18n';
 import { getNotifications } from '../notifications';
 import { NOTE_FALLBACK_LABEL } from '../timelineIntentionVisibility';
 import { VERBOSE_DEBUG } from '../../config/verboseDebug';
+import type { CaptureBatchContext } from '../../utils/sourcingV1';
+import { captureBatchContextToSourcingStub } from '../../utils/sourcingV1';
+import { SOURCING_V1_ENABLED } from '../../config/features';
 import { newUuidV4 } from '../../utils/uuid';
 
-function metadataJsonForOfflineQueuedNote(extra: Record<string, unknown>): string {
+function metadataJsonForOfflineQueuedNote(
+  extra: Record<string, unknown>,
+  batchContext?: CaptureBatchContext | null,
+): string {
+  const sourcingStub =
+    SOURCING_V1_ENABLED && batchContext ? { sourcing_v1: captureBatchContextToSourcingStub(batchContext) } : {};
   return JSON.stringify({
     source: 'offline_audio_queue',
     persistence_label: NOTE_FALLBACK_LABEL,
     tag: NOTE_FALLBACK_LABEL,
+    ...sourcingStub,
     ...extra,
   });
 }
@@ -63,6 +72,7 @@ export async function queueOfflineAudioCapture(params: {
   audioUri: string;
   title: string;
   lang?: string;
+  batchContext?: CaptureBatchContext | null;
 }): Promise<{ intentionId: string; queueId: string; storedPath: string }> {
   if (__DEV__ && VERBOSE_DEBUG) {
     const now = new Date();
@@ -83,10 +93,13 @@ export async function queueOfflineAudioCapture(params: {
     title: params.title,
     content_raw: params.transcript,
     created_at: now,
-    metadata_json: metadataJsonForOfflineQueuedNote({
-      audio_path: targetPath,
-      speech_lang: params.lang || null,
-    }),
+    metadata_json: metadataJsonForOfflineQueuedNote(
+      {
+        audio_path: targetPath,
+        speech_lang: params.lang || null,
+      },
+      params.batchContext,
+    ),
     category_id: 'PERSO',
     is_pending_ai: 1,
   });
@@ -110,6 +123,7 @@ export async function queueOfflineTextCapture(params: {
   title: string;
   lang?: string;
   intentionId?: string;
+  batchContext?: CaptureBatchContext | null;
 }): Promise<{ intentionId: string; queueId: string }> {
   if (__DEV__ && VERBOSE_DEBUG) {
     const now = new Date();
@@ -127,9 +141,7 @@ export async function queueOfflineTextCapture(params: {
     title: params.title,
     content_raw: params.transcript,
     created_at: now,
-    metadata_json: metadataJsonForOfflineQueuedNote({
-      speech_lang: params.lang || null,
-    }),
+    metadata_json: metadataJsonForOfflineQueuedNote({ speech_lang: params.lang || null }, params.batchContext),
     category_id: 'PERSO',
     is_pending_ai: 1,
   });

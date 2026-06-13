@@ -675,6 +675,29 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 
 ---
 
+## Concept Sourced Intelligence (juin 2026)
+
+**Objectif** : ancrer chaque intention capturée (source, contexte, temporalité) — zéro migration SQLite lourde.
+
+| Levier | Implémentation |
+|--------|----------------|
+| **Rollback** | `SOURCING_V1_ENABLED` dans [`src/config/features.ts`](src/config/features.ts) — `false` = comportement prod pré-feature |
+| **Blob métier** | `metadata_json.sourcing_v1` via `patchMetadata` (pas de `ALTER TABLE`) |
+| **Colonne native** | `context_tag` (déjà en place) |
+| **Pass 1** | `buildOneTapPass1SystemInstructionSourced` + champs `source_hint`, `title_mode`, `event_series` ; sélection via `resolvePass1SystemInstruction` |
+| **UUIDs T0** | `CaptureBatchContext` dans `submitCapturePayload` (`capture_batch_id`, `vault_parent_id`, `auto_parent_id`, `child_id_pool`) |
+| **Offline immuable** | stub `sourcing_v1` dans NOTE shell `offline_audio_queue` ; rehydratation au replay |
+| **Multi-bloc** | `persistOneTapDraftVentilated` : PROJECT parent auto + TASK enfants (`parent_id`) si `intents.length > 1` |
+| **EVENT_SERIES** | type SQLite `TASK` ; `due_date` = 1er slot ; série dans `sourcing_v1.event_series_v1` |
+| **UI Inbox** | [`InboxLineTitle.tsx`](src/components/InboxLineTitle.tsx) — 2 lignes strictes, pastille catégorie, **pas de miniature Vault** (perf FlatList) |
+| **Hiérarchie Inbox** | [`buildInboxRootsView`](src/utils/inboxRootsView.ts) — filtrage racines **côté JS** ; accordéon dans `IdeaBankModal` |
+
+**Fichiers clés** : `src/utils/sourcingV1.ts`, `src/utils/inboxRootsView.ts`, `oneTapUniversalCapture.ts`, `oneTapPersist.ts`, `IntentionContext.tsx`, `offlineAudioQueue.ts`, `trankilV2Db.ts` (mapper), `IdeaBankModal.tsx`, `TimelineScreen.tsx`.
+
+**Non-régression** : capture mono-intention (`"Acheter du lait"`) → 1 TASK racine, pas de PROJECT parent, UI ligne 2 = moment/NEW.
+
+---
+
 ## Annexes (repères pratiques)
 
 ### Registre code mort — [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md)
@@ -713,6 +736,7 @@ Fichier **hors SPEC** : journal de travail pour la **suppression progressive** d
 19. [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) (registre code mort / retraits feature)
 20. `src/theme/TalkThemeRegistry.ts` + `src/hooks/useDesignTokens.ts` (variantes visuelles / rollback `CURRENT` / **`ZEN_TYPOGRAPHY`**)
 21. `src/components/ShareIntentBootstrap.tsx` + `src/services/fileStorage.ts` + `src/services/share/shareService.ts` (Share Sheet → Vault → Vision → One-Tap)
-22. `src/components/VaultImageViewerModal.tsx` + icône Vault dans `IntentionCard.tsx` (consultation image associée)
-23. `src/screens/DebugScreen.tsx` + `src/api/trankilV2Db.ts` (TalkNDone-Vault : export/import SQLite natif)
+22. `src/utils/sourcingV1.ts` + `src/utils/inboxRootsView.ts` + `src/components/InboxLineTitle.tsx` (Sourced Intelligence — rollback via `SOURCING_V1_ENABLED`)
+23. `src/components/VaultImageViewerModal.tsx` + icône Vault dans `IntentionCard.tsx` (consultation image associée)
+24. `src/screens/DebugScreen.tsx` + `src/api/trankilV2Db.ts` (TalkNDone-Vault : export/import SQLite natif)
 

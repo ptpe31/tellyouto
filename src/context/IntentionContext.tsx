@@ -39,6 +39,15 @@ import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { generateSmartTitle } from '../services/smartTitle';
 import { parseProjectMilestonesPayloadFromMetadataJson } from '../services/projectMilestonesModel';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
+import { SOURCING_V1_ENABLED } from '../config/features';
+import {
+  captureBatchContextFromSourcingStub,
+  captureBatchContextToSourcingStub,
+  createCaptureBatchContext,
+  parseSourcingV1,
+  type CaptureBatchContext,
+  type SourcingSourceKind,
+} from '../utils/sourcingV1';
 import type { CaptureStrategyDeps } from '../services/captureStrategies/types';
 import { newUuidV4 } from '../utils/uuid';
 import { logCaptureFlow } from '../utils/captureFlowLog';
@@ -62,6 +71,8 @@ type CapturePayload = {
   transcriptOriginal?: string;
   /** ID SQLite pré-assigné (ex. image Vault partagée avant persistance). */
   preassignedIntentionId?: string;
+  /** Batch offline rehydraté depuis NOTE shell (replay queue). */
+  restoredBatchContext?: CaptureBatchContext | null;
 };
 
 /** Données proxy DealerBoard (Talk) : une ligne par intention persistée dans un bulk ventilé. */
@@ -196,6 +207,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
   const bulkProcessingRef = useRef(false);
   const bulkProgressIndexRef = useRef(-1);
   const preassignedIntentionIdRef = useRef<string | null>(null);
+  const captureBatchContextRef = useRef<CaptureBatchContext | null>(null);
 
   /** Réinitialise les refs capture au début d’une dictée / saisie. */
   const startCapture = useCallback(() => {
@@ -262,6 +274,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       parentId?: string | null;
       parentJalonUid?: string | null;
       silent?: boolean;
+      batchContext?: CaptureBatchContext | null;
       /** Si `false`, pas d’enqueue auto réseau (ex. prompt interne zoom jalon). Défaut : comportement actif. */
       allowAutoOfflineQueue?: boolean;
       onPersisted?: (outcomes: PersistOneTapSuccess[], meta: { chunkIndex: number; chunkTotal: number }) => void;
@@ -285,9 +298,23 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       }
       let safeToDrainOfflineReplaySource = false;
       const preassignedId = String(preassignedIntentionIdRef.current || '').trim();
+      const batchContext = params.batchContext ?? captureBatchContextRef.current;
+      let poolIndex = 0;
       let preassignedConsumed = false;
-      const effectiveDeps: CaptureStrategyDeps = preassignedId
-        ? {
+      const effectiveDeps: CaptureStrategyDeps = (() => {
+        if (SOURCING_V1_ENABLED && batchContext) {
+          return {
+            ...deps,
+            newId: () => {
+              if (poolIndex < batchContext.child_id_pool.length) {
+                return batchContext.child_id_pool[poolIndex++];
+              }
+              return newId();
+            },
+          };
+        }
+        if (preassignedId) {
+          return {
             ...deps,
             newId: () => {
               if (!preassignedConsumed) {
@@ -296,8 +323,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               }
               return newId();
             },
-          }
-        : deps;
+          };
+        }
+        return deps;
+      })();
       try {
         const chunks = Array.isArray(params.chunks) && params.chunks.length ? params.chunks : splitBulkTranscript(base);
         logCaptureFlow(trace || undefined, 'bulk_start', {
@@ -478,6 +507,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               allowNoteFallback: false,
               parentId: params.parentId,
               parentJalonUid: params.parentJalonUid,
+              batchContext: batchContext ?? null,
             });
             if (vr.ok) {
               savedAny = true;
@@ -561,12 +591,26 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       traceId,
       transcriptOriginal,
       preassignedIntentionId,
+      restoredBatchContext,
     }: CapturePayload): Promise<boolean> => {
       const cleaned = rawTranscript.trim();
       if (!cleaned) return false;
       const isMic = Boolean(audioUri);
       const trace = String(traceId || '').trim() || (isMic ? newId() : '');
       preassignedIntentionIdRef.current = String(preassignedIntentionId || '').trim() || null;
+      const sourceKind: SourcingSourceKind = audioUri
+        ? 'audio'
+        : preassignedIntentionIdRef.current
+          ? 'image'
+          : 'text';
+      captureBatchContextRef.current =
+        restoredBatchContext ??
+        (SOURCING_V1_ENABLED
+          ? createCaptureBatchContext({
+              preassignedIntentionId: preassignedIntentionIdRef.current,
+              source_kind: sourceKind,
+            })
+          : null);
       const hadManualTranscript = transcriptOriginal !== undefined;
       const originalStt = hadManualTranscript ? String(transcriptOriginal || '').trim() : '';
       const manualEdit = hadManualTranscript && (originalStt !== cleaned || (!originalStt && cleaned.length > 0));
@@ -646,7 +690,13 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           console.log(`[MIC] 📦 OFFLINE BRANCH → queue (title="${previewForLog(title, 80)}")`);
         }
         if (audioUri) {
-          const queued = await queueOfflineAudioCapture({ transcript: cleaned, audioUri, title, lang });
+          const queued = await queueOfflineAudioCapture({
+            transcript: cleaned,
+            audioUri,
+            title,
+            lang,
+            batchContext: captureBatchContextRef.current,
+          });
           logCaptureFlow(trace || undefined, 'submit_offline_queued', {
             mode: 'audio',
             queueId: queued.queueId,
@@ -657,12 +707,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             console.log(`[MIC] 🗃️ OFFLINE QUEUED: queueId=${queued.queueId} | intentionId=${queued.intentionId}`);
           }
         } else {
-          const preId = String(preassignedIntentionIdRef.current || '').trim() || undefined;
           const queued = await queueOfflineTextCapture({
             transcript: cleaned,
             title,
             lang,
-            intentionId: preId,
+            intentionId: preassignedIntentionIdRef.current || undefined,
+            batchContext: captureBatchContextRef.current,
           });
           logCaptureFlow(trace || undefined, 'submit_offline_queued', {
             mode: 'text',
@@ -675,6 +725,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           }
         }
         preassignedIntentionIdRef.current = null;
+        captureBatchContextRef.current = null;
         DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
         logOfflineStability('submit_branch_offline_queued', { trace: trace || null, hasAudio: Boolean(audioUri) });
         return true;
@@ -689,6 +740,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         allowAlert: true,
         traceId: trace,
         silent: true,
+        batchContext: captureBatchContextRef.current,
         onPersisted: (outcomes, meta) => {
           const chunkIndex = meta.chunkIndex;
           const chunkTotal = meta.chunkTotal;
@@ -725,6 +777,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         },
       });
       logCaptureFlow(trace || undefined, 'submit_return_after_bulk', {});
+      preassignedIntentionIdRef.current = null;
+      captureBatchContextRef.current = null;
       return bulkOutcome.safeToDrainOfflineReplaySource;
     },
     [runGeminiBulkSequence, spectrum.locale],
@@ -790,10 +844,17 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       const t0 = String(pending.transcript || '').trim();
       if (!t0) return;
       try {
+        let restoredBatchContext: CaptureBatchContext | null = null;
+        const shell = await getTrankilV2IntentionById(pending.intention_id);
+        if (shell?.metadata_json) {
+          const stub = parseSourcingV1(shell.metadata_json);
+          if (stub) restoredBatchContext = captureBatchContextFromSourcingStub(stub);
+        }
         const safeToDrain = await submitCapturePayload({
           transcript: t0,
           audioUri: pending.audio_path || null,
           lang: pending.speech_lang,
+          restoredBatchContext,
         });
         if (safeToDrain) {
           await markOfflineAudioAsDone(pending.id);

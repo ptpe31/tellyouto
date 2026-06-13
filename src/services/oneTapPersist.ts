@@ -36,6 +36,15 @@ import {
   shouldAutoPinOnCapturePersist,
 } from '../features/livingHub/narrativePinRules';
 import { formatYmdLocal } from './TimeSorter';
+import { SOURCING_V1_ENABLED } from '../config/features';
+import {
+  buildSourcingV1ForChild,
+  coerceEventSeriesFromIntent,
+  isSourcingTitleMode,
+  normalizeSourceHint,
+  type CaptureBatchContext,
+  type SourcingTitleMode,
+} from '../utils/sourcingV1';
 
 
 export type PersistOneTapSuccess =
@@ -788,8 +797,24 @@ export async function persistOneTapDraft(params: {
   parentId?: string | null;
   parentJalonUid?: string | null;
   persistenceLabel?: string;
+  forcedIntentionId?: string;
 }): Promise<PersistOneTapResult> {
-  const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
+  const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel, forcedIntentionId } = params;
+  const effectiveDeps: CaptureStrategyDeps = forcedIntentionId
+    ? {
+        ...deps,
+        newId: (() => {
+          let consumed = false;
+          return () => {
+            if (!consumed) {
+              consumed = true;
+              return forcedIntentionId;
+            }
+            return deps.newId();
+          };
+        })(),
+      }
+    : deps;
   const title = draft.title.trim() || transcript.trim().slice(0, 200);
   const raw = transcript.trim();
   const consumedClassic = !deps.spectrum.isProUser;
@@ -797,7 +822,7 @@ export async function persistOneTapDraft(params: {
   try {
     switch (draft.predictedType) {
       case 'NOTE': {
-        const noteIntentionId = deps.newId();
+        const noteIntentionId = effectiveDeps.newId();
         const row = await materializeOneTapIntentionRow({
           deps,
           draft,
@@ -837,7 +862,7 @@ export async function persistOneTapDraft(params: {
       }
       case 'TASK':
       case 'RECURRING_TASK': {
-        const intentionId = deps.newId();
+        const intentionId = effectiveDeps.newId();
         const row = await materializeOneTapIntentionRow({
           deps,
           draft,
@@ -871,7 +896,7 @@ export async function persistOneTapDraft(params: {
         };
       }
       case 'TRIP': {
-        const intentionId = deps.newId();
+        const intentionId = effectiveDeps.newId();
         const row = await materializeOneTapIntentionRow({
           deps,
           draft,
@@ -906,7 +931,7 @@ export async function persistOneTapDraft(params: {
       }
       case 'HABIT':
       case 'ANNIVERSARY': {
-        const intentionId = deps.newId();
+        const intentionId = effectiveDeps.newId();
         const row = await materializeOneTapIntentionRow({
           deps,
           draft,
@@ -959,7 +984,7 @@ export async function persistOneTapDraft(params: {
             },
           ],
         };
-        const id = deps.newId();
+        const id = effectiveDeps.newId();
         const metaBase = JSON.stringify(buildListMetadataPatch(placeholderPayload));
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
           is_generating: false,
@@ -1008,7 +1033,7 @@ export async function persistOneTapDraft(params: {
           title: mergedTitle,
           milestones: [{ uid: '', title: '—', estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }],
         });
-        const id = deps.newId();
+        const id = effectiveDeps.newId();
         const metaBase = JSON.stringify(buildProjectMilestonesMetadataPatch(placeholderPayload));
         const meta = mergeIntentionMetadataJson(buildMetadataJsonForInsert(metaBase, draft), {
           is_generating: false,
@@ -1159,6 +1184,7 @@ async function persistAndDualWrite(params: {
   entityLabel: string;
   parentId?: string | null;
   parentJalonUid?: string | null;
+  forcedIntentionId?: string;
 }): Promise<PersistOneTapResult> {
   const { entityLabel, ...persistParams } = params;
   const persistStart = Date.now();
@@ -1180,6 +1206,36 @@ async function persistAndDualWrite(params: {
   return res;
 }
 
+function resolveIntentSourcingFields(raw: Record<string, unknown>): {
+  sourceHint: string | null;
+  titleMode: SourcingTitleMode;
+  eventSeries: ReturnType<typeof coerceEventSeriesFromIntent>;
+} {
+  const sourceHint = normalizeSourceHint(raw.source_hint);
+  const titleMode: SourcingTitleMode = isSourcingTitleMode(raw.title_mode) ? raw.title_mode : 'ACTION';
+  const eventSeries = coerceEventSeriesFromIntent(raw.event_series);
+  return { sourceHint, titleMode, eventSeries };
+}
+
+async function patchSourcingV1Metadata(
+  intentionId: string,
+  sourcing: ReturnType<typeof buildSourcingV1ForChild>,
+): Promise<void> {
+  await patchMetadata(intentionId, { sourcing_v1: sourcing }, { silent: true });
+}
+
+function deriveAutoParentTitle(intentsRaw: unknown[], draft: OneTapUniversalResult): string {
+  const first = Array.isArray(intentsRaw) ? intentsRaw[0] : null;
+  if (first && typeof first === 'object' && !Array.isArray(first)) {
+    const r = first as Record<string, unknown>;
+    const hint = normalizeSourceHint(r.source_hint);
+    if (hint) return hint;
+    const content = String(r.content ?? r.title ?? '').trim();
+    if (content) return content.slice(0, 120);
+  }
+  return draft.title.trim().slice(0, 120) || 'Capture document';
+}
+
 /**
  * Persistance **multi-intentions** : ventile `draft.data.intents[]` en plusieurs écritures,
  * option NOTE_FALLBACK si rien n’a été persisté et `allowNoteFallback` est vrai.
@@ -1193,6 +1249,7 @@ export async function persistOneTapDraftVentilated(params: {
   allowNoteFallback?: boolean;
   parentId?: string | null;
   parentJalonUid?: string | null;
+  batchContext?: CaptureBatchContext | null;
 }): Promise<PersistOneTapVentilatedResult> {
   const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
   const allowNoteFallback = params.allowNoteFallback !== false;
@@ -1213,6 +1270,76 @@ export async function persistOneTapDraftVentilated(params: {
   });
   if (Array.isArray(intentsRaw) && intentsRaw.length > 0) {
     const total = intentsRaw.length;
+    const useSourcingParent =
+      SOURCING_V1_ENABLED &&
+      total > 1 &&
+      !String(params.parentId ?? '').trim() &&
+      params.batchContext != null;
+    let effectiveParentId = params.parentId ?? null;
+    const persistedChildIds: string[] = [];
+
+    if (useSourcingParent && params.batchContext) {
+      const parentTitle = deriveAutoParentTitle(intentsRaw, draft);
+      const parentDraft: OneTapUniversalResult = {
+        ...draft,
+        title: parentTitle,
+        predictedType: 'PROJECT',
+        data: { project_mode: true },
+      };
+      const parentPr = await persistAndDualWrite({
+        deps: params.deps,
+        draft: parentDraft,
+        transcript,
+        habitsDefaultTitle,
+        birthdayLabel,
+        entityLabel: 'PROJECT',
+        forcedIntentionId: params.batchContext.auto_parent_id,
+      });
+      if (parentPr.ok && 'intentionId' in parentPr.outcome) {
+        effectiveParentId = params.batchContext.auto_parent_id;
+        outcomes.push(parentPr.outcome);
+        await patchSourcingV1Metadata(
+          params.batchContext.auto_parent_id,
+          buildSourcingV1ForChild({
+            batch: params.batchContext,
+            sourceHint: parentTitle,
+            titleMode: 'DESCRIPTIVE',
+            childIds: [],
+            autoParentId: params.batchContext.auto_parent_id,
+          }),
+        );
+      }
+    }
+
+    const extractOutcomeId = (pr: PersistOneTapResult): string => {
+      if (!pr.ok) return '';
+      const o = pr.outcome as { intentionId?: unknown };
+      return String(o.intentionId ?? '').trim();
+    };
+
+    const finalizeVentilatedOutcome = async (pr: PersistOneTapResult, intentRaw: Record<string, unknown>) => {
+      if (!pr.ok) return pr;
+      outcomes.push(pr.outcome);
+      if (!SOURCING_V1_ENABLED || !params.batchContext) return pr;
+      const intentionId = extractOutcomeId(pr);
+      if (!intentionId) return pr;
+      const { sourceHint, titleMode, eventSeries } = resolveIntentSourcingFields(intentRaw);
+      await patchSourcingV1Metadata(
+        intentionId,
+        buildSourcingV1ForChild({
+          batch: params.batchContext,
+          sourceHint,
+          titleMode,
+          eventSeries,
+          autoParentId: effectiveParentId,
+        }),
+      );
+      if (effectiveParentId && intentionId !== params.batchContext.auto_parent_id) {
+        persistedChildIds.push(intentionId);
+      }
+      return pr;
+    };
+
     for (let i = 0; i < total; i++) {
       const raw = intentsRaw[i];
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
@@ -1263,12 +1390,12 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'LIST',
-            parentId: params.parentId,
+            parentId: effectiveParentId,
             parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
-          if (pr.ok) outcomes.push(pr.outcome);
+          if (pr.ok) await finalizeVentilatedOutcome(pr, r);
           else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
@@ -1304,12 +1431,12 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'PROJECT',
-            parentId: params.parentId,
+            parentId: effectiveParentId,
             parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
-          if (pr.ok) outcomes.push(pr.outcome);
+          if (pr.ok) await finalizeVentilatedOutcome(pr, r);
           else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
@@ -1319,7 +1446,9 @@ export async function persistOneTapDraftVentilated(params: {
         if (type === 'TASK') {
           const content = String(r.content ?? '').trim() || draft.title;
           const notes = typeof r.notes === 'string' ? r.notes.trim() : '';
-          const dueIso = typeof r.due === 'string' ? r.due.trim() : '';
+          const eventSeries = coerceEventSeriesFromIntent(r.event_series);
+          const dueIso =
+            eventSeries?.slots[0]?.due ?? (typeof r.due === 'string' ? r.due.trim() : '');
           const parsedDue = dueIso ? parsePass1DueDateTime(dueIso) : null;
           const taskDraft: OneTapUniversalResult = {
             ...draft,
@@ -1344,12 +1473,12 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'TASK',
-            parentId: params.parentId,
+            parentId: effectiveParentId,
             parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
-          if (pr.ok) outcomes.push(pr.outcome);
+          if (pr.ok) await finalizeVentilatedOutcome(pr, r);
           else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
@@ -1391,12 +1520,12 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'TRIP',
-            parentId: params.parentId,
+            parentId: effectiveParentId,
             parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
-          if (pr.ok) outcomes.push(pr.outcome);
+          if (pr.ok) await finalizeVentilatedOutcome(pr, r);
           else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
@@ -1448,12 +1577,12 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'HABIT',
-            parentId: params.parentId,
+            parentId: effectiveParentId,
             parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
-          if (pr.ok) outcomes.push(pr.outcome);
+          if (pr.ok) await finalizeVentilatedOutcome(pr, r);
           else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
@@ -1477,12 +1606,12 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'NOTE',
-            parentId: params.parentId,
+            parentId: effectiveParentId,
             parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
-          if (pr.ok) outcomes.push(pr.outcome);
+          if (pr.ok) await finalizeVentilatedOutcome(pr, r);
           else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
@@ -1522,13 +1651,13 @@ export async function persistOneTapDraftVentilated(params: {
             habitsDefaultTitle,
             birthdayLabel,
             entityLabel: 'TRIP_TASK',
-            parentId: params.parentId,
+            parentId: effectiveParentId,
             parentJalonUid: params.parentJalonUid,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);
           if (pr.ok) {
-            outcomes.push(pr.outcome);
+            await finalizeVentilatedOutcome(pr, r);
           } else {
             firstError = firstError ?? pr.error;
             firstCode = firstCode ?? pr.code;
@@ -1539,6 +1668,20 @@ export async function persistOneTapDraftVentilated(params: {
         firstError = firstError ?? e;
         if (DEBUG_MODE_DOUANE) console.log('[DOUANE] ❌ Refoulé');
       }
+    }
+
+    if (useSourcingParent && params.batchContext && persistedChildIds.length > 0) {
+      const parentTitle = deriveAutoParentTitle(intentsRaw, draft);
+      await patchSourcingV1Metadata(
+        params.batchContext.auto_parent_id,
+        buildSourcingV1ForChild({
+          batch: params.batchContext,
+          sourceHint: parentTitle,
+          titleMode: 'DESCRIPTIVE',
+          childIds: persistedChildIds,
+          autoParentId: params.batchContext.auto_parent_id,
+        }),
+      );
     }
 
     if (outcomes.length > 0) return { ok: true, outcomes };

@@ -66,6 +66,9 @@ import {
   readIntentionAlarmSetFlag,
 } from '../utils/intentAlarmTemporal';
 import { TaskCompletionOrb } from './TaskCompletionOrb';
+import { InboxLineTitle } from './InboxLineTitle';
+import { SOURCING_V1_ENABLED } from '../config/features';
+import { isSourcedCaptureParent } from '../utils/inboxRootsView';
 
 type Props = {
   visible: boolean;
@@ -88,6 +91,8 @@ type Props = {
   /** À l’ouverture : déclenche la pilule TRIP « Me prévenir… » (Sentinel Focus, etc.). */
   autoTripPillRowId?: string | null;
   onAutoTripPillConsumed?: () => void;
+  /** Enfants TASK groupés par parent_id (Inbox accordéon, filtrage JS). */
+  inboxChildrenByParentId?: Map<string, TrankilV2TimelineItemRow[]>;
 };
 
 /** Diamètre intérieur orbe validation (hors padding néomorphique). */
@@ -179,6 +184,7 @@ export function IdeaBankModal({
   onOpenTripSetup,
   autoTripPillRowId,
   onAutoTripPillConsumed,
+  inboxChildrenByParentId,
 }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
@@ -201,6 +207,7 @@ export function IdeaBankModal({
   const pendingLocalDoneRef = useRef<Set<string>>(new Set());
   const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingRowsRef = useRef<Map<string, TrankilV2TimelineItemRow>>(new Map());
+  const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(() => new Set());
 
   const refresh = useCallback(async () => {
     onChanged();
@@ -209,6 +216,7 @@ export function IdeaBankModal({
   useEffect(() => {
     if (visible) {
       setLocalItemPatches(new Map());
+      setExpandedParentIds(new Set());
     } else {
       setSearchTarget(null);
       setSearchQuery('');
@@ -665,11 +673,18 @@ export function IdeaBankModal({
                   : '';
                 const tripPillBusy = tripPillBusyIds.has(row.id);
                 const showAlarmPill = !isTripCard && hasIntentionSchedulableDueDate(row);
-                const alarmPillActive = readIntentionAlarmSetFlag(metaRoot);
+                const alarmPillActive = readIntentionAlarmSetFlag(row.metadata_json);
                 const alarmPillBusy = alarmPillBusyIds.has(row.id);
                 const alarmPillLabel = alarmPillActive
                   ? t('intentAlarm.alarmActive')
                   : t('intentAlarm.planAlarm');
+
+                const isSourcedParent = mode === 'inbox' && isSourcedCaptureParent(row);
+                const childRows =
+                  isSourcedParent && inboxChildrenByParentId
+                    ? inboxChildrenByParentId.get(row.id) ?? []
+                    : [];
+                const isExpanded = expandedParentIds.has(row.id);
 
                 if (__DEV__ && !isTripCard) {
                   console.log('[IntentAlarm] IdeaBank card', {
@@ -682,8 +697,8 @@ export function IdeaBankModal({
                 }
 
                 return (
+                  <View key={row.id}>
                   <View
-                    key={row.id}
                     style={[
                       designTokens.cardShadowStyle,
                       styles.rowCard,
@@ -710,6 +725,27 @@ export function IdeaBankModal({
                         <View style={{ width: VALIDATION_ORB_OUTER }} />
                       )}
 
+                      {isSourcedParent && childRows.length > 0 ? (
+                        <PressableScale
+                          style={styles.expandPressable}
+                          hapticType="light"
+                          onPress={() => {
+                            setExpandedParentIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(row.id)) next.delete(row.id);
+                              else next.add(row.id);
+                              return next;
+                            });
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('timeline.sourcingExpand', { defaultValue: 'Déplier' })}
+                        >
+                          <Text style={{ color: designTokens.textSecondary, fontSize: 16 }}>
+                            {isExpanded ? '▾' : '▸'}
+                          </Text>
+                        </PressableScale>
+                      ) : null}
+
                       <PressableScale
                         style={styles.detailPressable}
                         hapticType="light"
@@ -717,26 +753,37 @@ export function IdeaBankModal({
                         accessibilityRole="button"
                         accessibilityLabel={lineTitle}
                       >
-                        <Text
-                          style={[
-                            styles.rowTitle,
-                            { color: designTokens.textPrimary },
-                            isPending ? styles.rowTitleDone : null,
-                          ]}
-                          numberOfLines={2}
-                        >
-                          {lineTitle}
-                          {cadenceLabel ? (
-                            <Text style={[styles.habitCadence, { color: designTokens.textSecondary }]}>
-                              {' '}
-                              • {cadenceLabel}
+                        {mode === 'inbox' && SOURCING_V1_ENABLED ? (
+                          <InboxLineTitle
+                            row={row}
+                            textPrimary={designTokens.textPrimary}
+                            textSecondary={designTokens.textSecondary}
+                            locale={i18n.language}
+                          />
+                        ) : (
+                          <>
+                            <Text
+                              style={[
+                                styles.rowTitle,
+                                { color: designTokens.textPrimary },
+                                isPending ? styles.rowTitleDone : null,
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {lineTitle}
+                              {cadenceLabel ? (
+                                <Text style={[styles.habitCadence, { color: designTokens.textSecondary }]}>
+                                  {' '}
+                                  • {cadenceLabel}
+                                </Text>
+                              ) : null}
                             </Text>
-                          ) : null}
-                        </Text>
 
-                        <Text style={[styles.createdHint, { color: designTokens.textSecondary }]}>
-                          {createdLine}
-                        </Text>
+                            <Text style={[styles.createdHint, { color: designTokens.textSecondary }]}>
+                              {createdLine}
+                            </Text>
+                          </>
+                        )}
 
                         {trackStreak && streakData ? (
                           <HabitStreakCompact
@@ -831,6 +878,27 @@ export function IdeaBankModal({
                         </Text>
                       </PressableScale>
                     ) : null}
+                  </View>
+                  {isSourcedParent && isExpanded && childRows.length > 0
+                    ? childRows.map((childSource) => {
+                        const child = resolveRow(childSource);
+                        return (
+                          <PressableScale
+                            key={child.id}
+                            style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
+                            hapticType="light"
+                            onPress={() => openDetail(child)}
+                          >
+                            <InboxLineTitle
+                              row={child}
+                              textPrimary={designTokens.textPrimary}
+                              textSecondary={designTokens.textSecondary}
+                              locale={i18n.language}
+                            />
+                          </PressableScale>
+                        );
+                      })
+                    : null}
                   </View>
                 );
               })}
@@ -941,6 +1009,17 @@ const styles = StyleSheet.create({
   detailPressable: {
     flex: 1,
     minWidth: 0,
+  },
+  expandPressable: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 8,
+  },
+  childRow: {
+    paddingVertical: 8,
+    paddingRight: 12,
+    marginBottom: 4,
   },
   rowTitle: { fontSize: 15, fontWeight: '600' },
   rowTitleDone: { textDecorationLine: 'line-through' },
