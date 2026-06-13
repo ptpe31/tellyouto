@@ -50,6 +50,7 @@ import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocomplet
 import {
   reconcileSentinelForIntentionIdImmediate,
   resetTripMissionAndRelaunchProbe1,
+  syncSentinelAfterDestinationChange,
   wakeTripMissionAfterTimedRestore,
 } from '../services/traffic/sentinelReconciler';
 import { clearAllDepartureNotifications } from '../services/NotificationService';
@@ -945,6 +946,9 @@ export function IntentionDetailSheet({
       setRemindToLeaveEnabled(Number(full?.remind_to_leave) === 1);
       setRemindToLeaveHydratedForRowId(id);
       remindHydratedRowIdRef.current = id;
+      if (Number(full?.remind_to_leave) === 1) {
+        void reconcileSentinelForIntentionIdImmediate(id);
+      }
     })();
     return () => {
       cancelled = true;
@@ -1859,6 +1863,9 @@ export function IntentionDetailSheet({
       const ok = await patchMetadataIfSheetUnfrozen(intentionId, { trip: tripPatch }, { silent: true });
       if (!ok) return;
       applyTripMetadataLocally(tripPatch, { locationAddress: fav.formattedAddress });
+      if (remindToLeaveEnabledRef.current) {
+        void syncSentinelAfterDestinationChange(intentionId);
+      }
     })();
   }, [applyTripMetadataLocally, isTrip, patchMetadataIfSheetUnfrozen, visible, row?.id]);
 
@@ -3199,6 +3206,9 @@ export function IntentionDetailSheet({
                               const ok = await patchMetadataIfSheetUnfrozen(row.id, { trip: tripPatch }, { silent: true });
                               if (!ok) return;
                               applyTripMetadataLocally(tripPatch);
+                              if (remindToLeaveEnabledRef.current) {
+                                void syncSentinelAfterDestinationChange(row.id);
+                              }
                             })();
                           }}
                           disabled={false}
@@ -3253,6 +3263,9 @@ export function IntentionDetailSheet({
                               const ok = await patchMetadataIfSheetUnfrozen(row.id, { trip: tripPatch }, { silent: true });
                               if (!ok) return;
                               applyTripMetadataLocally(tripPatch, { locationAddress: p.formattedAddress });
+                              if (remindToLeaveEnabledRef.current) {
+                                void syncSentinelAfterDestinationChange(row.id);
+                              }
                               const alias = String(str(tripMeta, 'destination_name') ?? '').trim();
                               if (alias) {
                                 try {

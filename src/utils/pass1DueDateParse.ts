@@ -69,6 +69,7 @@ export function applyPass1DueFields(target: Record<string, unknown>, rawDue: str
   if (parsed.dueDateTime) target.dueDateTime = parsed.dueDateTime;
   if (parsed.dueDateYmd) target.dueDateYmd = parsed.dueDateYmd;
   if (parsed.dueTimeHm) target.dueTimeHm = parsed.dueTimeHm;
+  target.arrivalDue = rawDue.trim();
   target.timeMarker = parsed.timeMarker;
   target.is_all_day = parsed.timeMarker === 'ALL_DAY' ? 1 : 0;
   return parsed;

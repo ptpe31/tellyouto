@@ -128,6 +128,7 @@ function computeFingerprint(task: TripTaskRowV4): string {
 
 export class TrafficSchedulerV4 {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly tickInFlight = new Set<string>();
   private readonly tableName = 'sentinel_trips';
   private readonly notificationManager = new SentinelNotificationManager();
   private readonly lastTraceAtByTrip = new Map<string, number>();
@@ -186,65 +187,79 @@ export class TrafficSchedulerV4 {
   }
 
   private async runTick(taskId: string): Promise<void> {
-    const wallNowMs = Date.now();
-    const task = await this.getTaskById(taskId);
-    if (!task || task.status !== 'ACTIVE') return;
-
-    const result = await this.computeTick(task, wallNowMs);
-    if (Object.keys(result.patch).length > 0) {
-      await this.persistPatch(taskId, result.patch);
-      if (
-        result.patch.nextRealScanAtMs !== undefined ||
-        result.patch.nextRealScanReason !== undefined
-      ) {
-        const synced = await this.getTaskById(taskId);
-        const { withSentinelDbRetry } = await import('./sentinelDbRetry');
-        await withSentinelDbRetry('sync probe schedule after tick', taskId, () =>
-          syncTripProbeScheduleMetadata(
-            taskId,
-            synced?.nextRealScanAtMs ?? null,
-            synced?.nextRealScanReason ?? null,
-          ),
-        );
+    const id = String(taskId || '').trim();
+    if (!id) return;
+    if (this.tickInFlight.has(id)) {
+      if (VERBOSE_DEBUG) {
+        console.log(`[TRIP-SENTINEL] tick coalesced (in-flight) for ${id}`);
       }
-    }
-    if (result.goNoGo) {
-      await this.notificationManager.sendGoNoGoPush({
-        tripTaskId: taskId,
-        destination: task.destination,
-        variant: result.goNoGo.variant,
-        departInMin: result.goNoGo.departInMin,
-        lat: task.destLat ?? undefined,
-        lng: task.destLng ?? undefined,
-      });
-    }
-    if (result.probe3Unavailable) {
-      await this.notificationManager.sendProbeUnavailablePush({
-        tripTaskId: taskId,
-        destination: result.probe3Unavailable.destination,
-      });
-    }
-    await this.trace(task, result.trace, wallNowMs, result.traceForce);
-    if (result.done) {
-      await this.notificationManager.cancel(taskId);
-      await clearAllDepartureNotifications(taskId);
-      this.clearTimer(taskId);
       return;
     }
+    this.tickInFlight.add(id);
+    const wallNowMs = Date.now();
+    try {
+      const task = await this.getTaskById(id);
+      if (!task || task.status !== 'ACTIVE') return;
 
-    if (!result.skipDepartureNotificationSync) {
-      await this.syncDepartureNotifications(taskId, task.destination);
-    }
-    if (result.promiseDriftSoftNotify) {
-      await this.notificationManager.sendPromiseDriftSoftPush({
-        tripTaskId: taskId,
-        destination: result.promiseDriftSoftNotify.destination,
-        capsule: result.promiseDriftSoftNotify.capsule,
-      });
-    }
+      const result = await this.computeTick(task, wallNowMs);
+      if (Object.keys(result.patch).length > 0) {
+        await this.persistPatch(id, result.patch);
+        if (
+          result.patch.nextRealScanAtMs !== undefined ||
+          result.patch.nextRealScanReason !== undefined
+        ) {
+          const synced = await this.getTaskById(id);
+          const { withSentinelDbRetry } = await import('./sentinelDbRetry');
+          await withSentinelDbRetry('sync probe schedule after tick', id, () =>
+            syncTripProbeScheduleMetadata(
+              id,
+              synced?.nextRealScanAtMs ?? null,
+              synced?.nextRealScanReason ?? null,
+            ),
+          );
+        }
+      }
+      if (result.goNoGo) {
+        await this.notificationManager.sendGoNoGoPush({
+          tripTaskId: id,
+          destination: task.destination,
+          variant: result.goNoGo.variant,
+          departInMin: result.goNoGo.departInMin,
+          lat: task.destLat ?? undefined,
+          lng: task.destLng ?? undefined,
+        });
+      }
+      if (result.probe3Unavailable) {
+        await this.notificationManager.sendProbeUnavailablePush({
+          tripTaskId: id,
+          destination: result.probe3Unavailable.destination,
+        });
+      }
+      const traceTask = { ...task, ...result.patch } as TripTaskRowV4;
+      await this.trace(traceTask, result.trace, wallNowMs, result.traceForce);
+      if (result.done) {
+        await this.notificationManager.cancel(id);
+        await clearAllDepartureNotifications(id);
+        this.clearTimer(id);
+        return;
+      }
 
-    const refreshed = await this.getTaskById(taskId);
-    if (refreshed && refreshed.status === 'ACTIVE') await this.planNext(refreshed);
+      if (!result.skipDepartureNotificationSync) {
+        await this.syncDepartureNotifications(id, task.destination);
+      }
+      if (result.promiseDriftSoftNotify) {
+        await this.notificationManager.sendPromiseDriftSoftPush({
+          tripTaskId: id,
+          destination: result.promiseDriftSoftNotify.destination,
+          capsule: result.promiseDriftSoftNotify.capsule,
+        });
+      }
+
+      const refreshed = await this.getTaskById(id);
+      if (refreshed && refreshed.status === 'ACTIVE') await this.planNext(refreshed);
+    } finally {
+      this.tickInFlight.delete(id);
+    }
   }
 
   private async computeTick(task: TripTaskRowV4, nowMs: number): Promise<TickResult> {

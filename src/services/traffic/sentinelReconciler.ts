@@ -4,6 +4,7 @@ import {
   getTrankilV2IntentionById,
   trankilV2SqliteBarrier,
   waitForTrankilV2SqliteIdle,
+  withTrankilV2Database,
 } from '../../api/trankilV2Db';
 import { consumeSentinelQuotaOnTripValidation } from '../QuotaManager';
 import { USER_SPECTRUM_STORAGE_KEY } from '../../context/UserSpectrumContext';
@@ -18,6 +19,21 @@ import { activateSentinelTrip, kickSentinelAfterActivation, syncSentinelTripProb
 import { cancelTripMission, clearTripElasticProbeMetadata, suspendTripMissionForAllDay } from './sentinelTripMission';
 
 const RECONCILE_DEBOUNCE_MS = 500;
+
+async function readSentinelTripStatus(intentionId: string): Promise<string | null> {
+  const id = String(intentionId || '').trim();
+  if (!id) return null;
+  const row = await withTrankilV2Database(async (db) =>
+    db.getFirstAsync<{ status: string }>(`SELECT status FROM sentinel_trips WHERE id = ? LIMIT 1`, [id]),
+  );
+  return row?.status ?? null;
+}
+
+async function cancelSentinelIfActive(intentionId: string): Promise<void> {
+  const status = await readSentinelTripStatus(intentionId);
+  if (status !== 'ACTIVE') return;
+  await cancelTripMission(intentionId);
+}
 
 const reconcileDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const missionActivations = new Map<string, Promise<void>>();
@@ -84,7 +100,7 @@ async function reconcileSentinelForIntentionIdInner(intentionId: string): Promis
     if (!row) return;
 
     if (Number(row.remind_to_leave) !== 1) {
-      await cancelTripMission(id);
+      await cancelSentinelIfActive(id);
       return;
     }
 
@@ -113,12 +129,12 @@ async function reconcileSentinelForIntentionIdInner(intentionId: string): Promis
     const isProUser = await readIsProUserLocal();
 
     if (!remindToLeave || !isProUser) {
-      await cancelTripMission(id);
+      await cancelSentinelIfActive(id);
       return;
     }
 
-    if (!destination || !Number.isFinite(destLat) || !Number.isFinite(destLng) || !placeId || !arrivalMs) {
-      await cancelTripMission(id);
+    if (!destination || !Number.isFinite(destLat) || !Number.isFinite(destLng) || !arrivalMs) {
+      await cancelSentinelIfActive(id);
       return;
     }
 
@@ -230,4 +246,13 @@ export async function wakeTripMissionAfterTimedRestore(intentionId: string): Pro
 
   await trankilV2SqliteBarrier();
   await reconcileSentinelForIntentionIdImmediate(id);
+}
+
+/** Changement destination / coords — relance PROBE1 uniquement si surveillance active en DB. */
+export async function syncSentinelAfterDestinationChange(intentionId: string): Promise<void> {
+  const id = String(intentionId || '').trim();
+  if (!id) return;
+  const row = await getTrankilV2IntentionById(id);
+  if (!row || Number(row.remind_to_leave) !== 1) return;
+  await resetTripMissionAndRelaunchProbe1(id);
 }

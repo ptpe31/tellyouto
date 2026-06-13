@@ -238,7 +238,6 @@ export async function syncSentinelTripProbeScheduleAfterActivation(input: {
 export async function kickSentinelAfterActivation(tripTaskId: string): Promise<void> {
   try {
     const scheduler = await startSentinelRuntime();
-    await scheduler.refreshTask(tripTaskId);
     await scheduler.tickNow(tripTaskId);
   } catch (err) {
     console.warn(`[TRIP-SENTINEL] kickSentinelAfterActivation failed for ${tripTaskId}:`, err);

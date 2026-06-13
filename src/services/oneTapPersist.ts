@@ -118,7 +118,10 @@ function resolveOneTapTemporalFields(data: Record<string, unknown>): {
   let dueDateYmd = str(data, 'dueDateYmd') ?? str(data, 'nextDueYmd');
   let dueTimeHm = str(data, 'dueTimeHm');
   let timeMarkerRaw = str(data, 'timeMarker');
-  let dueDateTime = str(data, 'dueDateTime') ?? str(data, 'arrivalDue');
+  const arrivalDueRaw = str(data, 'arrivalDue');
+  const preferArrivalDue =
+    Boolean(data.logisticsPotential) || Boolean(arrivalDueRaw && /[ T]\d{1,2}:\d{2}/.test(arrivalDueRaw));
+  let dueDateTime = preferArrivalDue && arrivalDueRaw ? arrivalDueRaw : str(data, 'dueDateTime') ?? arrivalDueRaw;
 
   if ((!dueDateYmd || !dueTimeHm) && dueDateTime) {
     const parsed = parsePass1DueDateTime(dueDateTime);
@@ -380,6 +383,7 @@ async function materializeOneTapIntentionRow(params: {
     }
     case 'TRIP': {
       const temporal = resolveOneTapTemporalFields(draft.data as Record<string, unknown>);
+      const arrivalDueRaw = str(draft.data, 'arrivalDue');
       const dest = str(draft.data, 'destination_name') || title;
       const { row } = buildLocalTemporalIntentionInsertRow({
         id: intentionId,
@@ -396,16 +400,23 @@ async function materializeOneTapIntentionRow(params: {
           categoryTag: draft.categoryTag,
           trip: draft.data,
           ...(temporal.dueTimeHm ? { dueTimeHm: temporal.dueTimeHm } : {}),
-          ...(temporal.dueDateTime ? { dueDateTime: temporal.dueDateTime, arrivalDue: temporal.dueDateTime } : {}),
+          ...(temporal.dueDateTime ? { dueDateTime: temporal.dueDateTime } : {}),
+          ...(arrivalDueRaw ? { arrivalDue: arrivalDueRaw } : {}),
           timeMarker: temporal.timeMarker,
           is_all_day: temporal.isAllDay,
         },
         is_pending_ai: isPendingAi,
         created_at,
       });
+      const tripArrivalDue =
+        arrivalDueRaw ??
+        (temporal.dueDateYmd && temporal.dueTimeHm
+          ? `${temporal.dueDateYmd} ${temporal.dueTimeHm}`
+          : temporal.dueDateTime);
       return applyAutoPinFromCapture(
         {
           ...row,
+          due_date: tripArrivalDue ?? row.due_date ?? null,
           parent_id: params.parentId ?? null,
           context_tag: contextTagDb,
           ...logisticsFieldsFromDraft(draft.data as Record<string, unknown>),
@@ -1359,13 +1370,10 @@ export async function persistOneTapDraftVentilated(params: {
             data: {
               logisticsPotential: true,
               destination_name: destination.slice(0, 400),
-              ...(parsedDue?.dueDateTime
-                ? { dueDateTime: parsedDue.dueDateTime, arrivalDue: parsedDue.dueDateTime }
-                : dueIso
-                  ? { dueDateTime: dueIso, arrivalDue: dueIso }
-                  : {}),
+              ...(parsedDue?.dueDateTime ? { dueDateTime: parsedDue.dueDateTime } : dueIso ? { dueDateTime: dueIso } : {}),
               ...(parsedDue?.dueDateYmd ? { dueDateYmd: parsedDue.dueDateYmd } : {}),
               ...(parsedDue?.dueTimeHm ? { dueTimeHm: parsedDue.dueTimeHm } : {}),
+              ...(dueIso ? { arrivalDue: dueIso } : {}),
               ...(parsedDue
                 ? { timeMarker: parsedDue.timeMarker, is_all_day: parsedDue.timeMarker === 'ALL_DAY' ? 1 : 0 }
                 : {}),

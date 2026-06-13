@@ -91,19 +91,21 @@ function baseTrace(
   startMs: number,
   endMs: number,
   flowMode: FlowMode,
+  patch?: Partial<TripTaskRowV4>,
 ): ElasticTickResult['trace'] {
+  const merged = patch ? ({ ...task, ...patch } as TripTaskRowV4) : task;
   return {
     displayedStartMs: startMs,
     displayedEndMs: endMs,
     internalStartMs: startMs,
     internalEndMs: endMs,
     flowMode,
-    vFlowSecPerMin: task.vFlowSecPerMin,
-    nextRealScanAtMs: task.nextRealScanAtMs,
-    nextRealScanReason: task.nextRealScanReason,
-    apiCallsTotal: task.apiCallsTotal,
-    apiCallsAvoidedCache: task.apiCallsAvoidedCache,
-    apiCallsAvoidedExtrapolation: task.apiCallsAvoidedExtrapolation,
+    vFlowSecPerMin: merged.vFlowSecPerMin,
+    nextRealScanAtMs: patch?.nextRealScanAtMs ?? merged.nextRealScanAtMs,
+    nextRealScanReason: patch?.nextRealScanReason ?? merged.nextRealScanReason,
+    apiCallsTotal: merged.apiCallsTotal,
+    apiCallsAvoidedCache: merged.apiCallsAvoidedCache,
+    apiCallsAvoidedExtrapolation: merged.apiCallsAvoidedExtrapolation,
   };
 }
 
@@ -318,7 +320,7 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
       patch,
       goNoGo: null,
       probe3Unavailable: null,
-      trace: baseTrace(task, anchor.startMs, anchor.endMs, 'REAL'),
+      trace: baseTrace(task, anchor.startMs, anchor.endMs, 'REAL', patch),
       traceForce: true,
       done: false,
     };
@@ -478,7 +480,7 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
       probe3Unavailable: null,
       skipDepartureNotificationSync,
       promiseDriftSoftNotify,
-      trace: baseTrace(task, anchor.startMs, anchor.endMs, 'REAL'),
+      trace: baseTrace(task, anchor.startMs, anchor.endMs, 'REAL', patch),
       traceForce: uiUpdate,
       done: false,
     };
@@ -629,7 +631,7 @@ async function finalizeProbe3FromMeasurement(input: {
       departInMin: variant === 'smooth' ? Math.max(1, departInMin) : 0,
     },
     probe3Unavailable: null,
-    trace: baseTrace(task, anchor.startMs, anchor.endMs, flowMode),
+    trace: baseTrace(task, anchor.startMs, anchor.endMs, flowMode, patch),
     traceForce: true,
     done: true,
   };

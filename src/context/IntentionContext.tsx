@@ -19,6 +19,7 @@ import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locatio
 import { persistOneTapDraftVentilated, type PersistOneTapSuccess } from '../services/oneTapPersist';
 import { showAppToast } from '../services/appToast';
 import { getTrankilV2IntentionById } from '../api/trankilV2Db';
+import { parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import {
   getOfflineAudioById,
   getLatestPendingOfflineAudio,
@@ -404,19 +405,37 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             });
             const clean = generateSmartTitle(chunk, uiLocale);
             const d = (res.parsed as OneTapUniversalResult).data as Record<string, unknown>;
-            const dueIso = typeof d.dueDateTime === 'string' ? d.dueDateTime.trim() : '';
+            const tripIntent = Array.isArray(d.intents)
+              ? (d.intents as Record<string, unknown>[]).find((it) => String(it?.type ?? '').trim().toUpperCase() === 'TRIP')
+              : null;
+            const arrivalRaw =
+              typeof tripIntent?.arrivalDue === 'string'
+                ? tripIntent.arrivalDue.trim()
+                : typeof d.arrivalDue === 'string'
+                  ? d.arrivalDue.trim()
+                  : '';
+            const temporalFromArrival = arrivalRaw ? parsePass1DueDateTime(arrivalRaw) : null;
+            const dueIso =
+              temporalFromArrival?.dueDateTime ??
+              (typeof d.dueDateTime === 'string' ? d.dueDateTime.trim() : '');
             const parsedDue = dueIso ? new Date(dueIso) : null;
             const dueDate = parsedDue && Number.isFinite(parsedDue.getTime()) ? parsedDue : null;
-            const ymd = dueDate
-              ? formatYmdLocal(dueDate)
-              : typeof d.dueDateYmd === 'string'
-                ? d.dueDateYmd.trim()
-                : '';
-            const hm = dueDate
-              ? new Intl.DateTimeFormat(uiLocale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(dueDate)
-              : typeof d.dueTimeHm === 'string'
-                ? d.dueTimeHm.trim()
-                : '';
+            const ymd =
+              temporalFromArrival?.dueDateYmd ??
+              (dueDate
+                ? formatYmdLocal(dueDate)
+                : typeof d.dueDateYmd === 'string'
+                  ? d.dueDateYmd.trim()
+                  : '');
+            const hm =
+              temporalFromArrival?.dueTimeHm ??
+              (dueDate
+                ? new Intl.DateTimeFormat(uiLocale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(
+                    dueDate,
+                  )
+                : typeof d.dueTimeHm === 'string'
+                  ? d.dueTimeHm.trim()
+                  : '');
             const today = formatYmdLocal(now);
             const tomorrow = addDaysYmd(now, 1);
             const weekday =

@@ -282,17 +282,31 @@ function normalizeUniversalTemporalInData(data: Record<string, unknown>): Record
 }
 
 function syncYmdHmFromDueDateTime(data: Record<string, unknown>): Record<string, unknown> {
+  const arrivalRaw = typeof data.arrivalDue === 'string' ? data.arrivalDue.trim() : '';
+  if (arrivalRaw) {
+    const parsed = parsePass1DueDateTime(arrivalRaw);
+    return {
+      ...data,
+      arrivalDue: arrivalRaw,
+      ...(parsed.dueDateTime ? { dueDateTime: parsed.dueDateTime } : {}),
+      ...(parsed.dueDateYmd ? { dueDateYmd: parsed.dueDateYmd } : {}),
+      ...(parsed.dueTimeHm ? { dueTimeHm: parsed.dueTimeHm } : {}),
+      timeMarker: parsed.timeMarker,
+      is_all_day: parsed.timeMarker === 'ALL_DAY' ? 1 : 0,
+    };
+  }
   const iso = typeof data.dueDateTime === 'string' ? data.dueDateTime.trim() : '';
   if (!iso) return data;
-  const dt = new Date(iso);
-  const ms = dt.getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return data;
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, '0');
-  const d = String(dt.getDate()).padStart(2, '0');
-  const hh = String(dt.getHours()).padStart(2, '0');
-  const mm = String(dt.getMinutes()).padStart(2, '0');
-  return { ...data, dueDateYmd: `${y}-${m}-${d}`, dueTimeHm: `${hh}:${mm}` };
+  const parsed = parsePass1DueDateTime(iso);
+  if (!parsed.dueDateYmd) return data;
+  return {
+    ...data,
+    ...(parsed.dueDateTime ? { dueDateTime: parsed.dueDateTime } : {}),
+    dueDateYmd: parsed.dueDateYmd,
+    dueTimeHm: parsed.dueTimeHm ?? '00:00',
+    timeMarker: parsed.timeMarker,
+    is_all_day: parsed.timeMarker === 'ALL_DAY' ? 1 : 0,
+  };
 }
 
 function universalTailFromPrev(prevData: Record<string, unknown>): Record<string, unknown> {
