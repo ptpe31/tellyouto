@@ -91,10 +91,16 @@
     "androidUnavailable": "Could not open Clock. Set an alarm at {{time}} ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "Set reminder",
-    "reminderSet": "Reminder set",
+    "planAlarm": "Schedule alarm",
+    "alarmActive": "Alarm scheduled",
+    "scheduledToast": "Alarm scheduled for {{time}}",
+    "openClockHint": "Clock opened — confirm alarm at {{time}}",
+    "scheduleFailed": "Could not schedule alarm",
+    "alarmCancelled": "Alarm not saved",
+    "setReminder": "Schedule alarm",
+    "reminderSet": "Alarm scheduled",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "Reminder set for this intention"
+    "a11yWitness": "Alarm scheduled for this intention"
   },
   "intentionDetail": {
     "source": "Source",

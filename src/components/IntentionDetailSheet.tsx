@@ -1394,7 +1394,7 @@ export function IntentionDetailSheet({
     return { startMs, endMs, ratioD };
   }, [elasticSlotDisplay, isProUser, isTrip, trip, tripIsAllDay]);
 
-  const { isAlarmSet, isDueToday, onSetAlarm } = useIntentAlarm(row, {
+  const { isAlarmSet, hasDueDate, onSetAlarm } = useIntentAlarm(row, {
     metadataJson: metadataJsonLive ?? row?.metadata_json,
     tripCapsuleModel: elasticDepartureCapsuleModel,
     onPatchRow,
@@ -3888,14 +3888,14 @@ export function IntentionDetailSheet({
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-              {isDueToday && row && row.id !== 'peek_pending' && !isValidationView ? (
+              {hasDueDate && row && row.id !== 'peek_pending' && !isValidationView ? (
                 <Button
                   mode="outlined"
-                  icon={isAlarmSet ? 'bell' : 'bell-outline'}
+                  icon={isAlarmSet ? 'bell-check' : 'bell-plus-outline'}
                   onPress={() => void onSetAlarm()}
                   style={styles.footerReminderBtn}
                 >
-                  {isAlarmSet ? t('intentAlarm.reminderSet') : t('intentAlarm.setReminder')}
+                  {isAlarmSet ? t('intentAlarm.alarmActive') : t('intentAlarm.planAlarm')}
                 </Button>
               ) : null}
               {isTrip ? (

@@ -91,10 +91,16 @@
     "androidUnavailable": "Uhr-App konnte nicht geöffnet werden. Stelle einen Wecker auf {{time}} ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "Erinnerung stellen",
-    "reminderSet": "Erinnerung gesetzt",
+    "planAlarm": "Wecker planen",
+    "alarmActive": "Wecker geplant",
+    "scheduledToast": "Wecker geplant für {{time}}",
+    "openClockHint": "Uhr geöffnet — Wecker um {{time}} bestätigen",
+    "scheduleFailed": "Wecker konnte nicht geplant werden",
+    "alarmCancelled": "Wecker nicht gespeichert",
+    "setReminder": "Wecker planen",
+    "reminderSet": "Wecker geplant",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "Erinnerung für diese Absicht gesetzt"
+    "a11yWitness": "Wecker für diese Absicht geplant"
   },
   "intentionDetail": {
     "source": "Quelle",

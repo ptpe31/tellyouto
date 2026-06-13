@@ -91,10 +91,16 @@
     "androidUnavailable": "Kunde inte öppna Klocka. Ställ in alarm kl. {{time}} ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "Ställ in påminnelse",
-    "reminderSet": "Påminnelse inställd",
+    "planAlarm": "Schemalägg alarm",
+    "alarmActive": "Alarm schemalagt",
+    "scheduledToast": "Alarm schemalagt för {{time}}",
+    "openClockHint": "Klocka öppnad — bekräfta alarm kl. {{time}}",
+    "scheduleFailed": "Kunde inte schemalägga alarm",
+    "alarmCancelled": "Alarm inte sparat",
+    "setReminder": "Schemalägg alarm",
+    "reminderSet": "Alarm schemalagt",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "Påminnelse inställd för denna avsikt"
+    "a11yWitness": "Alarm schemalagt för denna avsikt"
   },
   "intentionDetail": {
     "source": "Källa",

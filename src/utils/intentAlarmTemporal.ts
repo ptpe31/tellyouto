@@ -132,6 +132,24 @@ export function resolveIntentionAlarmUnixSec(
   return Math.floor(ms / 1000);
 }
 
+/** Intention avec date d'échéance résolue (TASK, TRIP, HABIT, etc.). */
+export function hasIntentionSchedulableDueDate(row: TrankilV2TimelineItemRow): boolean {
+  return resolveIntentionDueYmd(row) != null;
+}
+
+/**
+ * ISO 8601 pour planification notification — reconstruit depuis `dueDateYmd` + `dueTimeHm`
+ * si `dueDateTime` est absent en métadonnées.
+ */
+export function resolveIntentionDueDateTimeIso(
+  row: TrankilV2TimelineItemRow,
+  opts?: ResolveAlarmOpts,
+): string | null {
+  const ms = resolveIntentionEffectiveEventMs(row, opts);
+  if (ms == null || ms <= 0) return null;
+  return new Date(ms).toISOString();
+}
+
 export function isIntentionAlarmWitnessVisible(
   metadataJson: string | null | undefined,
   row: TrankilV2TimelineItemRow,

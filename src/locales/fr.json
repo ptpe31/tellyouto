@@ -91,10 +91,16 @@
     "androidUnavailable": "Impossible d’ouvrir l’horloge. Réglez une alarme à {{time}} ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "Régler Rappel",
-    "reminderSet": "Rappel réglé",
+    "planAlarm": "Planifier une alarme",
+    "alarmActive": "Alarme planifiée",
+    "scheduledToast": "Alarme planifiée pour {{time}}",
+    "openClockHint": "Horloge ouverte — confirmez l'alarme à {{time}}",
+    "scheduleFailed": "Impossible de planifier l'alarme",
+    "alarmCancelled": "Alarme non enregistrée",
+    "setReminder": "Planifier une alarme",
+    "reminderSet": "Alarme planifiée",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "Rappel réglé pour cette intention"
+    "a11yWitness": "Alarme planifiée pour cette intention"
   },
   "intentionDetail": {
     "source": "Source",

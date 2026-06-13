@@ -91,10 +91,16 @@
     "androidUnavailable": "Impossibile aprire Orologio. Imposta una sveglia alle {{time}} ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "Imposta promemoria",
-    "reminderSet": "Promemoria impostato",
+    "planAlarm": "Programma allarme",
+    "alarmActive": "Allarme programmato",
+    "scheduledToast": "Allarme programmato per {{time}}",
+    "openClockHint": "Orologio aperto — conferma l'allarme alle {{time}}",
+    "scheduleFailed": "Impossibile programmare l'allarme",
+    "alarmCancelled": "Allarme non salvato",
+    "setReminder": "Programma allarme",
+    "reminderSet": "Allarme programmato",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "Promemoria impostato per questa intenzione"
+    "a11yWitness": "Allarme programmato per questa intenzione"
   },
   "intentionDetail": {
     "source": "Fonte",

@@ -713,7 +713,7 @@ Composant : [`ElasticDepartureCapsule.tsx`](file:///Users/lala/Dev/trankil-v3/De
 **Affichage actif** (`nowMs <= endMs`) :
 - Piste « pill-shaped », labels `HH:mm` aux extrémités, mur vertical deadline à droite.
 - **Zone exécution (gauche)** : badge GPS cliquable → `onNavigationPress` (deep link Maps/Waze).
-- **Zone planification (droite)** : slot **réveil** (`AlarmClock`) optionnel si `showAlarmIcon` + `onAlarmPress` — **désactivé** sur [`IntentionCard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) et [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) (juin 2026) ; heure prédéfinie TRIP = **20 % avant `endMs`** ([`resolveElasticDepartureAlarmUnixSec`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), `ELASTIC_DEPARTURE_ALARM_LEAD_RATIO = 0.2`) consommée par `useIntentAlarm` pour le bouton « Régler Rappel ».
+- **Zone planification (droite)** : slot **réveil** (`AlarmClock`) optionnel si `showAlarmIcon` + `onAlarmPress` — **désactivé** sur [`IntentionCard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) et [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) (juin 2026) ; heure prédéfinie TRIP = **20 % avant `endMs`** ([`resolveElasticDepartureAlarmUnixSec`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/tripElasticCapsuleModel.ts), `ELASTIC_DEPARTURE_ALARM_LEAD_RATIO = 0.2`) consommée par `useIntentAlarm` pour le bouton « Planifier une alarme ».
 - Couleur système iOS selon `D` : vert `#34C759` si `< 1.1`, orange `#FF9500` si `< 1.3`, rouge `#FF3B30` sinon.
 - Heure basse (`startMs`) quasi invisible quand déjà passée.
 
@@ -1357,24 +1357,26 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 
 | Zone | Rôle |
 |------|------|
-| [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | **Action** — bouton « Régler Rappel » / « Rappel réglé » (intentions **du jour** uniquement) → intent Horloge OS + flag interne |
+| [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) | **Action** — bouton « Planifier une alarme » / « Alarme planifiée » (toute intention avec **date d'échéance**, TASK ou TRIP) → notification locale + Horloge OS + flag interne |
 | [`IntentionCard`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) | **Témoin** — icône cloche discrète (coin sup. droit), **non cliquable** ; visible seulement si rappel réglé |
 | [`ElasticDepartureCapsule`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/ElasticDepartureCapsule.tsx) (Timeline + sheet) | **GPS uniquement** — plus de slot réveil sur carte / fiche TRIP (réveil centralisé via le bouton footer) |
 
 **État persisté** : `metadata_json.is_alarm_set === true` (via [`patchMetadata`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts)) — **aucune lecture** des alarmes système (Android/iOS interdisent l’accès à la liste).
 
 **Hook partagé** : [`useIntentAlarm.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useIntentAlarm.ts) + résolutions [`intentAlarmTemporal.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/intentAlarmTemporal.ts) :
+- `hasDueDate` : `resolveIntentionDueYmd(row) != null` — affichage du bouton footer (plus de restriction « du jour »).
 - `isAlarmSet` : flag `is_alarm_set` **et** `Date.now() < heure_effective + 15 min` (`INTENT_ALARM_WITNESS_GRACE_MS`).
-- `onSetAlarm` : `resolveIntentionAlarmUnixSec` → [`AlarmService.openAlarmSelection`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts) → si succès intent, `patchMetadata({ is_alarm_set: true })` + `onPatchRow` optimiste.
+- `onSetAlarm` : `resolveIntentionDueDateTimeIso` (recomposition `dueDateYmd` + `dueTimeHm` si `dueDateTime` absent) → [`scheduleOneTapUniversalReminders`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapUniversalReminders.ts) (notification système) + [`AlarmService.openAlarmSelection`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/alarmService.ts) (Horloge native) → `patchMetadata({ is_alarm_set: true })` + `onPatchRow` optimiste + toast (`intentAlarm.scheduledToast`).
 - **Heure cible** : horaire résolu (`dueTimeHm` / ISO / `parseRowTemporalMeta`) ; **TRIP** avec capsule élastique → `resolveElasticDepartureAlarmUnixSec` (−20 % `endMs`, § 8.b) ; toute la journée → fin de journée locale (23:59) pour l’expiration du témoin.
 - **Horloge UI** : [`useProbeScheduleClock`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useProbeScheduleClock.ts) (tick 60 s) pour masquer le témoin après la fenêtre de grâce sans reload.
+- **Annulation horloge native** (heuristique) : si la notification locale n’a pas pu être planifiée et que seul l’intent Horloge s’ouvre, retour app &lt; 1,5 s → `is_alarm_set` laissé à `false` + toast `intentAlarm.alarmCancelled` (Android/iOS n’exposent pas la confirmation utilisateur).
 
 **Cycle de vie** :
-1. Utilisateur tape « Régler Rappel » → Horloge native s’ouvre (heure préremplie) ; app pose `is_alarm_set = true`.
+1. Utilisateur tape « Planifier une alarme » → notification locale planifiée (si échéance future) + Horloge native (heure préremplie) ; app pose `is_alarm_set = true` dès succès notification (ou au retour app si Horloge seule).
 2. Carte Timeline affiche la cloche tant que le flag est actif et dans la fenêtre +15 min.
 3. Après l’heure de l’intention + 15 min, le témoin disparaît automatiquement (le flag peut rester en base ; l’UI ne l’affiche plus).
 
-**i18n** : `intentAlarm.setReminder`, `intentAlarm.reminderSet`, `intentAlarm.label`, `intentAlarm.a11yWitness` (11 locales).
+**i18n** : `intentAlarm.planAlarm`, `intentAlarm.alarmActive`, `intentAlarm.scheduledToast`, `intentAlarm.openClockHint`, `intentAlarm.scheduleFailed`, `intentAlarm.alarmCancelled`, `intentAlarm.label`, `intentAlarm.a11yWitness` (11 locales). Icônes footer : `bell-plus-outline` / `bell-check`.
 
 **Legacy** : [`SentinelFocusBadge`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) conserve encore le slot réveil capsule (promesse P1) — migration vers `useIntentAlarm` à prévoir.
 

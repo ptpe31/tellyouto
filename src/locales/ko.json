@@ -91,10 +91,16 @@
     "androidUnavailable": "시계 앱을 열 수 없어요. {{time}}에 알람을 설정하세요 ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "알림 설정",
-    "reminderSet": "알림 설정됨",
+    "planAlarm": "알람 예약",
+    "alarmActive": "알람 예약됨",
+    "scheduledToast": "{{time}}에 알람이 예약되었습니다",
+    "openClockHint": "시계 앱이 열렸습니다 — {{time}} 알람을 확인하세요",
+    "scheduleFailed": "알람을 예약할 수 없습니다",
+    "alarmCancelled": "알람이 저장되지 않았습니다",
+    "setReminder": "알람 예약",
+    "reminderSet": "알람 예약됨",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "이 의도에 알림이 설정됨"
+    "a11yWitness": "이 의도에 알람이 예약되었습니다"
   },
   "intentionDetail": {
     "source": "소스",

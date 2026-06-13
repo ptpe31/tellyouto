@@ -91,10 +91,16 @@
     "androidUnavailable": "تعذّر فتح الساعة. اضبط منبّهًا في {{time}} ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "ضبط تذكير",
-    "reminderSet": "تم ضبط التذكير",
+    "planAlarm": "جدولة منبّه",
+    "alarmActive": "تم جدولة المنبّه",
+    "scheduledToast": "تم جدولة المنبّه لـ {{time}}",
+    "openClockHint": "تم فتح الساعة — أكّد المنبّه عند {{time}}",
+    "scheduleFailed": "تعذّر جدولة المنبّه",
+    "alarmCancelled": "لم يُحفظ المنبّه",
+    "setReminder": "جدولة منبّه",
+    "reminderSet": "تم جدولة المنبّه",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "تم ضبط تذكير لهذه النية"
+    "a11yWitness": "تم جدولة منبّه لهذه النية"
   },
   "intentionDetail": {
     "source": "المصدر",

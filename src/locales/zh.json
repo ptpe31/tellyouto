@@ -91,10 +91,16 @@
     "androidUnavailable": "无法打开时钟。请在 {{time}} 设置闹钟（{{label}}）。"
   },
   "intentAlarm": {
-    "setReminder": "设置提醒",
-    "reminderSet": "已设置提醒",
+    "planAlarm": "设置闹钟",
+    "alarmActive": "闹钟已设置",
+    "scheduledToast": "闹钟已设置为 {{time}}",
+    "openClockHint": "已打开时钟 — 请确认 {{time}} 的闹钟",
+    "scheduleFailed": "无法设置闹钟",
+    "alarmCancelled": "闹钟未保存",
+    "setReminder": "设置闹钟",
+    "reminderSet": "闹钟已设置",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "已为此意图设置提醒"
+    "a11yWitness": "已为此意图设置闹钟"
   },
   "intentionDetail": {
     "source": "来源",

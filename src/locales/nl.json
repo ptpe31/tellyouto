@@ -91,10 +91,16 @@
     "androidUnavailable": "Kon Klok niet openen. Stel een alarm in om {{time}} ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "Herinnering instellen",
-    "reminderSet": "Herinnering ingesteld",
+    "planAlarm": "Alarm plannen",
+    "alarmActive": "Alarm gepland",
+    "scheduledToast": "Alarm gepland voor {{time}}",
+    "openClockHint": "Klok geopend — bevestig alarm om {{time}}",
+    "scheduleFailed": "Alarm kon niet worden gepland",
+    "alarmCancelled": "Alarm niet opgeslagen",
+    "setReminder": "Alarm plannen",
+    "reminderSet": "Alarm gepland",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "Herinnering ingesteld voor deze intentie"
+    "a11yWitness": "Alarm gepland voor deze intentie"
   },
   "intentionDetail": {
     "source": "Bron",

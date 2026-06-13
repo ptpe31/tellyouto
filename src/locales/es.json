@@ -91,10 +91,16 @@
     "androidUnavailable": "No se pudo abrir Reloj. Pon una alarma a las {{time}} ({{label}})."
   },
   "intentAlarm": {
-    "setReminder": "Poner recordatorio",
-    "reminderSet": "Recordatorio puesto",
+    "planAlarm": "Programar alarma",
+    "alarmActive": "Alarma programada",
+    "scheduledToast": "Alarma programada para {{time}}",
+    "openClockHint": "Reloj abierto — confirma la alarma a las {{time}}",
+    "scheduleFailed": "No se pudo programar la alarma",
+    "alarmCancelled": "Alarma no guardada",
+    "setReminder": "Programar alarma",
+    "reminderSet": "Alarma programada",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "Recordatorio puesto para esta intención"
+    "a11yWitness": "Alarma programada para esta intención"
   },
   "intentionDetail": {
     "source": "Fuente",

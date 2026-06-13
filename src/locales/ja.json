@@ -91,10 +91,16 @@
     "androidUnavailable": "時計アプリを開けませんでした。{{time}} にアラームを設定してください（{{label}}）。"
   },
   "intentAlarm": {
-    "setReminder": "リマインダーを設定",
-    "reminderSet": "リマインダー設定済み",
+    "planAlarm": "アラームを設定",
+    "alarmActive": "アラーム設定済み",
+    "scheduledToast": "{{time}} にアラームを設定しました",
+    "openClockHint": "時計を開きました — {{time}} のアラームを確認してください",
+    "scheduleFailed": "アラームを設定できませんでした",
+    "alarmCancelled": "アラームは保存されませんでした",
+    "setReminder": "アラームを設定",
+    "reminderSet": "アラーム設定済み",
     "label": "{{title}} · {{time}}",
-    "a11yWitness": "この意図にリマインダーが設定されています"
+    "a11yWitness": "この意図にアラームが設定されています"
   },
   "intentionDetail": {
     "source": "ソース",
