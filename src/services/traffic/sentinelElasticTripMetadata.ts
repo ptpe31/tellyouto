@@ -1,4 +1,5 @@
 import { getTrankilV2IntentionById, patchMetadata } from '../../api/trankilV2Db';
+import { DistanceMatrixError } from './DistanceMatrixMapsService';
 import { withSentinelDbRetry } from './sentinelDbRetry';
 import {
   anchorToDepartureWindow,
@@ -152,6 +153,29 @@ export function buildContractTripPatch(input: {
     elastic_shifted: input.shifted ?? false,
     probe3_skipped: input.probe3Skipped,
   };
+}
+
+export function isDistanceMatrixZeroResultsError(err: unknown): boolean {
+  if (err instanceof DistanceMatrixError) {
+    return err.elementStatus === 'ZERO_RESULTS' || err.apiStatus === 'ZERO_RESULTS';
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('element status ZERO_RESULTS') || msg.includes('api status ZERO_RESULTS');
+}
+
+/** Arrête les sondes Sentinel quand aucun itinéraire n'existe (erreur définitive). */
+export async function stopProbingAfterDistanceMatrixZeroResults(
+  intentionId: string,
+): Promise<TripElasticMetadataPatch> {
+  const patch: TripElasticMetadataPatch = {
+    next_probe_at_ms: null,
+    next_probe_reason: null,
+  };
+  console.error(
+    `[TRIP-SENTINEL] ❌ DistanceMatrix ZERO_RESULTS for ${intentionId} — stopping probes`,
+  );
+  await patchTripElasticMetadata(intentionId, patch);
+  return patch;
 }
 
 export async function syncTripProbeScheduleMetadata(

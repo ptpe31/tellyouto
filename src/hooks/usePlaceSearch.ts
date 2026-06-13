@@ -191,57 +191,35 @@ export function usePlaceSearch(params: UsePlaceSearchParams): UsePlaceSearchResu
     [apiConfigured, lang],
   );
 
-  const runSearch = useCallback(
-    async (query: string) => {
-      const gen = ++searchGenRef.current;
-      const q = query.trim();
-      if (!q) {
-        setPredictions([]);
-        setPredictionsVisible(false);
-        setShowLoupe(false);
-        localCacheRef.current = [];
-        return;
-      }
+  const runLocalSearch = useCallback(async (query: string) => {
+    const gen = ++searchGenRef.current;
+    const q = query.trim();
+    if (!q) {
+      setPredictions([]);
+      setPredictionsVisible(false);
+      setShowLoupe(false);
+      localCacheRef.current = [];
+      return;
+    }
 
-      setError(null);
-      try {
-        const localRows = await searchLocalPlaces(q);
-        if (gen !== searchGenRef.current) return;
+    setError(null);
+    try {
+      const localRows = await searchLocalPlaces(q);
+      if (gen !== searchGenRef.current) return;
 
-        const localPreds = localRows.map(localRowToPrediction);
-        localCacheRef.current = localPreds;
+      const localPreds = localRows.map(localRowToPrediction);
+      localCacheRef.current = localPreds;
 
-        if (localPreds.length > 0) {
-          setPredictions(localPreds);
-          setPredictionsVisible(true);
-          setShowLoupe(q.length >= MAP_SEARCH_MIN_CHARS);
-          return;
-        }
-
-        if (q.length >= MAP_SEARCH_MIN_CHARS) {
-          const remotePreds = await fetchRemotePredictions(q, gen);
-          if (gen !== searchGenRef.current) return;
-          setPredictions(remotePreds);
-          setPredictionsVisible(remotePreds.length > 0);
-          setShowLoupe(false);
-          if (remotePreds.length === 0) {
-            setError((prev) => prev ?? 'resolve_failed');
-          }
-          return;
-        }
-
-        setPredictions([]);
-        setPredictionsVisible(false);
-        setShowLoupe(false);
-      } catch {
-        if (gen !== searchGenRef.current) return;
-        setPredictions([]);
-        setPredictionsVisible(false);
-        setShowLoupe(false);
-      }
-    },
-    [fetchRemotePredictions],
-  );
+      setPredictions(localPreds);
+      setPredictionsVisible(localPreds.length > 0);
+      setShowLoupe(localPreds.length === 0 && q.length >= MAP_SEARCH_MIN_CHARS);
+    } catch {
+      if (gen !== searchGenRef.current) return;
+      setPredictions([]);
+      setPredictionsVisible(false);
+      setShowLoupe(false);
+    }
+  }, []);
 
   const handleChangeText = useCallback(
     (text: string) => {
@@ -263,10 +241,10 @@ export function usePlaceSearch(params: UsePlaceSearchParams): UsePlaceSearchResu
 
       clearIdleTimer();
       debounceRef.current = setTimeout(() => {
-        void runSearch(text);
+        void runLocalSearch(text);
       }, LOCAL_SEARCH_DEBOUNCE_MS);
     },
-    [clearIdleTimer, disabled, isValidated, onChangeText, runSearch, scheduleIdleSessionReset],
+    [clearIdleTimer, disabled, isValidated, onChangeText, runLocalSearch, scheduleIdleSessionReset],
   );
 
   const onLoupePress = useCallback(() => {

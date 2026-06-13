@@ -91,6 +91,48 @@ function normalizeMode(mode: string | null | undefined): string {
   return 'driving';
 }
 
+/** Google exige un point décimal (pas de virgule locale). */
+function formatGoogleCoord(value: number): string {
+  return String(Number(value));
+}
+
+type DistanceMatrixElement = {
+  status?: string;
+  duration?: { value?: number };
+  duration_in_traffic?: { value?: number };
+  distance?: { value?: number };
+};
+
+type DistanceMatrixJson = {
+  status?: string;
+  error_message?: string;
+  rows?: Array<{ elements?: DistanceMatrixElement[] }>;
+};
+
+export class DistanceMatrixError extends Error {
+  readonly apiStatus?: string;
+  readonly elementStatus?: string;
+
+  constructor(message: string, apiStatus?: string, elementStatus?: string) {
+    super(message);
+    this.name = 'DistanceMatrixError';
+    this.apiStatus = apiStatus;
+    this.elementStatus = elementStatus;
+  }
+}
+
+function parseDistanceMatrixResponse(json: unknown): {
+  apiStatus: string;
+  elementStatus: string;
+  el: DistanceMatrixElement | undefined;
+} {
+  const body = json as DistanceMatrixJson;
+  const apiStatus = String(body.status || 'UNKNOWN').trim();
+  const el = body.rows?.[0]?.elements?.[0];
+  const elementStatus = String(el?.status || 'UNKNOWN').trim();
+  return { apiStatus, elementStatus, el };
+}
+
 export class DistanceMatrixMapsService implements MapsService {
   private readonly memoryCache = new Map<string, CacheEntry>();
   private readonly ttlMs = 15 * 60 * 1000;
@@ -152,10 +194,12 @@ export class DistanceMatrixMapsService implements MapsService {
       `[API-CALL] 💸 GOOGLE DISTANCE MATRIX | NETWORK | Origins: ${originLat},${originLng} | Dest: ${destLat},${destLng} | Mode: ${mode} | Departure: ${departureTimeUnix} | key=${key}`,
     );
 
+    const originParam = `${formatGoogleCoord(originLat)},${formatGoogleCoord(originLng)}`;
+    const destParam = `${formatGoogleCoord(destLat)},${formatGoogleCoord(destLng)}`;
     const url =
       `https://maps.googleapis.com/maps/api/distancematrix/json` +
-      `?origins=${encodeURIComponent(`${originLat},${originLng}`)}` +
-      `&destinations=${encodeURIComponent(`${destLat},${destLng}`)}` +
+      `?origins=${encodeURIComponent(originParam)}` +
+      `&destinations=${encodeURIComponent(destParam)}` +
       `&mode=${encodeURIComponent(mode)}` +
       `&departure_time=${encodeURIComponent(String(departureTimeUnix))}` +
       `&key=${encodeURIComponent(apiKey)}`;
@@ -166,22 +210,50 @@ export class DistanceMatrixMapsService implements MapsService {
     try {
       const res = await fetch(url, { signal: controller.signal });
       const json = (await res.json()) as unknown;
-      if (!res.ok) throw new Error(`DistanceMatrix: http ${res.status}`);
+      if (!res.ok) throw new DistanceMatrixError(`DistanceMatrix: http ${res.status}`);
       const latencyMs = Math.max(0, this.getNowMs() - t0);
 
-      const rows = (json as { rows?: Array<{ elements?: Array<Record<string, unknown>> }> }).rows;
-      const el = rows?.[0]?.elements?.[0];
-      const durationValue = Number((el?.duration as { value?: number } | undefined)?.value);
-      const durationTrafficValue = Number(
-        (el?.duration_in_traffic as { value?: number } | undefined)?.value,
-      );
-      const distanceM = Number((el?.distance as { value?: number } | undefined)?.value);
+      const { apiStatus, elementStatus, el } = parseDistanceMatrixResponse(json);
+      const logCtx = {
+        apiStatus,
+        elementStatus,
+        origin: originParam,
+        destination: destParam,
+        mode,
+        departureTimeUnix,
+      };
+
+      if (apiStatus !== 'OK') {
+        const errMsg = (json as DistanceMatrixJson).error_message;
+        console.error('[API-CALL] GOOGLE DISTANCE MATRIX | API error', { ...logCtx, errorMessage: errMsg });
+        throw new DistanceMatrixError(`DistanceMatrix: api status ${apiStatus}`, apiStatus, elementStatus);
+      }
+
+      if (elementStatus !== 'OK') {
+        console.error('[API-CALL] GOOGLE DISTANCE MATRIX | element error', logCtx);
+        throw new DistanceMatrixError(
+          `DistanceMatrix: element status ${elementStatus}`,
+          apiStatus,
+          elementStatus,
+        );
+      }
+
+      const durationValue = Number(el?.duration?.value);
+      const durationTrafficValue = Number(el?.duration_in_traffic?.value);
+      const distanceM = Number(el?.distance?.value);
       const trafficDurationSec = Number.isFinite(durationTrafficValue)
         ? Math.max(0, durationTrafficValue)
         : Number.isFinite(durationValue)
           ? Math.max(0, durationValue)
           : NaN;
-      if (!Number.isFinite(trafficDurationSec)) throw new Error('DistanceMatrix: missing duration');
+      if (!Number.isFinite(trafficDurationSec)) {
+        console.error('[API-CALL] GOOGLE DISTANCE MATRIX | missing duration (no route?)', logCtx);
+        throw new DistanceMatrixError(
+          'DistanceMatrix: missing duration',
+          apiStatus,
+          elementStatus,
+        );
+      }
 
       const sample: TrafficSample = {
         trafficDurationSec,

@@ -22,8 +22,10 @@ import {
   buildProbe1PromisePatch,
   hasTripPromiseValidated,
   hasTripStandardDurationMin,
+  isDistanceMatrixZeroResultsError,
   patchTripElasticMetadata,
   readTripPromiseReference,
+  stopProbingAfterDistanceMatrixZeroResults,
 } from './sentinelElasticTripMetadata';
 import { formatCapsule } from '../../utils/formatDepartureCapsule';
 import {
@@ -321,7 +323,7 @@ async function executeProbe1Contract(ctx: ProbeExecutionContext): Promise<Elasti
       done: false,
     };
   } catch (err) {
-    return probeFailure(task, patch, nowMs, reason, err);
+    return await probeFailure(task, patch, nowMs, reason, err);
   }
 }
 
@@ -336,12 +338,12 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
 
   const origin = await resolveOriginCoords(task, tripMeta, reason);
   if (!origin) {
-    return probeFailure(task, patch, nowMs, reason, new Error('origin missing'));
+    return await probeFailure(task, patch, nowMs, reason, new Error('origin missing'));
   }
   patch.originLat = origin.lat;
   patch.originLng = origin.lng;
   if (!hasValidDestination(task)) {
-    return probeFailure(task, patch, nowMs, reason, new Error('destination missing'));
+    return await probeFailure(task, patch, nowMs, reason, new Error('destination missing'));
   }
 
   try {
@@ -481,7 +483,7 @@ async function executeProbe2Contract(ctx: ProbeExecutionContext): Promise<Elasti
       done: false,
     };
   } catch (err) {
-    return probeFailure(task, patch, nowMs, reason, err);
+    return await probeFailure(task, patch, nowMs, reason, err);
   }
 }
 
@@ -492,12 +494,12 @@ async function executeProbe3Contract(ctx: ProbeExecutionContext): Promise<Elasti
 
   const origin = await resolveOriginCoords(task, tripMeta, reason);
   if (!origin) {
-    return probeFailure(task, patch, nowMs, reason, new Error('origin missing'), true);
+    return await probeFailure(task, patch, nowMs, reason, new Error('origin missing'), true);
   }
   patch.originLat = origin.lat;
   patch.originLng = origin.lng;
   if (!hasValidDestination(task)) {
-    return probeFailure(task, patch, nowMs, reason, new Error('destination missing'), true);
+    return await probeFailure(task, patch, nowMs, reason, new Error('destination missing'), true);
   }
 
   try {
@@ -515,7 +517,7 @@ async function executeProbe3Contract(ctx: ProbeExecutionContext): Promise<Elasti
       flowMode: 'REAL',
     });
   } catch (err) {
-    return probeFailure(task, patch, nowMs, reason, err, true);
+    return await probeFailure(task, patch, nowMs, reason, err, true);
   }
 }
 
@@ -737,15 +739,37 @@ function probe1DestFailure(
   };
 }
 
-function probeFailure(
+async function probeFailure(
   task: TripTaskRowV4,
   patch: Partial<TripTaskRowV4>,
   nowMs: number,
   reason: ElasticProbeReason,
   err: unknown,
   probe3 = false,
-): ElasticTickResult {
+): Promise<ElasticTickResult> {
   console.error(`[TRIP-ERROR] Probe failed for ID: ${task.id}`, err);
+
+  if (isDistanceMatrixZeroResultsError(err)) {
+    await stopProbingAfterDistanceMatrixZeroResults(task.id);
+    Object.assign(patch, {
+      sentinelMode: 'STATIC' as const,
+      nextRealScanAtMs: null,
+      nextRealScanReason: null,
+      lastErrorAt: nowMs,
+      status: 'ACTIVE' as const,
+      modeSafety: false,
+      stateVersion: task.stateVersion + 1,
+    });
+    return {
+      patch,
+      goNoGo: null,
+      probe3Unavailable: probe3 ? { destination: task.destination } : null,
+      trace: baseTrace(task, task.tOptimisteMs ?? nowMs, task.tPessimisteMs ?? nowMs, 'REAL'),
+      traceForce: true,
+      done: false,
+    };
+  }
+
   Object.assign(patch, buildProbeFailureRecovery({ task, reason, nowMs }));
   return {
     patch,
