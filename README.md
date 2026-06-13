@@ -79,6 +79,9 @@ Au premier lancement Android, l’app peut ouvrir la modale système d’exclusi
 
 Pour **retester** la modale sur un téléphone : onglet **Debug** → section **Système** → **Réinitialiser la demande batterie Android** (équivalent à `AsyncStorage.removeItem('@trankil_battery_permission_requested')` puis relance de l’intent).
 
+### générer apk debug dans Dev-trankil-v34
+export NODE_ENV=development && bash scripts/build-debug-apk.sh
+
 ### OneTap (contrat stabilité)
 
 Voir : [STABILITY_SPEC_ONETAP_GEMINI.md](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/docs/STABILITY_SPEC_ONETAP_GEMINI.md).
