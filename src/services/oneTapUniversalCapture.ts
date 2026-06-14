@@ -97,7 +97,6 @@ export function logOneTapCaptureCycleStartBanner(): void {
 import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
 import { looksLikeStructuredCaptureTranscript } from '../utils/visionTranscriptNormalize';
 import { detectTravelProjectTranscriptSignals } from '../utils/travelProjectModel';
-import { PROJECT_MULTI_DOMAIN_ENABLED } from '../config/projectMultiDomain';
 import {
   coerceEventSeriesFromIntent,
   isSourcingTitleMode,
@@ -1583,7 +1582,7 @@ RULES:
 - TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"), and admin requests (reply by email, confirm presence, sign a form). → type=TASK, field "content".
 - MULTI-EXTRACTION: If the text contains multiple distinct actions (e.g. admin request + appointment + optional info), you MUST return several objects in "intents". Never collapse them into one PROJECT or one TASK.
 - TRAVEL PREP PROJECT (monolith — overrides TRIP split and MULTI-EXTRACTION): When the user prepares a trip (packing, departure logistics, admin, layover kit, multiple travelers) OR explicitly says "c'est un projet" / "structure the project" / "full detail" / "détail complet" → return ONE PROJECT only (never TRIP+TASK split). Set category TRAVEL, baseCount = traveler count, unitLabel "voyageur", due = departure date if mentioned. Include project_brief: { version:2, domain:"travel", destination, stakeholders[], flights, constraints[], target_ymd, auto_detail_requested: true if user asks for full detail }.
-${PROJECT_MULTI_DOMAIN_ENABLED ? `- GENERIC PROJECT BRIEF: For any broad PROJECT (renovation, wedding, move, etc.) when user says "c'est un projet" / "détail complet" / gives deadline or stakeholders → include project_brief: { version:2, domain:"renovation"|"event"|"move"|"generic", target_ymd, stakeholders[], constraints[], context_notes, room (renovation), budget_hint, trades_needed, auto_detail_requested }. DO NOT use TRAVEL domain unless trip/voyage signals present.` : ''}
+- GENERIC PROJECT BRIEF: For any broad PROJECT (renovation, wedding, move, etc.) when user says "c'est un projet" / "détail complet" / gives deadline or stakeholders → include project_brief: { version:2, domain:"renovation"|"event"|"move"|"generic", target_ymd, stakeholders[], constraints[], context_notes, room (renovation), budget_hint, trades_needed, auto_detail_requested }. DO NOT use TRAVEL domain unless trip/voyage signals present.
 - ADMIN CONSOLIDATION: Related mail actions in the same message (autorisation + confirmer presence + nombre de personnes) → ONE TASK, not three. Do NOT mirror intermediate JSON block names as separate intents.
 - source_hint: human keyword from the document ("Hip Hop", "Astrolab", "Spectacle"), NEVER snake_case field names like "demande_autorisation_droit_image".
 - due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned. Never use "due" on HABIT — put clock time in recurrence_rule.time_target.
@@ -1618,9 +1617,9 @@ Output: {"intents":[{"type":"TASK","content":"Repondre au mail : droit a l'image
 
 Input: "Preparer la logistique de depart pour le voyage au Japon le 08 juillet. Moi, mes 2 enfants et mon mari. Valise, logistique et administratif. 2 avions avec 3h de transit. Jeux et grignotage pour l'attente. Couches pour Rachel. C'est un projet, je veux le detail complet des valises pour chaque personne."
 Output: {"intents":[{"type":"PROJECT","title":"Voyage Japon","content":"Preparer la logistique de depart","due":"YYYY-07-08 08:00","baseCount":4,"unitLabel":"voyageur","category":"TRAVEL","context":"MAISON","project_brief":{"version":2,"domain":"travel","destination":"Japon","stakeholders":["Moi","Mari","Enfant 1","Rachel"],"flights":"2 vols, escale 3h","constraints":["couches Rachel","jeux escale","grignotage escale"],"target_ymd":"YYYY-07-08","auto_detail_requested":true}}]}
-${PROJECT_MULTI_DOMAIN_ENABLED ? `
+
 Input: "Renover la cuisine d'ici septembre, c'est un projet, je veux le detail complet"
-Output: {"intents":[{"type":"PROJECT","title":"Renover la cuisine","content":"Renover la cuisine","due":"YYYY-09-01 08:00","baseCount":1,"unitLabel":"etape","category":"HOME","context":"MAISON","project_brief":{"version":2,"domain":"renovation","room":"cuisine","target_ymd":"YYYY-09-01","stakeholders":[],"constraints":[],"auto_detail_requested":true}}]}` : ''}
+Output: {"intents":[{"type":"PROJECT","title":"Renover la cuisine","content":"Renover la cuisine","due":"YYYY-09-01 08:00","baseCount":1,"unitLabel":"etape","category":"HOME","context":"MAISON","project_brief":{"version":2,"domain":"renovation","room":"cuisine","target_ymd":"YYYY-09-01","stakeholders":[],"constraints":[],"auto_detail_requested":true}}]}
 
 Reply ONLY with a single raw JSON object. No markdown. No explanation. No text before or after.
 Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","recurrence_rule":{…},"project_brief":{…}}]}`;
@@ -1663,7 +1662,7 @@ Output: {"intents":[{"type":"TASK","content":"Repondre au mail : droit a l'image
 Schema extension: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","source_hint":"…","title_mode":"ACTION|DESCRIPTIVE","event_series":[{"due":"…","label":"…"}],"recurrence_rule":{…}}]}`;
 }
 
-/** Sélection prompt Pass 1 selon feature flag (rollback = flag OFF). */
+/** Sélection prompt Pass 1 (sourcing V1 ou few-shot JSON). */
 export function resolvePass1SystemInstruction(now: Date): string {
   return SOURCING_V1_ENABLED ? buildOneTapPass1SystemInstructionSourced(now) : buildOneTapPass1SystemInstruction(now);
 }

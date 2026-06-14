@@ -581,16 +581,6 @@ export function TimelineScreen() {
     [patchRow],
   );
 
-  const handleOpenProjectHubFromPeek = useCallback(
-    (params: { row: TrankilV2TimelineItemRow; runPass2: boolean }) => {
-      void openProjectHubAccordion({
-        intentionId: params.row.id,
-        runPass2: params.runPass2,
-        title: String(params.row.display_title ?? '').trim() || undefined,
-      });
-    },
-    [openProjectHubAccordion],
-  );
 
   /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante (hub TRIP unifié). */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
@@ -678,11 +668,7 @@ export function TimelineScreen() {
       const transcript = String((payload as { transcript?: unknown })?.transcript ?? '').trim();
       const categoryId = normalizeCategoryId((payload as { categoryTag?: unknown })?.categoryTag);
       const type = String((payload as { predictedType?: unknown })?.predictedType ?? 'NOTE').trim().toUpperCase();
-      const projectEnriched = Boolean(
-        (payload as { projectEnriched?: boolean }).projectEnriched ||
-          (payload as { travelProjectEnriched?: boolean }).travelProjectEnriched,
-      );
-      if (type === 'PROJECT' && projectEnriched) {
+      if (type === 'PROJECT') {
         logCaptureFlow(undefined, 'ui_project_hub_after_capture', { screen: 'Timeline', intentionId });
         void openProjectHubAccordion({ intentionId, runPass2: false, title });
         return;
@@ -1997,7 +1983,6 @@ export function TimelineScreen() {
         captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
         autoTriggerPass2={autoTriggerPass2}
         autoFocusTripArrivalEdit={autoFocusTripArrivalEdit}
-        onOpenProjectHub={handleOpenProjectHubFromPeek}
       />
 
       <TimelineFilterModal

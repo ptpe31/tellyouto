@@ -2,7 +2,6 @@
  * Projet — brief, signaux transcript, affichage Inbox (voyage + multi-domaine).
  * @module travelProjectModel
  */
-import { PROJECT_MULTI_DOMAIN_ENABLED } from '../config/projectMultiDomain';
 import {
   ensureProjectMilestoneUids,
   parseProjectMilestonesPayloadFromMetadataJson,
@@ -196,16 +195,9 @@ export function resolveProjectMilestonesForInbox(metadataJson: string | null | u
 /** @deprecated */
 export const resolveTravelProjectMilestonesForInbox = resolveProjectMilestonesForInbox;
 
-export function shouldShowProjectInboxAccordion(
-  metadataJson: string | null | undefined,
-  brief: UnifiedProjectBrief | null,
-): boolean {
+export function shouldShowProjectInboxAccordion(metadataJson: string | null | undefined): boolean {
   const milestones = resolveProjectMilestonesForInbox(metadataJson);
-  if (milestones.length === 0) return false;
-  if (!PROJECT_MULTI_DOMAIN_ENABLED) {
-    return brief != null && isTravelBrief(brief);
-  }
-  return true;
+  return milestones.length > 0;
 }
 
 export function buildFallbackTravelProjectMilestones(

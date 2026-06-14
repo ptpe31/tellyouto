@@ -2,7 +2,6 @@
  * Brief projet unifié — multi-domaine (v2) + rétrocompat voyage (v1).
  * @module projectBriefModel
  */
-import { PROJECT_MULTI_DOMAIN_ENABLED } from '../config/projectMultiDomain';
 
 export const PROJECT_BRIEF_V1_KEY = 'project_brief_v1';
 export const PROJECT_BRIEF_V2_KEY = 'project_brief_v2';
@@ -223,21 +222,6 @@ export function parseUnifiedBriefFromIntentRaw(
     }
   }
 
-  if (!PROJECT_MULTI_DOMAIN_ENABLED) {
-    if (!travelSignals.shouldPreferProject) return null;
-    return {
-      version: 2,
-      domain: 'travel',
-      auto_detail_requested: travelSignals.fullDetailRequested,
-      target_ymd: null,
-      stakeholders: [],
-      constraints: [],
-      context_notes: null,
-      destination: null,
-      flights: null,
-    };
-  }
-
   const wantsBrief =
     genericSignals.explicitProject ||
     genericSignals.fullDetailRequested ||
@@ -306,7 +290,7 @@ export function shouldAutoEnrichProject(
   if (!brief) return false;
   if (brief.auto_detail_requested) return true;
   const generic = detectGenericProjectTranscriptSignals(transcript);
-  if (PROJECT_MULTI_DOMAIN_ENABLED && generic.fullDetailRequested) return true;
+  if (generic.fullDetailRequested) return true;
   if (brief.domain === 'travel') {
     return detectTravelProjectTranscriptSignals(transcript).fullDetailRequested;
   }

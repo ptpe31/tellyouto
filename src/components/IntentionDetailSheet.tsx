@@ -128,8 +128,6 @@ type Props = {
   autoTriggerPass2?: boolean;
   /** Ouvre l’édition arrivée TRIP à l’ouverture (ex. tirelire → setup trajet). */
   autoFocusTripArrivalEdit?: boolean;
-  /** Projet : hub IdeaBank avec accordéon (chevrons) au lieu de la bottom sheet détail. */
-  onOpenProjectHub?: (params: { row: TrankilV2TimelineItemRow; runPass2: boolean }) => void;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -559,7 +557,6 @@ export function IntentionDetailSheet({
   morphSheetContentOnIntentionChange,
   autoTriggerPass2 = false,
   autoFocusTripArrivalEdit = false,
-  onOpenProjectHub,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
@@ -2372,27 +2369,18 @@ export function IntentionDetailSheet({
         redirectToProSubscription();
         return;
       }
-      if (peekValidationActionKind === 'project' && onOpenProjectHub && row) {
-        clearPeekAutoCloseTimer();
-        onClose();
-        onOpenProjectHub({ row, runPass2: !pass2Unlocked });
-        return;
-      }
       await onPressPass2();
     }
   }, [
     clearPeekAutoCloseTimer,
     isProUser,
-    onClose,
-    onOpenProjectHub,
-    onPressPass2,
     openFullSheet,
     pass2Running,
-    pass2Unlocked,
     peekValidationActionKind,
     persistPass2Unlocked,
     redirectToProSubscription,
     row,
+    onPressPass2,
   ]);
 
   useEffect(() => {

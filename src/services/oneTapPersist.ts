@@ -47,10 +47,8 @@ import {
   type CaptureBatchContext,
   type SourcingTitleMode,
 } from '../utils/sourcingV1';
-import { PROJECT_MULTI_DOMAIN_ENABLED } from '../config/projectMultiDomain';
 import {
   buildProjectBriefMetadataPatch,
-  isTravelBrief,
   parseProjectBriefFromIntentRaw,
   shouldAutoEnrichProject,
   type UnifiedProjectBrief,
@@ -87,13 +85,8 @@ export type PersistOneTapSuccess =
       successFeedbackI18nKey: string;
       consumedClassicFreeSlot: boolean;
       title?: string;
-      /** Projet avec brief structuré (voyage ou multi-domaine). */
-      isEnrichedProject?: boolean;
-      /** @deprecated Utiliser isEnrichedProject */
-      isTravelProject?: boolean;
+      /** Auto Pass 2 terminé (jalons en metadata). */
       projectEnriched?: boolean;
-      /** @deprecated Utiliser projectEnriched */
-      travelProjectEnriched?: boolean;
     };
 
 export type PersistOneTapResult =
@@ -1243,11 +1236,9 @@ async function persistAndDualWrite(params: {
         outcome = {
           ...outcome,
           title: String(params.draft.title ?? '').trim() || undefined,
-          isEnrichedProject: true,
-          isTravelProject: isTravelBrief(brief),
         };
       }
-      const projectEnriched = shouldEnrich
+      const enriched = shouldEnrich
         ? await maybeAutoEnrichProject({
             intentionId: id,
             transcript: params.transcript,
@@ -1257,13 +1248,12 @@ async function persistAndDualWrite(params: {
             trace,
           })
         : false;
-      if (projectEnriched) {
+      if (enriched) {
         return {
           ok: true,
           outcome: {
             ...outcome,
             projectEnriched: true,
-            travelProjectEnriched: isTravelBrief(brief),
           },
         };
       }

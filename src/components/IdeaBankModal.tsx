@@ -42,6 +42,11 @@ import {
 } from './traffic/GooglePlacesAutocompleteField';
 import { runProjectPass2ForHub } from '../services/projectPass2Hub';
 import { generateSmartTitle } from '../services/smartTitle';
+import { AIUniversalProgressOverlay } from './AIUniversalProgressOverlay';
+import {
+  AI_PROGRESS_REVEAL_HOLD_MS,
+  useAIProgressInertia,
+} from '../hooks/useAIProgressInertia';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { formatCreationSubtitle } from '../utils/timeFormat';
 import { HabitStreakCompact, getHabitStreakData } from '../features/livingHub';
@@ -92,7 +97,6 @@ import type { ZoomInboxView } from '../utils/zoomInboxModel';
 import { buildZoomJalonKey, resolveRowZoomParentJalonUid } from '../utils/zoomInboxModel';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
 import {
-  parseProjectBriefFromMetadataJson,
   resolveProjectMilestonesForInbox,
   shouldShowProjectInboxAccordion,
 } from '../utils/travelProjectModel';
@@ -254,7 +258,11 @@ export function IdeaBankModal({
   const autoTripPillFiredRef = useRef(false);
   const autoExpandProjectFiredRef = useRef(false);
   const pendingProjectPass2FiredRef = useRef(false);
+  const hubPass2AwaitingSprintRef = useRef(false);
+  const hubPass2RevealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [projectPass2BusyIds, setProjectPass2BusyIds] = useState<Set<string>>(() => new Set());
+  const [hubPass2OverlayVisible, setHubPass2OverlayVisible] = useState(false);
+  const [hubPass2OverlayFinalizing, setHubPass2OverlayFinalizing] = useState(false);
   const [localItemPatches, setLocalItemPatches] = useState<Map<string, Partial<TrankilV2TimelineItemRow>>>(
     () => new Map(),
   );
@@ -716,8 +724,122 @@ export function IdeaBankModal({
     [onClose],
   );
 
+  const clearHubPass2RevealTimeout = useCallback(() => {
+    if (hubPass2RevealTimeoutRef.current) {
+      clearTimeout(hubPass2RevealTimeoutRef.current);
+      hubPass2RevealTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetHubPass2ProgressRef = useRef<() => void>(() => undefined);
+
+  const onHubPass2OverlaySprintComplete = useCallback(() => {
+    clearHubPass2RevealTimeout();
+    hubPass2RevealTimeoutRef.current = setTimeout(() => {
+      hubPass2RevealTimeoutRef.current = null;
+      hubPass2AwaitingSprintRef.current = false;
+      setHubPass2OverlayFinalizing(false);
+      setHubPass2OverlayVisible(false);
+      resetHubPass2ProgressRef.current();
+    }, AI_PROGRESS_REVEAL_HOLD_MS);
+  }, [clearHubPass2RevealTimeout]);
+
+  const {
+    progress: hubPass2DisplayedPct,
+    reset: resetHubPass2Progress,
+    beginInertia: beginHubPass2Inertia,
+    startFinalSprintTo100: startHubPass2FinalSprint,
+  } = useAIProgressInertia({
+    active: hubPass2OverlayVisible,
+    onLinearSprintComplete: onHubPass2OverlaySprintComplete,
+  });
+
+  resetHubPass2ProgressRef.current = resetHubPass2Progress;
+
+  const expandProjectAccordion = useCallback((projectId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedParentIds((prev) => {
+      const next = new Set(prev);
+      next.add(projectId);
+      return next;
+    });
+  }, []);
+
+  const runHubProjectPass2 = useCallback(
+    async (intentionId: string) => {
+      const targetId = String(intentionId ?? '').trim();
+      if (!targetId || projectPass2BusyIds.has(targetId)) return;
+      if (!isProUser) {
+        if (rootNavigationRef.isReady()) {
+          rootNavigationRef.navigate('ProSubscription');
+        }
+        return;
+      }
+
+      setProjectPass2BusyIds((prev) => new Set(prev).add(targetId));
+      setHubPass2OverlayFinalizing(false);
+      setHubPass2OverlayVisible(true);
+      resetHubPass2Progress();
+      beginHubPass2Inertia();
+
+      try {
+        const result = await runProjectPass2ForHub({
+          intentionId: targetId,
+          uiLocale: i18n.language || 'fr-FR',
+        });
+        if (result.ok) {
+          applyLocalPatch(targetId, { metadata_json: result.metadataJson });
+          onPatchItem?.(targetId, { metadata_json: result.metadataJson });
+          expandProjectAccordion(targetId);
+          await refresh();
+          await safeSuccessHaptic();
+          setHubPass2OverlayFinalizing(true);
+          hubPass2AwaitingSprintRef.current = true;
+          startHubPass2FinalSprint();
+        } else {
+          setHubPass2OverlayVisible(false);
+          resetHubPass2Progress();
+          showAppToast(
+            t('pass2.enrichErrorGate', { defaultValue: 'Les étapes n’ont pas pu être générées.' }),
+            2800,
+          );
+        }
+      } catch {
+        setHubPass2OverlayVisible(false);
+        resetHubPass2Progress();
+        showAppToast(
+          t('pass2.enrichErrorGate', { defaultValue: 'Les étapes n’ont pas pu être générées.' }),
+          2800,
+        );
+      } finally {
+        setProjectPass2BusyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(targetId);
+          return next;
+        });
+      }
+    },
+    [
+      applyLocalPatch,
+      beginHubPass2Inertia,
+      expandProjectAccordion,
+      i18n.language,
+      isProUser,
+      onPatchItem,
+      projectPass2BusyIds,
+      refresh,
+      resetHubPass2Progress,
+      startHubPass2FinalSprint,
+      t,
+    ],
+  );
+
   const triggerPass2 = useCallback(
     (row: TrankilV2TimelineItemRow) => {
+      if (String(row.type ?? '').trim().toUpperCase() === 'PROJECT') {
+        void runHubProjectPass2(row.id);
+        return;
+      }
       if (!onPass2Item) {
         openStudio(row);
         return;
@@ -725,7 +847,7 @@ export function IdeaBankModal({
       pendingPass2RowRef.current = row;
       onClose();
     },
-    [onClose, onPass2Item, openStudio],
+    [onClose, onPass2Item, openStudio, runHubProjectPass2],
   );
 
   const toggleSourcedParentExpand = useCallback((parentId: string) => {
@@ -996,56 +1118,26 @@ export function IdeaBankModal({
   useEffect(() => {
     if (!visible) {
       pendingProjectPass2FiredRef.current = false;
+      clearHubPass2RevealTimeout();
       return;
     }
     const targetId = String(pendingProjectPass2RowId ?? '').trim();
     if (!targetId || pendingProjectPass2FiredRef.current) return;
-    const row = items.find((source) => resolveRow(source).id === targetId);
-    if (!row) {
-      onPendingProjectPass2Consumed?.();
-      return;
-    }
     pendingProjectPass2FiredRef.current = true;
-    setProjectPass2BusyIds((prev) => new Set(prev).add(targetId));
-    void (async () => {
-      try {
-        const result = await runProjectPass2ForHub({
-          intentionId: targetId,
-          uiLocale: i18n.language || 'fr-FR',
-        });
-        if (result.ok) {
-          applyLocalPatch(targetId, { metadata_json: result.metadataJson });
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          setExpandedParentIds((prev) => {
-            const next = new Set(prev);
-            next.add(targetId);
-            return next;
-          });
-          await refresh();
-          await safeSuccessHaptic();
-        } else {
-          showAppToast(t('pass2.enrichErrorGate', { defaultValue: 'Les étapes n’ont pas pu être générées.' }), 2800);
-        }
-      } finally {
-        setProjectPass2BusyIds((prev) => {
-          const next = new Set(prev);
-          next.delete(targetId);
-          return next;
-        });
-        onPendingProjectPass2Consumed?.();
-      }
-    })();
+    onPendingProjectPass2Consumed?.();
+    void runHubProjectPass2(targetId);
   }, [
-    applyLocalPatch,
-    i18n.language,
-    items,
+    clearHubPass2RevealTimeout,
     onPendingProjectPass2Consumed,
     pendingProjectPass2RowId,
-    refresh,
-    resolveRow,
-    t,
+    runHubProjectPass2,
     visible,
   ]);
+
+  const hubPass2OverlayLabel = useMemo(() => {
+    if (hubPass2OverlayFinalizing) return t('pass2.finalizing');
+    return t('pass2.steps_loading');
+  }, [hubPass2OverlayFinalizing, t]);
 
   const showHubCheckbox = status === 'TODO' && !selectionMode;
   const selectedCount = deleteResolveSummary.intentionIds.length;
@@ -1196,15 +1288,11 @@ export function IdeaBankModal({
                   defaultValue: `Replier ${sourcingChildCount} actions`,
                 });
                 const resolvedProjectRow = resolveRow(row);
-                const projectBrief =
-                  row.type === 'PROJECT'
-                    ? parseProjectBriefFromMetadataJson(resolvedProjectRow.metadata_json)
-                    : null;
                 const projectMilestones = resolveProjectMilestonesForInbox(resolvedProjectRow.metadata_json);
                 const projectStepCount = projectMilestones.length;
                 const showProjectAccordion =
                   row.type === 'PROJECT' &&
-                  shouldShowProjectInboxAccordion(resolvedProjectRow.metadata_json, projectBrief) &&
+                  shouldShowProjectInboxAccordion(resolvedProjectRow.metadata_json) &&
                   projectStepCount > 0 &&
                   !showSourcingAccordion;
                 const showLeftAccordionBadge = showSourcingAccordion || showProjectAccordion;
@@ -1497,10 +1585,12 @@ export function IdeaBankModal({
                           {
                             backgroundColor: designTokens.accentColor,
                             borderRadius: 999,
+                            opacity: projectPass2BusyIds.has(row.id) ? 0.65 : 1,
                           },
                         ]}
                         hapticType="medium"
                         onPress={() => triggerPass2(row)}
+                        disabled={projectPass2BusyIds.has(row.id)}
                         accessibilityRole="button"
                         accessibilityLabel={pass2Label}
                       >
@@ -1743,6 +1833,12 @@ export function IdeaBankModal({
           ) : null}
         </View>
       </View>
+      <AIUniversalProgressOverlay
+        isVisible={hubPass2OverlayVisible}
+        progress={hubPass2DisplayedPct}
+        label={hubPass2OverlayLabel}
+        barColor={designTokens.accentColor}
+      />
     </Modal>
   );
 }
