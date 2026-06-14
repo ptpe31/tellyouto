@@ -9,9 +9,8 @@ export type TravelMilestoneInboxState = {
   zoomDone: number;
   allZoomDone: boolean;
   milestoneChecked: boolean;
-  /** Case jalon toujours visible ; cochable si simple ou décomposé N/N. */
+  /** Case jalon toujours visible et cochable. */
   showMilestoneCheckbox: boolean;
-  milestoneCheckboxEnabled: boolean;
 };
 
 export type TravelProjectInboxProgress = {
@@ -45,7 +44,6 @@ export function buildTravelProjectInboxProgress(params: {
     const hasDecompose = zoomTotal > 0;
     const milestoneChecked = Boolean(milestone.checked);
     const allZoomDone = hasDecompose && zoomDone >= zoomTotal;
-    const milestoneCheckboxEnabled = !hasDecompose || allZoomDone || milestoneChecked;
 
     totalSteps += 1;
     if (milestoneChecked) doneSteps += 1;
@@ -58,7 +56,6 @@ export function buildTravelProjectInboxProgress(params: {
       allZoomDone,
       milestoneChecked,
       showMilestoneCheckbox: true,
-      milestoneCheckboxEnabled,
     });
   }
 

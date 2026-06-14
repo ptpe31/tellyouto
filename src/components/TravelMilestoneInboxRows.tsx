@@ -12,9 +12,9 @@ import {
 } from '../utils/travelProjectInboxProgress';
 import { buildZoomJalonKey, type ZoomInboxView } from '../utils/zoomInboxModel';
 import { InboxLineTitle } from './InboxLineTitle';
+import { HubTaskCheckbox, HUB_TASK_CHECKBOX_SIZE } from './HubTaskCheckbox';
 import { PressableScale } from './common/PressableScale';
 
-const ZOOM_TASK_CHECKBOX_SIZE = 22;
 const TRAVEL_MILESTONE_INSET = 24 + 34 + 8;
 const ZOOM_PANEL_EXTRA_INSET = 8;
 
@@ -36,8 +36,6 @@ type Props = {
   onToggleTravelDoneSection: () => void;
   onToggleMilestoneDone: (milestoneUid: string) => void;
   onToggleZoomTaskDone: (task: TrankilV2TimelineItemRow) => void;
-  onOpenProjectDetail: () => void;
-  onOpenTaskDetail: (task: TrankilV2TimelineItemRow) => void;
   textPrimary: string;
   textSecondary: string;
   accentColor: string;
@@ -46,53 +44,21 @@ type Props = {
   t: (key: string, options?: Record<string, unknown>) => string;
 };
 
-function ZoomTaskCheckbox(props: {
-  checked: boolean;
-  onPress: () => void;
-  a11yLabel: string;
-  outlineColor: string;
-  disabled?: boolean;
-}) {
-  const { checked, onPress, a11yLabel, outlineColor, disabled = false } = props;
-  return (
-    <PressableScale
-      style={[styles.zoomTaskCheckboxHit, disabled ? styles.zoomTaskCheckboxDisabled : null]}
-      hapticType="light"
-      onPress={disabled ? undefined : onPress}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked, disabled }}
-      accessibilityLabel={a11yLabel}
-    >
-      <View
-        style={[
-          styles.zoomTaskCheckboxBox,
-          { borderColor: checked ? '#16a34a' : outlineColor },
-          checked ? styles.zoomTaskCheckboxBoxChecked : null,
-        ]}
-      >
-        {checked ? <Icon source="check" size={14} color="#ffffff" /> : null}
-      </View>
-    </PressableScale>
-  );
-}
-
 function renderZoomTaskRow(params: {
   child: TrankilV2TimelineItemRow;
   childDone: boolean;
   isLastChild: boolean;
   onToggle: () => void;
-  onOpenDetail: () => void;
   textPrimary: string;
   textSecondary: string;
   locale: string;
   outlineColor: string;
   t: Props['t'];
 }) {
-  const { child, childDone, isLastChild, onToggle, onOpenDetail, textPrimary, textSecondary, locale, outlineColor, t } =
-    params;
+  const { child, childDone, isLastChild, onToggle, textPrimary, textSecondary, locale, outlineColor, t } = params;
   return (
     <View key={child.id} style={[styles.zoomPanelChildRow, isLastChild ? styles.zoomPanelChildRowLast : null]}>
-      <ZoomTaskCheckbox
+      <HubTaskCheckbox
         checked={childDone}
         onPress={onToggle}
         outlineColor={outlineColor}
@@ -112,7 +78,7 @@ function renderZoomTaskRow(params: {
         />
         <View style={[styles.zoomConnectorH, { backgroundColor: outlineColor }]} />
       </View>
-      <PressableScale style={styles.zoomTaskDetailPressable} hapticType="light" onPress={onOpenDetail}>
+      <View style={styles.zoomTaskDetailPressable}>
         <InboxLineTitle
           row={child}
           textPrimary={textPrimary}
@@ -124,7 +90,7 @@ function renderZoomTaskRow(params: {
           hideLine2
           omitNewBadge
         />
-      </PressableScale>
+      </View>
     </View>
   );
 }
@@ -141,8 +107,6 @@ function MilestoneBlock(props: {
   onToggleZoomDoneSection: (jalonKey: string) => void;
   onToggleMilestoneDone: (milestoneUid: string) => void;
   onToggleZoomTaskDone: (task: TrankilV2TimelineItemRow) => void;
-  onOpenProjectDetail: () => void;
-  onOpenTaskDetail: (task: TrankilV2TimelineItemRow) => void;
   textPrimary: string;
   textSecondary: string;
   accentColor: string;
@@ -163,8 +127,6 @@ function MilestoneBlock(props: {
     onToggleZoomDoneSection,
     onToggleMilestoneDone,
     onToggleZoomTaskDone,
-    onOpenProjectDetail,
-    onOpenTaskDetail,
     textPrimary,
     textSecondary,
     accentColor,
@@ -193,13 +155,10 @@ function MilestoneBlock(props: {
   const zoomProgressRatio =
     msState.zoomTotal > 0 ? Math.min(1, msState.zoomDone / msState.zoomTotal) : 0;
   const showMilestoneCheckbox = msState.showMilestoneCheckbox && !doneSection;
-  const milestoneCheckboxEnabled = msState.milestoneCheckboxEnabled && !doneSection;
 
   const onMilestoneBodyPress = () => {
     if (hasZoomDecompose && jalonKey && !doneSection) {
       onToggleZoomJalon(jalonKey);
-    } else {
-      onOpenProjectDetail();
     }
   };
 
@@ -207,9 +166,8 @@ function MilestoneBlock(props: {
     <React.Fragment key={milestone.uid || `${projectRow.id}-${milestone.title}`}>
       <View style={[styles.milestoneRow, { paddingLeft: TRAVEL_MILESTONE_INSET }]}>
         {showMilestoneCheckbox ? (
-          <ZoomTaskCheckbox
+          <HubTaskCheckbox
             checked={milestoneChecked}
-            disabled={!milestoneCheckboxEnabled}
             onPress={() => onToggleMilestoneDone(milestone.uid)}
             outlineColor={theme.colors.outline}
             a11yLabel={
@@ -223,6 +181,7 @@ function MilestoneBlock(props: {
           style={styles.milestoneBody}
           hapticType="light"
           onPress={onMilestoneBodyPress}
+          disabled={!hasZoomDecompose || doneSection}
           accessibilityRole="button"
           accessibilityLabel={milestone.title}
         >
@@ -292,7 +251,6 @@ function MilestoneBlock(props: {
                 childDone: false,
                 isLastChild: childIndex === todoTasks.length - 1 && doneTasks.length === 0,
                 onToggle: () => onToggleZoomTaskDone(child),
-                onOpenDetail: () => onOpenTaskDetail(child),
                 textPrimary,
                 textSecondary,
                 locale,
@@ -327,7 +285,6 @@ function MilestoneBlock(props: {
                         childDone: true,
                         isLastChild: childIndex === doneTasks.length - 1,
                         onToggle: () => onToggleZoomTaskDone(child),
-                        onOpenDetail: () => onOpenTaskDetail(child),
                         textPrimary,
                         textSecondary,
                         locale,
@@ -359,8 +316,6 @@ export function TravelMilestoneInboxRows(props: Props) {
     onToggleTravelDoneSection,
     onToggleMilestoneDone,
     onToggleZoomTaskDone,
-    onOpenProjectDetail,
-    onOpenTaskDetail,
     textPrimary,
     textSecondary,
     accentColor,
@@ -398,8 +353,6 @@ export function TravelMilestoneInboxRows(props: Props) {
             onToggleZoomDoneSection={onToggleZoomDoneSection}
             onToggleMilestoneDone={onToggleMilestoneDone}
             onToggleZoomTaskDone={onToggleZoomTaskDone}
-            onOpenProjectDetail={onOpenProjectDetail}
-            onOpenTaskDetail={onOpenTaskDetail}
             textPrimary={textPrimary}
             textSecondary={textSecondary}
             accentColor={accentColor}
@@ -450,8 +403,6 @@ export function TravelMilestoneInboxRows(props: Props) {
                     onToggleZoomDoneSection={onToggleZoomDoneSection}
                     onToggleMilestoneDone={onToggleMilestoneDone}
                     onToggleZoomTaskDone={onToggleZoomTaskDone}
-                    onOpenProjectDetail={onOpenProjectDetail}
-                    onOpenTaskDetail={onOpenTaskDetail}
                     textPrimary={textPrimary}
                     textSecondary={textSecondary}
                     accentColor={accentColor}
@@ -541,21 +492,9 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   zoomPanelChildRowLast: { borderBottomWidth: 0 },
-  zoomTaskCheckboxHit: { flexShrink: 0, marginTop: 1 },
-  zoomTaskCheckboxDisabled: { opacity: 0.45 },
-  zoomTaskCheckboxBox: {
-    width: ZOOM_TASK_CHECKBOX_SIZE,
-    height: ZOOM_TASK_CHECKBOX_SIZE,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  zoomTaskCheckboxBoxChecked: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
   zoomConnectorCol: {
     width: 16,
-    height: ZOOM_TASK_CHECKBOX_SIZE,
+    height: HUB_TASK_CHECKBOX_SIZE,
     position: 'relative',
     marginTop: 1,
     flexShrink: 0,

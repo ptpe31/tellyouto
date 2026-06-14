@@ -281,6 +281,7 @@
     "zoomDecomposeCollapse": "Replier {{count}} sous-tâches",
     "inboxZoomDoneSection": "Terminé ({{count}})",
     "inboxTravelDoneSection": "Terminé ({{count}})",
+    "hubStudioEdit": "Modifier en détail",
     "zoomDecomposeProgress": "{{done}}/{{total}} fait",
     "zoomDecomposeLabel": "décomposé",
     "createdOn": "Créé le {{date}} à {{time}}",

@@ -146,7 +146,7 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) — cartes Timeline + feedback pressed corps carte.
 - [`SmartClustersCarousel.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) — tuiles carrousel pressed tokens.
 - [`LivingHubBlockShell.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubBlockShell.tsx) — blocs hub EMAIL_HUB pressed tokens.
-- [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) — Tirelire : orbe validation ; cartes TRIP enrichies + rideau recherche inline ; pilule TRIP hybride ; `onPatchItem` optimiste ; cinématique Éditer 320 ms ; **`onEditItem`** → `IntentionDetailSheet`.
+- [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) — surface de traitement unifiée (`hubContext`) : `InboxLineTitle` + `HubTaskCheckbox` ; accordéons sourcing/voyage sur tous hubs ; ⋮ Studio ; tap sans sheet.
 - [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) — sheet + CTA principaux ; **`typography`** (juin 2026).
 - [`OneTapConfirmModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/OneTapConfirmModal.tsx) — modal confirmation OneTap ; **`typography`** (juin 2026).
 
@@ -411,7 +411,7 @@ Points notables :
 
 - **Rôle** : sas temporel — toutes les intentions **TODO créées aujourd’hui** (locale), avec ou sans `due_date`, jusqu’à minuit.
 - **SQL** : [`INBOX_TODAY_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `listTrankilV2InboxToday`, `countInboxToday` ; plus d’exclusion `is_organized` / `due_date` / `is_pinned`.
-- **UI** : tuile carrousel + [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) mode `inbox` ; **pas** de bouton « Tout retirer » (obsolète) ; sortie via Fait / Supprimer / archivage.
+- **UI** : tuile carrousel + [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) `hubContext: inbox` ; surface de traitement unifiée (voir § 2.d) ; **pas** de bouton « Tout retirer » (obsolète) ; sortie via Fait / Supprimer / archivage.
 - **Feuille de route** : chevauchement autorisé — capture du jour datée pour aujourd’hui visible Inbox **et** Timeline.
 
 #### Box — inventaire froid (mai–juin 2026)
@@ -419,7 +419,7 @@ Points notables :
 - **Rôle** : stock à froid — intentions **créées avant aujourd’hui**, sans `due_date`, hors SHOP et HABIT.
 - **Carrousel** : tuile **Box** (hardcodée) avec pastille `boxCount` — remplace le nudge cluster orphelin + tuile Listes.
 - **Vue** : [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) — blocs catégorie identiques au hub ; purge globale destructive.
-- **API** : `listTrankilV2BoxStockIntentions`, `bulkDeleteTrankilV2IntentionsByIds`, filtre `BOX_STOCK_WHERE` (`created_at` &lt; jour local, `due_date` vide, hors SHOP, hors HABIT).
+- **API** : `listTrankilV2BoxStockIntentions`, `bulkDeleteTrankilV2IntentionsByIds`, filtre `BOX_STOCK_WHERE` + post-filtre JS [`filterUnscheduledBoxStockRows`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) (metadata date).
 
 #### Routines — bibliothèque d'habitudes (mai 2026)
 
@@ -526,7 +526,7 @@ Fichier : `src/services/CaptureProcessingService.ts`
 ### 3.1b Timeline — Smart Clusters (Inbox · Box · Routines)
 
 - [`SmartClustersCarousel.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) : tuiles **Inbox · À acheter · Box · Routines · Projets** ; compteurs via `getTrankilV2SmartClusterCounts` (`inboxToday`, `shopCount`, `boxCount`, `routinesCount`, `projectsToday`).
-- **Inbox** : [`INBOX_TODAY_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — journal 24h + merge `listTrankilV2InboxZoomChildTasksForDay` ; [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) + [`TravelMilestoneInboxRows`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TravelMilestoneInboxRows.tsx) — parent `x/N`, cases jalon (simple ou N/N), panneau À faire/Terminé, section jalons terminés.
+- **Inbox / hubs** : [`hubProcessModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) + `buildInboxRootsView` sur tout pool ; [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) + [`TravelMilestoneInboxRows`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/TravelMilestoneInboxRows.tsx) + [`HubTaskCheckbox`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/HubTaskCheckbox.tsx).
 - **Box** : [`BOX_STOCK_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — inventaire froid (`created_at` &lt; jour local, sans `due_date`, hors SHOP et **HABIT**) ; [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) + [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) ; tap bloc → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) ; purge globale `bulkDeleteTrankilV2IntentionsByIds` (i18n `timeline.box.*`).
 - **Routines** : [`ROUTINE_HABIT_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — toutes les HABIT actives ; [`buildRoutineHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) + badges série en aperçu ; tap bloc catégorie → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) ; **sans** purge globale au niveau vue catégories.
 - **Legacy** : [`clusterEngine.getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) conservé mais **non branché** au carrousel.
@@ -690,8 +690,8 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 | **Multi-bloc** | `persistOneTapDraftVentilated` : NOTE coquille sourcing (`sourcing_shell`) + enfants (`parent_id`) si `intents.length > 1` ; titre parent selon `source_kind` |
 | **Projet voyage** | Pass 1 monolith · `project_brief_v1` · Pass 2 auto `PROJECT_TRAVEL` + packing · parser robuste + fallback · UI erreur/retry · peek voyage · Inbox L2 sans faux compteur placeholder |
 | **EVENT_SERIES** | type SQLite `TASK` ; `due_date` = 1er slot ; série dans `sourcing_v1.event_series_v1` |
-| **UI Inbox** | [`InboxLineTitle.tsx`](src/components/InboxLineTitle.tsx) + [`TravelMilestoneInboxRows.tsx`](src/components/TravelMilestoneInboxRows.tsx) — panneau zoom, cases jalon/sous-tâche, sections Terminé ; **pas de miniature Vault** |
-| **Hiérarchie Inbox** | [`buildInboxRootsView`](src/utils/inboxRootsView.ts) + [`travelProjectInboxProgress.ts`](src/utils/travelProjectInboxProgress.ts) — accordéon sourcing + voyage Option B dans `IdeaBankModal` |
+| **UI Inbox / hubs** | [`InboxLineTitle.tsx`](src/components/InboxLineTitle.tsx) + [`HubTaskCheckbox.tsx`](src/components/HubTaskCheckbox.tsx) + [`TravelMilestoneInboxRows.tsx`](src/components/TravelMilestoneInboxRows.tsx) — surface unifiée tous carrousel |
+| **Hiérarchie hubs** | [`hubProcessModel.ts`](src/utils/hubProcessModel.ts) + [`buildInboxRootsView`](src/utils/inboxRootsView.ts) + [`travelProjectInboxProgress.ts`](src/utils/travelProjectInboxProgress.ts) |
 
 **Fichiers clés** : `src/utils/sourcingV1.ts`, `src/utils/inboxRootsView.ts`, `src/utils/travelProjectModel.ts`, `src/utils/jsonSalvage.ts`, `src/utils/peekOutcomeResolve.ts`, `src/services/travelProjectEnrich.ts`, `oneTapUniversalCapture.ts`, `oneTapPersist.ts`, `geminiSemanticLab.ts`, `projectMilestonesModel.ts`, `IntentionDetailSheet.tsx`, `IntentionContext.tsx`, `offlineAudioQueue.ts`, `trankilV2Db.ts` (mapper), `IdeaBankModal.tsx`, `TimelineScreen.tsx`.
 

@@ -67,10 +67,12 @@ import {
   canPlanIntentionNativeAlarm,
   readIntentionAlarmSetFlag,
 } from '../utils/intentAlarmTemporal';
-import { TaskCompletionOrb } from './TaskCompletionOrb';
+import { HubTaskCheckbox, HUB_TASK_CHECKBOX_SIZE } from './HubTaskCheckbox';
 import { InboxLineTitle } from './InboxLineTitle';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcedCaptureParent } from '../utils/inboxRootsView';
+import type { HubContext } from '../utils/hubProcessModel';
+import { resolveHubModalDefaultTitle } from '../utils/hubProcessModel';
 import type { ZoomInboxView } from '../utils/zoomInboxModel';
 import { buildZoomJalonKey, resolveRowZoomParentJalonUid } from '../utils/zoomInboxModel';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
@@ -96,9 +98,9 @@ type Props = {
   anchorDate: Date;
   onChanged: () => void;
   title?: string;
-  /** `inbox` : journal des captures TODO du jour (Smart Clusters « Inbox », sas 24h). */
-  mode?: 'default' | 'inbox';
-  /** Ferme la tirelire puis ouvre l’édition (IntentionDetailSheet côté parent). */
+  /** Contexte hub (Inbox, Box, Shop, Routines, bloc catégorie). */
+  hubContext?: HubContext;
+  /** Ferme la tirelire puis ouvre le Studio (`IntentionDetailSheet`). */
   onEditItem: (row: TrankilV2TimelineItemRow) => void;
   /** Ferme la tirelire puis ouvre le détail avec déclenchement Pass 2. */
   onPass2Item?: (row: TrankilV2TimelineItemRow) => void;
@@ -109,15 +111,14 @@ type Props = {
   /** À l’ouverture : déclenche la pilule TRIP « Me prévenir… » (Sentinel Focus, etc.). */
   autoTripPillRowId?: string | null;
   onAutoTripPillConsumed?: () => void;
-  /** Enfants TASK groupés par parent_id (Inbox accordéon sourcing, filtrage JS). */
-  inboxChildrenByParentId?: Map<string, TrankilV2TimelineItemRow[]>;
+  /** Enfants TASK groupés par parent_id (accordéon sourcing). */
+  hubChildrenByParentId?: Map<string, TrankilV2TimelineItemRow[]>;
   /** Sous-tâches zoom groupées par jalon sous le projet parent. */
-  inboxZoomView?: ZoomInboxView;
+  hubZoomView?: ZoomInboxView;
 };
 
-/** Diamètre intérieur orbe validation (hors padding néomorphique). */
-const VALIDATION_ORB_SIZE = 34;
-const VALIDATION_ORB_OUTER = VALIDATION_ORB_SIZE + 8;
+/** Slot lead unifié (case ou badge accordéon). */
+const HUB_LEAD_SLOT = HUB_TASK_CHECKBOX_SIZE + 8;
 
 function mergeProjectMilestonesMetadataJson(
   metadataJson: string | null | undefined,
@@ -205,15 +206,15 @@ export function IdeaBankModal({
   anchorDate,
   onChanged,
   title,
-  mode = 'default',
+  hubContext = { kind: 'block' },
   onEditItem,
   onPass2Item,
   onPatchItem,
   onOpenTripSetup,
   autoTripPillRowId,
   onAutoTripPillConsumed,
-  inboxChildrenByParentId,
-  inboxZoomView,
+  hubChildrenByParentId,
+  hubZoomView,
 }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
@@ -468,7 +469,7 @@ export function IdeaBankModal({
     ]);
   }, [items, onClose, refresh, t]);
 
-  const openDetail = useCallback(
+  const openStudio = useCallback(
     (row: TrankilV2TimelineItemRow) => {
       pendingEditRowRef.current = row;
       onClose();
@@ -479,13 +480,13 @@ export function IdeaBankModal({
   const triggerPass2 = useCallback(
     (row: TrankilV2TimelineItemRow) => {
       if (!onPass2Item) {
-        openDetail(row);
+        openStudio(row);
         return;
       }
       pendingPass2RowRef.current = row;
       onClose();
     },
-    [onClose, onPass2Item, openDetail],
+    [onClose, onPass2Item, openStudio],
   );
 
   const toggleSourcedParentExpand = useCallback((parentId: string) => {
@@ -535,12 +536,6 @@ export function IdeaBankModal({
       if (!payload) return;
       const target = payload.milestones.find((m) => m.uid === milestoneUid);
       if (!target) return;
-      const jalonKey = buildZoomJalonKey(projectRow.id, milestoneUid);
-      const zoomTasks = inboxZoomView?.childrenByJalonKey.get(jalonKey) ?? [];
-      if (zoomTasks.length > 0 && !target.checked) {
-        const doneCount = zoomTasks.filter((t) => resolveRow(t).status === 'DONE').length;
-        if (doneCount < zoomTasks.length) return;
-      }
       await safeSuccessHaptic();
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       const nextPayload: ProjectMilestonesPayload = {
@@ -559,7 +554,7 @@ export function IdeaBankModal({
         /* ignore */
       }
     },
-    [applyLocalPatch, inboxZoomView, refresh, resolveRow],
+    [applyLocalPatch, refresh, resolveRow],
   );
 
   const openAddressSearch = useCallback(
@@ -620,9 +615,9 @@ export function IdeaBankModal({
         onClose();
         return;
       }
-      openDetail(row);
+      openStudio(row);
     },
-    [onClose, onOpenTripSetup, openDetail],
+    [onClose, onOpenTripSetup, openStudio],
   );
 
   const handleTripPillPress = useCallback(
@@ -737,7 +732,8 @@ export function IdeaBankModal({
     return () => clearTimeout(timer);
   }, [autoTripPillRowId, handleTripPillPress, items, onAutoTripPillConsumed, resolveRow, visible]);
 
-  const showCompleteOrb = status === 'TODO';
+  const showHubCheckbox = status === 'TODO';
+  const sheetTitle = title ?? resolveHubModalDefaultTitle(hubContext, t);
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -761,8 +757,7 @@ export function IdeaBankModal({
         >
           <View style={styles.sheetHeader}>
             <Text style={[styles.sheetTitle, { color: designTokens.textPrimary }]}>
-              {title ||
-                (mode === 'inbox' ? t('timeline.smartClusters.inbox') : t('timeline.ideaBank.title'))}
+              {sheetTitle}
             </Text>
             <PressableScale onPress={onClose} hitSlop={12} hapticType="light">
               <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>
@@ -829,10 +824,10 @@ export function IdeaBankModal({
                   ? t('intentAlarm.alarmActive')
                   : t('intentAlarm.planAlarm');
 
-                const isSourcedParent = mode === 'inbox' && isSourcedCaptureParent(row);
+                const isSourcedParent = isSourcedCaptureParent(row);
                 const childRows =
-                  isSourcedParent && inboxChildrenByParentId
-                    ? inboxChildrenByParentId.get(row.id) ?? []
+                  isSourcedParent && hubChildrenByParentId
+                    ? hubChildrenByParentId.get(row.id) ?? []
                     : [];
                 const isExpanded = expandedParentIds.has(row.id);
                 const showSourcingAccordion = isSourcedParent && childRows.length > 0;
@@ -847,16 +842,13 @@ export function IdeaBankModal({
                 });
                 const resolvedProjectRow = resolveRow(row);
                 const travelBrief =
-                  mode === 'inbox' && row.type === 'PROJECT'
+                  row.type === 'PROJECT'
                     ? parseProjectBriefFromMetadataJson(resolvedProjectRow.metadata_json)
                     : null;
                 const travelMilestones =
-                  travelBrief && mode === 'inbox'
-                    ? resolveTravelProjectMilestonesForInbox(resolvedProjectRow.metadata_json)
-                    : [];
+                  travelBrief ? resolveTravelProjectMilestonesForInbox(resolvedProjectRow.metadata_json) : [];
                 const travelStepCount = travelMilestones.length;
                 const showTravelAccordion =
-                  mode === 'inbox' &&
                   row.type === 'PROJECT' &&
                   travelBrief != null &&
                   travelStepCount > 0 &&
@@ -891,7 +883,7 @@ export function IdeaBankModal({
                     ? resolveTravelProjectBadgeLabel({
                         milestones: travelMilestones,
                         projectId: row.id,
-                        inboxZoomView,
+                        inboxZoomView: hubZoomView,
                         resolveRow,
                         fallbackCount: travelStepCount,
                       })
@@ -948,27 +940,22 @@ export function IdeaBankModal({
                             </Text>
                           </View>
                         </PressableScale>
-                      ) : showCompleteOrb ? (
-                        <TaskCompletionOrb
-                          theme={theme}
-                          size={VALIDATION_ORB_SIZE}
-                          progress={0}
-                          hasChildBreakdown={false}
-                          accentColor={designTokens.accentColor}
-                          pendingComplete={isPending}
+                      ) : showHubCheckbox ? (
+                        <HubTaskCheckbox
+                          checked={isPending}
                           onPress={() => void handleToggleDone(row)}
-                          accessibilityLabel={t('timeline.a11yTaskComplete')}
+                          outlineColor={theme.colors.outline}
+                          a11yLabel={t('timeline.a11yTaskComplete')}
                         />
                       ) : (
-                        <View style={{ width: VALIDATION_ORB_OUTER }} />
+                        <View style={{ width: HUB_LEAD_SLOT }} />
                       )}
 
                       <PressableScale
                         style={styles.detailPressable}
                         hapticType="light"
-                        onPress={
-                          showLeftAccordionBadge ? toggleRowExpand : () => openDetail(row)
-                        }
+                        onPress={showLeftAccordionBadge ? toggleRowExpand : undefined}
+                        disabled={!showLeftAccordionBadge}
                         accessibilityRole="button"
                         accessibilityLabel={
                           showLeftAccordionBadge
@@ -978,7 +965,7 @@ export function IdeaBankModal({
                             : lineTitle
                         }
                       >
-                        {mode === 'inbox' && SOURCING_V1_ENABLED ? (
+                        {SOURCING_V1_ENABLED ? (
                           <InboxLineTitle
                             row={row}
                             textPrimary={designTokens.textPrimary}
@@ -986,6 +973,7 @@ export function IdeaBankModal({
                             locale={i18n.language}
                             sourcingChildCount={showSourcingAccordion ? sourcingChildCount : undefined}
                             omitTravelMilestoneInLine2={showTravelAccordion}
+                            titleDone={isPending}
                           />
                         ) : (
                           <>
@@ -1040,7 +1028,20 @@ export function IdeaBankModal({
                             color={designTokens.textPrimary}
                           />
                         </PressableScale>
-                      ) : null}
+                      ) : (
+                        <PressableScale
+                          style={[
+                            styles.studioBtn,
+                            { borderColor: theme.colors.outlineVariant, backgroundColor: designTokens.cardBackground },
+                          ]}
+                          hapticType="light"
+                          onPress={() => openStudio(row)}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('timeline.hubStudioEdit', { defaultValue: 'Modifier en détail' })}
+                        >
+                          <Icon source="dots-vertical" size={20} color={designTokens.textSecondary} />
+                        </PressableScale>
+                      )}
                     </View>
 
                     {isTripCard && trip ? (
@@ -1130,20 +1131,28 @@ export function IdeaBankModal({
                   {isSourcedParent && isExpanded && childRows.length > 0
                     ? childRows.map((childSource) => {
                         const child = resolveRow(childSource);
+                        const childPending = pendingLocalDone.has(child.id);
                         return (
-                          <PressableScale
+                          <View
                             key={child.id}
-                            style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
-                            hapticType="light"
-                            onPress={() => openDetail(child)}
+                            style={[styles.childRow, { paddingLeft: 24 + HUB_LEAD_SLOT }]}
                           >
-                            <InboxLineTitle
-                              row={child}
-                              textPrimary={designTokens.textPrimary}
-                              textSecondary={designTokens.textSecondary}
-                              locale={i18n.language}
+                            <HubTaskCheckbox
+                              checked={childPending || child.status === 'DONE'}
+                              onPress={() => void handleToggleDone(child)}
+                              outlineColor={theme.colors.outline}
+                              a11yLabel={t('timeline.a11yTaskComplete')}
                             />
-                          </PressableScale>
+                            <View style={styles.childRowBody}>
+                              <InboxLineTitle
+                                row={child}
+                                textPrimary={designTokens.textPrimary}
+                                textSecondary={designTokens.textSecondary}
+                                locale={i18n.language}
+                                titleDone={childPending || child.status === 'DONE'}
+                              />
+                            </View>
+                          </View>
                         );
                       })
                     : null}
@@ -1151,7 +1160,7 @@ export function IdeaBankModal({
                     <TravelMilestoneInboxRows
                       projectRow={resolvedProjectRow}
                       milestones={travelMilestones}
-                      inboxZoomView={inboxZoomView}
+                      inboxZoomView={hubZoomView}
                       resolveRow={resolveRow}
                       expandedZoomJalonKeys={expandedZoomJalonKeys}
                       expandedZoomDoneJalonKeys={expandedZoomDoneJalonKeys}
@@ -1161,8 +1170,6 @@ export function IdeaBankModal({
                       onToggleTravelDoneSection={() => toggleTravelDoneSectionExpand(row.id)}
                       onToggleMilestoneDone={(uid) => void handleToggleTravelMilestoneDone(resolvedProjectRow, uid)}
                       onToggleZoomTaskDone={(task) => void handleToggleZoomTaskDone(task)}
-                      onOpenProjectDetail={() => openDetail(resolvedProjectRow)}
-                      onOpenTaskDetail={openDetail}
                       textPrimary={designTokens.textPrimary}
                       textSecondary={designTokens.textSecondary}
                       accentColor={designTokens.accentColor}
@@ -1177,7 +1184,7 @@ export function IdeaBankModal({
             </ScrollView>
           )}
 
-          {items.length > 0 && mode !== 'inbox' ? (
+          {items.length > 0 && hubContext.kind !== 'inbox' ? (
             <Pressable
               style={[styles.clearAllBtn, { borderColor: theme.colors.error, borderRadius: designTokens.borderRadius * 0.5 }]}
               onPress={onClearAll}
@@ -1283,21 +1290,21 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   sourcingLeadSlot: {
-    width: VALIDATION_ORB_OUTER,
+    width: HUB_LEAD_SLOT,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   sourcingCountBadge: {
-    width: VALIDATION_ORB_SIZE,
-    height: VALIDATION_ORB_SIZE,
-    borderRadius: VALIDATION_ORB_SIZE / 2,
+    width: HUB_TASK_CHECKBOX_SIZE + 12,
+    height: HUB_TASK_CHECKBOX_SIZE + 12,
+    borderRadius: (HUB_TASK_CHECKBOX_SIZE + 12) / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sourcingCountBadgeWide: {
     width: undefined,
-    minWidth: VALIDATION_ORB_SIZE,
+    minWidth: HUB_TASK_CHECKBOX_SIZE + 12,
     paddingHorizontal: 6,
   },
   sourcingCountText: {
@@ -1310,18 +1317,34 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   sourcingChevronBtn: {
-    width: VALIDATION_ORB_SIZE,
-    height: VALIDATION_ORB_SIZE,
-    borderRadius: VALIDATION_ORB_SIZE / 2,
+    width: HUB_TASK_CHECKBOX_SIZE + 12,
+    height: HUB_TASK_CHECKBOX_SIZE + 12,
+    borderRadius: (HUB_TASK_CHECKBOX_SIZE + 12) / 2,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  studioBtn: {
+    width: HUB_TASK_CHECKBOX_SIZE + 12,
+    height: HUB_TASK_CHECKBOX_SIZE + 12,
+    borderRadius: (HUB_TASK_CHECKBOX_SIZE + 12) / 2,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   childRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     paddingVertical: 8,
     paddingRight: 12,
     marginBottom: 4,
+  },
+  childRowBody: {
+    flex: 1,
+    minWidth: 0,
   },
   rowTitle: { fontSize: 15, fontWeight: '600' },
   rowTitleDone: { textDecorationLine: 'line-through' },

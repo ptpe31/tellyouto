@@ -72,6 +72,11 @@ import {
 import { PressableScale } from '../components/common/PressableScale';
 import { IdeaBankModal } from '../components/IdeaBankModal';
 import { buildInboxRootsView } from '../utils/inboxRootsView';
+import {
+  filterUnscheduledBoxStockRows,
+  resolveHubProcessPool,
+  type HubContext,
+} from '../utils/hubProcessModel';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { SmartClustersCarousel, type SmartClusterDebugContents } from '../components/SmartClustersCarousel';
 import type { SmartClusterDebugEntry } from '../utils/clusterDebugLog';
@@ -457,8 +462,7 @@ export function TimelineScreen() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [ideaBankOpen, setIdeaBankOpen] = useState(false);
-  const [ideaBankMode, setIdeaBankMode] = useState<'default' | 'inbox'>('default');
-  const [ideaBankCategoryFilter, setIdeaBankCategoryFilter] = useState<string | null>(null);
+  const [ideaBankHubContext, setIdeaBankHubContext] = useState<HubContext>({ kind: 'block' });
   const [ideaBankHubItems, setIdeaBankHubItems] = useState<TrankilV2TimelineItemRow[] | null>(null);
   const [ideaBankHubTitle, setIdeaBankHubTitle] = useState<string | undefined>(undefined);
   const [ideaBankAutoTripPillRowId, setIdeaBankAutoTripPillRowId] = useState<string | null>(null);
@@ -857,7 +861,9 @@ export function TimelineScreen() {
       const mergedInbox = [...inboxById.values()].sort((a, b) => Number(b.created_at) - Number(a.created_at));
       setInboxTodayRows(mergedInbox.map(mapTrankilIntentionToTimelineItemRow));
       setShopClusterRows(shopRaw.map(mapTrankilIntentionToTimelineItemRow));
-      setBoxStockRows(filterTimelineVisibleRows(boxRaw.map(mapTrankilIntentionToTimelineItemRow)));
+      setBoxStockRows(
+        filterUnscheduledBoxStockRows(filterTimelineVisibleRows(boxRaw.map(mapTrankilIntentionToTimelineItemRow))),
+      );
       const habitRows = habitsRaw.map(mapTrankilIntentionToTimelineItemRow);
       setActiveHabitRows(habitRows);
       const completionDays = await getHabitCompletionDayKeysByIntentionIds(habitRows.map((r) => r.id));
@@ -1228,25 +1234,24 @@ export function TimelineScreen() {
 
   const inboxRootsView = useMemo(() => buildInboxRootsView(inboxTodayItems), [inboxTodayItems]);
 
+  const hubProcessPool = useMemo(
+    () =>
+      resolveHubProcessPool({
+        hubContext: ideaBankHubContext,
+        hubBlockItems: ideaBankHubItems,
+        inboxTodayItems,
+        boxStockRows,
+        shopClusterRows,
+      }),
+    [ideaBankHubContext, ideaBankHubItems, inboxTodayItems, boxStockRows, shopClusterRows],
+  );
+
+  const hubRootsView = useMemo(() => buildInboxRootsView(hubProcessPool), [hubProcessPool]);
+
   const ideaBankModalItems = useMemo(() => {
-    if (ideaBankHubItems) return ideaBankHubItems;
-    if (ideaBankMode === 'inbox') {
-      return SOURCING_V1_ENABLED ? inboxRootsView.roots : inboxTodayItems;
-    }
-    if (ideaBankCategoryFilter === 'SHOP') return shopClusterRows;
-    if (ideaBankCategoryFilter) {
-      return boxStockRows.filter((r) => normalizeCategoryId(r.category_id) === ideaBankCategoryFilter);
-    }
-    return boxStockRows;
-  }, [
-    boxStockRows,
-    ideaBankCategoryFilter,
-    ideaBankHubItems,
-    ideaBankMode,
-    inboxTodayItems,
-    inboxRootsView.roots,
-    shopClusterRows,
-  ]);
+    if (SOURCING_V1_ENABLED) return hubRootsView.roots;
+    return hubProcessPool;
+  }, [hubProcessPool, hubRootsView.roots]);
 
   const smartClusterVisible =
     timeNav === 'TODAY' && contextBubble === 'ALL' && statusFilter === 'TODO';
@@ -1596,8 +1601,7 @@ export function TimelineScreen() {
 
   const openHubBlock = useCallback(
     (block: HubBlock) => {
-      setIdeaBankMode('default');
-      setIdeaBankCategoryFilter(null);
+      setIdeaBankHubContext({ kind: 'block' });
       setIdeaBankHubItems(block.items);
       setIdeaBankHubTitle(hubCategoryDisplayTitle(block.categoryId, t));
       setIdeaBankAutoTripPillRowId(null);
@@ -1608,8 +1612,7 @@ export function TimelineScreen() {
 
   const openNarrativeBlock = useCallback(
     (block: NarrativeTimelineBlock) => {
-      setIdeaBankMode('default');
-      setIdeaBankCategoryFilter(null);
+      setIdeaBankHubContext({ kind: 'block' });
       setIdeaBankHubItems(block.items);
       setIdeaBankHubTitle(timeSegmentDisplayTitle(block.segmentId, t));
       setIdeaBankAutoTripPillRowId(null);
@@ -1626,8 +1629,7 @@ export function TimelineScreen() {
         generateSmartTitle(row.content_raw || '', i18n.language) ||
         t('intentionDetail.trip');
 
-      setIdeaBankMode('default');
-      setIdeaBankCategoryFilter(null);
+      setIdeaBankHubContext({ kind: 'block' });
       setIdeaBankHubItems([row]);
       setIdeaBankHubTitle(tripTitle);
       setIdeaBankAutoTripPillRowId(row.id);
@@ -1653,9 +1655,13 @@ export function TimelineScreen() {
   const openRoutineBlock = useCallback(
     (block: HubBlock) => {
       setRoutinesViewOpen(false);
-      openHubBlock(block);
+      setIdeaBankHubContext({ kind: 'routine' });
+      setIdeaBankHubItems(block.items);
+      setIdeaBankHubTitle(hubCategoryDisplayTitle(block.categoryId, t));
+      setIdeaBankAutoTripPillRowId(null);
+      setIdeaBankOpen(true);
     },
-    [openHubBlock],
+    [t],
   );
 
   const openRoutinesView = useCallback(() => {
@@ -1789,16 +1795,16 @@ export function TimelineScreen() {
   const openIdeaBankInbox = useCallback(() => {
     setIdeaBankHubItems(null);
     setIdeaBankHubTitle(undefined);
-    setIdeaBankMode('inbox');
-    setIdeaBankCategoryFilter(null);
+    setIdeaBankHubContext({ kind: 'inbox' });
+    setIdeaBankAutoTripPillRowId(null);
     setIdeaBankOpen(true);
   }, []);
 
   const openIdeaBankShop = useCallback(() => {
     setIdeaBankHubItems(null);
     setIdeaBankHubTitle(undefined);
-    setIdeaBankMode('default');
-    setIdeaBankCategoryFilter('SHOP');
+    setIdeaBankHubContext({ kind: 'shop' });
+    setIdeaBankAutoTripPillRowId(null);
     setIdeaBankOpen(true);
   }, []);
 
@@ -1996,8 +2002,7 @@ export function TimelineScreen() {
       <IdeaBankModal
         visible={ideaBankOpen}
         onClose={() => {
-          setIdeaBankCategoryFilter(null);
-          setIdeaBankMode('default');
+          setIdeaBankHubContext({ kind: 'block' });
           setIdeaBankHubItems(null);
           setIdeaBankHubTitle(undefined);
           setIdeaBankAutoTripPillRowId(null);
@@ -2009,21 +2014,14 @@ export function TimelineScreen() {
         status={statusFilter}
         anchorDate={anchorDate}
         onChanged={reload}
-        mode={ideaBankMode}
-        title={
-          ideaBankHubTitle ??
-          (ideaBankCategoryFilter === 'SHOP'
-            ? t('timeline.ideaBank.shopTitle')
-            : ideaBankMode === 'inbox'
-              ? t('timeline.smartClusters.inbox')
-              : undefined)
-        }
+        hubContext={ideaBankHubContext}
+        title={ideaBankHubTitle}
         onEditItem={openDetail}
         onPass2Item={openDetailWithPass2}
         onPatchItem={patchRow}
         onOpenTripSetup={openDetailWithTripSetup}
-        inboxChildrenByParentId={ideaBankMode === 'inbox' ? inboxRootsView.childrenByParentId : undefined}
-        inboxZoomView={ideaBankMode === 'inbox' ? inboxRootsView.zoomView : undefined}
+        hubChildrenByParentId={hubRootsView.childrenByParentId}
+        hubZoomView={hubRootsView.zoomView}
       />
     </View>
   );

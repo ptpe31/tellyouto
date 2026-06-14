@@ -1408,7 +1408,15 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - **Court-circuit TRIP (juin 2026)** : toute ligne TRIP → bloc virtuel **`TRIPS_HUB`** (🏁 TRAJETS), `category_id` SQLite inchangé ([`resolveHubBlockCategoryId`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/hubCategoryRegistry.ts)).
 - **Habitudes JIT** : injection `listActiveHabitsForHub` + [`isHabitRowActiveForDate`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/habitRecurrenceEvaluator.ts).
 
-#### 2.d) Tirelire — actions par ligne (Inbox / hub / cluster)
+#### 2.d) Tirelire — surface de traitement unifiée (tous hubs, juin 2026)
+
+- **Objectif** : même UX de traitement dans [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) pour **Inbox · À planifier (Box) · À acheter · Routines · blocs catégorie** — pas seulement le journal 24h.
+- **Contexte** : prop `hubContext` (`inbox` | `box` | `shop` | `routine` | `block`) via [`hubProcessModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) ; pool + racines via [`buildInboxRootsView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxRootsView.ts) sur tout le pool courant.
+- **Grammaire visuelle** : [`InboxLineTitle`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) + [`HubTaskCheckbox`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/HubTaskCheckbox.tsx) (case carrée) ; accordéons sourcing / voyage / zoom actifs sur **tous** les hubs ; bouton **⋮ Studio** (`timeline.hubStudioEdit`) → `IntentionDetailSheet` explicite.
+- **Tap corps** : déplier accordéon uniquement — **plus** de navigation implicite vers la sheet.
+- **Box — filtre planifié** : [`resolveRowIsScheduled`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) exclut les intentions datées en metadata (`dueDateYmd`, TRIP…) même si `due_date` SQL vide ; [`filterUnscheduledBoxStockRows`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) appliqué au chargement.
+
+#### 2.d bis) Tirelire — actions par ligne (legacy icônes)
 
 - **Rangée d’actions** (par intention, statut TODO) : **[Fait ✓] [Planifier 📅] [Modifier ✏️] [Retirer 🗑️]** — boutons **icône seule** 40×40 (`styles.iconBtnIconOnly`) pour tenir sur **une ligne** ; libellés i18n (`timeline.ideaBank.done|schedule|edit|remove`) **commentés en source** (visuel validé mai 2026 — suppression commentaires = étape 2).
 - **Accessibilité** : `accessibilityLabel` conservé sur chaque `Pressable` (VoiceOver / TalkBack).
