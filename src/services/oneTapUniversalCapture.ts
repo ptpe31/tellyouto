@@ -96,6 +96,7 @@ export function logOneTapCaptureCycleStartBanner(): void {
 }
 import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
 import { looksLikeStructuredCaptureTranscript } from '../utils/visionTranscriptNormalize';
+import { detectTravelProjectTranscriptSignals } from '../utils/travelProjectModel';
 import {
   coerceEventSeriesFromIntent,
   isSourcingTitleMode,
