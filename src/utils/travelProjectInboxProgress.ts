@@ -9,15 +9,16 @@ export type TravelMilestoneInboxState = {
   zoomDone: number;
   allZoomDone: boolean;
   milestoneChecked: boolean;
-  unitTotal: number;
-  unitDone: number;
-  /** Case jalon visible (simple ou décomposé N/N). */
+  /** Case jalon toujours visible ; cochable si simple ou décomposé N/N. */
   showMilestoneCheckbox: boolean;
+  milestoneCheckboxEnabled: boolean;
 };
 
 export type TravelProjectInboxProgress = {
-  totalUnits: number;
-  doneUnits: number;
+  /** Nombre d'étapes (jalons) du projet parent. */
+  totalSteps: number;
+  /** Jalons cochés (simple ou décomposé validé). */
+  doneSteps: number;
   byUid: Map<string, TravelMilestoneInboxState>;
 };
 
@@ -30,8 +31,8 @@ export function buildTravelProjectInboxProgress(params: {
   const { milestones, projectId, zoomView, resolveTaskRow } = params;
   const resolve = resolveTaskRow ?? ((r) => r);
   const byUid = new Map<string, TravelMilestoneInboxState>();
-  let totalUnits = 0;
-  let doneUnits = 0;
+  let totalSteps = 0;
+  let doneSteps = 0;
 
   for (const milestone of milestones) {
     const uid = String(milestone.uid ?? '').trim();
@@ -44,12 +45,10 @@ export function buildTravelProjectInboxProgress(params: {
     const hasDecompose = zoomTotal > 0;
     const milestoneChecked = Boolean(milestone.checked);
     const allZoomDone = hasDecompose && zoomDone >= zoomTotal;
-    const unitTotal = hasDecompose ? zoomTotal : 1;
-    const unitDone = hasDecompose ? zoomDone : milestoneChecked ? 1 : 0;
-    const showMilestoneCheckbox = !hasDecompose || allZoomDone;
+    const milestoneCheckboxEnabled = !hasDecompose || allZoomDone || milestoneChecked;
 
-    totalUnits += unitTotal;
-    doneUnits += unitDone;
+    totalSteps += 1;
+    if (milestoneChecked) doneSteps += 1;
 
     byUid.set(uid, {
       uid,
@@ -58,11 +57,10 @@ export function buildTravelProjectInboxProgress(params: {
       zoomDone,
       allZoomDone,
       milestoneChecked,
-      unitTotal,
-      unitDone,
-      showMilestoneCheckbox,
+      showMilestoneCheckbox: true,
+      milestoneCheckboxEnabled,
     });
   }
 
-  return { totalUnits, doneUnits, byUid };
+  return { totalSteps, doneSteps, byUid };
 }

@@ -51,15 +51,16 @@ function ZoomTaskCheckbox(props: {
   onPress: () => void;
   a11yLabel: string;
   outlineColor: string;
+  disabled?: boolean;
 }) {
-  const { checked, onPress, a11yLabel, outlineColor } = props;
+  const { checked, onPress, a11yLabel, outlineColor, disabled = false } = props;
   return (
     <PressableScale
-      style={styles.zoomTaskCheckboxHit}
+      style={[styles.zoomTaskCheckboxHit, disabled ? styles.zoomTaskCheckboxDisabled : null]}
       hapticType="light"
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
       accessibilityRole="checkbox"
-      accessibilityState={{ checked }}
+      accessibilityState={{ checked, disabled }}
       accessibilityLabel={a11yLabel}
     >
       <View
@@ -192,6 +193,7 @@ function MilestoneBlock(props: {
   const zoomProgressRatio =
     msState.zoomTotal > 0 ? Math.min(1, msState.zoomDone / msState.zoomTotal) : 0;
   const showMilestoneCheckbox = msState.showMilestoneCheckbox && !doneSection;
+  const milestoneCheckboxEnabled = msState.milestoneCheckboxEnabled && !doneSection;
 
   const onMilestoneBodyPress = () => {
     if (hasZoomDecompose && jalonKey && !doneSection) {
@@ -207,6 +209,7 @@ function MilestoneBlock(props: {
         {showMilestoneCheckbox ? (
           <ZoomTaskCheckbox
             checked={milestoneChecked}
+            disabled={!milestoneCheckboxEnabled}
             onPress={() => onToggleMilestoneDone(milestone.uid)}
             outlineColor={theme.colors.outline}
             a11yLabel={
@@ -215,9 +218,7 @@ function MilestoneBlock(props: {
                 : t('timeline.a11yTaskComplete')
             }
           />
-        ) : (
-          <View style={styles.milestoneCheckboxSpacer} />
-        )}
+        ) : null}
         <PressableScale
           style={styles.milestoneBody}
           hapticType="light"
@@ -481,8 +482,8 @@ export function resolveTravelProjectBadgeLabel(params: {
     zoomView: params.inboxZoomView,
     resolveTaskRow: params.resolveRow,
   });
-  if (progress.totalUnits <= 0) return `+${params.fallbackCount}`;
-  return `${progress.doneUnits}/${progress.totalUnits}`;
+  if (progress.totalSteps <= 0) return `+${params.fallbackCount}`;
+  return `${progress.doneSteps}/${progress.totalSteps}`;
 }
 
 const styles = StyleSheet.create({
@@ -492,9 +493,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 8,
     paddingRight: 12,
-  },
-  milestoneCheckboxSpacer: {
-    width: ZOOM_TASK_CHECKBOX_SIZE,
   },
   milestoneBody: {
     flex: 1,
@@ -544,6 +542,7 @@ const styles = StyleSheet.create({
   },
   zoomPanelChildRowLast: { borderBottomWidth: 0 },
   zoomTaskCheckboxHit: { flexShrink: 0, marginTop: 1 },
+  zoomTaskCheckboxDisabled: { opacity: 0.45 },
   zoomTaskCheckboxBox: {
     width: ZOOM_TASK_CHECKBOX_SIZE,
     height: ZOOM_TASK_CHECKBOX_SIZE,
