@@ -18,6 +18,7 @@ function flattenErrorText(e: unknown): string {
  * (Pas d’erreur métier / validation JSON côté client.)
  */
 export function isLikelyNetworkOrServerError(e: unknown): boolean {
+  if (isSqlitePersistBusyError(e)) return false;
   const t = flattenErrorText(e);
   if (!t.trim()) return false;
 
@@ -26,7 +27,6 @@ export function isLikelyNetworkOrServerError(e: unknown): boolean {
     'failed to fetch',
     'networkerror',
     'load failed',
-    'fetch',
     'econnrefused',
     'econnreset',
     'etimedout',
@@ -60,6 +60,17 @@ export function isLikelyNetworkOrServerError(e: unknown): boolean {
   if (typeof status === 'number' && status >= 500 && status < 600) return true;
 
   return false;
+}
+
+/** Erreur SQLite locale (lock / finalizeAsync) — ne doit pas basculer en file offline réseau. */
+export function isSqlitePersistBusyError(e: unknown): boolean {
+  const t = flattenErrorText(e);
+  return (
+    t.includes('database is locked') ||
+    t.includes('sqlite_busy') ||
+    t.includes('sqlite_locked') ||
+    t.includes('finalizeasync')
+  );
 }
 
 export function logOfflineStability(phase: string, detail?: Record<string, unknown>): void {

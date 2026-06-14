@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { DeviceEventEmitter } from 'react-native';
+import { DeviceEventEmitter, Platform } from 'react-native';
 
 /**
  * Repository SQLite Trankil-v2 (`talkndone.db`) : schéma, écritures sérialisées, timeline, quotas, `patchMetadata`.
@@ -164,7 +164,10 @@ export type BonusEventType =
   | 'super_bonus_local_streak';
 
 const DB_NAME = 'talkndone.db';
-const DISABLE_TRANKIL_V2_PRAGMAS = true;
+/** WAL réduit les `database is locked` / `finalizeAsync` sur Android (lecteurs pendant écriture). */
+const DISABLE_TRANKIL_V2_PRAGMAS = false;
+/** Délai après chaque opération sérialisée — laisse expo-sqlite finaliser les statements natifs. */
+const SQLITE_NATIVE_FINALIZE_GRACE_MS = Platform.OS === 'android' ? 100 : 16;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let currentDb: SQLite.SQLiteDatabase | null = null;
@@ -197,6 +200,9 @@ async function runSerializedSqlite<T>(operation: () => Promise<T>): Promise<T> {
       return await operation();
     } finally {
       sqliteReentrantDepth -= 1;
+      if (SQLITE_NATIVE_FINALIZE_GRACE_MS > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, SQLITE_NATIVE_FINALIZE_GRACE_MS));
+      }
     }
   });
   sqliteQueueTail = next.then(
@@ -275,6 +281,39 @@ function isNativePrepareAsyncRejected(err: unknown): boolean {
   return msg.includes('NativeDatabase.prepareAsync') || msg.includes('NullPointerException');
 }
 
+export function isSqlitePersistBusyError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return (
+    msg.includes('database is locked') ||
+    msg.includes('SQLITE_BUSY') ||
+    msg.includes('SQLITE_LOCKED') ||
+    msg.includes('finalizeAsync')
+  );
+}
+
+function isSqliteBusyOrLocked(err: unknown): boolean {
+  return isSqlitePersistBusyError(err);
+}
+
+function isSqliteRetriable(err: unknown): boolean {
+  return isNativePrepareAsyncRejected(err) || isSqliteBusyOrLocked(err);
+}
+
+const SQLITE_WRITE_RETRY_MAX = 6;
+
+async function applyTrankilV2ConnectionPragmas(db: SQLite.SQLiteDatabase): Promise<void> {
+  if (pragmasApplied) return;
+  try {
+    if (!DISABLE_TRANKIL_V2_PRAGMAS) {
+      await db.execAsync('PRAGMA journal_mode=WAL;');
+    }
+    await db.execAsync('PRAGMA busy_timeout=8000;');
+  } catch {
+    /* ignore — busy_timeout best-effort même si WAL désactivé */
+  }
+  pragmasApplied = true;
+}
+
 const DEFAULT_HORIZON_CATEGORIES: Array<{ id: string; label: string; sort_order: number }> = [
   { id: 'aujourdhui', label: "Aujourd'hui", sort_order: 1 },
   { id: 'demain', label: 'Demain', sort_order: 2 },
@@ -345,15 +384,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = SQLite.openDatabaseAsync(DB_NAME).then(async (db) => {
       if (VERBOSE_DEBUG) console.log('[SQL_TRACE] 🏁 openDatabaseAsync terminé');
-      if (!DISABLE_TRANKIL_V2_PRAGMAS && !pragmasApplied) {
-        try {
-          await db.execAsync('PRAGMA journal_mode=WAL;');
-          await db.execAsync('PRAGMA busy_timeout=8000;');
-        } catch {
-          /* ignore */
-        }
-        pragmasApplied = true;
-      }
+      await applyTrankilV2ConnectionPragmas(db);
       const anyDb = db as any;
       if (!anyDb.__trankilV2Serialized) {
         const wrap =
@@ -392,32 +423,58 @@ export async function bootstrapTrankilV2Database(): Promise<void> {
 export async function withTrankilV2Database<T>(
   fn: (db: SQLite.SQLiteDatabase) => Promise<T>,
 ): Promise<T> {
-  return runSerializedSqlite(async () => {
-    const db = await getDb();
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_MAX; attempt += 1) {
     try {
-      return await fn(db);
+      return await runSerializedSqlite(async () => {
+        const db = await getDb();
+        try {
+          return await fn(db);
+        } catch (e) {
+          if (!isNativePrepareAsyncRejected(e)) throw e;
+          console.log('[DATABASE] ♻️ Reset connexion SQLite (NativeDatabase.prepareAsync rejected)');
+          resetTrankilV2RuntimeState();
+          await new Promise<void>((resolve) => setTimeout(resolve, 150));
+          const next = await getDb();
+          return await fn(next);
+        }
+      });
     } catch (e) {
-      if (!isNativePrepareAsyncRejected(e)) throw e;
-      console.log('[DATABASE] ♻️ Reset connexion SQLite (NativeDatabase.prepareAsync rejected)');
-      resetTrankilV2RuntimeState();
-      await new Promise<void>((resolve) => setTimeout(resolve, 150));
-      const next = await getDb();
-      return await fn(next);
+      lastErr = e;
+      if (!isSqliteRetriable(e) || attempt >= SQLITE_WRITE_RETRY_MAX - 1) throw e;
+      if (isNativePrepareAsyncRejected(e) || isSqliteBusyOrLocked(e)) {
+        resetTrankilV2RuntimeState();
+      }
+      await waitForTrankilV2SqliteIdle();
+      const backoffMs = Math.min(800, 120 * (attempt + 1) + SQLITE_NATIVE_FINALIZE_GRACE_MS);
+      await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
+      if (__DEV__) {
+        console.warn('[DATABASE] ♻️ Retry SQLite write', { attempt: attempt + 1, err: String(e) });
+      }
     }
-  });
+  }
+  throw lastErr;
 }
 
 function notifyIntentionsChanged(payload?: { id?: string; reason?: string }): void {
   DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME, { source: 'trankil_v2', ...payload });
 }
 
-async function syncAfterIntentionWrite(reason: string): Promise<void> {
+async function deferNativeRailSyncAfterWrite(reason: string): Promise<void> {
   try {
+    await waitForTrankilV2SqliteIdle();
+    if (SQLITE_NATIVE_FINALIZE_GRACE_MS > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, SQLITE_NATIVE_FINALIZE_GRACE_MS));
+    }
     const { syncNativeRailAlarmsAfterIntentionWrite } = await import('./intentionHardwareSync');
-    void syncNativeRailAlarmsAfterIntentionWrite(reason);
+    await syncNativeRailAlarmsAfterIntentionWrite(reason);
   } catch {
-    /* ignore */
+    /* ignore — fire-and-forget */
   }
+}
+
+async function syncAfterIntentionWrite(reason: string): Promise<void> {
+  void deferNativeRailSyncAfterWrite(reason);
 }
 
 /**
@@ -2763,41 +2820,47 @@ export async function insertTrankilV2Intention(
   row: TrankilV2IntentionInsert,
 ): Promise<void> {
   await initTrankilV2Schema();
-  const db = await getDb();
-  if (VERBOSE_DEBUG) console.log('[DEBUG_DB] Statut de l instance DB:', !!db);
   const createdAt = row.created_at ?? Date.now();
   const updatedAt = row.updated_at ?? createdAt;
   const isDirty = row.is_dirty ?? 1;
   const serverVersion = row.server_version ?? 0;
   const remindLeave = row.remind_to_leave ?? 0;
   const locAddr = row.location_address?.trim() ? row.location_address.trim() : null;
+  const metadataJson = (() => {
+    const raw = typeof row.metadata_json === 'string' ? row.metadata_json.trim() : '';
+    if (!raw) return '{}';
+    try {
+      JSON.parse(raw);
+      return raw;
+    } catch {
+      return '{}';
+    }
+  })();
   let zoomUid = row.zoom_parent_jalon_uid?.trim() ? String(row.zoom_parent_jalon_uid).trim() : null;
   if (!zoomUid) {
-    const initialMeta = typeof row.metadata_json === 'string' ? row.metadata_json.trim() : '';
-    if (initialMeta) {
-      const parsed = safeParseJsonRecord(initialMeta);
-      const raw = parsed.zoom_parent_jalon_uid;
-      const next = typeof raw === 'string' ? raw.trim() : '';
-      if (next) zoomUid = next;
-    }
+    const parsed = safeParseJsonRecord(metadataJson);
+    const raw = parsed.zoom_parent_jalon_uid;
+    const next = typeof raw === 'string' ? raw.trim() : '';
+    if (next) zoomUid = next;
   }
   const categoryId = normalizeIntentionCategoryId(row.category_id);
   const contextTag = normalizeIntentionContextTag(row.context_tag);
   const sql =
     `INSERT INTO intentions (
-      id, type, title, due_date, content_raw, suggested_tags, category_id, category, context_tag, parent_id, zoom_parent_jalon_uid, status, is_organized, is_local_processed, complexity_level, created_at, updated_at, is_dirty, server_version, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
+      id, type, title, due_date, content_raw, metadata_json, suggested_tags, category_id, category, context_tag, parent_id, zoom_parent_jalon_uid, status, is_organized, is_local_processed, complexity_level, created_at, updated_at, is_dirty, server_version, calendar_event_id, calendar_name, is_synced_calendar, alarm_enabled, remind_at, local_notification_id, recurrence_rrule,
       is_pending_ai,
       remind_to_leave, location_address,
       ai_model_used, ai_latency_ms, tokens_prompt, tokens_completion, tokens_total, cost, debug_tokens, debug_latency_ms, location_id,
       is_pinned,
       is_done, done_at, is_archived, archived_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL)`;
   const args = [
     row.id,
     row.type,
     row.title,
     normalizeDueDate(row.due_date),
     row.content_raw,
+    metadataJson,
     row.suggested_tags ?? '[]',
     categoryId,
     categoryId,
@@ -2837,33 +2900,16 @@ export async function insertTrankilV2Intention(
   if (placeholderCount !== args.length) {
     throw new Error(`sql_placeholder_mismatch:${placeholderCount}:${args.length}`);
   }
-  try {
+
+  await withTrankilV2Database(async (db) => {
+    if (VERBOSE_DEBUG) console.log('[DEBUG_DB] Statut de l instance DB:', !!db);
     const r = await db.runAsync(sql, args);
     if (VERBOSE_DEBUG) console.log('[DATABASE] rowsAffected:', (r as { changes?: unknown }).changes ?? '—');
     console.log(
       `[DATABASE] ✅ Intention sauvée avec succès | Category: ${categoryId} | Context: ${contextTag ?? '—'}`,
     );
-  } catch (e) {
-    if (!isNativePrepareAsyncRejected(e)) throw e;
-    console.log('[DATABASE] ♻️ Re-open SQLite (prepareAsync rejected)');
-    resetTrankilV2RuntimeState();
-    const nextDb = await getDb();
-    if (VERBOSE_DEBUG) console.log('[DEBUG_DB] Statut de l instance DB (reopen):', !!nextDb);
-    const r = await nextDb.runAsync(sql, args);
-    if (VERBOSE_DEBUG) console.log('[DATABASE] rowsAffected:', (r as { changes?: unknown }).changes ?? '—');
-    console.log(
-      `[DATABASE] ✅ Intention sauvée avec succès | Category: ${categoryId} | Context: ${contextTag ?? '—'}`,
-    );
-  }
-  const stats = await getTrankilV2UserStats();
-  void stats;
-  const initialMeta = typeof row.metadata_json === 'string' ? row.metadata_json.trim() : '';
-  if (initialMeta) {
-    const parsed = safeParseJsonRecord(initialMeta);
-    if (Object.keys(parsed).length > 0) {
-      await patchMetadata(row.id, parsed, { silent: true, fromSync: !isDirty });
-    }
-  }
+  });
+
   void syncAfterIntentionWrite('insertTrankilV2Intention');
   notifyIntentionsChanged({ id: row.id, reason: 'insert' });
 }

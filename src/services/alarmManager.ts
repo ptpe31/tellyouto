@@ -28,9 +28,12 @@ import {
   getNotifications,
 } from './notifications';
 import {
+  bootstrapTrankilV2Database,
   getTrankilV2IntentionById,
   listTrankilV2PendingAlarmIntentions,
+  trankilV2SqliteBarrier,
   updateTrankilV2IntentionAlarmFields,
+  waitForTrankilV2SqliteIdle,
   type TrankilV2IntentionRow,
 } from '../api/trankilV2Db';
 import {
@@ -465,6 +468,9 @@ export async function handleRailAlarmDelivered(intentionId: string): Promise<voi
  */
 export async function bootstrapNativeAlarmsOnAppStart(): Promise<void> {
   try {
+    await bootstrapTrankilV2Database();
+    await waitForTrankilV2SqliteIdle();
+    await trankilV2SqliteBarrier(300);
     await refreshRailAlarmsAfterLocalDbChange();
     const rows = await listTrankilV2PendingAlarmIntentions(Date.now());
     const count = rows.filter(

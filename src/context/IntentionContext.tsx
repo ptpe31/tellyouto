@@ -20,7 +20,7 @@ import { persistOneTapDraftVentilated, type PersistOneTapSuccess } from '../serv
 import { resolvePeekPrimaryOutcome } from '../utils/peekOutcomeResolve';
 import { normalizeCaptureTranscript } from '../utils/visionTranscriptNormalize';
 import { showAppToast } from '../services/appToast';
-import { getTrankilV2IntentionById, findZoomInboxAnchorForMilestone, insertTrankilV2Intention } from '../api/trankilV2Db';
+import { getTrankilV2IntentionById, findZoomInboxAnchorForMilestone, insertTrankilV2Intention, isSqlitePersistBusyError, trankilV2SqliteBarrier, waitForTrankilV2SqliteIdle } from '../api/trankilV2Db';
 import { parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import {
   getOfflineAudioById,
@@ -368,6 +368,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               trace: trace || null,
               reason: opts.reason,
               chunkIdx: opts.chunkIndex,
+              sqliteBusy: isSqlitePersistBusyError(opts.error),
             });
             return false;
           }
@@ -517,7 +518,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               return { safeToDrainOfflineReplaySource: false };
             }
             logCaptureFlow(trace || undefined, 'chunk_ventilated_await', { idx: i + 1, total });
-            const vr = await persistOneTapDraftVentilated({
+            await waitForTrankilV2SqliteIdle();
+            await trankilV2SqliteBarrier(120);
+            let vr = await persistOneTapDraftVentilated({
               deps: effectiveDeps,
               draft: hydrated,
               transcript: chunk,
@@ -530,6 +533,26 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               trace: trace || undefined,
               uiLocale,
             });
+            if (!vr.ok && isSqlitePersistBusyError(vr.error)) {
+              logOfflineStability('chunk_persist_sqlite_retry', {
+                trace: trace || null,
+                chunkIdx: i,
+              });
+              await trankilV2SqliteBarrier(350);
+              vr = await persistOneTapDraftVentilated({
+                deps: effectiveDeps,
+                draft: hydrated,
+                transcript: chunk,
+                habitsDefaultTitle,
+                birthdayLabel,
+                allowNoteFallback: false,
+                parentId: params.parentId,
+                parentJalonUid: params.parentJalonUid,
+                batchContext: batchContext ?? null,
+                trace: trace || undefined,
+                uiLocale,
+              });
+            }
             if (vr.ok) {
               savedAny = true;
               logCaptureFlow(trace || undefined, 'chunk_persist_ok', {
