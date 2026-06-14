@@ -4,6 +4,7 @@
  *
  * @module listIntentionModel
  */
+import { extractJsonObjectText, parseJsonObjectBestEffort } from '../utils/jsonSalvage';
 
 export const LIST_METADATA_KEY = 'list_scalable_v1';
 
@@ -218,50 +219,6 @@ export function buildListInventoryJsonStringFromDraftBlock(
 }
 
 /**
- * Ferme les `{` / `[` ouverts si la réponse Gemini a été tronquée en cours de génération.
- */
-function salvageTruncatedJsonText(text: string): string {
-  let s = text.replace(/,?\s*$/, '');
-  const closers: string[] = [];
-  let inString = false;
-  let escaped = false;
-  for (const ch of s) {
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (inString) {
-      if (ch === '\\') escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === '{') closers.push('}');
-    else if (ch === '[') closers.push(']');
-    else if ((ch === '}' || ch === ']') && closers.length > 0 && closers[closers.length - 1] === ch) {
-      closers.pop();
-    }
-  }
-  if (inString) s += '"';
-  s = s.replace(/,\s*$/, '');
-  while (closers.length > 0) s += closers.pop();
-  return s;
-}
-
-/** Parse JSON avec repli : isolation `{…}` puis fermeture automatique des accolades manquantes. */
-function parseListJsonObject(cleanText: string): Record<string, unknown> {
-  try {
-    return JSON.parse(cleanText) as Record<string, unknown>;
-  } catch {
-    const salvaged = salvageTruncatedJsonText(cleanText);
-    return JSON.parse(salvaged) as Record<string, unknown>;
-  }
-}
-
-/**
  * Parse la réponse texte Gemini (JSON pur ou entouré de fences ```).
  *
  * @param raw — Texte renvoyé par le modèle.
@@ -269,15 +226,8 @@ function parseListJsonObject(cleanText: string): Record<string, unknown> {
  * @throws {Error} Codes `LIST_JSON_*` si le JSON est incomplet.
  */
 export function parseGeminiListInventoryJson(raw: string): GeminiListInventoryJson {
-  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
-  const startIdx = stripped.indexOf('{');
-  if (startIdx < 0) throw new Error('LIST_JSON_MISSING_OBJECT');
-  let cleanText = stripped.slice(startIdx);
-  if (/[}\]]\s*$/.test(stripped)) {
-    const endIdx = cleanText.lastIndexOf('}');
-    if (endIdx > 0) cleanText = cleanText.slice(0, endIdx + 1);
-  }
-  const obj = parseListJsonObject(cleanText);
+  const cleanText = extractJsonObjectText(raw);
+  const obj = parseJsonObjectBestEffort(cleanText);
   const title = String(obj.title ?? '').trim();
   if (!title) throw new Error('LIST_JSON_MISSING_TITLE');
   const baseCount = Math.max(1, Math.round(Number(obj.baseCount ?? 1)));

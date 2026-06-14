@@ -84,6 +84,8 @@ export type PersistOneTapSuccess =
       intentionId: string;
       successFeedbackI18nKey: string;
       consumedClassicFreeSlot: boolean;
+      title?: string;
+      isTravelProject?: boolean;
       travelProjectEnriched?: boolean;
     };
 
@@ -1227,19 +1229,34 @@ async function persistAndDualWrite(params: {
     console.log(`[DATABASE] ⏱️ Persistance ${entityLabel} en ${Date.now() - persistStart}ms`);
     console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
     if (res.outcome.kind === 'project_persisted' && id) {
-      const travelEnriched = await maybeAutoEnrichTravelProject({
-        intentionId: id,
-        transcript: params.transcript,
-        draft: params.draft,
-        intentRaw: intentRaw ?? null,
-        uiLocale,
-        trace,
-      });
+      const brief = resolveProjectBriefFromDraft(params.draft, intentRaw ?? null, params.transcript);
+      const isTravelProject = Boolean(brief && shouldAutoEnrichTravelProject(params.transcript, brief));
+      let outcome = res.outcome;
+      if (isTravelProject) {
+        outcome = {
+          ...outcome,
+          title: String(params.draft.title ?? '').trim() || undefined,
+          isTravelProject: true,
+        };
+      }
+      const travelEnriched = isTravelProject
+        ? await maybeAutoEnrichTravelProject({
+            intentionId: id,
+            transcript: params.transcript,
+            draft: params.draft,
+            intentRaw: intentRaw ?? null,
+            uiLocale,
+            trace,
+          })
+        : false;
       if (travelEnriched) {
         return {
           ok: true,
-          outcome: { ...res.outcome, travelProjectEnriched: true },
+          outcome: { ...outcome, travelProjectEnriched: true },
         };
+      }
+      if (isTravelProject) {
+        return { ok: true, outcome };
       }
     }
   }
@@ -1303,10 +1320,12 @@ async function maybeAutoEnrichTravelProject(params: {
 }): Promise<boolean> {
   const brief = resolveProjectBriefFromDraft(params.draft, params.intentRaw ?? null, params.transcript);
   if (!brief || !shouldAutoEnrichTravelProject(params.transcript, brief)) return false;
+  const titleFallback = String(params.draft.title ?? '').trim() || 'Projet voyage';
   const result = await enrichTravelProjectAfterPersist({
     intentionId: params.intentionId,
     transcript: params.transcript,
     brief,
+    titleFallback,
     uiLocale: params.uiLocale ?? 'fr-FR',
     trace: params.trace,
   });

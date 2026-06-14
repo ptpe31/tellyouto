@@ -820,18 +820,18 @@ Schéma JSON :
 {"title": string, "baseCount": number, "unitLabel": string, "categories": [{"name": string, "items": [{"name": string, "baseQuantity": number, "unit": string, "scalable": boolean}]}]}
 `;
 
-const PASS2_PROJECT_INLINE_PROMPT = (transcript: string) => `Tu es un expert en planification de projets. Ton rôle est de décomposer une intention en jalons/étapes clés.
+const PASS2_PROJECT_INLINE_PROMPT = (transcript: string) => `Tu es un expert en planification de projets. Décompose l'intention en jalons clés.
 
 Consignes strictes :
-Miroir Linguistique (CRITIQUE) : Réponds impérativement dans la même langue que la dictée de l'utilisateur.
-INTERDICTION : ne fournis aucune date (pas de YYYY-MM-DD, pas de "lundi", pas de "demain", pas d'horaires).
-À la place, fournis pour chaque jalon une durée estimée.
-Pour chaque jalon, identifie l'expert métier le plus qualifié (ex: Électricien, Acousticien, Diététicien, Wedding Planner). Si le contexte est général, utilise "Assistant Personnel".
+- Langue = langue de la dictée.
+- Aucune date calendaire dans les jalons — durées estimées uniquement (hours|days|weeks).
+- Maximum 6 jalons. Titres ≤ 8 mots chacun.
+- Persona expert courte par jalon (ex: Électricien, Wedding Planner). Sinon "Assistant Personnel".
 
 Transcription:
 """${transcript.replace(/"/g, '\\"')}"""
 
-Schéma attendu (JSON pur, clés exactement comme ci-dessous) :
+JSON pur uniquement :
 {"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}
 `;
 
@@ -870,16 +870,17 @@ const PASS2_PROJECT_TRAVEL_PROMPT = (
   return `Tu es un expert en préparation de voyage en famille. Décompose la préparation en jalons concrets.
 
 Consignes :
-- Langue : identique à la dictée.
-- Pas de dates calendaires dans les jalons — durées estimées uniquement (hours|days|weeks).
-- Inclure si pertinent : Administratif, Billets & escale, Kit escale (jeux, snacks), Valises par voyageur, Logistique départ.
-- Persona expert par jalon (ex: Agent aérien, Logisticien famille, Assistant voyage).
+- Langue = langue de la dictée.
+- Pas de dates calendaires — durées estimées uniquement (hours|days|weeks).
+- Maximum 5 jalons. Titres ≤ 6 mots (ex: "Administratif", "Kit escale", "Valises Rachel").
+- Personas courtes (ex: Agent aérien, Logisticien famille).
+- Jalons types si pertinents : Administratif, Billets & escale, Kit escale, Valises par voyageur, Logistique départ.
 ${destLine} ${partyLine} ${flightsLine} ${constraintsLine} ${departLine}
 
 Transcription:
 """${transcript.replace(/"/g, '\\"')}"""
 
-JSON pur :
+JSON pur uniquement :
 {"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}`;
 };
 
@@ -970,7 +971,12 @@ export async function geminiEnrichGenericList(
   },
 ): Promise<
   | { mode: 'LIST'; parsed: GeminiListInventoryJson; rawResponseText: string }
-  | { mode: 'PROJECT'; parsed: import('./projectMilestonesModel').ProjectMilestonesPayload; rawResponseText: string }
+  | {
+      mode: 'PROJECT';
+      parsed: import('./projectMilestonesModel').ProjectMilestonesPayload;
+      rawResponseText: string;
+      salvaged?: boolean;
+    }
 > {
   const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
   const mode = options.mode ?? 'LIST';
@@ -987,7 +993,9 @@ export async function geminiEnrichGenericList(
   const modelId = getActivePass2ModelId();
   const temperature = 0.18;
   const historyLength = 1;
-  const isJsonMode = false;
+  const isProjectMode = mode === 'PROJECT' || mode === 'PROJECT_TRAVEL';
+  const isJsonMode = isProjectMode;
+  const maxOutputTokens = isProjectMode ? 4096 : 2048;
   const t0 = perfNowMs();
   const logBase = {
     pass: 2 as const,
@@ -1001,11 +1009,13 @@ export async function geminiEnrichGenericList(
 
   let rawResponseText: string | undefined;
   try {
+    const generationConfig: Record<string, unknown> = { temperature, maxOutputTokens };
+    if (isJsonMode) generationConfig.responseMimeType = 'application/json';
     const { text, meta } = await callGeminiProxyStream({
       modelOverride: modelId,
       request: {
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature, maxOutputTokens: 2048 },
+        generationConfig,
       },
       operation: 'lab.list_enrich_generic',
     });
@@ -1013,19 +1023,19 @@ export async function geminiEnrichGenericList(
     rawResponseText = extractTextFromGenerateResponse(text);
     if (!rawResponseText) throw new Error('Gemini: empty list enrich response');
     const tokens = aiLogTokensFromHttpMeta(meta);
-    if (mode === 'PROJECT' || mode === 'PROJECT_TRAVEL') {
-      const { parseGeminiProjectMilestonesJson } = await import('./projectMilestonesModel');
-      const parsed = parseGeminiProjectMilestonesJson(rawResponseText);
+    if (isProjectMode) {
+      const { parseGeminiProjectMilestonesJsonWithMeta } = await import('./projectMilestonesModel');
+      const { payload: parsed, salvaged } = parseGeminiProjectMilestonesJsonWithMeta(rawResponseText);
       logAiInteraction({
         ...logBase,
         modelId: meta.modelId,
         latencyMs,
         rawResponse: rawResponseText,
         parsedResult: parsed,
-        parsedSectionTitle: 'PARSED MILESTONES',
+        parsedSectionTitle: salvaged ? 'PARSED MILESTONES (salvaged)' : 'PARSED MILESTONES',
         tokens,
       });
-      return { mode: 'PROJECT' as const, parsed, rawResponseText };
+      return { mode: 'PROJECT' as const, parsed, rawResponseText, salvaged };
     }
     const parsed = parseGeminiListInventoryJson(rawResponseText);
     logAiInteraction({

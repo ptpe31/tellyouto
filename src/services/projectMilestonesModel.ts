@@ -1,3 +1,5 @@
+import { extractJsonObjectText, parseJsonObjectBestEffort } from '../utils/jsonSalvage';
+
 export const PROJECT_MILESTONES_METADATA_KEY = 'project_milestones_v1';
 
 export type ProjectDurationUnit = 'hours' | 'days' | 'weeks';
@@ -79,41 +81,63 @@ export function parseProjectMilestonesPayloadFromMetadataJson(raw: string | null
   }
 }
 
+function parseMilestoneFromRaw(m: unknown): ProjectMilestone | null {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+  const r = m as Record<string, unknown>;
+  const t = String(r.title ?? '').trim();
+  if (!t || t === '—') return null;
+  const n = Number(r.estimated_duration);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const unit = String(r.unit ?? '').trim();
+  if (unit !== 'hours' && unit !== 'days' && unit !== 'weeks') return null;
+  const expert_persona = String(r.expert_persona ?? '').trim();
+  return {
+    uid: '',
+    title: t.slice(0, 80),
+    estimated_duration: n,
+    unit: unit as ProjectDurationUnit,
+    expert_persona: expert_persona || 'Assistant Personnel',
+    checked: false,
+    pivot_date: null,
+    note: null,
+  };
+}
+
+export type ParseProjectMilestonesResult = {
+  payload: ProjectMilestonesPayload;
+  /** true si des jalons incomplets ont été ignorés ou si salvage a été utilisé */
+  salvaged: boolean;
+};
+
 export function parseGeminiProjectMilestonesJson(raw: string): ProjectMilestonesPayload {
-  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
-  const startIdx = stripped.indexOf('{');
-  const endIdx = stripped.lastIndexOf('}');
-  let cleanText = stripped;
-  if (startIdx >= 0 && endIdx > startIdx) {
-    cleanText = stripped.slice(startIdx, endIdx + 1);
+  return parseGeminiProjectMilestonesJsonWithMeta(raw).payload;
+}
+
+export function parseGeminiProjectMilestonesJsonWithMeta(raw: string): ParseProjectMilestonesResult {
+  const cleanText = extractJsonObjectText(raw);
+  let salvaged = false;
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(cleanText) as Record<string, unknown>;
+  } catch {
+    obj = parseJsonObjectBestEffort(cleanText);
+    salvaged = true;
   }
-  const obj = JSON.parse(cleanText) as Record<string, unknown>;
   const title = String(obj.title ?? '').trim();
   if (!title) throw new Error('PROJECT_JSON_MISSING_TITLE');
   const ms = obj.milestones;
   if (!Array.isArray(ms) || ms.length === 0) throw new Error('PROJECT_JSON_MISSING_MILESTONES');
-  const milestones: ProjectMilestone[] = ms.map((m) => {
-    if (!m || typeof m !== 'object' || Array.isArray(m)) throw new Error('PROJECT_JSON_BAD_MILESTONE');
-    const r = m as Record<string, unknown>;
-    const t = String(r.title ?? '').trim();
-    if (!t) throw new Error('PROJECT_JSON_BAD_MILESTONE_TITLE');
-    const n = Number(r.estimated_duration);
-    if (!Number.isFinite(n) || n <= 0) throw new Error('PROJECT_JSON_BAD_DURATION');
-    const unit = String(r.unit ?? '').trim();
-    if (unit !== 'hours' && unit !== 'days' && unit !== 'weeks') throw new Error('PROJECT_JSON_BAD_UNIT');
-    const expert_persona = String(r.expert_persona ?? '').trim();
-    return {
-      uid: '',
-      title: t,
-      estimated_duration: n,
-      unit: unit as ProjectDurationUnit,
-      expert_persona: expert_persona || 'Assistant Personnel',
-      checked: false,
-      pivot_date: null,
-      note: null,
-    };
-  });
-  return ensureProjectMilestoneUids({ title, milestones });
+  const milestones: ProjectMilestone[] = [];
+  for (const m of ms) {
+    const parsed = parseMilestoneFromRaw(m);
+    if (parsed) milestones.push(parsed);
+    else if (m && typeof m === 'object') salvaged = true;
+  }
+  if (milestones.length === 0) throw new Error('PROJECT_JSON_MISSING_MILESTONES');
+  return {
+    payload: ensureProjectMilestoneUids({ title: title.slice(0, 200), milestones }),
+    salvaged,
+  };
 }
 
 export function buildProjectMilestonesMetadataPatch(payload: ProjectMilestonesPayload): Record<string, unknown> {

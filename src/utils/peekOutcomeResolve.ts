@@ -18,7 +18,8 @@ export type PeekPrimaryOutcome = {
 };
 
 /**
- * Premier enfant actionable — ignore la coquille sourcing (`autoParentId`) et les PROJECT legacy.
+ * Premier enfant actionable — ignore la coquille sourcing (`autoParentId`).
+ * Les PROJECT voyage (brief / auto Pass 2) sont peekables.
  */
 export function resolvePeekPrimaryOutcome(
   outcomes: PersistOneTapSuccess[],
@@ -30,8 +31,18 @@ export function resolvePeekPrimaryOutcome(
     const id = outcomeIntentionId(o);
     if (!id) continue;
     if (shellId && id === shellId) continue;
-    if (o.kind === 'project_persisted') continue;
     if (o.kind === 'simple_note_or_audio') continue;
+
+    if (o.kind === 'project_persisted') {
+      if (o.isTravelProject || o.travelProjectEnriched) {
+        return {
+          intentionId: id,
+          title: String(o.title ?? '').trim() || 'Projet',
+          predictedType: 'PROJECT',
+        };
+      }
+      continue;
+    }
 
     if (o.kind === 'persisted_temporal') {
       return {

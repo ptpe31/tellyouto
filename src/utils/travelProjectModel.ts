@@ -2,7 +2,11 @@
  * Projet voyage monolithique — brief Pass 1, signaux transcript, affichage Inbox.
  * @module travelProjectModel
  */
-import { parseProjectMilestonesPayloadFromMetadataJson } from '../services/projectMilestonesModel';
+import {
+  ensureProjectMilestoneUids,
+  parseProjectMilestonesPayloadFromMetadataJson,
+  type ProjectMilestonesPayload,
+} from '../services/projectMilestonesModel';
 
 export const PROJECT_BRIEF_METADATA_KEY = 'project_brief_v1';
 export const PROJECT_PACKING_METADATA_KEY = 'project_packing_v1';
@@ -181,5 +185,30 @@ export function resolveTravelProjectMilestoneCount(metadataJson: string | null |
   const payload = parseProjectMilestonesPayloadFromMetadataJson(metadataJson);
   if (!payload?.milestones?.length) return null;
   const real = payload.milestones.filter((m) => String(m.title ?? '').trim() && m.title !== '—');
-  return real.length > 0 ? real.length : payload.milestones.length;
+  return real.length > 0 ? real.length : null;
+}
+
+/** Jalons déterministes si Pass 2 Gemini échoue (projet voyage). */
+export function buildFallbackTravelProjectMilestones(brief: ProjectBriefV1, title: string): ProjectMilestonesPayload {
+  const pivot = brief.departure_ymd;
+  const templates: Array<{ title: string; duration: number; unit: 'hours' | 'days' | 'weeks'; persona: string }> = [
+    { title: 'Administratif', duration: 2, unit: 'weeks', persona: 'Expert administratif' },
+    { title: 'Billets & escale', duration: 3, unit: 'hours', persona: 'Agent aérien' },
+    { title: 'Kit escale', duration: 2, unit: 'days', persona: 'Assistant voyage' },
+    { title: 'Valises par voyageur', duration: 1, unit: 'days', persona: 'Logisticien famille' },
+    { title: 'Logistique départ', duration: 1, unit: 'days', persona: 'Assistant voyage' },
+  ];
+  return ensureProjectMilestoneUids({
+    title: title.slice(0, 200),
+    milestones: templates.map((t) => ({
+      uid: '',
+      title: t.title,
+      estimated_duration: t.duration,
+      unit: t.unit,
+      expert_persona: t.persona,
+      checked: false,
+      pivot_date: pivot,
+      note: null,
+    })),
+  });
 }

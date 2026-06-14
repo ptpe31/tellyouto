@@ -86,6 +86,8 @@ import {
   type ProjectMilestonesPayload,
 } from '../services/projectMilestonesModel';
 import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
+import { enrichTravelProjectAfterPersist } from '../services/travelProjectEnrich';
+import { parseProjectBriefFromMetadataJson, type ProjectBriefV1 } from '../utils/travelProjectModel';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
@@ -758,7 +760,34 @@ export function IntentionDetailSheet({
     const m = meta as Record<string, unknown> | null;
     return m?.track_streak === true;
   }, [meta]);
-  const isGenerating = Boolean(meta && (meta as Record<string, unknown>).is_generating);
+  const isGenerating = useMemo(() => {
+    const m = meta as Record<string, unknown> | null;
+    if (!m) return false;
+    const status = String(m.list_enrich_status ?? '').trim();
+    return Boolean(m.is_generating) || status === 'pending';
+  }, [meta]);
+  const listEnrichStatus = useMemo(
+    () => String((meta as Record<string, unknown> | null)?.list_enrich_status ?? '').trim(),
+    [meta],
+  );
+  const listEnrichError = useMemo(
+    () => String((meta as Record<string, unknown> | null)?.list_enrich_error ?? '').trim(),
+    [meta],
+  );
+  const projectBrief = useMemo(
+    () => parseProjectBriefFromMetadataJson(metadataJsonLive ?? row?.metadata_json),
+    [metadataJsonLive, row?.metadata_json],
+  );
+  const isTravelProject = Boolean(projectBrief);
+  const hasOnlyPlaceholderMilestones = useMemo(() => {
+    if (!projectPayload?.milestones?.length) return true;
+    const real = projectPayload.milestones.filter((m) => String(m.title ?? '').trim() && m.title !== '—');
+    return real.length === 0;
+  }, [projectPayload]);
+  const showPass2EnrichError = Boolean(
+    isProject && pass2Unlocked && (listEnrichStatus === 'error' || (listEnrichStatus === 'idle' && hasOnlyPlaceholderMilestones)),
+  );
+  const showPass2PartialNotice = Boolean(isProject && pass2Unlocked && listEnrichStatus === 'partial');
   const categoryTabLabel = useMemo(() => {
     const key = categoryLabelKey(row?.category_id);
     if (key) return t(key);
@@ -1983,6 +2012,29 @@ export function IntentionDetailSheet({
       };
       await patchMetadata(row.id, pendingPatch, { silent: true });
       applyPass2MetadataLocally(pendingPatch);
+      const brief: ProjectBriefV1 | null = parseProjectBriefFromMetadataJson(
+        metadataJsonLiveRef.current ?? row.metadata_json,
+      );
+      const titleFallback = validationTitle || String(row.display_title ?? '').trim() || 'Projet';
+      if (brief) {
+        const result = await enrichTravelProjectAfterPersist({
+          intentionId: row.id,
+          transcript: raw,
+          brief,
+          titleFallback,
+          uiLocale,
+        });
+        if (!result.ok) throw result.error;
+        const fresh = await getTrankilV2IntentionById(row.id);
+        if (fresh?.metadata_json) {
+          metadataJsonLiveRef.current = fresh.metadata_json;
+          setMetadataJsonLive(fresh.metadata_json);
+          const nextProject = parseProjectMilestonesPayloadFromMetadataJson(fresh.metadata_json);
+          setProjectPayload(nextProject);
+          onPatchRow?.(row.id, { metadata_json: fresh.metadata_json, display_title: titleFallback });
+        }
+        return;
+      }
       const refIso = new Date().toISOString();
       const t0 = Date.now();
       const enriched = await geminiEnrichGenericList(raw, {
@@ -1996,11 +2048,12 @@ export function IntentionDetailSheet({
       if (enriched.mode !== 'PROJECT') throw new Error('PROJECT_ENRICH_MODE_MISMATCH');
       const payload = enriched.parsed;
       const nextTitle = validationTitle || payload.title;
+      const enrichStatus = enriched.salvaged ? 'partial' : 'done';
       const donePatch = {
         ...buildProjectMilestonesMetadataPatch({ ...payload, title: nextTitle }),
         is_generating: false,
-        list_enrich_status: 'done',
-        list_enrich_error: null,
+        list_enrich_status: enrichStatus,
+        list_enrich_error: enriched.salvaged ? 'fallback_or_salvaged' : null,
         pass2_unlocked: PASS2_UNLOCKED_CONSUMED,
       };
       await patchMetadata(row.id, donePatch, { silent: true });
@@ -2096,8 +2149,11 @@ export function IntentionDetailSheet({
     beginPass2Inertia();
     try {
       await runPass2GeminiEnrichment();
+      await persistPass2Unlocked({ applyOptimistic: true });
+      unlockPass2ForDisplay();
     } catch (e) {
       closePass2Overlay();
+      setPass2UnlockOptimistic(false);
       await patchMetadata(row.id, {
         is_generating: false,
         list_enrich_status: 'error',
@@ -2112,10 +2168,42 @@ export function IntentionDetailSheet({
     beginPass2Inertia,
     closePass2Overlay,
     pass2UsesEnrichmentOverlay,
+    persistPass2Unlocked,
     resetPass2AiProgress,
     row,
     runPass2GeminiEnrichment,
     startPass2FinalSprint,
+    unlockPass2ForDisplay,
+  ]);
+
+  const onPressRetryPass2Enrichment = useCallback(async () => {
+    if (!row || pass2Running || row.id === 'peek_pending') return;
+    if (!isProUser) {
+      redirectToProSubscription();
+      return;
+    }
+    setPass2Running(true);
+    try {
+      if (pass2UsesEnrichmentOverlay) {
+        await runPass2EnrichmentWithOptionalOverlay();
+      } else {
+        await runPass2GeminiEnrichment();
+        await persistPass2Unlocked({ applyOptimistic: true });
+        revealPass2DetailedBlocks();
+      }
+    } catch {
+      if (!pass2OverlayAwaitingSprintRef.current) setPass2Running(false);
+    }
+  }, [
+    isProUser,
+    pass2Running,
+    pass2UsesEnrichmentOverlay,
+    persistPass2Unlocked,
+    redirectToProSubscription,
+    revealPass2DetailedBlocks,
+    row,
+    runPass2EnrichmentWithOptionalOverlay,
+    runPass2GeminiEnrichment,
   ]);
 
   const onPressUnlockPass2FromTimeline = useCallback(async () => {
@@ -2136,14 +2224,17 @@ export function IntentionDetailSheet({
           if (finished) resolve();
         });
       });
-      await persistPass2Unlocked({ applyOptimistic: false });
-      unlockPass2ForDisplay();
       if (pass2UsesEnrichmentOverlay) {
         await runPass2EnrichmentWithOptionalOverlay();
         return;
       }
+      await runPass2GeminiEnrichment();
+      await persistPass2Unlocked({ applyOptimistic: true });
+      unlockPass2ForDisplay();
       finishPass2UnlockReveal();
     } catch {
+      pass2CtaOpacity.setValue(1);
+      setPass2UnlockOptimistic(false);
       if (!pass2OverlayAwaitingSprintRef.current) {
         setPass2Running(false);
       }
@@ -2158,6 +2249,7 @@ export function IntentionDetailSheet({
     redirectToProSubscription,
     row,
     runPass2EnrichmentWithOptionalOverlay,
+    runPass2GeminiEnrichment,
     unlockPass2ForDisplay,
   ]);
 
@@ -2237,18 +2329,15 @@ export function IntentionDetailSheet({
     }
     setPass2Running(true);
     try {
-      if (!pass2UnlockedFromMeta) {
-        await persistPass2Unlocked({ applyOptimistic: false });
-      }
-      unlockPass2ForDisplay();
       openFullSheet();
       if (pass2UsesEnrichmentOverlay) {
         await runPass2EnrichmentWithOptionalOverlay();
         return;
       }
-      if (!pass2UnlockedFromMeta) {
-        revealPass2DetailedBlocks();
-      }
+      await runPass2GeminiEnrichment();
+      await persistPass2Unlocked({ applyOptimistic: true });
+      unlockPass2ForDisplay();
+      revealPass2DetailedBlocks();
     } catch {
       if (!pass2OverlayAwaitingSprintRef.current) {
         setPass2Running(false);
@@ -3037,6 +3126,43 @@ export function IntentionDetailSheet({
                       </Text>
                     </>
                   ) : null}
+                  {isProject && isTravelProject && projectBrief ? (
+                    <>
+                      <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+                      <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+                        {t('intentionDetail.travelBriefSection', { defaultValue: 'Voyage' })}
+                      </Text>
+                      {projectBrief.destination ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                          {projectBrief.destination}
+                        </Text>
+                      ) : null}
+                      {projectBrief.party.length > 0 ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
+                          {projectBrief.party.join(' · ')}
+                        </Text>
+                      ) : null}
+                      {projectBrief.flights ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
+                          {projectBrief.flights}
+                        </Text>
+                      ) : null}
+                      {projectBrief.constraints.length > 0 ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={3}>
+                          {projectBrief.constraints.join(' · ')}
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {isProject && gateLocked && listEnrichStatus === 'error' ? (
+                    <View style={[styles.pass2ErrorBanner, { backgroundColor: theme.colors.errorContainer, marginTop: 8 }]}>
+                      <Text style={[styles.pass2ErrorText, { color: theme.colors.onErrorContainer }]}>
+                        {t('pass2.enrichErrorGate', {
+                          defaultValue: 'Les étapes n’ont pas pu être générées automatiquement.',
+                        })}
+                      </Text>
+                    </View>
+                  ) : null}
                   {alarmEngagementPill}
                   <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
                   <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>{t('intentionDetail.noteMemoSection')}</Text>
@@ -3565,6 +3691,34 @@ export function IntentionDetailSheet({
                       </View>
 
                       <View style={styles.milestonesWrap}>
+                        {showPass2EnrichError ? (
+                          <View style={[styles.pass2ErrorBanner, { backgroundColor: theme.colors.errorContainer }]}>
+                            <Text style={[styles.pass2ErrorText, { color: theme.colors.onErrorContainer }]}>
+                              {t('pass2.enrichError', {
+                                defaultValue: 'La génération des étapes a échoué.',
+                              })}
+                            </Text>
+                            <Button
+                              mode="contained-tonal"
+                              compact
+                              disabled={pass2Running}
+                              onPress={() => void onPressRetryPass2Enrichment()}
+                            >
+                              {pass2Running ? (
+                                <ActivityIndicator size="small" />
+                              ) : (
+                                t('pass2.retryEnrich', { defaultValue: 'Réessayer' })
+                              )}
+                            </Button>
+                          </View>
+                        ) : null}
+                        {showPass2PartialNotice ? (
+                          <Text style={[styles.pass2PartialNotice, { color: theme.colors.onSurfaceVariant }]}>
+                            {t('pass2.enrichPartial', {
+                              defaultValue: 'Étapes générées (aperçu — vous pouvez les ajuster).',
+                            })}
+                          </Text>
+                        ) : null}
                         {isGenerating ? (
                           <View style={styles.milestonesList}>
                             {[0, 1, 2].map((k) => (
@@ -4267,6 +4421,14 @@ function createIntentionDetailStyles(typography: ZenTypography) {
   temporalitasEndText: { fontSize: typography.bodySmall, fontWeight: '600', color: '#64748b' },
   temporalitasCtaFlat: { borderRadius: 12, alignSelf: 'stretch' },
   milestonesWrap: { marginTop: 6 },
+  pass2ErrorBanner: {
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  pass2ErrorText: { fontSize: 14, lineHeight: 20 },
+  pass2PartialNotice: { fontSize: 13, marginBottom: 10, fontStyle: 'italic' },
   milestonesList: { borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb', backgroundColor: '#ffffff' },
   milestoneRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 12 },
   milestoneRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e7eb' },
