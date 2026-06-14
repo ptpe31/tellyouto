@@ -4,6 +4,7 @@ import { IS_LOCAL_MODE } from '../../config/appConfig';
 import { syncVaultImageToCloudIfEnabled } from '../fileStorage';
 import { geminiAnalyzeImageBase64 } from '../geminiSemanticLab';
 import { newUuidV4 } from '../../utils/uuid';
+import { normalizeCaptureTranscript } from '../../utils/visionTranscriptNormalize';
 
 export { syncVaultImageToCloudIfEnabled };
 
@@ -89,5 +90,12 @@ export async function extractTranscriptFromSharedImage(
   const { base64, mimeType: inferred } = await readLocalImageAsBase64(localPath);
   const mime = String(mimeType || inferred || 'image/jpeg').trim() || 'image/jpeg';
   const transcript = await geminiAnalyzeImageBase64(base64, mime);
-  return transcript.trim();
+  const normalized = normalizeCaptureTranscript(transcript);
+  if (__DEV__ && normalized !== transcript.trim()) {
+    console.log('[ShareService] Transcript vision normalisé (JSON/markdown → prose)', {
+      beforeLen: transcript.length,
+      afterLen: normalized.length,
+    });
+  }
+  return normalized.trim();
 }

@@ -431,7 +431,9 @@ function normalizeOneTapWireText(raw: string): string {
 }
 
 const IMAGE_VISION_PROMPT =
-  "Analyse cette image pour extraire les intentions. Aucun résumé textuel n'est nécessaire, l'image suffit. Retourne un résultat structuré conforme au format habituel de traitement des intentions.";
+  'Transcris le texte visible dans cette image (mail, flyer, affiche, capture écran) en français naturel, tel quel. ' +
+  'Retourne UNIQUEMENT du texte brut : pas de JSON, pas de markdown, pas de résumé, pas de liste de champs structurés. ' +
+  'Conserve les dates, heures, lieux et formulations exactes du document.';
 
 /** Analyse Vision (IMAGE) — même modèle / route HTTP que TEXT et AUDIO. */
 export async function geminiAnalyzeImageBase64(

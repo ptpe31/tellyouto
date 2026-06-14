@@ -684,10 +684,10 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 | **Rollback** | `SOURCING_V1_ENABLED` dans [`src/config/features.ts`](src/config/features.ts) — `false` = comportement prod pré-feature |
 | **Blob métier** | `metadata_json.sourcing_v1` via `patchMetadata` (pas de `ALTER TABLE`) |
 | **Colonne native** | `context_tag` (déjà en place) |
-| **Pass 1** | `buildOneTapPass1SystemInstructionSourced` + champs `source_hint`, `title_mode`, `event_series` ; sélection via `resolvePass1SystemInstruction` |
-| **UUIDs T0** | `CaptureBatchContext` dans `submitCapturePayload` (`capture_batch_id`, `vault_parent_id`, `auto_parent_id`, `child_id_pool`) |
-| **Offline immuable** | stub `sourcing_v1` dans NOTE shell `offline_audio_queue` ; rehydratation au replay |
-| **Multi-bloc** | `persistOneTapDraftVentilated` : PROJECT parent auto + TASK enfants (`parent_id`) si `intents.length > 1` |
+| **Pass 1** | `buildOneTapPass1SystemInstructionSourced` + champs `source_hint`, `title_mode`, `event_series` ; `SOURCE_KIND` dans user content ; sélection via `resolvePass1SystemInstruction` — **mêmes règles multi-bloc pour image, audio et texte** |
+| **UUIDs T0** | `CaptureBatchContext` dans `submitCapturePayload` (`capture_batch_id`, `vault_parent_id`, `auto_parent_id`, `child_id_pool`, `source_kind`) |
+| **Offline immuable** | stub `sourcing_v1` dans NOTE shell `offline_audio_queue` ; rehydratation au replay ; `batchContext` propagé dans tous les chemins offline (NetInfo offline, auto-queue réseau, alerte fallback) |
+| **Multi-bloc** | `persistOneTapDraftVentilated` : NOTE coquille sourcing (`sourcing_shell`) + enfants (`parent_id`) si `intents.length > 1` ; titre parent selon `source_kind` (Capture document / audio / texte) |
 | **EVENT_SERIES** | type SQLite `TASK` ; `due_date` = 1er slot ; série dans `sourcing_v1.event_series_v1` |
 | **UI Inbox** | [`InboxLineTitle.tsx`](src/components/InboxLineTitle.tsx) — 2 lignes strictes, pastille catégorie, **pas de miniature Vault** (perf FlatList) |
 | **Hiérarchie Inbox** | [`buildInboxRootsView`](src/utils/inboxRootsView.ts) — filtrage racines **côté JS** ; accordéon dans `IdeaBankModal` |

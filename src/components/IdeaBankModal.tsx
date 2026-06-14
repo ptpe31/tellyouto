@@ -14,7 +14,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { IconButton, useTheme } from 'react-native-paper';
+import { Icon, IconButton, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -69,6 +69,7 @@ import { TaskCompletionOrb } from './TaskCompletionOrb';
 import { InboxLineTitle } from './InboxLineTitle';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcedCaptureParent } from '../utils/inboxRootsView';
+import { categoryPastelTabBackground } from '../utils/categoryPastel';
 
 type Props = {
   visible: boolean;
@@ -412,6 +413,16 @@ export function IdeaBankModal({
     [onClose, onPass2Item, openDetail],
   );
 
+  const toggleSourcedParentExpand = useCallback((parentId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedParentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  }, []);
+
   const openAddressSearch = useCallback(
     (row: TrankilV2TimelineItemRow, kind: TripAddressSearchKind) => {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -685,6 +696,16 @@ export function IdeaBankModal({
                     ? inboxChildrenByParentId.get(row.id) ?? []
                     : [];
                 const isExpanded = expandedParentIds.has(row.id);
+                const showSourcingAccordion = isSourcedParent && childRows.length > 0;
+                const sourcingChildCount = childRows.length;
+                const sourcingA11yExpand = t('timeline.sourcingExpand', {
+                  count: sourcingChildCount,
+                  defaultValue: `Déplier ${sourcingChildCount} actions`,
+                });
+                const sourcingA11yCollapse = t('timeline.sourcingCollapse', {
+                  count: sourcingChildCount,
+                  defaultValue: `Replier ${sourcingChildCount} actions`,
+                });
 
                 if (__DEV__ && !isTripCard) {
                   console.log('[IntentAlarm] IdeaBank card', {
@@ -710,7 +731,29 @@ export function IdeaBankModal({
                     ]}
                   >
                     <View style={styles.cardMainRow}>
-                      {showCompleteOrb ? (
+                      {showSourcingAccordion ? (
+                        <PressableScale
+                          style={styles.sourcingLeadSlot}
+                          hapticType="light"
+                          onPress={() => toggleSourcedParentExpand(row.id)}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('timeline.sourcingBatchBadge', {
+                            count: sourcingChildCount,
+                            defaultValue: `${sourcingChildCount} actions extraites`,
+                          })}
+                        >
+                          <View
+                            style={[
+                              styles.sourcingCountBadge,
+                              { backgroundColor: categoryPastelTabBackground(row.category_id) },
+                            ]}
+                          >
+                            <Text style={[styles.sourcingCountText, { color: designTokens.textPrimary }]}>
+                              +{sourcingChildCount}
+                            </Text>
+                          </View>
+                        </PressableScale>
+                      ) : showCompleteOrb ? (
                         <TaskCompletionOrb
                           theme={theme}
                           size={VALIDATION_ORB_SIZE}
@@ -725,33 +768,22 @@ export function IdeaBankModal({
                         <View style={{ width: VALIDATION_ORB_OUTER }} />
                       )}
 
-                      {isSourcedParent && childRows.length > 0 ? (
-                        <PressableScale
-                          style={styles.expandPressable}
-                          hapticType="light"
-                          onPress={() => {
-                            setExpandedParentIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(row.id)) next.delete(row.id);
-                              else next.add(row.id);
-                              return next;
-                            });
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={t('timeline.sourcingExpand', { defaultValue: 'Déplier' })}
-                        >
-                          <Text style={{ color: designTokens.textSecondary, fontSize: 16 }}>
-                            {isExpanded ? '▾' : '▸'}
-                          </Text>
-                        </PressableScale>
-                      ) : null}
-
                       <PressableScale
                         style={styles.detailPressable}
                         hapticType="light"
-                        onPress={() => openDetail(row)}
+                        onPress={
+                          showSourcingAccordion
+                            ? () => toggleSourcedParentExpand(row.id)
+                            : () => openDetail(row)
+                        }
                         accessibilityRole="button"
-                        accessibilityLabel={lineTitle}
+                        accessibilityLabel={
+                          showSourcingAccordion
+                            ? isExpanded
+                              ? sourcingA11yCollapse
+                              : sourcingA11yExpand
+                            : lineTitle
+                        }
                       >
                         {mode === 'inbox' && SOURCING_V1_ENABLED ? (
                           <InboxLineTitle
@@ -759,6 +791,7 @@ export function IdeaBankModal({
                             textPrimary={designTokens.textPrimary}
                             textSecondary={designTokens.textSecondary}
                             locale={i18n.language}
+                            sourcingChildCount={showSourcingAccordion ? sourcingChildCount : undefined}
                           />
                         ) : (
                           <>
@@ -793,6 +826,25 @@ export function IdeaBankModal({
                           />
                         ) : null}
                       </PressableScale>
+
+                      {showSourcingAccordion ? (
+                        <PressableScale
+                          style={[
+                            styles.sourcingChevronBtn,
+                            { borderColor: theme.colors.outlineVariant, backgroundColor: designTokens.cardBackground },
+                          ]}
+                          hapticType="light"
+                          onPress={() => toggleSourcedParentExpand(row.id)}
+                          accessibilityRole="button"
+                          accessibilityLabel={isExpanded ? sourcingA11yCollapse : sourcingA11yExpand}
+                        >
+                          <Icon
+                            source={isExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={24}
+                            color={designTokens.textPrimary}
+                          />
+                        </PressableScale>
+                      ) : null}
                     </View>
 
                     {isTripCard && trip ? (
@@ -1003,18 +1055,39 @@ const styles = StyleSheet.create({
   },
   cardMainRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 10,
   },
   detailPressable: {
     flex: 1,
     minWidth: 0,
   },
-  expandPressable: {
-    width: 20,
+  sourcingLeadSlot: {
+    width: VALIDATION_ORB_OUTER,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 8,
+    flexShrink: 0,
+  },
+  sourcingCountBadge: {
+    width: VALIDATION_ORB_SIZE,
+    height: VALIDATION_ORB_SIZE,
+    borderRadius: VALIDATION_ORB_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sourcingCountText: {
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  sourcingChevronBtn: {
+    width: VALIDATION_ORB_SIZE,
+    height: VALIDATION_ORB_SIZE,
+    borderRadius: VALIDATION_ORB_SIZE / 2,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   childRow: {
     paddingVertical: 8,

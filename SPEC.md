@@ -141,8 +141,9 @@ RULES:
 - TRIP: any movement → type=TRIP. Trigger words: <TRIP_TRIGGER_TERMS EN+FR+extra>. Use field "destination" + "arrivalDue".
 - HABIT: any recurrence → type=HABIT. Use **recurrence_rule** object (never `due` on HABIT). Fields: `frequency` (MINUTELY|HOURLY|DAILY|WEEKLY|MONTHLY), `interval` (≥1), `time_target` ("HH:mm" if time mentioned), `byWeekday` (1=Mon..7=Sun, weekly), `dayOfMonth` (monthly), `duration_minutes` (minutely windows), `raw_phrase` (verbatim recurrence fragment).
 - LIST: ONLY for complex shopping, recipes, project materials, or explicit requests for a multi-item inventory (e.g., "fournitures scolaires", "party supplies"). → type=LIST, fields "title" + "baseCount".
-- PROJECT: any multi-step objective → type=PROJECT, field "content".
-- TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"). → type=TASK, field "content".
+- PROJECT: STRICTLY for broad personal objectives requiring brainstorming or planning (e.g. "Rénover la salle de bain", "Organiser un voyage"). DO NOT use PROJECT for emails, letters, club announcements, or admin messages with explicit instructions — extract each instruction as a separate TASK or TRIP.
+- TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"), and admin requests (reply by email, confirm presence, sign a form). → type=TASK, field "content".
+- MULTI-EXTRACTION: If the text contains multiple distinct actions (e.g. admin request + appointment), you MUST return several objects in "intents". Never collapse them into one PROJECT or one TASK.
 - due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned. **Never on HABIT** — clock time goes in `recurrence_rule.time_target`.
 ```
 
@@ -158,6 +159,7 @@ RULES:
 | `"Meeting with John in 2h"` | `TASK` · `content:"Meeting with John"` · `due:"<now+2h>"` · `WORK` · `BUREAU` |
 | `"Faire la vaisselle tous les jours a 15h"` | `HABIT` · `content:"Faire la vaisselle"` · `recurrence_rule:{frequency:"DAILY",interval:1,time_target:"15:00",raw_phrase:"tous les jours a 15h"}` · `PERSO` · `MAISON` |
 | `"Yoga every Monday at 8am"` | `HABIT` · `content:"Yoga"` · `recurrence_rule:{frequency:"WEEKLY",interval:1,byWeekday:1,time_target:"08:00"}` · `HEALTH` · `MAISON` |
+| Mail club Hip Hop (droit à l'image + RDV Astrolab 14h45) | `TASK` « Répondre au mail… » + `TRIP` `destination:"Astrolab"` · `arrivalDue:"<prochain 27 juin 14:45>"` · `source_hint:"Hip Hop"` · **pas** `PROJECT` |
 
 Clôture :
 
@@ -1315,11 +1317,13 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
   - `source_hint` : mot-clé **verbatim** du document (ex. « Tenues ») — interdit de généraliser en infinitif.
   - `title_mode` : `ACTION` (défaut) ou `DESCRIPTIVE` ; **DISPLAY TITLE CONTRACT** toujours actif sur `content`.
   - `event_series[]` : créneaux multiples pour une même intention ; `due` = premier slot.
-- **Persistance** : `metadata_json.sourcing_v1` (via `patchMetadata`) + `context_tag` colonne native ; `CaptureBatchContext` pré-alloué dans `submitCapturePayload` avant NetInfo/offline.
-- **Multi-bloc** : ventilation → PROJECT parent auto (`auto_parent_id`) + TASK enfants liés ; mono-intention inchangée.
+  - **SOURCE_KIND** (`image` | `audio` | `text` | `share`) injecté dans le corps utilisateur Pass 1 (`buildOneTapPass1UserContent`) — mêmes règles multi-extraction pour import image, dictée micro et texte collé.
+- **Persistance** : `metadata_json.sourcing_v1` (via `patchMetadata`) + `context_tag` colonne native ; `CaptureBatchContext` pré-alloué dans `submitCapturePayload` avant NetInfo/offline (`source_kind` : `audio` si `audioUri`, `image` si `preassignedIntentionId`, sinon `text`).
+- **Multi-bloc** : ventilation → NOTE coquille sourcing (`sourcing_shell`, `auto_parent_id`) + enfants TASK/TRIP liés (`parent_id`) si `intents.length > 1` ; mono-intention inchangée.
+- **Offline** : stub `sourcing_v1` propagé dans **tous** les chemins d’enqueue (`submitCapturePayload` offline, `tryAutoQueueNetworkFailure`, `proposeOfflineFallback`) pour rehydratation batch au replay.
 - **EVENT_SERIES** : type SQLite `TASK` ; `due_date` index Timeline = 1er créneau ; série complète dans `sourcing_v1.event_series_v1`.
-- **Inbox UI** : [`InboxLineTitle.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) — Ligne 1 titre purifié, Ligne 2 `source_hint • moment/série` ; `numberOfLines={1}` strict ; pastille catégorie ; **pas d’image Vault en liste** (perf scroll).
-- **Hiérarchie Inbox** : filtrage racines via [`buildInboxRootsView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxRootsView.ts) (JS pur, requête SQL `listTrankilV2InboxToday` inchangée) ; accordéon PROJECT dépliable dans `IdeaBankModal`.
+- **Inbox UI** : [`resolveInboxLinePresentation`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxLineModel.ts) via [`InboxLineTitle.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) — **L1 = Quoi** (`display_title` / événement TRIP), **L2 = Contexte** structuré par type : TRIP `{destination} · {jour} · {heure}` ; TASK `{source_hint} · {moment}` ou NEW ; shell sourcing `{N} actions extraites` ; `numberOfLines={1}` strict ; pastille catégorie.
+- **Hiérarchie Inbox** : filtrage racines via [`buildInboxRootsView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxRootsView.ts) (JS pur, requête SQL `listTrankilV2InboxToday` inchangée) ; accordéon NOTE sourcing dépliable dans `IdeaBankModal` (identique pour captures image, audio et écrit).
 
 #### 2.b) Box — inventaire froid (remplace le nudge cluster orphelin)
 

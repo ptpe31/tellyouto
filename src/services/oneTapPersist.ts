@@ -31,6 +31,8 @@ import { NOTE_FALLBACK_LABEL } from './timelineIntentionVisibility';
 import { coerceRecurrenceRule } from '../utils/habitRecurrenceRule';
 import { parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import { logCaptureFlow } from '../utils/captureFlowLog';
+import { buildPass1Diagnostics, logPass1Diagnostics } from '../utils/pass1DiagnosticsLog';
+import { isSnakeCaseSourceHint, resolveDocumentSourceHint } from '../utils/sourcingTitle';
 import {
   resolveDueConstraintFromCapture,
   shouldAutoPinOnCapturePersist,
@@ -394,9 +396,10 @@ async function materializeOneTapIntentionRow(params: {
       const temporal = resolveOneTapTemporalFields(draft.data as Record<string, unknown>);
       const arrivalDueRaw = str(draft.data, 'arrivalDue');
       const dest = str(draft.data, 'destination_name') || title;
+      const eventTitle = title.trim() || dest;
       const { row } = buildLocalTemporalIntentionInsertRow({
         id: intentionId,
-        title: dest.slice(0, 200),
+        title: eventTitle.slice(0, 200),
         rawTranscript: raw,
         localType: 'TASK',
         dueDateYmd: temporal.dueDateYmd,
@@ -1224,7 +1227,27 @@ async function patchSourcingV1Metadata(
   await patchMetadata(intentionId, { sourcing_v1: sourcing }, { silent: true });
 }
 
-function deriveAutoParentTitle(intentsRaw: unknown[], draft: OneTapUniversalResult): string {
+function fallbackCaptureParentTitle(sourceKind?: CaptureBatchContext['source_kind'] | null): string {
+  switch (sourceKind) {
+    case 'audio':
+      return 'Capture audio';
+    case 'text':
+      return 'Capture texte';
+    case 'image':
+    case 'share':
+      return 'Capture document';
+    default:
+      return 'Capture document';
+  }
+}
+
+function deriveAutoParentTitle(
+  intentsRaw: unknown[],
+  draft: OneTapUniversalResult,
+  sourceKind?: CaptureBatchContext['source_kind'] | null,
+): string {
+  const docHint = resolveDocumentSourceHint(intentsRaw);
+  if (docHint) return docHint;
   const first = Array.isArray(intentsRaw) ? intentsRaw[0] : null;
   if (first && typeof first === 'object' && !Array.isArray(first)) {
     const r = first as Record<string, unknown>;
@@ -1233,7 +1256,7 @@ function deriveAutoParentTitle(intentsRaw: unknown[], draft: OneTapUniversalResu
     const content = String(r.content ?? r.title ?? '').trim();
     if (content) return content.slice(0, 120);
   }
-  return draft.title.trim().slice(0, 120) || 'Capture document';
+  return draft.title.trim().slice(0, 120) || fallbackCaptureParentTitle(sourceKind);
 }
 
 /**
@@ -1250,8 +1273,10 @@ export async function persistOneTapDraftVentilated(params: {
   parentId?: string | null;
   parentJalonUid?: string | null;
   batchContext?: CaptureBatchContext | null;
+  trace?: string;
 }): Promise<PersistOneTapVentilatedResult> {
   const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
+  const captureTrace = params.trace?.trim() || undefined;
   const allowNoteFallback = params.allowNoteFallback !== false;
   const data = (draft.data ?? {}) as Record<string, unknown>;
   const outcomes: PersistOneTapSuccess[] = [];
@@ -1260,7 +1285,7 @@ export async function persistOneTapDraftVentilated(params: {
 
   const intentsRaw = (data as { intents?: unknown }).intents;
   const intentsLen = Array.isArray(intentsRaw) ? intentsRaw.length : 0;
-  logCaptureFlow(undefined, 'ventilated_enter', {
+  logCaptureFlow(captureTrace, 'ventilated_enter', {
     predictedType: draft.predictedType,
     categoryTag: draft.categoryTag,
     contextTag: draft.contextTag,
@@ -1269,6 +1294,12 @@ export async function persistOneTapDraftVentilated(params: {
     intentsLen,
   });
   if (Array.isArray(intentsRaw) && intentsRaw.length > 0) {
+    const ventilatedDiag = buildPass1Diagnostics({ transcript, intents: intentsRaw });
+    logPass1Diagnostics(captureTrace, 'ventilated_intents_preview', ventilatedDiag, {
+      predictedType: draft.predictedType,
+      sourcingEnabled: SOURCING_V1_ENABLED,
+      hasBatchContext: Boolean(params.batchContext),
+    });
     const total = intentsRaw.length;
     const useSourcingParent =
       SOURCING_V1_ENABLED &&
@@ -1279,12 +1310,24 @@ export async function persistOneTapDraftVentilated(params: {
     const persistedChildIds: string[] = [];
 
     if (useSourcingParent && params.batchContext) {
-      const parentTitle = deriveAutoParentTitle(intentsRaw, draft);
+      const parentTitle = deriveAutoParentTitle(intentsRaw, draft, params.batchContext?.source_kind);
+      logCaptureFlow(captureTrace, 'ventilated_sourcing_parent_create', {
+        parentTitle,
+        childIntentCount: total,
+        childTypes: ventilatedDiag.types,
+        captureBatchId: params.batchContext.capture_batch_id,
+        autoParentId: params.batchContext.auto_parent_id,
+      });
+      if (DEBUG_MODE_DOUANE) {
+        console.log(
+          `[DOUANE] 📁 Sourcing parent auto: "${parentTitle}" | enfants=${total} types=${ventilatedDiag.types.join(',')}`,
+        );
+      }
       const parentDraft: OneTapUniversalResult = {
         ...draft,
         title: parentTitle,
-        predictedType: 'PROJECT',
-        data: { project_mode: true },
+        predictedType: 'NOTE',
+        data: { memo: transcript.trim().slice(0, 4000), sourcing_shell: true },
       };
       const parentPr = await persistAndDualWrite({
         deps: params.deps,
@@ -1292,12 +1335,17 @@ export async function persistOneTapDraftVentilated(params: {
         transcript,
         habitsDefaultTitle,
         birthdayLabel,
-        entityLabel: 'PROJECT',
+        entityLabel: 'SOURCING_SHELL',
         forcedIntentionId: params.batchContext.auto_parent_id,
       });
       if (parentPr.ok && 'intentionId' in parentPr.outcome) {
         effectiveParentId = params.batchContext.auto_parent_id;
         outcomes.push(parentPr.outcome);
+        await patchMetadata(
+          params.batchContext.auto_parent_id,
+          { sourcing_shell: true },
+          { silent: true },
+        );
         await patchSourcingV1Metadata(
           params.batchContext.auto_parent_id,
           buildSourcingV1ForChild({
@@ -1486,19 +1534,25 @@ export async function persistOneTapDraftVentilated(params: {
           continue;
         }
         if (type === 'TRIP') {
-          const destination =
-            String(r.destination ?? r.content ?? r.title ?? '').trim() || str(draft.data, 'destination_name') || draft.title;
+          const destination = String(r.destination ?? '').trim();
+          const eventLabel = String(r.content ?? r.title ?? '').trim();
+          const place =
+            destination || eventLabel || str(draft.data, 'destination_name') || draft.title;
+          const displayTitle = (eventLabel || destination || place).slice(0, 200);
           const dueIso = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : typeof r.due === 'string' ? r.due.trim() : '';
           const parsedDue = dueIso ? parsePass1DueDateTime(dueIso) : null;
           const tripDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
             contextTag,
-            title: destination.slice(0, 200) || draft.title,
+            title: displayTitle || draft.title,
             predictedType: 'TRIP',
             data: {
               logisticsPotential: true,
-              destination_name: destination.slice(0, 400),
+              destination_name: (destination || place).slice(0, 400),
+              ...(eventLabel && destination && eventLabel !== destination
+                ? { trip_event_label: eventLabel.slice(0, 200) }
+                : {}),
               ...(parsedDue?.dueDateTime ? { dueDateTime: parsedDue.dueDateTime } : dueIso ? { dueDateTime: dueIso } : {}),
               ...(parsedDue?.dueDateYmd ? { dueDateYmd: parsedDue.dueDateYmd } : {}),
               ...(parsedDue?.dueTimeHm ? { dueTimeHm: parsedDue.dueTimeHm } : {}),
@@ -1620,7 +1674,9 @@ export async function persistOneTapDraftVentilated(params: {
         }
         if (type === 'TRIP') {
           const destination = String(r.destination ?? '').trim();
-          if (!destination) continue;
+          const eventLabel = String(r.content ?? r.title ?? '').trim();
+          const place = destination || eventLabel;
+          if (!place) continue;
           const addr = typeof r.address === 'string' ? r.address.trim() : '';
           const placeId = typeof r.placeId === 'string' ? r.placeId.trim() : '';
           const lat = Number(r.lat);
@@ -1631,11 +1687,14 @@ export async function persistOneTapDraftVentilated(params: {
             ...draft,
             categoryTag,
             contextTag,
-            title: destination.slice(0, 200) || draft.title,
+            title: (eventLabel || destination || place).slice(0, 200) || draft.title,
             predictedType: 'TASK',
             data: {
               logisticsPotential: true,
-              destination_name: destination.slice(0, 400),
+              destination_name: (destination || place).slice(0, 400),
+              ...(eventLabel && destination && eventLabel !== destination
+                ? { trip_event_label: eventLabel.slice(0, 200) }
+                : {}),
               ...(addr ? { location_address: addr.slice(0, 500) } : {}),
               ...(placeId ? { location_place_id: placeId.slice(0, 200) } : {}),
               ...(Number.isFinite(lat) ? { location_lat: lat } : {}),
@@ -1671,7 +1730,13 @@ export async function persistOneTapDraftVentilated(params: {
     }
 
     if (useSourcingParent && params.batchContext && persistedChildIds.length > 0) {
-      const parentTitle = deriveAutoParentTitle(intentsRaw, draft);
+      const parentTitle = deriveAutoParentTitle(intentsRaw, draft, params.batchContext?.source_kind);
+      logCaptureFlow(captureTrace, 'ventilated_sourcing_parent_linked', {
+        parentTitle,
+        childCount: persistedChildIds.length,
+        childIds: persistedChildIds.slice(0, 8),
+        autoParentId: params.batchContext.auto_parent_id,
+      });
       await patchSourcingV1Metadata(
         params.batchContext.auto_parent_id,
         buildSourcingV1ForChild({
@@ -1684,7 +1749,15 @@ export async function persistOneTapDraftVentilated(params: {
       );
     }
 
-    if (outcomes.length > 0) return { ok: true, outcomes };
+    if (outcomes.length > 0) {
+      logCaptureFlow(captureTrace, 'ventilated_done', {
+        outcomeCount: outcomes.length,
+        childLinkedCount: persistedChildIds.length,
+        usedSourcingParent: useSourcingParent,
+        anomalies: ventilatedDiag.anomalies,
+      });
+      return { ok: true, outcomes };
+    }
     if (!allowNoteFallback) {
       return { ok: false, error: firstError ?? new Error('VENTILATION_EMPTY'), code: firstCode };
     }

@@ -62,6 +62,7 @@ import { toggleTripSurveillanceForRow } from '../services/traffic/tripSurveillan
 import { showAppToast } from '../services/appToast';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { isPass2UnlockedMeta } from '../utils/tripTimelineCard';
+import { isSourcedCaptureParent } from '../utils/inboxRootsView';
 import { isTripAllDay, hasTripStandardDurationMin, resolveElasticSlotDisplay } from '../utils/tripElasticDisplay';
 import { resolveProbeScheduleLabel } from '../utils/tripProbeScheduleDisplay';
 import { resolveTripSurveillanceUiState, tripSurveillanceLabelKey } from '../utils/tripSurveillanceButton';
@@ -858,21 +859,24 @@ export function IntentionDetailSheet({
     [formatPass2CtaLabel, formatTripPass2Label, pass2FooterAction],
   );
 
+  const isSourcingShellParent = Boolean(row && isSourcedCaptureParent(row));
   const showPass2FooterCta = Boolean(
     row &&
       row.id !== 'peek_pending' &&
       !isPass2UnlockedMeta(meta) &&
+      !isSourcingShellParent &&
       (isProject || isList || isTrip),
   );
 
   /** Bouton principal (feuille capture réduite Path B / TalkDebug) : hiérarchie TRIP → PROJECT → LIST → défaut. */
   const peekValidationActionKind = useMemo((): 'trip' | 'project' | 'list' | 'note' => {
+    if (row && isSourcedCaptureParent(row)) return 'note';
     if (isTrip) return 'trip';
     const typ = String(row?.type ?? '').trim().toUpperCase();
     if (typ === 'PROJECT') return 'project';
     if (typ === 'LIST') return 'list';
     return 'note';
-  }, [isTrip, row?.type]);
+  }, [isTrip, row]);
 
   const peekValidationPrimaryLabel = useMemo(() => {
     if (peekValidationActionKind === 'trip') return formatTripPass2Label();

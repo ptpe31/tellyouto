@@ -42,7 +42,12 @@ import * as chrono from 'chrono-node';
 
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { SOURCING_V1_ENABLED } from '../config/features';
-import { logCaptureFlow } from '../utils/captureFlowLog';
+import {
+  buildPass1Diagnostics,
+  logPass1Diagnostics,
+  logPass1ParseDrops,
+  type Pass1ParseDrop,
+} from '../utils/pass1DiagnosticsLog';
 import { aiLogTokensFromHttpMeta, isAiLoggingEnabled, logAiInteraction } from '../utils/logAiInteraction';
 import { applyPass1DueFields, parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import {
@@ -90,6 +95,7 @@ export function logOneTapCaptureCycleStartBanner(): void {
   );
 }
 import { cleanTranscriptText, generateSmartTitle } from './smartTitle';
+import { looksLikeStructuredCaptureTranscript } from '../utils/visionTranscriptNormalize';
 import {
   coerceEventSeriesFromIntent,
   isSourcingTitleMode,
@@ -571,7 +577,20 @@ function parseBulletPipeIntentsFromBuffer(buffer: string, partial: boolean): One
  * Fallback JSON best-effort : objet `{ intents: [...] }`. En mode `partial`, ne retourne rien tant que le buffer
  * ne se termine pas par `}` (JSON complet).
  */
-function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapIntentJson[] {
+function countRawIntentsInBuffer(buffer: string): number | undefined {
+  const base = String(buffer || '').trim();
+  if (!base) return undefined;
+  const startIdx = base.indexOf('{');
+  let s = startIdx >= 0 ? base.slice(startIdx) : base;
+  const endIdx = s.lastIndexOf('}');
+  if (endIdx > 0) s = s.slice(0, endIdx + 1);
+  const obj = tryParseJsonObjectBestEffort(s);
+  if (!obj) return undefined;
+  const intentsRaw = (obj as { intents?: unknown }).intents;
+  return Array.isArray(intentsRaw) ? intentsRaw.length : undefined;
+}
+
+function parseJsonIntentsFromBuffer(buffer: string, partial: boolean, trace?: string): OneTapIntentJson[] {
   const base = String(buffer || '').trim();
   if (!base) return [];
   if (partial && !base.endsWith('}')) return [];
@@ -588,11 +607,18 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
   const intentsRaw = (obj as { intents?: unknown }).intents;
   if (!Array.isArray(intentsRaw) || intentsRaw.length === 0) return [];
   const out: OneTapIntentJson[] = [];
+  const drops: Pass1ParseDrop[] = [];
   for (const it of intentsRaw) {
-    if (!it || typeof it !== 'object' || Array.isArray(it)) continue;
+    if (!it || typeof it !== 'object' || Array.isArray(it)) {
+      drops.push({ reason: 'invalid_item' });
+      continue;
+    }
     const r = it as Record<string, unknown>;
     const type = normalizeIntentType(String(r.type ?? ''));
-    if (!type) continue;
+    if (!type) {
+      drops.push({ reason: 'unknown_type', rawType: String(r.type ?? '').slice(0, 24) });
+      continue;
+    }
     const category = typeof r.category === 'string' ? normalizeOneTapCategoryCode(r.category) : '';
     const context =
       typeof r.context === 'string'
@@ -603,7 +629,10 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
     const contextField = context ? { context } : {};
     if (type === 'LIST') {
       const title = String(r.title ?? r.content ?? '').trim();
-      if (!title) continue;
+      if (!title) {
+        drops.push({ reason: 'list_missing_title', rawType: type });
+        continue;
+      }
       const baseCountRaw = Number(r.baseCount ?? 1);
       const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
       const unitLabel = typeof r.unitLabel === 'string' ? r.unitLabel.trim().slice(0, 40) : 'personne';
@@ -620,28 +649,49 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
     }
     if (type === 'TASK') {
       const content = String(r.content ?? r.title ?? '').trim();
-      if (!content) continue;
+      if (!content) {
+        drops.push({ reason: 'task_missing_content', rawType: type });
+        continue;
+      }
       const due = typeof r.due === 'string' ? String(r.due).trim() : '';
       const notes = typeof r.notes === 'string' ? r.notes.trim() : '';
       out.push({ type: 'TASK', content, due, ...(notes ? { notes } : {}), category, ...contextField });
       continue;
     }
     if (type === 'TRIP') {
-      const destination = String(r.destination ?? r.content ?? r.title ?? '').trim();
-      if (!destination) continue;
+      const destination = String(r.destination ?? '').trim();
+      const content = String(r.content ?? r.title ?? '').trim();
+      const place = destination || content;
+      if (!place) {
+        drops.push({ reason: 'trip_missing_destination', rawType: type });
+        continue;
+      }
       const arrivalDue = typeof r.arrivalDue === 'string' ? r.arrivalDue.trim() : typeof r.due === 'string' ? r.due.trim() : '';
-      out.push({ type: 'TRIP', destination, arrivalDue, category, ...contextField });
+      out.push({
+        type: 'TRIP',
+        destination: place,
+        ...(content ? { content } : {}),
+        arrivalDue,
+        category,
+        ...contextField,
+      });
       continue;
     }
     if (type === 'NOTE') {
       const content = String(r.content ?? r.title ?? '').trim();
-      if (!content) continue;
+      if (!content) {
+        drops.push({ reason: 'note_missing_content', rawType: type });
+        continue;
+      }
       out.push({ type: 'NOTE', content, category, ...contextField });
       continue;
     }
     if (type === 'HABIT') {
       const content = String(r.content ?? r.title ?? '').trim();
-      if (!content) continue;
+      if (!content) {
+        drops.push({ reason: 'habit_missing_content', rawType: type });
+        continue;
+      }
       const recurrence = typeof r.recurrence === 'string' ? r.recurrence.trim() : '';
       const preferredTime = typeof r.preferredTime === 'string' ? r.preferredTime.trim() : '';
       const due = typeof r.due === 'string' ? r.due.trim() : '';
@@ -660,7 +710,10 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
     }
     if (type === 'PROJECT') {
       const title = String(r.title ?? r.content ?? '').trim();
-      if (!title) continue;
+      if (!title) {
+        drops.push({ reason: 'project_missing_title', rawType: type });
+        continue;
+      }
       const baseCountRaw = Number(r.baseCount ?? 1);
       const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
       const unitLabel = typeof r.unitLabel === 'string' ? r.unitLabel.trim().slice(0, 40) : 'etape';
@@ -675,6 +728,14 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean): OneTapInt
       });
       continue;
     }
+    drops.push({ reason: 'unhandled_type', rawType: type });
+  }
+  if (!partial) {
+    logPass1ParseDrops(trace, {
+      rawCount: intentsRaw.length,
+      parsedCount: out.length,
+      drops,
+    });
   }
   return out;
 }
@@ -1129,10 +1190,14 @@ function mergeIntentArrayIntoOneTapSkeleton(
     }
     if (type === 'TRIP') {
       const dest = typeof rawIntent.destination === 'string' ? rawIntent.destination.trim() : '';
-      if (dest) {
+      const eventLabel = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
+      if (dest || eventLabel) {
         out.logisticsPotential = true;
-        out.destination_name = dest.slice(0, 400);
-        title = dest.slice(0, 200);
+        if (dest) out.destination_name = dest.slice(0, 400);
+        if (eventLabel && dest && eventLabel !== dest) {
+          out.trip_event_label = eventLabel.slice(0, 200);
+        }
+        title = (eventLabel || dest).slice(0, 200);
       }
       const addr = typeof rawIntent.address === 'string' ? rawIntent.address.trim() : '';
       if (addr) out.location_address = addr.slice(0, 500);
@@ -1306,6 +1371,7 @@ const TRIP_TRIGGER_PATTERN_EN = new RegExp(`\\b(${TRIP_TRIGGER_TERMS_EN.join('|'
 const TRIP_TRIGGER_PATTERN_EXTRA = new RegExp(`\\b(${TRIP_TRIGGER_TERMS_EXTRA.join('|')})\\b`, 'i');
 
 function shouldForceTripFromTranscript(cleaned: string): boolean {
+  if (looksLikeStructuredCaptureTranscript(cleaned)) return false;
   const lower = String(cleaned || '').toLowerCase();
   return (
     TRIP_TRIGGER_PATTERN_FR.test(cleaned) ||
@@ -1386,7 +1452,8 @@ function buildOneTapPass1SystemInstructionLegacy(): string {
   const tripContract = `TRIP CONTRACT (ABSOLUTE):
 - Any mention of movement or going somewhere MUST be classified as TRIP.
 - Trigger dictionary: ${[...TRIP_TRIGGER_TERMS_EN, ...TRIP_TRIGGER_TERMS_FR, ...TRIP_TRIGGER_TERMS_EXTRA].join(', ')}.
-- TRIP implies logisticsPotential=true (do not mention the boolean, just pick TRIP).`;
+- TRIP implies logisticsPotential=true (do not mention the boolean, just pick TRIP).
+- JSON TRIP: "content" = event label (WHAT), "destination" = place only (WHERE), "arrivalDue" = WHEN.`;
   return `${loc}
 lang=${lang2}
 ${catContract}
@@ -1463,6 +1530,12 @@ export function buildOneTapPass1SystemInstruction(now: Date): string {
 
   const inTwoHoursFmt = formatLocalYYYYMMDDHHmm(inTwoHours);
 
+  const hipHopArrival = new Date(now);
+  hipHopArrival.setMonth(5, 27);
+  hipHopArrival.setHours(14, 45, 0, 0);
+  if (hipHopArrival < now) hipHopArrival.setFullYear(hipHopArrival.getFullYear() + 1);
+  const hipHopArrivalFmt = formatLocalYYYYMMDDHHmm(hipHopArrival);
+
   return `NOW: ${nowFmt} | ${weekdayEn} | ${tz}
 Use NOW as the authoritative current time. All relative dates ("demain", "in 2h", weekday names) must be resolved from NOW.
 
@@ -1471,11 +1544,14 @@ RULES:
 - CATEGORY: exactly one of ${categoryList}
 - CONTEXT: one UPPERCASE token (${contextHints} or custom). null if truly unknown.
 - CONTENT: pure action title — strip ALL time/date words. Fix typos. Start Uppercase.
-- TRIP: any movement → type=TRIP. Trigger words: ${tripTriggerList}. Use field "destination" + "arrivalDue".
+- TRIP: any movement → type=TRIP. Trigger words: ${tripTriggerList}. "content" = event label (WHAT, no place/time). "destination" = place name only (WHERE). "arrivalDue" = WHEN.
 - HABIT: any recurrence → type=HABIT. Use "recurrence_rule" object (NOT "due"). Fields: frequency (MINUTELY|HOURLY|DAILY|WEEKLY|MONTHLY), interval (>=1), time_target ("HH:mm" if time mentioned), byWeekday (1=Mon..7=Sun, weekly only), dayOfMonth (monthly only), duration_minutes (minutely windows), raw_phrase (verbatim recurrence fragment).
 - LIST: ONLY for complex shopping, recipes, project materials, or explicit requests for a multi-item inventory (e.g., "fournitures scolaires", "party supplies"). → type=LIST, fields "title" + "baseCount".
-- PROJECT: any multi-step objective → type=PROJECT, field "content".
-- TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"). → type=TASK, field "content".
+- PROJECT: STRICTLY for broad personal objectives requiring brainstorming or planning (e.g. "Renover la salle de bain", "Organiser un voyage", "Plan de repetition"). DO NOT use PROJECT for emails, letters, club announcements, or admin messages with explicit instructions — extract each instruction as a separate TASK or TRIP.
+- TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"), and admin requests (reply by email, confirm presence, sign a form). → type=TASK, field "content".
+- MULTI-EXTRACTION: If the text contains multiple distinct actions (e.g. admin request + appointment + optional info), you MUST return several objects in "intents". Never collapse them into one PROJECT or one TASK.
+- ADMIN CONSOLIDATION: Related mail actions in the same message (autorisation + confirmer presence + nombre de personnes) → ONE TASK, not three. Do NOT mirror intermediate JSON block names as separate intents.
+- source_hint: human keyword from the document ("Hip Hop", "Astrolab", "Spectacle"), NEVER snake_case field names like "demande_autorisation_droit_image".
 - due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned. Never use "due" on HABIT — put clock time in recurrence_rule.time_target.
 
 EXAMPLES — input language = output language, dates are computed from NOW above:
@@ -1503,6 +1579,9 @@ Output: {"intents":[{"type":"HABIT","content":"Faire la vaisselle","category":"P
 Input: "Yoga every Monday at 8am"
 Output: {"intents":[{"type":"HABIT","content":"Yoga","category":"HEALTH","context":"MAISON","recurrence_rule":{"frequency":"WEEKLY","interval":1,"byWeekday":1,"time_target":"08:00","raw_phrase":"every Monday at 8am"}}]}
 
+Input: "Bonjour, nous n'avons pas la reponse pour l'autorisation du droit a l'image pour les photos de la representation du 27 juin. Merci de l'effectuer par retour de mail et confirmer la presence et le nombre de personnes. Rendez-vous des enfants devant l'Astrolab a 14h45."
+Output: {"intents":[{"type":"TASK","content":"Repondre au mail : droit a l'image, presence et nb de personnes","source_hint":"Hip Hop","category":"PERSO","context":"MAISON"},{"type":"TRIP","destination":"Astrolab","content":"Spectacle Hip Hop","arrivalDue":"${hipHopArrivalFmt}","source_hint":"Hip Hop","category":"PERSO","context":"EXTERIEUR"}]}
+
 Reply ONLY with a single raw JSON object. No markdown. No explanation. No text before or after.
 Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","recurrence_rule":{…}}]}`;
 }
@@ -1512,13 +1591,21 @@ export function buildOneTapPass1SystemInstructionSourced(now: Date): string {
   const base = buildOneTapPass1SystemInstruction(now);
   const { tz, weekdayEn } = buildPass1TemporalFields(now);
   const nowFmt = formatLocalYYYYMMDDHHmm(now);
+  const hipHopArrival = new Date(now);
+  hipHopArrival.setMonth(5, 27);
+  hipHopArrival.setHours(14, 45, 0, 0);
+  if (hipHopArrival < now) hipHopArrival.setFullYear(hipHopArrival.getFullYear() + 1);
+  const hipHopArrivalFmt = formatLocalYYYYMMDDHHmm(hipHopArrival);
   return `${base}
 
-SOURCED INTELLIGENCE (when input is a document, flyer, or image transcript with multiple blocks):
-- source_hint: VERBATIM keyword from the document (e.g. "Tenues", "Fête du club"). NEVER replace with generic infinitives like "Gérer le matériel".
+SOURCED INTELLIGENCE (when input is a document, flyer, image OCR, pasted email, long written text, or audio/STT transcript with multiple distinct requests):
+- Applies equally to SOURCE_KIND image, text, and audio — same multi-extraction rules regardless of capture channel.
+- source_hint: VERBATIM keyword from the source (e.g. "Tenues", "Fête du club", "Hip Hop"). NEVER replace with generic infinitives like "Gérer le matériel". Use the SAME source_hint on all intents from the same capture.
 - title_mode: "ACTION" (default) or "DESCRIPTIVE" for announcements/events. CONTENT must STILL follow DISPLAY TITLE CONTRACT — zero dates/times in content.
 - event_series: array of {"due":"YYYY-MM-DD HH:mm","label":"…"} when ONE intention has MULTIPLE time slots. Set "due" to the FIRST slot.
 - MULTI-BLOCK: one intent per distinct block — do NOT merge unrelated items.
+- ADMIN / EMAIL: requests to reply, confirm, sign, or send back → type=TASK (one TASK per distinct request). Appointment with place + time → type=TRIP (destination + arrivalDue). NEVER type=PROJECT for these.
+- ADMIN CONSOLIDATION: Same email with autorisation + presence + headcount → ONE TASK. Do NOT split along vision JSON blocks or snake_case names.
 
 EXAMPLE (fencing club flyer — dates from NOW ${nowFmt} | ${weekdayEn} | ${tz}):
 Input: "Fête du club le 24, dernier cours le 19, retour tenues créneaux 12/01 14h, 15/01 10h, 18/01 16h"
@@ -1527,6 +1614,10 @@ Output: {"intents":[
   {"type":"TASK","content":"Dernier cours","title_mode":"DESCRIPTIVE","source_hint":"Dernier cours","due":"YYYY-MM-DD 00:00","category":"PERSO","context":"EXTERIEUR"},
   {"type":"TASK","content":"Retour des tenues","title_mode":"ACTION","source_hint":"Tenues","due":"YYYY-MM-DD HH:mm","category":"PERSO","context":"EXTERIEUR","event_series":[{"due":"YYYY-MM-DD HH:mm","label":"Créneau 1"},{"due":"YYYY-MM-DD HH:mm"},{"due":"YYYY-MM-DD HH:mm"}]}
 ]}
+
+EXAMPLE (dictated or pasted club email — SOURCE_KIND text or audio — dates from NOW ${nowFmt} | ${weekdayEn} | ${tz}):
+Input: "Bonjour, nous n'avons pas la reponse pour l'autorisation du droit a l'image pour les photos de la representation du 27 juin. Merci de l'effectuer par retour de mail et confirmer la presence et le nombre de personnes. Rendez-vous des enfants devant l'Astrolab a 14h45 pour l'echauffement, debut du spectacle hip hop 15h05."
+Output: {"intents":[{"type":"TASK","content":"Repondre au mail : droit a l'image, presence et nb de personnes","source_hint":"Hip Hop","category":"PERSO","context":"MAISON"},{"type":"TRIP","destination":"Astrolab","content":"Spectacle Hip Hop","arrivalDue":"${hipHopArrivalFmt}","source_hint":"Hip Hop","category":"PERSO","context":"EXTERIEUR"}]}
 
 Schema extension: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","source_hint":"…","title_mode":"ACTION|DESCRIPTIVE","event_series":[{"due":"…","label":"…"}],"recurrence_rule":{…}}]}`;
 }
@@ -1556,14 +1647,23 @@ Dictation:
 }
 
 /**
- * Corps utilisateur Pass 1 — données brutes uniquement (NOW, seed, dictée).
+ * Corps utilisateur Pass 1 — données brutes uniquement (NOW, seed, SOURCE_KIND, dictée).
  */
-export function buildOneTapPass1UserContent(transcript: string, seedLine: string, now: Date): string {
+export function buildOneTapPass1UserContent(
+  transcript: string,
+  seedLine: string,
+  now: Date,
+  sourceKind?: 'image' | 'audio' | 'text' | 'share' | null,
+): string {
   const { tz, isoWeekday, weekdayEn } = buildPass1TemporalFields(now);
   const safe = (transcript.length > 12_000 ? transcript.slice(0, 12_000) : transcript).replace(/"""/g, '""');
+  const kindLine =
+    sourceKind && ['image', 'audio', 'text', 'share'].includes(sourceKind)
+      ? `SOURCE_KIND: ${sourceKind}\n`
+      : '';
   return `NOW: ${formatLocalYYYYMMDDHHmm(now)}
 TZ: ${tz} | ${weekdayEn} | weekday=${isoWeekday}
-SEED: ${seedLine}
+${kindLine}SEED: ${seedLine}
 INPUT: """${safe}"""`;
 }
 
@@ -1589,7 +1689,9 @@ export function inferOneTapSkeletonFromTranscript(
   const lower = cleaned.toLowerCase();
   let predictedType: OneTapPredictedType = 'NOTE';
 
-  if (/\b(courses|liste de|liste d'|acheter|ingrédients|ingredients|valise|packing|matériel pour|caddie)\b/i.test(cleaned)) {
+  if (looksLikeStructuredCaptureTranscript(transcript)) {
+    predictedType = 'NOTE';
+  } else if (/\b(courses|liste de|liste d'|acheter|ingrédients|ingredients|valise|packing|matériel pour|caddie)\b/i.test(cleaned)) {
     predictedType = 'LIST';
   } else if (/\b(anniversaire|fête de|fete de|né le|nee le)\b/i.test(cleaned) || /\b(mamie|papy|grand-mère|grand-père)\b/i.test(lower)) {
     predictedType = 'ANNIVERSARY';
@@ -1717,6 +1819,10 @@ export function inferOneTapSkeletonFromTranscript(
 export type OneTapRefineOptions = {
   uiLocale: string;
   lang?: string;
+  /** Canal de capture (image / audio / text / share) — injecté dans le user content Pass 1. */
+  sourceKind?: 'image' | 'audio' | 'text' | 'share' | null;
+  /** Corrélation pipeline capture (ex. trace micro). */
+  trace?: string;
   /** Si défini, appelé à chaque chunk utile (streaming). */
   onPartial?: (draft: OneTapUniversalResult) => void;
   /** false = un seul aller-retour HTTP (ex. machine à intentions). */
@@ -1762,8 +1868,9 @@ export async function refineOneTapWithGeminiCompressed(
   const now = new Date();
   const activeModelId = getActivePass1ModelId();
   const systemInstruction = resolvePass1SystemInstruction(now);
-  const userText = buildOneTapPass1UserContent(transcript, seed, now);
+  const userText = buildOneTapPass1UserContent(transcript, seed, now, options.sourceKind ?? null);
   const useStream = options.useStream !== false;
+  const captureTrace = options.trace?.trim() || undefined;
   const pathBGeminiStart = perfNowMs();
   const pathBLog: GeminiPathBLogAnchor = {
     pathACategoryTag: skeleton.categoryTag,
@@ -1779,7 +1886,7 @@ export async function refineOneTapWithGeminiCompressed(
     return annotateIncompletes(annotated, transcript, skeleton);
   };
   const applyBuffer = (buf: string) => {
-    let extractedIntents = parseJsonIntentsFromBuffer(buf, useStream);
+    let extractedIntents = parseJsonIntentsFromBuffer(buf, useStream, captureTrace);
     if ((!extractedIntents || extractedIntents.length === 0) && !buf.includes('{')) {
       extractedIntents = parseBulletPipeIntentsFromBuffer(buf, useStream);
     }
@@ -1862,31 +1969,64 @@ export async function refineOneTapWithGeminiCompressed(
 
   const parseStart = perfNowMs();
   let parsed = skeleton;
-  let extractedFinal = parseJsonIntentsFromBuffer(rawModelText, false);
+  let extractedFinal = parseJsonIntentsFromBuffer(rawModelText, false, captureTrace);
   if ((!extractedFinal || extractedFinal.length === 0) && !rawModelText.includes('{')) {
     extractedFinal = parseBulletPipeIntentsFromBuffer(rawModelText, false);
   }
   if (extractedFinal.length) {
     parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, normalizeIncompletes(extractedFinal));
-    logCaptureFlow(undefined, 'pass1_intents_resolved', {
+    const rawIntentsCount = countRawIntentsInBuffer(rawModelText);
+    const pass1Diag = buildPass1Diagnostics({
+      transcript,
+      intents: extractedFinal,
+      rawIntentsCount,
+      parseDrops:
+        rawIntentsCount != null && rawIntentsCount > extractedFinal.length
+          ? rawIntentsCount - extractedFinal.length
+          : undefined,
+    });
+    logPass1Diagnostics(captureTrace, 'pass1_intents_resolved', pass1Diag, {
       categoryTag: parsed.categoryTag,
       contextTag: parsed.contextTag || '',
-      intentCount: extractedFinal.length,
-      contexts: extractedFinal
-        .map((it) => (typeof it.context === 'string' ? it.context : ''))
-        .filter(Boolean),
+      pathAType: skeleton.predictedType,
+      pathACategory: skeleton.categoryTag,
+      modelId: httpMeta?.modelId ?? activeModelId,
+      parseFormat: rawModelText.includes('{') ? 'json' : 'bullet_pipe',
+      sourcingEnabled: SOURCING_V1_ENABLED,
     });
     if (DEBUG_MODE_DOUANE) {
       console.log(
-        `[DOUANE] ✅ Pass1 draft categoryTag=${parsed.categoryTag} contextTag=${parsed.contextTag || '—'} intents=${extractedFinal.length}`,
+        `[DOUANE] ✅ Pass1 draft categoryTag=${parsed.categoryTag} contextTag=${parsed.contextTag || '—'} intents=${extractedFinal.length} anomalies=${pass1Diag.anomalies.join('|') || 'none'}`,
       );
     }
   } else {
+    const pass1Diag = buildPass1Diagnostics({ transcript, intents: [] });
+    logPass1Diagnostics(captureTrace, 'pass1_intents_empty', pass1Diag, {
+      pathAType: skeleton.predictedType,
+      modelId: httpMeta?.modelId ?? activeModelId,
+      hasIntentsKey: rawModelText.includes('"intents"'),
+      rawPreview: rawModelText.slice(0, 240),
+    });
     if (rawModelText.includes('"intents"')) {
-      const forced = parseJsonIntentsFromBuffer(rawModelText, false);
+      const forced = parseJsonIntentsFromBuffer(rawModelText, false, captureTrace);
       if (forced.length) {
         extractedFinal = forced;
         parsed = mergeIntentArrayIntoOneTapSkeleton(parsed, normalizeIncompletes(forced));
+        const rawIntentsCount = countRawIntentsInBuffer(rawModelText);
+        logPass1Diagnostics(
+          captureTrace,
+          'pass1_intents_forced_retry',
+          buildPass1Diagnostics({
+            transcript,
+            intents: forced,
+            rawIntentsCount,
+            parseDrops:
+              rawIntentsCount != null && rawIntentsCount > forced.length
+                ? rawIntentsCount - forced.length
+                : undefined,
+          }),
+          { forced: true },
+        );
       } else if (isAiLoggingEnabled()) {
         console.log('[OneTap] ⚠️ Pass1 parse failed — no intents extracted from model output');
       }

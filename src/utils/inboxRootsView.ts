@@ -1,5 +1,6 @@
 import type { TrankilV2TimelineItemRow } from '../api/trankilV2Db';
 import { SOURCING_V1_ENABLED } from '../config/features';
+import { isSourcingShellMetadata } from './sourcingTitle';
 
 export type InboxRootsView = {
   roots: TrankilV2TimelineItemRow[];
@@ -43,7 +44,8 @@ export function buildInboxRootsView(rows: TrankilV2TimelineItemRow[]): InboxRoot
 }
 
 export function isSourcedCaptureParent(row: TrankilV2TimelineItemRow): boolean {
-  if (row.type !== 'PROJECT') return false;
   const sourcing = row.sourcing_v1;
-  return Boolean(sourcing?.auto_parent_id && sourcing.auto_parent_id === row.id);
+  if (!sourcing?.auto_parent_id || sourcing.auto_parent_id !== row.id) return false;
+  if (row.type === 'NOTE' && isSourcingShellMetadata(row.metadata_json)) return true;
+  return row.type === 'PROJECT';
 }

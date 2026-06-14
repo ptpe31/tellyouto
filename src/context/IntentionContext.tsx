@@ -17,6 +17,8 @@ import {
 } from '../services/oneTapUniversalCapture';
 import { hydrateOneTapDraftWithFavoriteAlias } from '../services/traffic/locationFavorites';
 import { persistOneTapDraftVentilated, type PersistOneTapSuccess } from '../services/oneTapPersist';
+import { resolvePeekPrimaryOutcome } from '../utils/peekOutcomeResolve';
+import { normalizeCaptureTranscript } from '../utils/visionTranscriptNormalize';
 import { showAppToast } from '../services/appToast';
 import { getTrankilV2IntentionById } from '../api/trankilV2Db';
 import { parsePass1DueDateTime } from '../utils/pass1DueDateParse';
@@ -79,10 +81,18 @@ type CapturePayload = {
 function buildDealerBulkPeekItems(
   outcomes: PersistOneTapSuccess[],
   skeleton: { categoryTag?: string; predictedType?: string },
+  autoParentId?: string | null,
 ): Array<{ intentionId: string; title: string; categoryTag: string; predictedType: string }> {
   const categoryTag = String(skeleton.categoryTag ?? 'OTHER').trim() || 'OTHER';
+  const shellId = String(autoParentId ?? '').trim();
   const items: Array<{ intentionId: string; title: string; categoryTag: string; predictedType: string }> = [];
   for (const o of outcomes) {
+    const intentionId =
+      'intentionId' in o && typeof o.intentionId === 'string' ? o.intentionId.trim() : '';
+    if (!intentionId) continue;
+    if (shellId && intentionId === shellId) continue;
+    if (o.kind === 'project_persisted') continue;
+    if (o.kind === 'simple_note_or_audio') continue;
     if (o.kind === 'persisted_temporal') {
       items.push({
         intentionId: o.intentionId,
@@ -90,26 +100,12 @@ function buildDealerBulkPeekItems(
         categoryTag,
         predictedType: o.mirrorType === 'HABIT' ? 'HABIT' : 'TASK',
       });
-    } else if (o.kind === 'simple_note_or_audio' && o.intentionId) {
-      items.push({
-        intentionId: o.intentionId,
-        title: 'Note',
-        categoryTag,
-        predictedType: 'NOTE',
-      });
     } else if (o.kind === 'list_inventory_persisted') {
       items.push({
         intentionId: o.intentionId,
         title: 'Liste',
         categoryTag,
         predictedType: 'LIST',
-      });
-    } else if (o.kind === 'project_persisted') {
-      items.push({
-        intentionId: o.intentionId,
-        title: 'Projet',
-        categoryTag,
-        predictedType: 'PROJECT',
       });
     }
   }
@@ -243,9 +239,20 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               void (async () => {
                 const title = params.transcript.slice(0, 56) || 'Memo';
                 if (params.audioUri) {
-                  await queueOfflineAudioCapture({ transcript: params.transcript, audioUri: params.audioUri, title, lang: params.lang });
+                  await queueOfflineAudioCapture({
+                    transcript: params.transcript,
+                    audioUri: params.audioUri,
+                    title,
+                    lang: params.lang,
+                    batchContext: captureBatchContextRef.current,
+                  });
                 } else {
-                  await queueOfflineTextCapture({ transcript: params.transcript, title, lang: params.lang });
+                  await queueOfflineTextCapture({
+                    transcript: params.transcript,
+                    title,
+                    lang: params.lang,
+                    batchContext: captureBatchContextRef.current,
+                  });
                 }
                 DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
               })();
@@ -379,6 +386,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                 audioUri: params.audioUri,
                 title,
                 lang: params.lang,
+                batchContext: batchContext ?? null,
               });
             } else {
               logOfflineStability('auto_queue_text', {
@@ -388,7 +396,12 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
                 partialAfterPriorChunks: savedAny,
                 transcriptLen: textToQueue.length,
               });
-              await queueOfflineTextCapture({ transcript: textToQueue, title, lang: params.lang });
+              await queueOfflineTextCapture({
+                transcript: textToQueue,
+                title,
+                lang: params.lang,
+                batchContext: batchContext ?? null,
+              });
             }
             DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
             logOfflineStability('auto_queue_done', { trace: trace || null, mode: useAudio ? 'audio' : 'text' });
@@ -422,8 +435,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             const res = await refineOneTapWithGeminiCompressed(chunk, skeleton, {
               uiLocale,
               lang: params.lang,
+              trace,
               useStream: false,
               forceComplete: true,
+              sourceKind: batchContext?.source_kind ?? null,
             });
             if (seq !== geminiSeqRef.current) {
               return { safeToDrainOfflineReplaySource: false };
@@ -508,6 +523,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               parentId: params.parentId,
               parentJalonUid: params.parentJalonUid,
               batchContext: batchContext ?? null,
+              trace: trace || undefined,
             });
             if (vr.ok) {
               savedAny = true;
@@ -593,7 +609,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
       preassignedIntentionId,
       restoredBatchContext,
     }: CapturePayload): Promise<boolean> => {
-      const cleaned = rawTranscript.trim();
+      const cleaned = normalizeCaptureTranscript(rawTranscript.trim());
       if (!cleaned) return false;
       const isMic = Boolean(audioUri);
       const trace = String(traceId || '').trim() || (isMic ? newId() : '');
@@ -744,33 +760,30 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         onPersisted: (outcomes, meta) => {
           const chunkIndex = meta.chunkIndex;
           const chunkTotal = meta.chunkTotal;
-          const firstId =
-            outcomes
-              .map((o) => ('intentionId' in o ? String((o as { intentionId?: unknown }).intentionId ?? '') : ''))
-              .find((x) => x && x.trim().length) ?? '';
+          const autoParentId = captureBatchContextRef.current?.auto_parent_id ?? null;
+          const peekPrimary = resolvePeekPrimaryOutcome(outcomes, autoParentId);
+          const firstId = peekPrimary?.intentionId ?? '';
           logCaptureFlow(trace || undefined, 'persist_callback', {
             outcomes: outcomes.length,
             firstId: firstId || null,
+            peekPrimaryType: peekPrimary?.predictedType ?? null,
+            autoParentId: autoParentId || null,
             chunkIndex,
             chunkTotal,
           });
           if (!firstId) return;
-          const anyTitle =
-            outcomes.find((o) => 'title' in o && typeof (o as { title?: unknown }).title === 'string') as
-              | { title?: string }
-              | undefined;
-          const dealerBulkItems = buildDealerBulkPeekItems(outcomes, skeleton);
-          // Même routage focus côté écrans que pour SNAPSHOT. `dealerBulkItems` : proxies Talk (DealerBoard) cascade.
+          const dealerBulkItems = buildDealerBulkPeekItems(outcomes, skeleton, autoParentId);
           DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
             intentionId: firstId,
             categoryTag: skeleton.categoryTag,
-            predictedType: skeleton.predictedType,
-            title: String(anyTitle?.title ?? skeleton.title ?? cleaned.slice(0, 200)),
+            predictedType: peekPrimary?.predictedType ?? skeleton.predictedType,
+            title: String(peekPrimary?.title ?? skeleton.title ?? cleaned.slice(0, 200)),
             transcript: cleaned,
             dealerBulkItems: dealerBulkItems.length > 0 ? dealerBulkItems : undefined,
           });
           logCaptureFlow(trace || undefined, 'peek_first_save_emit', {
             intentionId: firstId,
+            skippedShellId: autoParentId || null,
             chunkIndex,
             chunkTotal,
           });
