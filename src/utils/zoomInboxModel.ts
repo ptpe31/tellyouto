@@ -140,15 +140,3 @@ export function buildZoomInboxView(rows: TrankilV2TimelineItemRow[]): ZoomInboxV
 
   return { childrenByJalonKey, statsByJalonKey, hiddenRootRowIds };
 }
-
-export function formatZoomStepCountSuffix(params: {
-  total: number;
-  t: (key: string, options?: Record<string, unknown>) => string;
-}): string {
-  const { total, t } = params;
-  if (total <= 0) return '';
-  return t('timeline.inboxProjectItemCount', {
-    count: total,
-    defaultValue: `${total} étapes`,
-  });
-}

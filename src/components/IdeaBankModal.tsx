@@ -70,7 +70,7 @@ import { InboxLineTitle } from './InboxLineTitle';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcedCaptureParent } from '../utils/inboxRootsView';
 import type { ZoomInboxView } from '../utils/zoomInboxModel';
-import { buildZoomJalonKey, formatZoomStepCountSuffix } from '../utils/zoomInboxModel';
+import { buildZoomJalonKey } from '../utils/zoomInboxModel';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
 import {
   parseProjectBriefFromMetadataJson,
@@ -1028,9 +1028,6 @@ export function IdeaBankModal({
                         const sublineParts: string[] = [formatMilestoneDurationLabel(milestone)];
                         const persona = String(milestone.expert_persona ?? '').trim();
                         if (persona) sublineParts.push(persona);
-                        if (hasZoomDecompose) {
-                          sublineParts.push(formatZoomStepCountSuffix({ total: zoomTasks.length, t }));
-                        }
                         const subline = sublineParts.join(' · ');
                         const zoomMilestoneA11y = hasZoomDecompose
                           ? zoomJalonExpanded
@@ -1067,11 +1064,23 @@ export function IdeaBankModal({
                                   {subline}
                                 </Text>
                                 {hasZoomDecompose ? (
-                                  <Icon
-                                    source={zoomJalonExpanded ? 'chevron-left' : 'chevron-right'}
-                                    size={20}
-                                    color={designTokens.textSecondary}
-                                  />
+                                  <>
+                                    <View
+                                      style={[
+                                        styles.zoomJalonCountBadge,
+                                        { backgroundColor: categoryPastelTabBackground(row.category_id) },
+                                      ]}
+                                    >
+                                      <Text style={[styles.zoomJalonCountText, { color: designTokens.textPrimary }]}>
+                                        +{zoomTasks.length}
+                                      </Text>
+                                    </View>
+                                    <Icon
+                                      source={zoomJalonExpanded ? 'chevron-left' : 'chevron-right'}
+                                      size={20}
+                                      color={designTokens.textSecondary}
+                                    />
+                                  </>
                                 ) : null}
                               </View>
                             </PressableScale>
@@ -1253,6 +1262,20 @@ const styles = StyleSheet.create({
   },
   milestoneSublineText: {
     flex: 1,
+  },
+  zoomJalonCountBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  zoomJalonCountText: {
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 13,
   },
   rowTitle: { fontSize: 15, fontWeight: '600' },
   rowTitleDone: { textDecorationLine: 'line-through' },
