@@ -7,6 +7,7 @@ import { runIntentionAlarmSchedule } from '../services/intentionAlarmSchedule';
 import type { TripElasticCapsuleModel } from '../utils/tripElasticCapsuleModel';
 import {
   buildIntentAlarmVisibilityDebug,
+  canPlanIntentionNativeAlarm,
   hasIntentionSchedulableDueDate,
   isIntentionAlarmWitnessVisible,
   readIntentionAlarmSetFlag,
@@ -45,15 +46,22 @@ export function useIntentAlarm(
 
   const alarmFlagSet = useMemo(() => readIntentionAlarmSetFlag(metadataJson), [metadataJson]);
 
-  const witnessClockActive = Boolean(row && alarmFlagSet);
-  const nowMs = useProbeScheduleClock(witnessClockActive, 60_000);
+  const schedulableDueDate = useMemo(
+    () => (row ? hasIntentionSchedulableDueDate(row) : false),
+    [row],
+  );
+  const dayClockActive = Boolean(row && (alarmFlagSet || schedulableDueDate));
+  const nowMs = useProbeScheduleClock(dayClockActive, 60_000);
 
   const isAlarmSet = useMemo(() => {
     if (!row) return false;
     return isIntentionAlarmWitnessVisible(metadataJson, row, nowMs, { tripCapsuleModel });
   }, [metadataJson, nowMs, row, tripCapsuleModel]);
 
-  const hasDueDate = useMemo(() => (row ? hasIntentionSchedulableDueDate(row) : false), [row]);
+  const hasDueDate = useMemo(() => {
+    if (!row) return false;
+    return canPlanIntentionNativeAlarm(row, new Date(nowMs));
+  }, [nowMs, row]);
 
   useEffect(() => {
     if (!__DEV__ || !row?.id) return;

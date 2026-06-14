@@ -62,7 +62,7 @@ import {
 import { resolveTripSurveillanceUiState } from '../utils/tripSurveillanceButton';
 import { getTripMetaFromRoot } from '../utils/tripTimelineCard';
 import {
-  hasIntentionSchedulableDueDate,
+  canPlanIntentionNativeAlarm,
   readIntentionAlarmSetFlag,
 } from '../utils/intentAlarmTemporal';
 import { TaskCompletionOrb } from './TaskCompletionOrb';
@@ -72,8 +72,14 @@ import { isSourcedCaptureParent } from '../utils/inboxRootsView';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
 import {
   parseProjectBriefFromMetadataJson,
-  parseTravelProjectPackingFromMetadataJson,
+  resolveTravelProjectMilestonesForInbox,
 } from '../utils/travelProjectModel';
+import type { ProjectMilestone } from '../services/projectMilestonesModel';
+
+function formatMilestoneDurationLabel(m: ProjectMilestone): string {
+  const toShort = (unit: string) => (unit === 'hours' ? 'h' : unit === 'weeks' ? 'sem' : 'j');
+  return `+${m.estimated_duration}${toShort(m.unit)}`;
+}
 
 type Props = {
   visible: boolean;
@@ -687,7 +693,7 @@ export function IdeaBankModal({
                     })
                   : '';
                 const tripPillBusy = tripPillBusyIds.has(row.id);
-                const showAlarmPill = !isTripCard && hasIntentionSchedulableDueDate(row);
+                const showAlarmPill = !isTripCard && canPlanIntentionNativeAlarm(row);
                 const alarmPillActive = readIntentionAlarmSetFlag(row.metadata_json);
                 const alarmPillBusy = alarmPillBusyIds.has(row.id);
                 const alarmPillLabel = alarmPillActive
@@ -714,23 +720,20 @@ export function IdeaBankModal({
                   mode === 'inbox' && row.type === 'PROJECT'
                     ? parseProjectBriefFromMetadataJson(row.metadata_json)
                     : null;
-                const travelParty = travelBrief?.party ?? [];
-                const travelPartyCount = travelParty.length;
+                const travelMilestones =
+                  travelBrief && mode === 'inbox' ? resolveTravelProjectMilestonesForInbox(row.metadata_json) : [];
+                const travelStepCount = travelMilestones.length;
                 const showTravelAccordion =
-                  mode === 'inbox' && row.type === 'PROJECT' && travelPartyCount > 0 && !showSourcingAccordion;
+                  mode === 'inbox' && row.type === 'PROJECT' && travelBrief != null && travelStepCount > 0 && !showSourcingAccordion;
                 const showPartyLeadBadge = showSourcingAccordion || showTravelAccordion;
-                const partyLeadCount = showSourcingAccordion ? sourcingChildCount : travelPartyCount;
-                const travelPacking = showTravelAccordion
-                  ? parseTravelProjectPackingFromMetadataJson(row.metadata_json)
-                  : [];
-                const packingByName = new Map(travelPacking.map((c) => [c.name.toLowerCase(), c.itemCount]));
-                const travelA11yExpand = t('timeline.travelProjectExpand', {
-                  count: travelPartyCount,
-                  defaultValue: `Déplier ${travelPartyCount} voyageurs`,
+                const partyLeadCount = showSourcingAccordion ? sourcingChildCount : travelStepCount;
+                const travelA11yExpand = t('timeline.travelProjectExpandSteps', {
+                  count: travelStepCount,
+                  defaultValue: `Déplier ${travelStepCount} étapes`,
                 });
-                const travelA11yCollapse = t('timeline.travelProjectCollapse', {
-                  count: travelPartyCount,
-                  defaultValue: `Replier ${travelPartyCount} voyageurs`,
+                const travelA11yCollapse = t('timeline.travelProjectCollapseSteps', {
+                  count: travelStepCount,
+                  defaultValue: `Replier ${travelStepCount} étapes`,
                 });
                 const toggleRowExpand = () => toggleSourcedParentExpand(row.id);
 
@@ -770,9 +773,9 @@ export function IdeaBankModal({
                                   count: partyLeadCount,
                                   defaultValue: `${partyLeadCount} actions extraites`,
                                 })
-                              : t('timeline.travelProjectPartyBadge', {
+                              : t('timeline.travelProjectStepsBadge', {
                                   count: partyLeadCount,
-                                  defaultValue: `${partyLeadCount} voyageurs`,
+                                  defaultValue: `${partyLeadCount} étapes`,
                                 })
                           }
                         >
@@ -830,7 +833,7 @@ export function IdeaBankModal({
                             textSecondary={designTokens.textSecondary}
                             locale={i18n.language}
                             sourcingChildCount={showSourcingAccordion ? sourcingChildCount : undefined}
-                            omitTravelPartyInLine2={showTravelAccordion}
+                            omitTravelMilestoneInLine2={showTravelAccordion}
                           />
                         ) : (
                           <>
@@ -998,28 +1001,23 @@ export function IdeaBankModal({
                         );
                       })
                     : null}
-                  {showTravelAccordion && isExpanded && travelParty.length > 0
-                    ? travelParty.map((persona) => {
-                        const itemCount = packingByName.get(persona.toLowerCase()) ?? 0;
-                        const subline =
-                          itemCount > 0
-                            ? t('timeline.travelProjectPackingItems', {
-                                count: itemCount,
-                                defaultValue: `${itemCount} article${itemCount > 1 ? 's' : ''} valise`,
-                              })
-                            : t('timeline.travelProjectTraveler', { defaultValue: 'Voyageur' });
+                  {showTravelAccordion && isExpanded && travelMilestones.length > 0
+                    ? travelMilestones.map((milestone) => {
+                        const sublineParts: string[] = [formatMilestoneDurationLabel(milestone)];
+                        const persona = String(milestone.expert_persona ?? '').trim();
+                        if (persona) sublineParts.push(persona);
                         return (
                           <PressableScale
-                            key={`${row.id}-${persona}`}
+                            key={milestone.uid || `${row.id}-${milestone.title}`}
                             style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
                             hapticType="light"
                             onPress={() => openDetail(row)}
                           >
                             <Text style={[styles.rowTitle, { color: designTokens.textPrimary }]} numberOfLines={1}>
-                              {persona}
+                              {milestone.title}
                             </Text>
                             <Text style={[styles.createdHint, { color: designTokens.textSecondary }]} numberOfLines={1}>
-                              {subline}
+                              {sublineParts.join(' · ')}
                             </Text>
                           </PressableScale>
                         );

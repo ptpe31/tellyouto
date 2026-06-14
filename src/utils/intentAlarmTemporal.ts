@@ -139,6 +139,17 @@ export function hasIntentionSchedulableDueDate(row: TrankilV2TimelineItemRow): b
 }
 
 /**
+ * V1 : alarme OS native (heure seule, pas de date) — le bouton « Planifier une alarme »
+ * n’est proposé que pour les intentions dont l’échéance tombe aujourd’hui.
+ */
+export function canPlanIntentionNativeAlarm(
+  row: TrankilV2TimelineItemRow,
+  now: Date = new Date(),
+): boolean {
+  return hasIntentionSchedulableDueDate(row) && isIntentionDueToday(row, now);
+}
+
+/**
  * ISO 8601 pour planification notification — reconstruit depuis `dueDateYmd` + `dueTimeHm`
  * si `dueDateTime` est absent en métadonnées.
  */
@@ -178,10 +189,13 @@ export function buildIntentAlarmVisibilityDebug(
       : null;
   const { hasStrictTime, dueTimeHm, timeMarker } = parseRowTemporalMeta(row);
   const resolvedDueYmd = resolveIntentionDueYmd(row);
+  const isDueToday = isIntentionDueToday(row);
   return {
     intentionId: row.id,
     type: row.type,
     hasDueDate: resolvedDueYmd != null,
+    isDueToday,
+    canPlanNativeAlarm: canPlanIntentionNativeAlarm(row),
     resolvedDueYmd,
     sources: {
       sqliteDueDate: row.due_date ?? null,

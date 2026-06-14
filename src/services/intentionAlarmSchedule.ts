@@ -7,6 +7,7 @@ import { showAppToast } from './appToast';
 import { scheduleOneTapUniversalReminders } from './oneTapUniversalReminders';
 import type { TripElasticCapsuleModel } from '../utils/tripElasticCapsuleModel';
 import {
+  canPlanIntentionNativeAlarm,
   formatHmFromUnix,
   mergeMetadataJsonString,
   resolveIntentionAlarmUnixSec,
@@ -41,6 +42,7 @@ export async function runIntentionAlarmSchedule(params: {
   } = params;
 
   if (!row.id || row.id === 'peek_pending') return false;
+  if (!canPlanIntentionNativeAlarm(row)) return false;
 
   const alarmUnix = resolveIntentionAlarmUnixSec(row, { tripCapsuleModel });
   const dueDateTimeIso = resolveIntentionDueDateTimeIso(row, { tripCapsuleModel });

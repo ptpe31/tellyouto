@@ -5,6 +5,7 @@
 import {
   ensureProjectMilestoneUids,
   parseProjectMilestonesPayloadFromMetadataJson,
+  type ProjectMilestone,
   type ProjectMilestonesPayload,
 } from '../services/projectMilestonesModel';
 
@@ -173,15 +174,15 @@ export function formatTravelProjectInboxLine2(params: {
   dueYmd: string | null;
   locale: string;
   t: (key: string, options?: Record<string, unknown>) => string;
-  /** true si le badge +N voyageurs est affiché à gauche (évite la redondance en L2). */
-  omitPartyInLine2?: boolean;
+  /** true si le badge +N étapes est affiché à gauche (évite la redondance en L2). */
+  omitMilestoneInLine2?: boolean;
 }): string | null {
-  const { brief, milestoneCount, dueYmd, locale, t, omitPartyInLine2 } = params;
+  const { brief, milestoneCount, dueYmd, locale, t, omitMilestoneInLine2 } = params;
   if (!brief && milestoneCount == null && !dueYmd) return null;
 
   const parts: string[] = [t('timeline.inboxProjectLabel', { defaultValue: 'Projet' })];
   const partyLen = brief?.party?.length ?? 0;
-  if (partyLen > 0 && !omitPartyInLine2) {
+  if (partyLen > 0) {
     parts.push(
       t('timeline.travelProjectPartyCount', {
         count: partyLen,
@@ -204,7 +205,7 @@ export function formatTravelProjectInboxLine2(params: {
       parts.push(dueYmd);
     }
   }
-  if (milestoneCount != null && milestoneCount > 0) {
+  if (milestoneCount != null && milestoneCount > 0 && !omitMilestoneInLine2) {
     parts.push(
       t('timeline.inboxProjectItemCount', {
         count: milestoneCount,
@@ -216,10 +217,15 @@ export function formatTravelProjectInboxLine2(params: {
 }
 
 export function resolveTravelProjectMilestoneCount(metadataJson: string | null | undefined): number | null {
+  const milestones = resolveTravelProjectMilestonesForInbox(metadataJson);
+  return milestones.length > 0 ? milestones.length : null;
+}
+
+/** Jalons réels (hors placeholder « — ») pour accordéon Inbox projet voyage. */
+export function resolveTravelProjectMilestonesForInbox(metadataJson: string | null | undefined): ProjectMilestone[] {
   const payload = parseProjectMilestonesPayloadFromMetadataJson(metadataJson);
-  if (!payload?.milestones?.length) return null;
-  const real = payload.milestones.filter((m) => String(m.title ?? '').trim() && m.title !== '—');
-  return real.length > 0 ? real.length : null;
+  if (!payload?.milestones?.length) return [];
+  return payload.milestones.filter((m) => String(m.title ?? '').trim() && m.title !== '—');
 }
 
 /** Jalons déterministes si Pass 2 Gemini échoue (projet voyage). */

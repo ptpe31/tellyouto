@@ -1442,11 +1442,12 @@ export function IntentionDetailSheet({
 
   useEffect(() => {
     if (!__DEV__ || !visible || !row?.id) return;
+    const alarmDebug = buildIntentAlarmVisibilityDebug(row, { tripCapsuleModel: elasticDepartureCapsuleModel });
     const footerBranch = isValidationView ? 'validation' : gateLocked ? 'gate_locked' : 'full';
     const alarmButtonEligible = Boolean(hasDueDate && row.id !== 'peek_pending' && !isValidationView);
     const actuallyRendered = alarmButtonEligible;
     console.log('[IntentAlarm] DetailSheet footer', {
-      ...buildIntentAlarmVisibilityDebug(row, { tripCapsuleModel: elasticDepartureCapsuleModel }),
+      ...alarmDebug,
       sheetPosition,
       visible,
       gateLocked,
@@ -1460,7 +1461,9 @@ export function IntentionDetailSheet({
       actuallyRendered,
       hideReason: !actuallyRendered
         ? !hasDueDate
-          ? 'no_due_date'
+          ? alarmDebug.hasDueDate && !alarmDebug.canPlanNativeAlarm
+            ? 'not_today'
+            : 'no_due_date'
           : row.id === 'peek_pending'
             ? 'peek_pending'
             : isValidationView
