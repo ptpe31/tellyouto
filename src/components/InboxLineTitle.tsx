@@ -12,9 +12,10 @@ type Props = {
   textSecondary: string;
   locale?: string;
   sourcingChildCount?: number;
+  omitTravelPartyInLine2?: boolean;
 };
 
-export function InboxLineTitle({ row, textPrimary, textSecondary, locale, sourcingChildCount }: Props) {
+export function InboxLineTitle({ row, textPrimary, textSecondary, locale, sourcingChildCount, omitTravelPartyInLine2 }: Props) {
   const { t, i18n } = useTranslation();
   const loc = locale || i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
 
@@ -25,8 +26,9 @@ export function InboxLineTitle({ row, textPrimary, textSecondary, locale, sourci
         locale: loc,
         t,
         sourcingChildCount,
+        omitTravelPartyInLine2,
       }),
-    [loc, row, sourcingChildCount, t],
+    [loc, omitTravelPartyInLine2, row, sourcingChildCount, t],
   );
 
   const pastel = categoryPastelTabBackground(row.category_id);

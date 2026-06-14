@@ -70,6 +70,10 @@ import { InboxLineTitle } from './InboxLineTitle';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcedCaptureParent } from '../utils/inboxRootsView';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
+import {
+  parseProjectBriefFromMetadataJson,
+  parseTravelProjectPackingFromMetadataJson,
+} from '../utils/travelProjectModel';
 
 type Props = {
   visible: boolean;
@@ -706,6 +710,29 @@ export function IdeaBankModal({
                   count: sourcingChildCount,
                   defaultValue: `Replier ${sourcingChildCount} actions`,
                 });
+                const travelBrief =
+                  mode === 'inbox' && row.type === 'PROJECT'
+                    ? parseProjectBriefFromMetadataJson(row.metadata_json)
+                    : null;
+                const travelParty = travelBrief?.party ?? [];
+                const travelPartyCount = travelParty.length;
+                const showTravelAccordion =
+                  mode === 'inbox' && row.type === 'PROJECT' && travelPartyCount > 0 && !showSourcingAccordion;
+                const showPartyLeadBadge = showSourcingAccordion || showTravelAccordion;
+                const partyLeadCount = showSourcingAccordion ? sourcingChildCount : travelPartyCount;
+                const travelPacking = showTravelAccordion
+                  ? parseTravelProjectPackingFromMetadataJson(row.metadata_json)
+                  : [];
+                const packingByName = new Map(travelPacking.map((c) => [c.name.toLowerCase(), c.itemCount]));
+                const travelA11yExpand = t('timeline.travelProjectExpand', {
+                  count: travelPartyCount,
+                  defaultValue: `Déplier ${travelPartyCount} voyageurs`,
+                });
+                const travelA11yCollapse = t('timeline.travelProjectCollapse', {
+                  count: travelPartyCount,
+                  defaultValue: `Replier ${travelPartyCount} voyageurs`,
+                });
+                const toggleRowExpand = () => toggleSourcedParentExpand(row.id);
 
                 if (__DEV__ && !isTripCard) {
                   console.log('[IntentAlarm] IdeaBank card', {
@@ -731,16 +758,23 @@ export function IdeaBankModal({
                     ]}
                   >
                     <View style={styles.cardMainRow}>
-                      {showSourcingAccordion ? (
+                      {showPartyLeadBadge ? (
                         <PressableScale
                           style={styles.sourcingLeadSlot}
                           hapticType="light"
-                          onPress={() => toggleSourcedParentExpand(row.id)}
+                          onPress={toggleRowExpand}
                           accessibilityRole="button"
-                          accessibilityLabel={t('timeline.sourcingBatchBadge', {
-                            count: sourcingChildCount,
-                            defaultValue: `${sourcingChildCount} actions extraites`,
-                          })}
+                          accessibilityLabel={
+                            showSourcingAccordion
+                              ? t('timeline.sourcingBatchBadge', {
+                                  count: partyLeadCount,
+                                  defaultValue: `${partyLeadCount} actions extraites`,
+                                })
+                              : t('timeline.travelProjectPartyBadge', {
+                                  count: partyLeadCount,
+                                  defaultValue: `${partyLeadCount} voyageurs`,
+                                })
+                          }
                         >
                           <View
                             style={[
@@ -749,7 +783,7 @@ export function IdeaBankModal({
                             ]}
                           >
                             <Text style={[styles.sourcingCountText, { color: designTokens.textPrimary }]}>
-                              +{sourcingChildCount}
+                              +{partyLeadCount}
                             </Text>
                           </View>
                         </PressableScale>
@@ -772,16 +806,20 @@ export function IdeaBankModal({
                         style={styles.detailPressable}
                         hapticType="light"
                         onPress={
-                          showSourcingAccordion
-                            ? () => toggleSourcedParentExpand(row.id)
+                          showPartyLeadBadge
+                            ? toggleRowExpand
                             : () => openDetail(row)
                         }
                         accessibilityRole="button"
                         accessibilityLabel={
-                          showSourcingAccordion
+                          showPartyLeadBadge
                             ? isExpanded
-                              ? sourcingA11yCollapse
-                              : sourcingA11yExpand
+                              ? showTravelAccordion
+                                ? travelA11yCollapse
+                                : sourcingA11yCollapse
+                              : showTravelAccordion
+                                ? travelA11yExpand
+                                : sourcingA11yExpand
                             : lineTitle
                         }
                       >
@@ -792,6 +830,7 @@ export function IdeaBankModal({
                             textSecondary={designTokens.textSecondary}
                             locale={i18n.language}
                             sourcingChildCount={showSourcingAccordion ? sourcingChildCount : undefined}
+                            omitTravelPartyInLine2={showTravelAccordion}
                           />
                         ) : (
                           <>
@@ -827,16 +866,24 @@ export function IdeaBankModal({
                         ) : null}
                       </PressableScale>
 
-                      {showSourcingAccordion ? (
+                      {showPartyLeadBadge ? (
                         <PressableScale
                           style={[
                             styles.sourcingChevronBtn,
                             { borderColor: theme.colors.outlineVariant, backgroundColor: designTokens.cardBackground },
                           ]}
                           hapticType="light"
-                          onPress={() => toggleSourcedParentExpand(row.id)}
+                          onPress={toggleRowExpand}
                           accessibilityRole="button"
-                          accessibilityLabel={isExpanded ? sourcingA11yCollapse : sourcingA11yExpand}
+                          accessibilityLabel={
+                            isExpanded
+                              ? showTravelAccordion
+                                ? travelA11yCollapse
+                                : sourcingA11yCollapse
+                              : showTravelAccordion
+                                ? travelA11yExpand
+                                : sourcingA11yExpand
+                          }
                         >
                           <Icon
                             source={isExpanded ? 'chevron-up' : 'chevron-down'}
@@ -947,6 +994,33 @@ export function IdeaBankModal({
                               textSecondary={designTokens.textSecondary}
                               locale={i18n.language}
                             />
+                          </PressableScale>
+                        );
+                      })
+                    : null}
+                  {showTravelAccordion && isExpanded && travelParty.length > 0
+                    ? travelParty.map((persona) => {
+                        const itemCount = packingByName.get(persona.toLowerCase()) ?? 0;
+                        const subline =
+                          itemCount > 0
+                            ? t('timeline.travelProjectPackingItems', {
+                                count: itemCount,
+                                defaultValue: `${itemCount} article${itemCount > 1 ? 's' : ''} valise`,
+                              })
+                            : t('timeline.travelProjectTraveler', { defaultValue: 'Voyageur' });
+                        return (
+                          <PressableScale
+                            key={`${row.id}-${persona}`}
+                            style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
+                            hapticType="light"
+                            onPress={() => openDetail(row)}
+                          >
+                            <Text style={[styles.rowTitle, { color: designTokens.textPrimary }]} numberOfLines={1}>
+                              {persona}
+                            </Text>
+                            <Text style={[styles.createdHint, { color: designTokens.textSecondary }]} numberOfLines={1}>
+                              {subline}
+                            </Text>
                           </PressableScale>
                         );
                       })

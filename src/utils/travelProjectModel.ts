@@ -135,19 +135,53 @@ export function buildProjectBriefMetadataPatch(brief: ProjectBriefV1): Record<st
   return { [PROJECT_BRIEF_METADATA_KEY]: brief };
 }
 
+export type TravelProjectPackingCategory = {
+  name: string;
+  itemCount: number;
+};
+
+/** Valises par voyageur (`project_packing_v1`) — catégories = prénoms. */
+export function parseTravelProjectPackingFromMetadataJson(
+  raw: string | null | undefined,
+): TravelProjectPackingCategory[] {
+  if (!raw || !String(raw).trim()) return [];
+  try {
+    const root = JSON.parse(raw) as Record<string, unknown>;
+    const block = root[PROJECT_PACKING_METADATA_KEY];
+    if (!block || typeof block !== 'object' || Array.isArray(block)) return [];
+    const cats = (block as Record<string, unknown>).categories;
+    if (!Array.isArray(cats)) return [];
+    return cats
+      .map((c) => {
+        if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+        const cr = c as Record<string, unknown>;
+        const name = String(cr.name ?? '').trim();
+        if (!name) return null;
+        const itemsRaw = cr.items;
+        const itemCount = Array.isArray(itemsRaw) ? itemsRaw.length : 0;
+        return { name, itemCount };
+      })
+      .filter(Boolean) as TravelProjectPackingCategory[];
+  } catch {
+    return [];
+  }
+}
+
 export function formatTravelProjectInboxLine2(params: {
   brief: ProjectBriefV1 | null;
   milestoneCount: number | null;
   dueYmd: string | null;
   locale: string;
   t: (key: string, options?: Record<string, unknown>) => string;
+  /** true si le badge +N voyageurs est affiché à gauche (évite la redondance en L2). */
+  omitPartyInLine2?: boolean;
 }): string | null {
-  const { brief, milestoneCount, dueYmd, locale, t } = params;
+  const { brief, milestoneCount, dueYmd, locale, t, omitPartyInLine2 } = params;
   if (!brief && milestoneCount == null && !dueYmd) return null;
 
   const parts: string[] = [t('timeline.inboxProjectLabel', { defaultValue: 'Projet' })];
   const partyLen = brief?.party?.length ?? 0;
-  if (partyLen > 0) {
+  if (partyLen > 0 && !omitPartyInLine2) {
     parts.push(
       t('timeline.travelProjectPartyCount', {
         count: partyLen,

@@ -21,6 +21,8 @@ export type ResolveInboxLineInput = {
   t: (key: string, options?: Record<string, unknown>) => string;
   /** Enfants chargés côté accordéon sourcing (prioritaire sur child_ids metadata). */
   sourcingChildCount?: number;
+  /** Badge +N voyageurs visible — masquer le compteur en ligne 2. */
+  omitTravelPartyInLine2?: boolean;
 };
 
 function capitalizeFirst(value: string): string {
@@ -236,7 +238,7 @@ function buildTaskMomentLine2(
 }
 
 export function resolveInboxLinePresentation(input: ResolveInboxLineInput): InboxLinePresentation {
-  const { row, locale, t, sourcingChildCount } = input;
+  const { row, locale, t, sourcingChildCount, omitTravelPartyInLine2 } = input;
   const meta = safeParseJsonObject(row.metadata_json);
   const trip = getTripMetaFromRoot(meta);
   const untitled = t('timeline.untitled');
@@ -307,6 +309,7 @@ export function resolveInboxLinePresentation(input: ResolveInboxLineInput): Inbo
             dueYmd: dueYmd && /^\d{4}-\d{2}-\d{2}/.test(dueYmd) ? dueYmd.slice(0, 10) : null,
             locale,
             t,
+            omitPartyInLine2: omitTravelPartyInLine2,
           })
         : null;
     if (travelLine2) {
