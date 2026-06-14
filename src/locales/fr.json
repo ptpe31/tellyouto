@@ -279,6 +279,8 @@
     "zoomDecomposeBadge": "{{count}} sous-tâches",
     "zoomDecomposeExpand": "Déplier {{count}} sous-tâches",
     "zoomDecomposeCollapse": "Replier {{count}} sous-tâches",
+    "inboxZoomDoneSection": "Terminé ({{count}})",
+    "inboxTravelDoneSection": "Terminé ({{count}})",
     "zoomDecomposeProgress": "{{done}}/{{total}} fait",
     "zoomDecomposeLabel": "décomposé",
     "createdOn": "Créé le {{date}} à {{time}}",

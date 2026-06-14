@@ -21,6 +21,7 @@ import {
   deleteTrankilV2IntentionById,
   logTrankilV2HabitOccurrence,
   markTrankilV2IntentionDone,
+  patchMetadata,
   toggleIntentionDone,
   type TrankilIntentStatus,
   type TrankilV2TimelineItemRow,
@@ -71,18 +72,21 @@ import { InboxLineTitle } from './InboxLineTitle';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcedCaptureParent } from '../utils/inboxRootsView';
 import type { ZoomInboxView } from '../utils/zoomInboxModel';
-import { buildZoomJalonKey } from '../utils/zoomInboxModel';
+import { buildZoomJalonKey, resolveRowZoomParentJalonUid } from '../utils/zoomInboxModel';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
 import {
   parseProjectBriefFromMetadataJson,
   resolveTravelProjectMilestonesForInbox,
 } from '../utils/travelProjectModel';
-import type { ProjectMilestone } from '../services/projectMilestonesModel';
-
-function formatMilestoneDurationLabel(m: ProjectMilestone): string {
-  const toShort = (unit: string) => (unit === 'hours' ? 'h' : unit === 'weeks' ? 'sem' : 'j');
-  return `+${m.estimated_duration}${toShort(m.unit)}`;
-}
+import {
+  buildProjectMilestonesMetadataPatch,
+  parseProjectMilestonesPayloadFromMetadataJson,
+  type ProjectMilestonesPayload,
+} from '../services/projectMilestonesModel';
+import {
+  resolveTravelProjectBadgeLabel,
+  TravelMilestoneInboxRows,
+} from './TravelMilestoneInboxRows';
 
 type Props = {
   visible: boolean;
@@ -114,10 +118,14 @@ type Props = {
 /** Diamètre intérieur orbe validation (hors padding néomorphique). */
 const VALIDATION_ORB_SIZE = 34;
 const VALIDATION_ORB_OUTER = VALIDATION_ORB_SIZE + 8;
-const ZOOM_TASK_CHECKBOX_SIZE = 22;
-/** Indent jalon / panneau zoom sous accordéon voyage. */
-const TRAVEL_MILESTONE_INSET = 24 + VALIDATION_ORB_OUTER;
-const ZOOM_PANEL_EXTRA_INSET = 8;
+
+function mergeProjectMilestonesMetadataJson(
+  metadataJson: string | null | undefined,
+  payload: ProjectMilestonesPayload,
+): string {
+  const root = safeParseJsonObject(metadataJson) ?? {};
+  return JSON.stringify({ ...root, ...buildProjectMilestonesMetadataPatch(payload) });
+}
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -230,6 +238,8 @@ export function IdeaBankModal({
   const pendingRowsRef = useRef<Map<string, TrankilV2TimelineItemRow>>(new Map());
   const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(() => new Set());
   const [expandedZoomJalonKeys, setExpandedZoomJalonKeys] = useState<Set<string>>(() => new Set());
+  const [expandedZoomDoneJalonKeys, setExpandedZoomDoneJalonKeys] = useState<Set<string>>(() => new Set());
+  const [expandedTravelDoneProjectIds, setExpandedTravelDoneProjectIds] = useState<Set<string>>(() => new Set());
 
   const refresh = useCallback(async () => {
     onChanged();
@@ -240,6 +250,8 @@ export function IdeaBankModal({
       setLocalItemPatches(new Map());
       setExpandedParentIds(new Set());
       setExpandedZoomJalonKeys(new Set());
+      setExpandedZoomDoneJalonKeys(new Set());
+      setExpandedTravelDoneProjectIds(new Set());
     } else {
       setSearchTarget(null);
       setSearchQuery('');
@@ -347,20 +359,44 @@ export function IdeaBankModal({
   );
 
   const handleToggleZoomTaskDone = useCallback(
-    async (row: TrankilV2TimelineItemRow) => {
-      if (row.type !== 'TASK') return;
+    async (taskRow: TrankilV2TimelineItemRow) => {
+      if (taskRow.type !== 'TASK') return;
       await safeSuccessHaptic();
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       try {
-        await toggleIntentionDone(row.id);
-        const nextStatus: TrankilIntentStatus = row.status === 'DONE' ? 'TODO' : 'DONE';
-        applyLocalPatch(row.id, { status: nextStatus });
+        await toggleIntentionDone(taskRow.id);
+        const nextStatus: TrankilIntentStatus = taskRow.status === 'DONE' ? 'TODO' : 'DONE';
+        applyLocalPatch(taskRow.id, { status: nextStatus });
+        const projectId = String(taskRow.parent_id ?? '').trim();
+        const jalonUid = resolveRowZoomParentJalonUid(taskRow);
+        if (projectId && jalonUid && nextStatus === 'TODO') {
+          const projectRow = items.find((r) => r.id === projectId);
+          if (projectRow) {
+            const resolvedProject = resolveRow(projectRow);
+            const payload = parseProjectMilestonesPayloadFromMetadataJson(resolvedProject.metadata_json);
+            const milestone = payload?.milestones.find((m) => m.uid === jalonUid);
+            if (milestone?.checked && payload) {
+              const nextPayload: ProjectMilestonesPayload = {
+                ...payload,
+                milestones: payload.milestones.map((m) =>
+                  m.uid === jalonUid ? { ...m, checked: false } : m,
+                ),
+              };
+              const merged = mergeProjectMilestonesMetadataJson(resolvedProject.metadata_json, nextPayload);
+              applyLocalPatch(projectRow.id, { metadata_json: merged });
+              await patchMetadata(projectRow.id, buildProjectMilestonesMetadataPatch(nextPayload), {
+                silent: true,
+              });
+            }
+          }
+        }
         await syncNativeRailAlarmsAfterIntentionWrite('ideaBankZoomTaskToggle');
         await refresh();
       } catch {
         /* ignore */
       }
     },
-    [applyLocalPatch, refresh],
+    [applyLocalPatch, items, refresh, resolveRow],
   );
 
   const flushPendingCommits = useCallback(async () => {
@@ -471,6 +507,60 @@ export function IdeaBankModal({
       return next;
     });
   }, []);
+
+  const toggleZoomDoneSectionExpand = useCallback((jalonKey: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedZoomDoneJalonKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(jalonKey)) next.delete(jalonKey);
+      else next.add(jalonKey);
+      return next;
+    });
+  }, []);
+
+  const toggleTravelDoneSectionExpand = useCallback((projectId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedTravelDoneProjectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  }, []);
+
+  const handleToggleTravelMilestoneDone = useCallback(
+    async (projectRow: TrankilV2TimelineItemRow, milestoneUid: string) => {
+      const resolved = resolveRow(projectRow);
+      const payload = parseProjectMilestonesPayloadFromMetadataJson(resolved.metadata_json);
+      if (!payload) return;
+      const target = payload.milestones.find((m) => m.uid === milestoneUid);
+      if (!target) return;
+      const jalonKey = buildZoomJalonKey(projectRow.id, milestoneUid);
+      const zoomTasks = inboxZoomView?.childrenByJalonKey.get(jalonKey) ?? [];
+      if (zoomTasks.length > 0 && !target.checked) {
+        const doneCount = zoomTasks.filter((t) => resolveRow(t).status === 'DONE').length;
+        if (doneCount < zoomTasks.length) return;
+      }
+      await safeSuccessHaptic();
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      const nextPayload: ProjectMilestonesPayload = {
+        ...payload,
+        milestones: payload.milestones.map((m) =>
+          m.uid === milestoneUid ? { ...m, checked: !Boolean(m.checked) } : m,
+        ),
+      };
+      try {
+        applyLocalPatch(projectRow.id, {
+          metadata_json: mergeProjectMilestonesMetadataJson(resolved.metadata_json, nextPayload),
+        });
+        await patchMetadata(projectRow.id, buildProjectMilestonesMetadataPatch(nextPayload), { silent: true });
+        await refresh();
+      } catch {
+        /* ignore */
+      }
+    },
+    [applyLocalPatch, inboxZoomView, refresh, resolveRow],
+  );
 
   const openAddressSearch = useCallback(
     (row: TrankilV2TimelineItemRow, kind: TripAddressSearchKind) => {
@@ -755,12 +845,15 @@ export function IdeaBankModal({
                   count: sourcingChildCount,
                   defaultValue: `Replier ${sourcingChildCount} actions`,
                 });
+                const resolvedProjectRow = resolveRow(row);
                 const travelBrief =
                   mode === 'inbox' && row.type === 'PROJECT'
-                    ? parseProjectBriefFromMetadataJson(row.metadata_json)
+                    ? parseProjectBriefFromMetadataJson(resolvedProjectRow.metadata_json)
                     : null;
                 const travelMilestones =
-                  travelBrief && mode === 'inbox' ? resolveTravelProjectMilestonesForInbox(row.metadata_json) : [];
+                  travelBrief && mode === 'inbox'
+                    ? resolveTravelProjectMilestonesForInbox(resolvedProjectRow.metadata_json)
+                    : [];
                 const travelStepCount = travelMilestones.length;
                 const showTravelAccordion =
                   mode === 'inbox' &&
@@ -792,6 +885,17 @@ export function IdeaBankModal({
                       count: partyLeadCount,
                       defaultValue: `${partyLeadCount} étapes`,
                     });
+                const leadBadgeText = showSourcingAccordion
+                  ? `+${sourcingChildCount}`
+                  : showTravelAccordion
+                    ? resolveTravelProjectBadgeLabel({
+                        milestones: travelMilestones,
+                        projectId: row.id,
+                        inboxZoomView,
+                        resolveRow,
+                        fallbackCount: travelStepCount,
+                      })
+                    : `+${partyLeadCount}`;
                 const toggleRowExpand = () => toggleSourcedParentExpand(row.id);
 
                 if (__DEV__ && !isTripCard) {
@@ -829,11 +933,18 @@ export function IdeaBankModal({
                           <View
                             style={[
                               styles.sourcingCountBadge,
+                              showTravelAccordion && !showSourcingAccordion ? styles.sourcingCountBadgeWide : null,
                               { backgroundColor: categoryPastelTabBackground(row.category_id) },
                             ]}
                           >
-                            <Text style={[styles.sourcingCountText, { color: designTokens.textPrimary }]}>
-                              +{partyLeadCount}
+                            <Text
+                              style={[
+                                styles.sourcingCountText,
+                                showTravelAccordion && !showSourcingAccordion ? styles.sourcingCountTextCompact : null,
+                                { color: designTokens.textPrimary },
+                              ]}
+                            >
+                              {leadBadgeText}
                             </Text>
                           </View>
                         </PressableScale>
@@ -1036,207 +1147,30 @@ export function IdeaBankModal({
                         );
                       })
                     : null}
-                  {showTravelAccordion && isExpanded && travelMilestones.length > 0
-                    ? travelMilestones.map((milestone) => {
-                        const jalonKey = milestone.uid
-                          ? buildZoomJalonKey(row.id, milestone.uid)
-                          : null;
-                        const zoomTasks =
-                          jalonKey && inboxZoomView
-                            ? inboxZoomView.childrenByJalonKey.get(jalonKey) ?? []
-                            : [];
-                        const resolvedZoomTasks = zoomTasks.map((task) => resolveRow(task));
-                        const zoomTaskTotal = resolvedZoomTasks.length;
-                        const zoomTaskDone = resolvedZoomTasks.filter((task) => task.status === 'DONE').length;
-                        const hasZoomDecompose = zoomTaskTotal > 0;
-                        const zoomJalonExpanded = jalonKey ? expandedZoomJalonKeys.has(jalonKey) : false;
-                        const sublineParts: string[] = [formatMilestoneDurationLabel(milestone)];
-                        const persona = String(milestone.expert_persona ?? '').trim();
-                        if (persona) sublineParts.push(persona);
-                        const subline = sublineParts.join(' · ');
-                        const zoomMilestoneA11y = hasZoomDecompose
-                          ? zoomJalonExpanded
-                            ? t('timeline.zoomDecomposeCollapse', {
-                                count: zoomTaskTotal,
-                                defaultValue: `Replier ${zoomTaskTotal} sous-tâches`,
-                              })
-                            : t('timeline.zoomDecomposeExpand', {
-                                count: zoomTaskTotal,
-                                defaultValue: `Déplier ${zoomTaskTotal} sous-tâches`,
-                              })
-                          : undefined;
-                        const zoomProgressRatio =
-                          zoomTaskTotal > 0 ? Math.min(1, zoomTaskDone / zoomTaskTotal) : 0;
-                        const categoryPastel = categoryPastelTabBackground(row.category_id);
-                        return (
-                          <React.Fragment key={milestone.uid || `${row.id}-${milestone.title}`}>
-                            <PressableScale
-                              style={[styles.childRow, { paddingLeft: TRAVEL_MILESTONE_INSET }]}
-                              hapticType="light"
-                              onPress={
-                                hasZoomDecompose && jalonKey
-                                  ? () => toggleZoomJalonExpand(jalonKey)
-                                  : () => openDetail(row)
-                              }
-                              accessibilityRole="button"
-                              accessibilityLabel={zoomMilestoneA11y ?? milestone.title}
-                            >
-                              <Text style={[styles.rowTitle, { color: designTokens.textPrimary }]} numberOfLines={1}>
-                                {milestone.title}
-                              </Text>
-                              <View style={styles.milestoneSublineRow}>
-                                <Text
-                                  style={[styles.createdHint, styles.milestoneSublineText, { color: designTokens.textSecondary }]}
-                                  numberOfLines={1}
-                                >
-                                  {subline}
-                                </Text>
-                                {hasZoomDecompose ? (
-                                  <>
-                                    <View
-                                      style={[
-                                        styles.zoomJalonCountBadge,
-                                        { backgroundColor: categoryPastelTabBackground(row.category_id) },
-                                      ]}
-                                    >
-                                      <Text style={[styles.zoomJalonCountText, { color: designTokens.textPrimary }]}>
-                                        {zoomTaskDone}/{zoomTaskTotal}
-                                      </Text>
-                                    </View>
-                                    <Icon
-                                      source={zoomJalonExpanded ? 'chevron-left' : 'chevron-right'}
-                                      size={20}
-                                      color={designTokens.textSecondary}
-                                    />
-                                  </>
-                                ) : null}
-                              </View>
-                            </PressableScale>
-                            {hasZoomDecompose && zoomJalonExpanded ? (
-                              <View
-                                style={[
-                                  styles.zoomDecomposeWrap,
-                                  {
-                                    marginLeft: TRAVEL_MILESTONE_INSET + ZOOM_PANEL_EXTRA_INSET,
-                                    marginRight: 12,
-                                  },
-                                ]}
-                              >
-                                <View style={styles.zoomDecomposeStemCol}>
-                                  <View
-                                    style={[
-                                      styles.zoomDecomposeStemLine,
-                                      { backgroundColor: theme.colors.outlineVariant },
-                                    ]}
-                                  />
-                                </View>
-                                <View
-                                  style={[
-                                    styles.zoomDecomposePanel,
-                                    {
-                                      backgroundColor: categoryPastel,
-                                      borderColor: theme.colors.outlineVariant,
-                                    },
-                                  ]}
-                                >
-                                  <View
-                                    style={[
-                                      styles.zoomProgressTrack,
-                                      { backgroundColor: `${designTokens.textSecondary}22` },
-                                    ]}
-                                  >
-                                    <View
-                                      style={[
-                                        styles.zoomProgressFill,
-                                        {
-                                          width: `${Math.round(zoomProgressRatio * 100)}%`,
-                                          backgroundColor: designTokens.accentColor,
-                                        },
-                                      ]}
-                                    />
-                                  </View>
-                                  {zoomTasks.map((childSource, childIndex) => {
-                                    const child = resolveRow(childSource);
-                                    const childDone = child.status === 'DONE';
-                                    const isLastChild = childIndex === zoomTasks.length - 1;
-                                    return (
-                                      <View
-                                        key={child.id}
-                                        style={[
-                                          styles.zoomPanelChildRow,
-                                          isLastChild ? styles.zoomPanelChildRowLast : null,
-                                        ]}
-                                      >
-                                        <PressableScale
-                                          style={styles.zoomTaskCheckboxHit}
-                                          hapticType="light"
-                                          onPress={() => void handleToggleZoomTaskDone(child)}
-                                          accessibilityRole="checkbox"
-                                          accessibilityState={{ checked: childDone }}
-                                          accessibilityLabel={
-                                            childDone
-                                              ? t('timeline.a11yTaskUncomplete', {
-                                                  defaultValue: 'Marquer non fait',
-                                                })
-                                              : t('timeline.a11yTaskComplete')
-                                          }
-                                        >
-                                          <View
-                                            style={[
-                                              styles.zoomTaskCheckboxBox,
-                                              {
-                                                borderColor: childDone ? '#16a34a' : theme.colors.outline,
-                                              },
-                                              childDone ? styles.zoomTaskCheckboxBoxChecked : null,
-                                            ]}
-                                          >
-                                            {childDone ? (
-                                              <Icon source="check" size={14} color="#ffffff" />
-                                            ) : null}
-                                          </View>
-                                        </PressableScale>
-                                        <View style={styles.zoomConnectorCol}>
-                                          <View
-                                            style={[
-                                              styles.zoomConnectorV,
-                                              isLastChild ? styles.zoomConnectorVLast : null,
-                                              { backgroundColor: theme.colors.outlineVariant },
-                                            ]}
-                                          />
-                                          <View
-                                            style={[
-                                              styles.zoomConnectorH,
-                                              { backgroundColor: theme.colors.outlineVariant },
-                                            ]}
-                                          />
-                                        </View>
-                                        <PressableScale
-                                          style={styles.zoomTaskDetailPressable}
-                                          hapticType="light"
-                                          onPress={() => openDetail(child)}
-                                        >
-                                          <InboxLineTitle
-                                            row={child}
-                                            textPrimary={designTokens.textPrimary}
-                                            textSecondary={designTokens.textSecondary}
-                                            locale={i18n.language}
-                                            hidePastille
-                                            titleDone={childDone}
-                                            titleLines={2}
-                                            hideLine2
-                                            omitNewBadge
-                                          />
-                                        </PressableScale>
-                                      </View>
-                                    );
-                                  })}
-                                </View>
-                              </View>
-                            ) : null}
-                          </React.Fragment>
-                        );
-                      })
-                    : null}
+                  {showTravelAccordion && isExpanded && travelMilestones.length > 0 ? (
+                    <TravelMilestoneInboxRows
+                      projectRow={resolvedProjectRow}
+                      milestones={travelMilestones}
+                      inboxZoomView={inboxZoomView}
+                      resolveRow={resolveRow}
+                      expandedZoomJalonKeys={expandedZoomJalonKeys}
+                      expandedZoomDoneJalonKeys={expandedZoomDoneJalonKeys}
+                      travelDoneExpanded={expandedTravelDoneProjectIds.has(row.id)}
+                      onToggleZoomJalon={toggleZoomJalonExpand}
+                      onToggleZoomDoneSection={toggleZoomDoneSectionExpand}
+                      onToggleTravelDoneSection={() => toggleTravelDoneSectionExpand(row.id)}
+                      onToggleMilestoneDone={(uid) => void handleToggleTravelMilestoneDone(resolvedProjectRow, uid)}
+                      onToggleZoomTaskDone={(task) => void handleToggleZoomTaskDone(task)}
+                      onOpenProjectDetail={() => openDetail(resolvedProjectRow)}
+                      onOpenTaskDetail={openDetail}
+                      textPrimary={designTokens.textPrimary}
+                      textSecondary={designTokens.textSecondary}
+                      accentColor={designTokens.accentColor}
+                      locale={i18n.language}
+                      theme={theme}
+                      t={t}
+                    />
+                  ) : null}
                   </View>
                 );
               })}
@@ -1361,10 +1295,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  sourcingCountBadgeWide: {
+    width: undefined,
+    minWidth: VALIDATION_ORB_SIZE,
+    paddingHorizontal: 6,
+  },
   sourcingCountText: {
     fontSize: 15,
     fontWeight: '800',
     lineHeight: 18,
+  },
+  sourcingCountTextCompact: {
+    fontSize: 12,
+    lineHeight: 14,
   },
   sourcingChevronBtn: {
     width: VALIDATION_ORB_SIZE,
@@ -1379,118 +1322,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingRight: 12,
     marginBottom: 4,
-  },
-  milestoneSublineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    gap: 4,
-  },
-  milestoneSublineText: {
-    flex: 1,
-  },
-  zoomDecomposeWrap: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    marginBottom: 8,
-  },
-  zoomDecomposeStemCol: {
-    width: 14,
-    alignItems: 'center',
-    paddingTop: 4,
-  },
-  zoomDecomposeStemLine: {
-    width: StyleSheet.hairlineWidth,
-    flex: 1,
-    minHeight: 12,
-    borderRadius: 1,
-  },
-  zoomDecomposePanel: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-    marginBottom: 4,
-  },
-  zoomProgressTrack: {
-    height: 2,
-    width: '100%',
-    overflow: 'hidden',
-  },
-  zoomProgressFill: {
-    height: 2,
-  },
-  zoomPanelChildRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
-  },
-  zoomPanelChildRowLast: {
-    borderBottomWidth: 0,
-  },
-  zoomTaskCheckboxHit: {
-    flexShrink: 0,
-    marginTop: 1,
-  },
-  zoomTaskCheckboxBox: {
-    width: ZOOM_TASK_CHECKBOX_SIZE,
-    height: ZOOM_TASK_CHECKBOX_SIZE,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  zoomTaskCheckboxBoxChecked: {
-    backgroundColor: '#16a34a',
-    borderColor: '#16a34a',
-  },
-  zoomConnectorCol: {
-    width: 16,
-    height: ZOOM_TASK_CHECKBOX_SIZE,
-    position: 'relative',
-    marginTop: 1,
-    flexShrink: 0,
-  },
-  zoomConnectorV: {
-    position: 'absolute',
-    left: 7,
-    top: -10,
-    bottom: 0,
-    width: StyleSheet.hairlineWidth,
-  },
-  zoomConnectorVLast: {
-    bottom: '50%',
-  },
-  zoomConnectorH: {
-    position: 'absolute',
-    left: 7,
-    top: 10,
-    width: 9,
-    height: StyleSheet.hairlineWidth,
-  },
-  zoomTaskDetailPressable: {
-    flex: 1,
-    minWidth: 0,
-  },
-  zoomJalonCountBadge: {
-    minWidth: 28,
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  zoomJalonCountText: {
-    fontSize: 11,
-    fontWeight: '800',
-    lineHeight: 13,
   },
   rowTitle: { fontSize: 15, fontWeight: '600' },
   rowTitleDone: { textDecorationLine: 'line-through' },
