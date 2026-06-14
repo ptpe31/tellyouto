@@ -21,6 +21,7 @@ import {
   deleteTrankilV2IntentionById,
   logTrankilV2HabitOccurrence,
   markTrankilV2IntentionDone,
+  toggleIntentionDone,
   type TrankilIntentStatus,
   type TrankilV2TimelineItemRow,
 } from '../api';
@@ -339,6 +340,23 @@ export function IdeaBankModal({
       schedulePendingCommit(row);
     },
     [cancelPendingCommit, schedulePendingCommit],
+  );
+
+  const handleToggleZoomTaskDone = useCallback(
+    async (row: TrankilV2TimelineItemRow) => {
+      if (row.type !== 'TASK') return;
+      await safeSuccessHaptic();
+      try {
+        await toggleIntentionDone(row.id);
+        const nextStatus: TrankilIntentStatus = row.status === 'DONE' ? 'TODO' : 'DONE';
+        applyLocalPatch(row.id, { status: nextStatus });
+        await syncNativeRailAlarmsAfterIntentionWrite('ideaBankZoomTaskToggle');
+        await refresh();
+      } catch {
+        /* ignore */
+      }
+    },
+    [applyLocalPatch, refresh],
   );
 
   const flushPendingCommits = useCallback(async () => {
@@ -1023,7 +1041,10 @@ export function IdeaBankModal({
                           jalonKey && inboxZoomView
                             ? inboxZoomView.childrenByJalonKey.get(jalonKey) ?? []
                             : [];
-                        const hasZoomDecompose = zoomTasks.length > 0;
+                        const resolvedZoomTasks = zoomTasks.map((task) => resolveRow(task));
+                        const zoomTaskTotal = resolvedZoomTasks.length;
+                        const zoomTaskDone = resolvedZoomTasks.filter((task) => task.status === 'DONE').length;
+                        const hasZoomDecompose = zoomTaskTotal > 0;
                         const zoomJalonExpanded = jalonKey ? expandedZoomJalonKeys.has(jalonKey) : false;
                         const sublineParts: string[] = [formatMilestoneDurationLabel(milestone)];
                         const persona = String(milestone.expert_persona ?? '').trim();
@@ -1032,12 +1053,12 @@ export function IdeaBankModal({
                         const zoomMilestoneA11y = hasZoomDecompose
                           ? zoomJalonExpanded
                             ? t('timeline.zoomDecomposeCollapse', {
-                                count: zoomTasks.length,
-                                defaultValue: `Replier ${zoomTasks.length} sous-tâches`,
+                                count: zoomTaskTotal,
+                                defaultValue: `Replier ${zoomTaskTotal} sous-tâches`,
                               })
                             : t('timeline.zoomDecomposeExpand', {
-                                count: zoomTasks.length,
-                                defaultValue: `Déplier ${zoomTasks.length} sous-tâches`,
+                                count: zoomTaskTotal,
+                                defaultValue: `Déplier ${zoomTaskTotal} sous-tâches`,
                               })
                           : undefined;
                         return (
@@ -1072,7 +1093,7 @@ export function IdeaBankModal({
                                       ]}
                                     >
                                       <Text style={[styles.zoomJalonCountText, { color: designTokens.textPrimary }]}>
-                                        +{zoomTasks.length}
+                                        {zoomTaskDone}/{zoomTaskTotal}
                                       </Text>
                                     </View>
                                     <Icon
@@ -1087,23 +1108,59 @@ export function IdeaBankModal({
                             {hasZoomDecompose && zoomJalonExpanded
                               ? zoomTasks.map((childSource) => {
                                   const child = resolveRow(childSource);
+                                  const childDone = child.status === 'DONE';
                                   return (
-                                    <PressableScale
+                                    <View
                                       key={child.id}
                                       style={[
-                                        styles.childRow,
-                                        { paddingLeft: 24 + VALIDATION_ORB_OUTER + 16 },
+                                        styles.zoomTaskRow,
+                                        { paddingLeft: 24 + VALIDATION_ORB_OUTER },
                                       ]}
-                                      hapticType="light"
-                                      onPress={() => openDetail(child)}
                                     >
-                                      <InboxLineTitle
-                                        row={child}
-                                        textPrimary={designTokens.textPrimary}
-                                        textSecondary={designTokens.textSecondary}
-                                        locale={i18n.language}
-                                      />
-                                    </PressableScale>
+                                      <PressableScale
+                                        style={styles.zoomTaskCheckboxHit}
+                                        hapticType="light"
+                                        onPress={() => void handleToggleZoomTaskDone(child)}
+                                        accessibilityRole="checkbox"
+                                        accessibilityState={{ checked: childDone }}
+                                        accessibilityLabel={
+                                          childDone
+                                            ? t('timeline.a11yTaskUncomplete', { defaultValue: 'Marquer non fait' })
+                                            : t('timeline.a11yTaskComplete')
+                                        }
+                                      >
+                                        <View
+                                          style={[
+                                            styles.zoomTaskCheckboxBox,
+                                            {
+                                              borderColor: childDone ? '#16a34a' : theme.colors.outline,
+                                            },
+                                            childDone ? styles.zoomTaskCheckboxBoxChecked : null,
+                                          ]}
+                                        >
+                                          {childDone ? (
+                                            <Icon source="check" size={14} color="#ffffff" />
+                                          ) : null}
+                                        </View>
+                                      </PressableScale>
+                                      <PressableScale
+                                        style={styles.zoomTaskDetailPressable}
+                                        hapticType="light"
+                                        onPress={() => openDetail(child)}
+                                      >
+                                        <InboxLineTitle
+                                          row={child}
+                                          textPrimary={designTokens.textPrimary}
+                                          textSecondary={designTokens.textSecondary}
+                                          locale={i18n.language}
+                                          hidePastille
+                                          titleDone={childDone}
+                                          titleLines={2}
+                                          hideLine2
+                                          omitNewBadge
+                                        />
+                                      </PressableScale>
+                                    </View>
                                   );
                                 })
                               : null}
@@ -1263,11 +1320,40 @@ const styles = StyleSheet.create({
   milestoneSublineText: {
     flex: 1,
   },
+  zoomTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 8,
+    paddingRight: 12,
+    marginBottom: 4,
+  },
+  zoomTaskCheckboxHit: {
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  zoomTaskCheckboxBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  zoomTaskCheckboxBoxChecked: {
+    backgroundColor: '#16a34a',
+    borderColor: '#16a34a',
+  },
+  zoomTaskDetailPressable: {
+    flex: 1,
+    minWidth: 0,
+  },
   zoomJalonCountBadge: {
-    minWidth: 22,
+    minWidth: 28,
     height: 22,
     borderRadius: 11,
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,

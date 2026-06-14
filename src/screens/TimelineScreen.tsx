@@ -30,6 +30,7 @@ import {
   listTrankilV2IsArchivedIntentions,
   listTrankilV2MergedTodayTimelineWithLowPressure,
   listTrankilV2InboxToday,
+  listTrankilV2InboxZoomChildTasksForDay,
   getHabitCompletionDayKeysByIntentionIds,
   listTrankilV2BoxStockIntentions,
   listTrankilV2ListClusterIntentions,
@@ -832,10 +833,11 @@ export function TimelineScreen() {
     try {
       const { anchor } = resolveAnchor(timeNav, customPickedDate);
       const ymd = toYmd(anchor);
-      const [b, counts, inboxRaw, shopRaw, boxRaw, projectsRaw, listsRaw, habitsRaw] = await Promise.all([
+      const [b, counts, inboxRaw, inboxZoomChildRaw, shopRaw, boxRaw, projectsRaw, listsRaw, habitsRaw] = await Promise.all([
         fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0),
         getTrankilV2SmartClusterCounts(ymd),
         listTrankilV2InboxToday(ymd),
+        listTrankilV2InboxZoomChildTasksForDay(ymd),
         listTrankilV2ShopClusterIntentions(),
         listTrankilV2BoxStockIntentions(ymd),
         listActiveProjectsToday(ymd),
@@ -848,7 +850,12 @@ export function TimelineScreen() {
       setArchivedRows(b.archived);
       setArchivedHasMore(b.archivedHasMore);
       setSmartClusterCounts(counts);
-      setInboxTodayRows(inboxRaw.map(mapTrankilIntentionToTimelineItemRow));
+      const inboxById = new Map(inboxRaw.map((r) => [r.id, r]));
+      for (const row of inboxZoomChildRaw) {
+        if (!inboxById.has(row.id)) inboxById.set(row.id, row);
+      }
+      const mergedInbox = [...inboxById.values()].sort((a, b) => Number(b.created_at) - Number(a.created_at));
+      setInboxTodayRows(mergedInbox.map(mapTrankilIntentionToTimelineItemRow));
       setShopClusterRows(shopRaw.map(mapTrankilIntentionToTimelineItemRow));
       setBoxStockRows(filterTimelineVisibleRows(boxRaw.map(mapTrankilIntentionToTimelineItemRow)));
       const habitRows = habitsRaw.map(mapTrankilIntentionToTimelineItemRow);

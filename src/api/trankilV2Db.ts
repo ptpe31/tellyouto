@@ -2302,6 +2302,25 @@ export async function listTrankilV2InboxToday(todayYmd?: string): Promise<Tranki
   );
 }
 
+/** Sous-tâches zoom du jour (TODO + DONE) — restent visibles sous jalon Inbox après coche. */
+export async function listTrankilV2InboxZoomChildTasksForDay(todayYmd?: string): Promise<TrankilV2IntentionRow[]> {
+  const ymd = resolveLocalTodayYmd(todayYmd);
+  await initTrankilV2Schema();
+  const db = await getDb();
+  return db.getAllAsync<TrankilV2IntentionRow>(
+    `SELECT * FROM intentions i
+     WHERE i.type = 'TASK'
+       AND i.zoom_parent_jalon_uid IS NOT NULL
+       AND trim(i.zoom_parent_jalon_uid) != ''
+       AND i.status IN ('TODO', 'DONE')
+       AND COALESCE(i.is_archived, 0) = 0
+       ${INTENTION_SYSTEM_RESERVED_SQL}
+       AND ${INTENTION_CREATED_ON_LOCAL_YMD_SQL}
+     ORDER BY i.created_at ASC`,
+    [ymd],
+  );
+}
+
 /** Marque une intention comme triée (`is_organized`) — n'affecte plus la visibilité Inbox journal. */
 export async function markTrankilV2IntentionRemovedFromInbox(id: string): Promise<void> {
   await initTrankilV2Schema();

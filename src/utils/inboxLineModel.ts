@@ -23,6 +23,8 @@ export type ResolveInboxLineInput = {
   sourcingChildCount?: number;
   /** Badge +N étapes visible — masquer le compteur en ligne 2. */
   omitTravelMilestoneInLine2?: boolean;
+  /** Masque le badge NEW (sous-tâches zoom Inbox). */
+  omitNewBadge?: boolean;
 };
 
 function capitalizeFirst(value: string): string {
@@ -220,6 +222,7 @@ function buildTaskMomentLine2(
   trip: Record<string, unknown> | null,
   t: ResolveInboxLineInput['t'],
   locale: string,
+  omitNewBadge?: boolean,
 ): string {
   const hint = String(row.sourcing_v1?.source_hint ?? '').trim();
   const seriesLen = row.sourcing_v1?.event_series_v1?.slots?.length ?? 0;
@@ -231,14 +234,14 @@ function buildTaskMomentLine2(
   if (dayLabel && timeLabel) return `${dayLabel} · ${timeLabel}`;
   if (dayLabel) return `${dayLabel} · ${t('timeline.allDuration')}`;
   if (hint) return hint;
-  if (isCreatedToday(Number(row.created_at))) {
+  if (!omitNewBadge && isCreatedToday(Number(row.created_at))) {
     return t('timeline.newBadge', { defaultValue: 'NEW' });
   }
   return '';
 }
 
 export function resolveInboxLinePresentation(input: ResolveInboxLineInput): InboxLinePresentation {
-  const { row, locale, t, sourcingChildCount, omitTravelMilestoneInLine2 } = input;
+  const { row, locale, t, sourcingChildCount, omitTravelMilestoneInLine2, omitNewBadge } = input;
   const meta = safeParseJsonObject(row.metadata_json);
   const trip = getTripMetaFromRoot(meta);
   const untitled = t('timeline.untitled');
@@ -332,7 +335,7 @@ export function resolveInboxLinePresentation(input: ResolveInboxLineInput): Inbo
   }
 
   const hint = String(row.sourcing_v1?.source_hint ?? '').trim();
-  const momentPart = buildTaskMomentLine2(row, meta, trip, t, locale);
+  const momentPart = buildTaskMomentLine2(row, meta, trip, t, locale, omitNewBadge);
   let line2 = momentPart;
   if (hint && momentPart) {
     line2 = `${hint} · ${momentPart}`;

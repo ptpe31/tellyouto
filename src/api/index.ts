@@ -85,6 +85,7 @@ export {
   countActiveListsToday,
   getTrankilV2SmartClusterCounts,
   listTrankilV2InboxToday,
+  listTrankilV2InboxZoomChildTasksForDay,
   listTrankilV2NewInboxToday,
   markTrankilV2IntentionRemovedFromInbox,
   bulkMarkTrankilV2InboxRemoved,
