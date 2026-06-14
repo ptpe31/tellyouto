@@ -78,7 +78,7 @@ import {
   collectAutoExpandZoomJalonKeys,
   resolveHubDeleteIntentionIds,
   resolveParentSelectionVisual,
-  resolveSourcingChildIds,
+  resolveRootCascadeChildIds,
   resolveZoomTaskIdsForProject,
   toggleHubChildSelection,
   toggleHubParentSelection,
@@ -540,30 +540,23 @@ export function IdeaBankModal({
     );
   }, [hubChildrenByParentId, hubZoomView, items]);
 
-  const resolveRootCascadeChildIds = useCallback(
-    (row: TrankilV2TimelineItemRow): string[] => {
-      if (isSourcedCaptureParent(row)) {
-        return resolveSourcingChildIds(row.id, hubChildrenByParentId);
-      }
-      if (row.type === 'PROJECT') {
-        return resolveZoomTaskIdsForProject(row.id, hubZoomView);
-      }
-      return [];
-    },
+  const resolveRootCascadeChildIdsForRow = useCallback(
+    (row: TrankilV2TimelineItemRow): string[] =>
+      resolveRootCascadeChildIds(row, hubChildrenByParentId, hubZoomView),
     [hubChildrenByParentId, hubZoomView],
   );
 
   const toggleRowSelection = useCallback(
     (row: TrankilV2TimelineItemRow) => {
       setSelectedIds((prev) => {
-        const cascadeChildIds = resolveRootCascadeChildIds(row);
+        const cascadeChildIds = resolveRootCascadeChildIdsForRow(row);
         if (cascadeChildIds.length > 0) {
           return toggleHubParentSelection(row.id, cascadeChildIds, prev);
         }
         return toggleHubRowSelection(row.id, prev);
       });
     },
-    [resolveRootCascadeChildIds],
+    [resolveRootCascadeChildIdsForRow],
   );
 
   const toggleSourcingChildSelection = useCallback(
@@ -583,13 +576,13 @@ export function IdeaBankModal({
 
   const resolveRowSelectionVisual = useCallback(
     (row: TrankilV2TimelineItemRow): HubSelectionVisual => {
-      const cascadeChildIds = resolveRootCascadeChildIds(row);
+      const cascadeChildIds = resolveRootCascadeChildIdsForRow(row);
       if (cascadeChildIds.length > 0) {
         return resolveParentSelectionVisual(row.id, cascadeChildIds, selectedIds);
       }
       return selectedIds.has(row.id) ? 'all' : 'none';
     },
-    [resolveRootCascadeChildIds, selectedIds],
+    [resolveRootCascadeChildIdsForRow, selectedIds],
   );
 
   const resolveChildSelectionVisual = useCallback(
@@ -1011,25 +1004,7 @@ export function IdeaBankModal({
                 >
                   {sheetTitle}
                 </Text>
-                <PressableScale
-                  onPress={confirmDeleteSelected}
-                  hitSlop={12}
-                  hapticType="light"
-                  disabled={deleteBusy || selectedCount === 0}
-                >
-                  <Text
-                    style={{
-                      color: selectedCount > 0 ? theme.colors.error : designTokens.textSecondary,
-                      fontWeight: '700',
-                      opacity: deleteBusy ? 0.5 : 1,
-                    }}
-                  >
-                    {t('timeline.hubDeleteConfirmAction', {
-                      count: selectedCount,
-                      defaultValue: `Supprimer (${selectedCount})`,
-                    })}
-                  </Text>
-                </PressableScale>
+                <View style={styles.sheetHeaderSideSpacer} />
               </>
             ) : (
               <>
@@ -1593,6 +1568,35 @@ export function IdeaBankModal({
                   {t('timeline.hubDeleteClearSelection', { defaultValue: 'Effacer la sélection' })}
                 </Text>
               </PressableScale>
+              <PressableScale
+                style={[
+                  styles.selectionFooterBtn,
+                  styles.selectionFooterBtnDelete,
+                  {
+                    borderColor: selectedCount > 0 ? theme.colors.error : theme.colors.outlineVariant,
+                    backgroundColor: selectedCount > 0 ? theme.colors.error : 'transparent',
+                    opacity: deleteBusy ? 0.5 : 1,
+                  },
+                ]}
+                hapticType="medium"
+                onPress={confirmDeleteSelected}
+                disabled={deleteBusy || selectedCount === 0}
+              >
+                <Text
+                  style={[
+                    styles.selectionFooterBtnText,
+                    {
+                      color: selectedCount > 0 ? '#FFFFFF' : designTokens.textSecondary,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {t('timeline.hubDeleteConfirmAction', {
+                    count: selectedCount,
+                    defaultValue: `Supprimer (${selectedCount})`,
+                  })}
+                </Text>
+              </PressableScale>
             </View>
           ) : null}
 
@@ -1676,6 +1680,7 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { fontSize: 18, fontWeight: '800', flex: 1 },
   sheetTitleCenter: { textAlign: 'center' },
+  sheetHeaderSideSpacer: { minWidth: 72 },
   list: { maxHeight: 420 },
   rowCard: {
     borderWidth: 1,
@@ -1787,8 +1792,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 11,
+    paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 0,
+  },
+  selectionFooterBtnDelete: {
+    flex: 1.15,
   },
   selectionFooterBtnText: {
     fontSize: 13,

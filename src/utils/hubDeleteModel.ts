@@ -161,6 +161,31 @@ export function toggleHubChildSelection(
   return next;
 }
 
+/** IDs cascade (sourcing + zoom) rattachés à une racine hub. */
+export function resolveRootCascadeChildIds(
+  root: TrankilV2TimelineItemRow,
+  childrenByParentId?: Map<string, TrankilV2TimelineItemRow[]>,
+  zoomView?: ZoomInboxView,
+): string[] {
+  if (isSourcedCaptureParent(root)) {
+    return resolveSourcingChildIds(root.id, childrenByParentId);
+  }
+  if (root.type === 'PROJECT') {
+    return resolveZoomTaskIdsForProject(root.id, zoomView);
+  }
+  return [];
+}
+
+/** Sélection parent complète = tous les enfants cascade cochés (parent peut servir de marqueur UI en partiel). */
+export function isFullParentCascadeSelection(
+  parentId: string,
+  cascadeChildIds: string[],
+  selectedIds: Set<string>,
+): boolean {
+  if (cascadeChildIds.length === 0) return selectedIds.has(parentId);
+  return cascadeChildIds.every((id) => selectedIds.has(id));
+}
+
 /** Toggle racine simple (sans enfants sourcing/zoom à gérer en UI). */
 export function toggleHubRowSelection(rowId: string, selectedIds: Set<string>): Set<string> {
   const next = new Set(selectedIds);
@@ -170,7 +195,9 @@ export function toggleHubRowSelection(rowId: string, selectedIds: Set<string>): 
 }
 
 /**
- * Résout les ids SQLite à supprimer : sélection explicite + cascade parent sourcing/zoom + ancres orphelines.
+ * Résout les ids SQLite à supprimer.
+ * Cascade parent → enfants uniquement si **tous** les enfants cascade sont cochés.
+ * Le parent en sélection partielle sert de marqueur UI et n'est pas supprimé seul.
  */
 export function resolveHubDeleteIntentionIds(params: {
   selectedIds: Set<string>;
@@ -188,16 +215,15 @@ export function resolveHubDeleteIntentionIds(params: {
   }
 
   for (const root of roots) {
-    if (!selectedIds.has(root.id)) continue;
-    if (isSourcedCaptureParent(root)) {
-      for (const childId of resolveSourcingChildIds(root.id, childrenByParentId)) {
-        resolved.add(childId);
-      }
-    }
-    if (root.type === 'PROJECT') {
-      for (const taskId of resolveZoomTaskIdsForProject(root.id, zoomView)) {
-        resolved.add(taskId);
-      }
+    const cascadeChildIds = resolveRootCascadeChildIds(root, childrenByParentId, zoomView);
+    if (cascadeChildIds.length === 0) continue;
+
+    const fullCascade = isFullParentCascadeSelection(root.id, cascadeChildIds, selectedIds);
+    if (fullCascade) {
+      resolved.add(root.id);
+      for (const childId of cascadeChildIds) resolved.add(childId);
+    } else {
+      resolved.delete(root.id);
     }
   }
 
