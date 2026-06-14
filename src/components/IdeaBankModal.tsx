@@ -114,6 +114,10 @@ type Props = {
 /** Diamètre intérieur orbe validation (hors padding néomorphique). */
 const VALIDATION_ORB_SIZE = 34;
 const VALIDATION_ORB_OUTER = VALIDATION_ORB_SIZE + 8;
+const ZOOM_TASK_CHECKBOX_SIZE = 22;
+/** Indent jalon / panneau zoom sous accordéon voyage. */
+const TRAVEL_MILESTONE_INSET = 24 + VALIDATION_ORB_OUTER;
+const ZOOM_PANEL_EXTRA_INSET = 8;
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -1061,10 +1065,13 @@ export function IdeaBankModal({
                                 defaultValue: `Déplier ${zoomTaskTotal} sous-tâches`,
                               })
                           : undefined;
+                        const zoomProgressRatio =
+                          zoomTaskTotal > 0 ? Math.min(1, zoomTaskDone / zoomTaskTotal) : 0;
+                        const categoryPastel = categoryPastelTabBackground(row.category_id);
                         return (
                           <React.Fragment key={milestone.uid || `${row.id}-${milestone.title}`}>
                             <PressableScale
-                              style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
+                              style={[styles.childRow, { paddingLeft: TRAVEL_MILESTONE_INSET }]}
                               hapticType="light"
                               onPress={
                                 hasZoomDecompose && jalonKey
@@ -1105,65 +1112,127 @@ export function IdeaBankModal({
                                 ) : null}
                               </View>
                             </PressableScale>
-                            {hasZoomDecompose && zoomJalonExpanded
-                              ? zoomTasks.map((childSource) => {
-                                  const child = resolveRow(childSource);
-                                  const childDone = child.status === 'DONE';
-                                  return (
+                            {hasZoomDecompose && zoomJalonExpanded ? (
+                              <View
+                                style={[
+                                  styles.zoomDecomposeWrap,
+                                  {
+                                    marginLeft: TRAVEL_MILESTONE_INSET + ZOOM_PANEL_EXTRA_INSET,
+                                    marginRight: 12,
+                                  },
+                                ]}
+                              >
+                                <View style={styles.zoomDecomposeStemCol}>
+                                  <View
+                                    style={[
+                                      styles.zoomDecomposeStemLine,
+                                      { backgroundColor: theme.colors.outlineVariant },
+                                    ]}
+                                  />
+                                </View>
+                                <View
+                                  style={[
+                                    styles.zoomDecomposePanel,
+                                    {
+                                      backgroundColor: categoryPastel,
+                                      borderColor: theme.colors.outlineVariant,
+                                    },
+                                  ]}
+                                >
+                                  <View
+                                    style={[
+                                      styles.zoomProgressTrack,
+                                      { backgroundColor: `${designTokens.textSecondary}22` },
+                                    ]}
+                                  >
                                     <View
-                                      key={child.id}
                                       style={[
-                                        styles.zoomTaskRow,
-                                        { paddingLeft: 24 + VALIDATION_ORB_OUTER },
+                                        styles.zoomProgressFill,
+                                        {
+                                          width: `${Math.round(zoomProgressRatio * 100)}%`,
+                                          backgroundColor: designTokens.accentColor,
+                                        },
                                       ]}
-                                    >
-                                      <PressableScale
-                                        style={styles.zoomTaskCheckboxHit}
-                                        hapticType="light"
-                                        onPress={() => void handleToggleZoomTaskDone(child)}
-                                        accessibilityRole="checkbox"
-                                        accessibilityState={{ checked: childDone }}
-                                        accessibilityLabel={
-                                          childDone
-                                            ? t('timeline.a11yTaskUncomplete', { defaultValue: 'Marquer non fait' })
-                                            : t('timeline.a11yTaskComplete')
-                                        }
+                                    />
+                                  </View>
+                                  {zoomTasks.map((childSource, childIndex) => {
+                                    const child = resolveRow(childSource);
+                                    const childDone = child.status === 'DONE';
+                                    const isLastChild = childIndex === zoomTasks.length - 1;
+                                    return (
+                                      <View
+                                        key={child.id}
+                                        style={[
+                                          styles.zoomPanelChildRow,
+                                          isLastChild ? styles.zoomPanelChildRowLast : null,
+                                        ]}
                                       >
-                                        <View
-                                          style={[
-                                            styles.zoomTaskCheckboxBox,
-                                            {
-                                              borderColor: childDone ? '#16a34a' : theme.colors.outline,
-                                            },
-                                            childDone ? styles.zoomTaskCheckboxBoxChecked : null,
-                                          ]}
+                                        <PressableScale
+                                          style={styles.zoomTaskCheckboxHit}
+                                          hapticType="light"
+                                          onPress={() => void handleToggleZoomTaskDone(child)}
+                                          accessibilityRole="checkbox"
+                                          accessibilityState={{ checked: childDone }}
+                                          accessibilityLabel={
+                                            childDone
+                                              ? t('timeline.a11yTaskUncomplete', {
+                                                  defaultValue: 'Marquer non fait',
+                                                })
+                                              : t('timeline.a11yTaskComplete')
+                                          }
                                         >
-                                          {childDone ? (
-                                            <Icon source="check" size={14} color="#ffffff" />
-                                          ) : null}
+                                          <View
+                                            style={[
+                                              styles.zoomTaskCheckboxBox,
+                                              {
+                                                borderColor: childDone ? '#16a34a' : theme.colors.outline,
+                                              },
+                                              childDone ? styles.zoomTaskCheckboxBoxChecked : null,
+                                            ]}
+                                          >
+                                            {childDone ? (
+                                              <Icon source="check" size={14} color="#ffffff" />
+                                            ) : null}
+                                          </View>
+                                        </PressableScale>
+                                        <View style={styles.zoomConnectorCol}>
+                                          <View
+                                            style={[
+                                              styles.zoomConnectorV,
+                                              isLastChild ? styles.zoomConnectorVLast : null,
+                                              { backgroundColor: theme.colors.outlineVariant },
+                                            ]}
+                                          />
+                                          <View
+                                            style={[
+                                              styles.zoomConnectorH,
+                                              { backgroundColor: theme.colors.outlineVariant },
+                                            ]}
+                                          />
                                         </View>
-                                      </PressableScale>
-                                      <PressableScale
-                                        style={styles.zoomTaskDetailPressable}
-                                        hapticType="light"
-                                        onPress={() => openDetail(child)}
-                                      >
-                                        <InboxLineTitle
-                                          row={child}
-                                          textPrimary={designTokens.textPrimary}
-                                          textSecondary={designTokens.textSecondary}
-                                          locale={i18n.language}
-                                          hidePastille
-                                          titleDone={childDone}
-                                          titleLines={2}
-                                          hideLine2
-                                          omitNewBadge
-                                        />
-                                      </PressableScale>
-                                    </View>
-                                  );
-                                })
-                              : null}
+                                        <PressableScale
+                                          style={styles.zoomTaskDetailPressable}
+                                          hapticType="light"
+                                          onPress={() => openDetail(child)}
+                                        >
+                                          <InboxLineTitle
+                                            row={child}
+                                            textPrimary={designTokens.textPrimary}
+                                            textSecondary={designTokens.textSecondary}
+                                            locale={i18n.language}
+                                            hidePastille
+                                            titleDone={childDone}
+                                            titleLines={2}
+                                            hideLine2
+                                            omitNewBadge
+                                          />
+                                        </PressableScale>
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                              </View>
+                            ) : null}
                           </React.Fragment>
                         );
                       })
@@ -1320,21 +1389,57 @@ const styles = StyleSheet.create({
   milestoneSublineText: {
     flex: 1,
   },
-  zoomTaskRow: {
+  zoomDecomposeWrap: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: 8,
+  },
+  zoomDecomposeStemCol: {
+    width: 14,
+    alignItems: 'center',
+    paddingTop: 4,
+  },
+  zoomDecomposeStemLine: {
+    width: StyleSheet.hairlineWidth,
+    flex: 1,
+    minHeight: 12,
+    borderRadius: 1,
+  },
+  zoomDecomposePanel: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  zoomProgressTrack: {
+    height: 2,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  zoomProgressFill: {
+    height: 2,
+  },
+  zoomPanelChildRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
-    paddingVertical: 8,
-    paddingRight: 12,
-    marginBottom: 4,
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+  },
+  zoomPanelChildRowLast: {
+    borderBottomWidth: 0,
   },
   zoomTaskCheckboxHit: {
     flexShrink: 0,
     marginTop: 1,
   },
   zoomTaskCheckboxBox: {
-    width: 22,
-    height: 22,
+    width: ZOOM_TASK_CHECKBOX_SIZE,
+    height: ZOOM_TASK_CHECKBOX_SIZE,
     borderRadius: 6,
     borderWidth: 1.5,
     alignItems: 'center',
@@ -1344,6 +1449,30 @@ const styles = StyleSheet.create({
   zoomTaskCheckboxBoxChecked: {
     backgroundColor: '#16a34a',
     borderColor: '#16a34a',
+  },
+  zoomConnectorCol: {
+    width: 16,
+    height: ZOOM_TASK_CHECKBOX_SIZE,
+    position: 'relative',
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  zoomConnectorV: {
+    position: 'absolute',
+    left: 7,
+    top: -10,
+    bottom: 0,
+    width: StyleSheet.hairlineWidth,
+  },
+  zoomConnectorVLast: {
+    bottom: '50%',
+  },
+  zoomConnectorH: {
+    position: 'absolute',
+    left: 7,
+    top: 10,
+    width: 9,
+    height: StyleSheet.hairlineWidth,
   },
   zoomTaskDetailPressable: {
     flex: 1,
