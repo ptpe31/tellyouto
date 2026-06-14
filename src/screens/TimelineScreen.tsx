@@ -2016,6 +2016,10 @@ export function TimelineScreen() {
         onPatchItem={patchRow}
         onOpenTripSetup={openDetailWithTripSetup}
         inboxChildrenByParentId={ideaBankMode === 'inbox' ? inboxRootsView.childrenByParentId : undefined}
+        inboxZoomAnchors={ideaBankMode === 'inbox' ? inboxRootsView.zoomView.anchorsByRowId : undefined}
+        inboxZoomChildrenByAnchorId={
+          ideaBankMode === 'inbox' ? inboxRootsView.zoomView.childrenByAnchorId : undefined
+        }
       />
     </View>
   );

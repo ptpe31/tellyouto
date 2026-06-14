@@ -526,7 +526,7 @@ Fichier : `src/services/CaptureProcessingService.ts`
 ### 3.1b Timeline — Smart Clusters (Inbox · Box · Routines)
 
 - [`SmartClustersCarousel.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) : tuiles **Inbox · À acheter · Box · Routines · Projets** ; compteurs via `getTrankilV2SmartClusterCounts` (`inboxToday`, `shopCount`, `boxCount`, `routinesCount`, `projectsToday`).
-- **Inbox** : [`INBOX_TODAY_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — journal 24h (`created_at` = jour local, `status = TODO`) ; [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) mode `inbox`.
+- **Inbox** : [`INBOX_TODAY_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — journal 24h (`created_at` = jour local, `status = TODO`) ; [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) mode `inbox` — accordéons sourcing / voyage (`+N` jalons) / **zoom** (`+N` sous-tâches décomposées, ancre Option A).
 - **Box** : [`BOX_STOCK_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — inventaire froid (`created_at` &lt; jour local, sans `due_date`, hors SHOP et **HABIT**) ; [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) + [`buildLivingHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) ; tap bloc → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) ; purge globale `bulkDeleteTrankilV2IntentionsByIds` (i18n `timeline.box.*`).
 - **Routines** : [`ROUTINE_HABIT_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — toutes les HABIT actives ; [`buildRoutineHubBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildLivingHubBlocks.ts) + badges série en aperçu ; tap bloc catégorie → [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) ; **sans** purge globale au niveau vue catégories.
 - **Legacy** : [`clusterEngine.getBestOrphanCluster`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/clusterEngine.ts) conservé mais **non branché** au carrousel.
@@ -559,7 +559,7 @@ Fichier : `src/services/CaptureProcessingService.ts`
   - `submitCapturePayload(...) → Promise<boolean>` : Path A peek (`INTENTION_PEEK_SNAPSHOT`) **avant** NetInfo ; hors ligne → file SQLite ; en ligne → `await runGeminiBulkSequence`. `true` = donnée persistée en ligne **ou** placée en file offline (directe ou auto-queue réseau) ; sert au drain sûr du rejouage.
   - `runGeminiBulkSequence(...)` : séquenceur bulk **séquentiel** ; échec chunk → `break` ; erreur réseau/serveur → **enqueue auto** `queueOffline*` (reste des chunks ou transcript+audio si rien n’a été persisté) ; `allowAutoOfflineQueue: false` pour `triggerJalonZoom`.
   - `proposeOfflineFallback(...)` : Alert UI + sauvegarde hors-ligne (repli si erreur non réseau / pas d’enqueue auto).
-  - `triggerJalonZoom({ projectIntentionId, parentJalonUid })` : “zoom IA” d’un jalon projet (réutilise bulk(1) en mode enfant).
+  - `triggerJalonZoom({ projectIntentionId, parentJalonUid })` : “zoom IA” d’un jalon projet (réutilise bulk(1) en mode enfant) ; ancre Inbox `NOTE` shell (`zoom_anchor_v1`) si absente ; ventilation zoom skip/coerce `PROJECT` nested.
 
 ### 3.3 Persistance / Douane DB
 
@@ -691,7 +691,7 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 | **Projet voyage** | Pass 1 monolith · `project_brief_v1` · Pass 2 auto `PROJECT_TRAVEL` + packing · parser robuste + fallback · UI erreur/retry · peek voyage · Inbox L2 sans faux compteur placeholder |
 | **EVENT_SERIES** | type SQLite `TASK` ; `due_date` = 1er slot ; série dans `sourcing_v1.event_series_v1` |
 | **UI Inbox** | [`InboxLineTitle.tsx`](src/components/InboxLineTitle.tsx) — 2 lignes strictes, pastille catégorie, **pas de miniature Vault** (perf FlatList) |
-| **Hiérarchie Inbox** | [`buildInboxRootsView`](src/utils/inboxRootsView.ts) — filtrage racines **côté JS** ; accordéon dans `IdeaBankModal` |
+| **Hiérarchie Inbox** | [`buildInboxRootsView`](src/utils/inboxRootsView.ts) — filtrage racines **côté JS** ; accordéon sourcing + voyage + **zoom décomposé** (`zoomInboxModel.ts`, Option A) dans `IdeaBankModal` |
 
 **Fichiers clés** : `src/utils/sourcingV1.ts`, `src/utils/inboxRootsView.ts`, `src/utils/travelProjectModel.ts`, `src/utils/jsonSalvage.ts`, `src/utils/peekOutcomeResolve.ts`, `src/services/travelProjectEnrich.ts`, `oneTapUniversalCapture.ts`, `oneTapPersist.ts`, `geminiSemanticLab.ts`, `projectMilestonesModel.ts`, `IntentionDetailSheet.tsx`, `IntentionContext.tsx`, `offlineAudioQueue.ts`, `trankilV2Db.ts` (mapper), `IdeaBankModal.tsx`, `TimelineScreen.tsx`.
 
@@ -737,7 +737,7 @@ Fichier **hors SPEC** : journal de travail pour la **suppression progressive** d
 19. [`nettoyage-code-mort.md`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/nettoyage-code-mort.md) (registre code mort / retraits feature)
 20. `src/theme/TalkThemeRegistry.ts` + `src/hooks/useDesignTokens.ts` (variantes visuelles / rollback `CURRENT` / **`ZEN_TYPOGRAPHY`**)
 21. `src/components/ShareIntentBootstrap.tsx` + `src/services/fileStorage.ts` + `src/services/share/shareService.ts` (Share Sheet → Vault → Vision → One-Tap)
-22. `src/utils/sourcingV1.ts` + `src/utils/inboxRootsView.ts` + `src/components/InboxLineTitle.tsx` (Sourced Intelligence — rollback via `SOURCING_V1_ENABLED`)
+22. `src/utils/sourcingV1.ts` + `src/utils/inboxRootsView.ts` + `src/utils/zoomInboxModel.ts` + `src/components/InboxLineTitle.tsx` (Sourced Intelligence + accordéon zoom — rollback via `SOURCING_V1_ENABLED`)
 23. `src/components/VaultImageViewerModal.tsx` + icône Vault dans `IntentionCard.tsx` (consultation image associée)
 24. `src/screens/DebugScreen.tsx` + `src/api/trankilV2Db.ts` (TalkNDone-Vault : export/import SQLite natif)
 

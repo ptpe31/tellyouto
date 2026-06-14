@@ -1327,6 +1327,8 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - **EVENT_SERIES** : type SQLite `TASK` ; `due_date` index Timeline = 1er créneau ; série complète dans `sourcing_v1.event_series_v1`.
 - **Inbox UI** : [`resolveInboxLinePresentation`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxLineModel.ts) via [`InboxLineTitle.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) — **L1 = Quoi** (`display_title` / événement TRIP), **L2 = Contexte** structuré par type : TRIP `{destination} · {jour} · {heure}` ; TASK `{source_hint} · {moment}` ou NEW ; shell sourcing `{N} actions extraites` ; `numberOfLines={1}` strict ; pastille catégorie.
 - **Hiérarchie Inbox** : filtrage racines via [`buildInboxRootsView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxRootsView.ts) (JS pur, requête SQL `listTrankilV2InboxToday` inchangée) ; accordéon NOTE sourcing dépliable dans `IdeaBankModal` (identique pour captures image, audio et écrit).
+- **Accordéon voyage Inbox** (juin 2026) : carte `PROJECT` avec `project_brief_v1` — badge `+N` = jalons réels (`resolveTravelProjectMilestonesForInbox`), chevron déplie titres + durée + persona ; L2 sans double compteur si badge visible.
+- **Accordéon zoom Inbox — Option A** (juin 2026) : après décomposition IA d’un jalon (`triggerJalonZoom`), les TASK enfants (`parent_id` = projet racine + `zoom_parent_jalon_uid`) sont groupées sous une **ancre** (`NOTE` shell `zoom_anchor_v1` ou legacy `PROJECT` enfant) via [`buildZoomInboxView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/zoomInboxModel.ts) ; clé stable `(rootProjectId, jalonUid)` — pas le `parent_id` du sous-projet ; badge `+N` = sous-tâches zoom ; L2 `Projet · décomposé · X/Y fait` ; coexistence : projet racine voyage garde `+N` étapes, ancre zoom garde `+N` tâches ; mode zoom ventilation : skip/coerce `PROJECT` nested (`oneTapPersist` `zoom_skip_nested_project`).
 
 #### 2.b) Box — inventaire froid (remplace le nudge cluster orphelin)
 
@@ -2039,6 +2041,7 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 #### Badge & synchronisation SQL
 
 - Le badge `+N` doit refléter le nombre réel de lignes enfants en base (`parent_id` + `zoom_parent_jalon_uid`), pas un compteur UI local.
+- **Inbox (Option A, juin 2026)** : regroupement sync via `buildZoomInboxView` ; ancre = `NOTE` shell (`zoom_anchor_v1`) créée avant bulk zoom ou legacy `PROJECT` enfant ; TASK zoom masquées des racines ; accordéon 3ᵉ mode dans `IdeaBankModal` (priorité : sourcing > zoom > voyage).
 
 ### 2.d) V3.2 — Édition du titre projet (Direct Manipulation)
 

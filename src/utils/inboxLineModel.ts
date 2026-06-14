@@ -7,6 +7,7 @@ import {
   parseProjectBriefFromMetadataJson,
   resolveTravelProjectMilestoneCount,
 } from './travelProjectModel';
+import { formatZoomDecomposedInboxLine2 } from './zoomInboxModel';
 import { isSourcingShellMetadata } from './sourcingTitle';
 import { getTripMetaFromRoot } from './tripTimelineCard';
 
@@ -23,6 +24,10 @@ export type ResolveInboxLineInput = {
   sourcingChildCount?: number;
   /** Badge +N étapes visible — masquer le compteur en ligne 2. */
   omitTravelMilestoneInLine2?: boolean;
+  /** Progression sous-tâches zoom (ancre décomposée). */
+  zoomDecomposeProgress?: { done: number; total: number };
+  /** Badge +N sous-tâches visible — masquer la progression en L2. */
+  omitZoomProgressInLine2?: boolean;
 };
 
 function capitalizeFirst(value: string): string {
@@ -238,7 +243,7 @@ function buildTaskMomentLine2(
 }
 
 export function resolveInboxLinePresentation(input: ResolveInboxLineInput): InboxLinePresentation {
-  const { row, locale, t, sourcingChildCount, omitTravelMilestoneInLine2 } = input;
+  const { row, locale, t, sourcingChildCount, omitTravelMilestoneInLine2, zoomDecomposeProgress, omitZoomProgressInLine2 } = input;
   const meta = safeParseJsonObject(row.metadata_json);
   const trip = getTripMetaFromRoot(meta);
   const untitled = t('timeline.untitled');
@@ -292,6 +297,21 @@ export function resolveInboxLinePresentation(input: ResolveInboxLineInput): Inbo
             })
           : formatCreationSubtitle(Number(row.created_at), t, locale),
     };
+  }
+
+  if (row.type === 'PROJECT' || row.type === 'NOTE') {
+    if (zoomDecomposeProgress && zoomDecomposeProgress.total > 0) {
+      return {
+        line1: String(row.display_title || '').trim() || untitled,
+        line2: formatZoomDecomposedInboxLine2({
+          done: zoomDecomposeProgress.done,
+          total: zoomDecomposeProgress.total,
+          locale,
+          t,
+          omitProgressInLine2: omitZoomProgressInLine2,
+        }),
+      };
+    }
   }
 
   if (row.type === 'PROJECT') {

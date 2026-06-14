@@ -1407,6 +1407,8 @@ export async function persistOneTapDraftVentilated(params: {
       hasBatchContext: Boolean(params.batchContext),
     });
     const total = intentsRaw.length;
+    const isZoomMode =
+      Boolean(String(params.parentId ?? '').trim()) && Boolean(String(params.parentJalonUid ?? '').trim());
     const useSourcingParent =
       SOURCING_V1_ENABLED &&
       total > 1 &&
@@ -1557,6 +1559,55 @@ export async function persistOneTapDraftVentilated(params: {
           continue;
         }
         if (type === 'PROJECT') {
+          if (isZoomMode) {
+            const zoomTitle = String(r.title ?? r.content ?? '').trim() || draft.title;
+            const zoomItems =
+              Array.isArray(r.items) && r.items.length > 0
+                ? r.items
+                    .map((x) => (typeof x === 'string' ? x : String((x as Record<string, unknown>).name ?? x ?? '')).trim())
+                    .filter(Boolean)
+                : zoomTitle
+                  ? [zoomTitle]
+                  : [];
+            logCaptureFlow(captureTrace, 'zoom_skip_nested_project', {
+              title: zoomTitle,
+              coercedTaskCount: zoomItems.length,
+              parentJalonUid: params.parentJalonUid,
+            });
+            if (DEBUG_MODE_DOUANE) {
+              console.log(
+                `[DOUANE] 🔬 Zoom mode: skip PROJECT "${zoomTitle}" → ${zoomItems.length} TASK(s)`,
+              );
+            }
+            for (const itemLabel of zoomItems.slice(0, 24)) {
+              const content = String(itemLabel ?? '').trim();
+              if (!content) continue;
+              const taskDraft: OneTapUniversalResult = {
+                ...draft,
+                categoryTag,
+                contextTag,
+                title: content.slice(0, 200) || draft.title,
+                predictedType: 'TASK',
+                data: {},
+              };
+              const pr = await persistAndDualWrite({
+                deps,
+                draft: taskDraft,
+                transcript,
+                habitsDefaultTitle,
+                birthdayLabel,
+                entityLabel: 'TASK',
+                parentId: effectiveParentId,
+                parentJalonUid: params.parentJalonUid,
+              });
+              if (pr.ok) await finalizeVentilatedOutcome(pr, r);
+              else {
+                firstError = firstError ?? pr.error;
+                firstCode = firstCode ?? pr.code;
+              }
+            }
+            continue;
+          }
           const title = String(r.title ?? r.content ?? '').trim() || draft.title;
           const items =
             Array.isArray(r.items) && r.items.length > 0 && typeof r.items[0] === 'object'

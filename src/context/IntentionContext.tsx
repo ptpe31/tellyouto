@@ -20,7 +20,7 @@ import { persistOneTapDraftVentilated, type PersistOneTapSuccess } from '../serv
 import { resolvePeekPrimaryOutcome } from '../utils/peekOutcomeResolve';
 import { normalizeCaptureTranscript } from '../utils/visionTranscriptNormalize';
 import { showAppToast } from '../services/appToast';
-import { getTrankilV2IntentionById } from '../api/trankilV2Db';
+import { getTrankilV2IntentionById, findZoomInboxAnchorForMilestone, insertTrankilV2Intention } from '../api/trankilV2Db';
 import { parsePass1DueDateTime } from '../utils/pass1DueDateParse';
 import {
   getOfflineAudioById,
@@ -40,6 +40,10 @@ import i18n from '../locales/i18n';
 import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
 import { generateSmartTitle } from '../services/smartTitle';
 import { parseProjectMilestonesPayloadFromMetadataJson } from '../services/projectMilestonesModel';
+import {
+  buildZoomAnchorMetadataPatch,
+  buildZoomAnchorTitle,
+} from '../utils/zoomInboxModel';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import {
@@ -820,6 +824,43 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
         const parentTitle = String(parentMilestone?.title ?? '').trim();
         const parentDuration = parentMilestone ? `+${parentMilestone.estimated_duration}${parentMilestone.unit === 'hours' ? 'h' : parentMilestone.unit === 'weeks' ? 'sem' : 'j'}` : '';
         const persona = String(parentMilestone?.expert_persona ?? '').trim() || 'Assistant Personnel';
+
+        let existingAnchor = await findZoomInboxAnchorForMilestone({
+          rootProjectId: projectId,
+          parentJalonUid: parentUid,
+        });
+        if (!existingAnchor) {
+          const anchorId = newId();
+          const anchorTitle = buildZoomAnchorTitle(projectTitle, parentTitle);
+          const anchorMeta = JSON.stringify({
+            ...buildZoomAnchorMetadataPatch({
+              version: 1,
+              root_project_id: projectId,
+              jalon_uid: parentUid,
+              milestone_title: parentTitle || anchorTitle,
+            }),
+            zoom_parent_jalon_uid: parentUid,
+          });
+          await insertTrankilV2Intention({
+            id: anchorId,
+            type: 'NOTE',
+            title: anchorTitle,
+            content_raw: original.slice(0, 4000),
+            metadata_json: anchorMeta,
+            suggested_tags: JSON.stringify(['sans_pression']),
+            category_id: String(projectRow?.category_id ?? 'TRAVEL').trim() || 'TRAVEL',
+            parent_id: projectId,
+            due_date: projectRow?.due_date ?? null,
+            status: 'TODO',
+            is_organized: 0,
+            is_local_processed: 1,
+            complexity_level: 0,
+            created_at: Date.now(),
+          });
+          existingAnchor = { id: anchorId, title: anchorTitle };
+          DeviceEventEmitter.emit(INTENTIONS_CHANGED_EVENT_NAME);
+        }
+
         const prompt =
           `Tu es un ${persona}. Ton objectif est de décomposer cette étape en sous-tâches chirurgicales et concrètes, en tenant compte du projet global : ${projectTitle || '—'} et de l'intention initiale : ${original || '—'}.\n\n` +
           `Étape à décomposer: ${parentTitle || '—'}\n` +

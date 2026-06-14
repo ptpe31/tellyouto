@@ -1,11 +1,13 @@
 import type { TrankilV2TimelineItemRow } from '../api/trankilV2Db';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcingShellMetadata } from './sourcingTitle';
+import { buildZoomInboxView, isZoomChildTaskRow, type ZoomInboxView } from './zoomInboxModel';
 
 export type InboxRootsView = {
   roots: TrankilV2TimelineItemRow[];
   childrenByParentId: Map<string, TrankilV2TimelineItemRow[]>;
   rootCount: number;
+  zoomView: ZoomInboxView;
 };
 
 function isChildTaskRow(row: TrankilV2TimelineItemRow): boolean {
@@ -16,19 +18,24 @@ function isChildTaskRow(row: TrankilV2TimelineItemRow): boolean {
 /**
  * Filtre racines Inbox côté JS — pas de sous-requête SQL NOT EXISTS.
  * Flag OFF : retourne le tableau inchangé (comportement legacy).
+ * Les TASK zoom (parent_id + zoom_parent_jalon_uid) sont groupées via zoomView, pas sourcing.
  */
 export function buildInboxRootsView(rows: TrankilV2TimelineItemRow[]): InboxRootsView {
+  const zoomView = buildZoomInboxView(rows);
+
   if (!SOURCING_V1_ENABLED) {
     return {
       roots: rows,
       childrenByParentId: new Map(),
       rootCount: rows.length,
+      zoomView,
     };
   }
 
   const childrenByParentId = new Map<string, TrankilV2TimelineItemRow[]>();
   for (const row of rows) {
     if (!isChildTaskRow(row)) continue;
+    if (isZoomChildTaskRow(row)) continue;
     const pid = String(row.parent_id ?? '').trim();
     const bucket = childrenByParentId.get(pid) ?? [];
     bucket.push(row);
@@ -40,6 +47,7 @@ export function buildInboxRootsView(rows: TrankilV2TimelineItemRow[]): InboxRoot
     roots,
     childrenByParentId,
     rootCount: roots.length,
+    zoomView,
   };
 }
 

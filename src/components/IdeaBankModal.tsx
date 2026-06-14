@@ -69,6 +69,8 @@ import { TaskCompletionOrb } from './TaskCompletionOrb';
 import { InboxLineTitle } from './InboxLineTitle';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcedCaptureParent } from '../utils/inboxRootsView';
+import type { ZoomInboxAnchor } from '../utils/zoomInboxModel';
+import { isZoomInboxAnchorRow } from '../utils/zoomInboxModel';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
 import {
   parseProjectBriefFromMetadataJson,
@@ -102,8 +104,12 @@ type Props = {
   /** À l’ouverture : déclenche la pilule TRIP « Me prévenir… » (Sentinel Focus, etc.). */
   autoTripPillRowId?: string | null;
   onAutoTripPillConsumed?: () => void;
-  /** Enfants TASK groupés par parent_id (Inbox accordéon, filtrage JS). */
+  /** Enfants TASK groupés par parent_id (Inbox accordéon sourcing, filtrage JS). */
   inboxChildrenByParentId?: Map<string, TrankilV2TimelineItemRow[]>;
+  /** Ancres zoom décomposées (Option A) — clé row.id de l'ancre. */
+  inboxZoomAnchors?: Map<string, ZoomInboxAnchor>;
+  /** Sous-tâches TASK groupées par anchorRowId. */
+  inboxZoomChildrenByAnchorId?: Map<string, TrankilV2TimelineItemRow[]>;
 };
 
 /** Diamètre intérieur orbe validation (hors padding néomorphique). */
@@ -196,6 +202,8 @@ export function IdeaBankModal({
   autoTripPillRowId,
   onAutoTripPillConsumed,
   inboxChildrenByParentId,
+  inboxZoomAnchors,
+  inboxZoomChildrenByAnchorId,
 }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
@@ -705,9 +713,20 @@ export function IdeaBankModal({
                   isSourcedParent && inboxChildrenByParentId
                     ? inboxChildrenByParentId.get(row.id) ?? []
                     : [];
+                const zoomAnchor = mode === 'inbox' ? inboxZoomAnchors?.get(row.id) : undefined;
+                const zoomChildRows =
+                  zoomAnchor && inboxZoomChildrenByAnchorId
+                    ? inboxZoomChildrenByAnchorId.get(row.id) ?? []
+                    : [];
                 const isExpanded = expandedParentIds.has(row.id);
                 const showSourcingAccordion = isSourcedParent && childRows.length > 0;
                 const sourcingChildCount = childRows.length;
+                const showZoomAccordion =
+                  mode === 'inbox' &&
+                  !showSourcingAccordion &&
+                  Boolean(zoomAnchor) &&
+                  zoomChildRows.length > 0;
+                const zoomChildCount = zoomChildRows.length;
                 const sourcingA11yExpand = t('timeline.sourcingExpand', {
                   count: sourcingChildCount,
                   defaultValue: `Déplier ${sourcingChildCount} actions`,
@@ -717,16 +736,25 @@ export function IdeaBankModal({
                   defaultValue: `Replier ${sourcingChildCount} actions`,
                 });
                 const travelBrief =
-                  mode === 'inbox' && row.type === 'PROJECT'
+                  mode === 'inbox' && row.type === 'PROJECT' && !isZoomInboxAnchorRow(row, inboxZoomAnchors)
                     ? parseProjectBriefFromMetadataJson(row.metadata_json)
                     : null;
                 const travelMilestones =
                   travelBrief && mode === 'inbox' ? resolveTravelProjectMilestonesForInbox(row.metadata_json) : [];
                 const travelStepCount = travelMilestones.length;
                 const showTravelAccordion =
-                  mode === 'inbox' && row.type === 'PROJECT' && travelBrief != null && travelStepCount > 0 && !showSourcingAccordion;
-                const showPartyLeadBadge = showSourcingAccordion || showTravelAccordion;
-                const partyLeadCount = showSourcingAccordion ? sourcingChildCount : travelStepCount;
+                  mode === 'inbox' &&
+                  row.type === 'PROJECT' &&
+                  travelBrief != null &&
+                  travelStepCount > 0 &&
+                  !showSourcingAccordion &&
+                  !showZoomAccordion;
+                const showPartyLeadBadge = showSourcingAccordion || showZoomAccordion || showTravelAccordion;
+                const partyLeadCount = showSourcingAccordion
+                  ? sourcingChildCount
+                  : showZoomAccordion
+                    ? zoomChildCount
+                    : travelStepCount;
                 const travelA11yExpand = t('timeline.travelProjectExpandSteps', {
                   count: travelStepCount,
                   defaultValue: `Déplier ${travelStepCount} étapes`,
@@ -735,6 +763,38 @@ export function IdeaBankModal({
                   count: travelStepCount,
                   defaultValue: `Replier ${travelStepCount} étapes`,
                 });
+                const zoomA11yExpand = t('timeline.zoomDecomposeExpand', {
+                  count: zoomChildCount,
+                  defaultValue: `Déplier ${zoomChildCount} sous-tâches`,
+                });
+                const zoomA11yCollapse = t('timeline.zoomDecomposeCollapse', {
+                  count: zoomChildCount,
+                  defaultValue: `Replier ${zoomChildCount} sous-tâches`,
+                });
+                const accordionExpandLabel = showSourcingAccordion
+                  ? sourcingA11yExpand
+                  : showZoomAccordion
+                    ? zoomA11yExpand
+                    : travelA11yExpand;
+                const accordionCollapseLabel = showSourcingAccordion
+                  ? sourcingA11yCollapse
+                  : showZoomAccordion
+                    ? zoomA11yCollapse
+                    : travelA11yCollapse;
+                const accordionBadgeLabel = showSourcingAccordion
+                  ? t('timeline.sourcingBatchBadge', {
+                      count: partyLeadCount,
+                      defaultValue: `${partyLeadCount} actions extraites`,
+                    })
+                  : showZoomAccordion
+                    ? t('timeline.zoomDecomposeBadge', {
+                        count: partyLeadCount,
+                        defaultValue: `${partyLeadCount} sous-tâches`,
+                      })
+                    : t('timeline.travelProjectStepsBadge', {
+                        count: partyLeadCount,
+                        defaultValue: `${partyLeadCount} étapes`,
+                      });
                 const toggleRowExpand = () => toggleSourcedParentExpand(row.id);
 
                 if (__DEV__ && !isTripCard) {
@@ -767,17 +827,7 @@ export function IdeaBankModal({
                           hapticType="light"
                           onPress={toggleRowExpand}
                           accessibilityRole="button"
-                          accessibilityLabel={
-                            showSourcingAccordion
-                              ? t('timeline.sourcingBatchBadge', {
-                                  count: partyLeadCount,
-                                  defaultValue: `${partyLeadCount} actions extraites`,
-                                })
-                              : t('timeline.travelProjectStepsBadge', {
-                                  count: partyLeadCount,
-                                  defaultValue: `${partyLeadCount} étapes`,
-                                })
-                          }
+                          accessibilityLabel={accordionBadgeLabel}
                         >
                           <View
                             style={[
@@ -817,12 +867,8 @@ export function IdeaBankModal({
                         accessibilityLabel={
                           showPartyLeadBadge
                             ? isExpanded
-                              ? showTravelAccordion
-                                ? travelA11yCollapse
-                                : sourcingA11yCollapse
-                              : showTravelAccordion
-                                ? travelA11yExpand
-                                : sourcingA11yExpand
+                              ? accordionCollapseLabel
+                              : accordionExpandLabel
                             : lineTitle
                         }
                       >
@@ -834,6 +880,12 @@ export function IdeaBankModal({
                             locale={i18n.language}
                             sourcingChildCount={showSourcingAccordion ? sourcingChildCount : undefined}
                             omitTravelMilestoneInLine2={showTravelAccordion}
+                            zoomDecomposeProgress={
+                              showZoomAccordion && zoomAnchor
+                                ? { done: zoomAnchor.doneCount, total: zoomAnchor.childCount }
+                                : undefined
+                            }
+                            omitZoomProgressInLine2={showZoomAccordion}
                           />
                         ) : (
                           <>
@@ -879,13 +931,7 @@ export function IdeaBankModal({
                           onPress={toggleRowExpand}
                           accessibilityRole="button"
                           accessibilityLabel={
-                            isExpanded
-                              ? showTravelAccordion
-                                ? travelA11yCollapse
-                                : sourcingA11yCollapse
-                              : showTravelAccordion
-                                ? travelA11yExpand
-                                : sourcingA11yExpand
+                            isExpanded ? accordionCollapseLabel : accordionExpandLabel
                           }
                         >
                           <Icon
@@ -983,6 +1029,26 @@ export function IdeaBankModal({
                   </View>
                   {isSourcedParent && isExpanded && childRows.length > 0
                     ? childRows.map((childSource) => {
+                        const child = resolveRow(childSource);
+                        return (
+                          <PressableScale
+                            key={child.id}
+                            style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
+                            hapticType="light"
+                            onPress={() => openDetail(child)}
+                          >
+                            <InboxLineTitle
+                              row={child}
+                              textPrimary={designTokens.textPrimary}
+                              textSecondary={designTokens.textSecondary}
+                              locale={i18n.language}
+                            />
+                          </PressableScale>
+                        );
+                      })
+                    : null}
+                  {showZoomAccordion && isExpanded && zoomChildRows.length > 0
+                    ? zoomChildRows.map((childSource) => {
                         const child = resolveRow(childSource);
                         return (
                           <PressableScale

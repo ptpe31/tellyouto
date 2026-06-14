@@ -13,9 +13,20 @@ type Props = {
   locale?: string;
   sourcingChildCount?: number;
   omitTravelMilestoneInLine2?: boolean;
+  zoomDecomposeProgress?: { done: number; total: number };
+  omitZoomProgressInLine2?: boolean;
 };
 
-export function InboxLineTitle({ row, textPrimary, textSecondary, locale, sourcingChildCount, omitTravelMilestoneInLine2 }: Props) {
+export function InboxLineTitle({
+  row,
+  textPrimary,
+  textSecondary,
+  locale,
+  sourcingChildCount,
+  omitTravelMilestoneInLine2,
+  zoomDecomposeProgress,
+  omitZoomProgressInLine2,
+}: Props) {
   const { t, i18n } = useTranslation();
   const loc = locale || i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
 
@@ -27,8 +38,10 @@ export function InboxLineTitle({ row, textPrimary, textSecondary, locale, sourci
         t,
         sourcingChildCount,
         omitTravelMilestoneInLine2,
+        zoomDecomposeProgress,
+        omitZoomProgressInLine2,
       }),
-    [loc, omitTravelMilestoneInLine2, row, sourcingChildCount, t],
+    [loc, omitTravelMilestoneInLine2, omitZoomProgressInLine2, row, sourcingChildCount, t, zoomDecomposeProgress],
   );
 
   const pastel = categoryPastelTabBackground(row.category_id);

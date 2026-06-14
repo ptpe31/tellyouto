@@ -3334,6 +3334,51 @@ export async function getTrankilV2IntentionById(id: string): Promise<TrankilV2In
   });
 }
 
+/** Ancre Inbox zoom (NOTE/PROJECT shell ou legacy) pour un jalon décomposé. */
+export async function findZoomInboxAnchorForMilestone(params: {
+  rootProjectId: string;
+  parentJalonUid: string;
+}): Promise<{ id: string; title: string } | null> {
+  await initTrankilV2Schema();
+  const db = await getDb();
+  const pid = String(params.rootProjectId || '').trim();
+  const uid = String(params.parentJalonUid || '').trim();
+  if (!pid || !uid) return null;
+  const rows =
+    (await db.getAllAsync<{ id: string; title: string; parent_id: string | null; metadata_json: string }>(
+      `SELECT id, title, parent_id, metadata_json
+       FROM intentions
+       WHERE zoom_parent_jalon_uid = ?
+         AND type IN ('PROJECT', 'NOTE')
+         AND status != 'ARCHIVED'
+       ORDER BY created_at ASC
+       LIMIT 8`,
+      [uid],
+    )) ?? [];
+  for (const r of rows) {
+    const rowPid = String(r.parent_id ?? '').trim();
+    if (rowPid === pid || !rowPid) {
+      const id = String(r.id || '').trim();
+      const title = String(r.title || '').trim();
+      if (id) return { id, title: title || id };
+    }
+    try {
+      const meta = JSON.parse(String(r.metadata_json || '{}')) as Record<string, unknown>;
+      const block = meta.zoom_anchor_v1;
+      if (block && typeof block === 'object' && !Array.isArray(block)) {
+        const o = block as Record<string, unknown>;
+        if (String(o.root_project_id ?? '').trim() === pid && String(o.jalon_uid ?? '').trim() === uid) {
+          const id = String(r.id || '').trim();
+          if (id) return { id, title: String(r.title || '').trim() || id };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
 export async function countZoomChildrenForProjectMilestone(params: {
   projectId: string;
   parentJalonUid: string;
