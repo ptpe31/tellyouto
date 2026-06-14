@@ -26,6 +26,8 @@ export type ResolveInboxLineInput = {
   omitTravelMilestoneInLine2?: boolean;
   /** Progression sous-tâches zoom (ancre décomposée). */
   zoomDecomposeProgress?: { done: number; total: number };
+  /** Titre jalon court (ex. « Administratif ») — L1 de l’ancre zoom. */
+  zoomMilestoneTitle?: string;
 };
 
 function capitalizeFirst(value: string): string {
@@ -241,7 +243,7 @@ function buildTaskMomentLine2(
 }
 
 export function resolveInboxLinePresentation(input: ResolveInboxLineInput): InboxLinePresentation {
-  const { row, locale, t, sourcingChildCount, omitTravelMilestoneInLine2, zoomDecomposeProgress } = input;
+  const { row, locale, t, sourcingChildCount, omitTravelMilestoneInLine2, zoomDecomposeProgress, zoomMilestoneTitle } = input;
   const meta = safeParseJsonObject(row.metadata_json);
   const trip = getTripMetaFromRoot(meta);
   const untitled = t('timeline.untitled');
@@ -299,10 +301,10 @@ export function resolveInboxLinePresentation(input: ResolveInboxLineInput): Inbo
 
   if (row.type === 'PROJECT' || row.type === 'NOTE') {
     if (zoomDecomposeProgress && zoomDecomposeProgress.total > 0) {
+      const anchorTitle = String(zoomMilestoneTitle ?? row.display_title ?? '').trim() || untitled;
       return {
-        line1: String(row.display_title || '').trim() || untitled,
+        line1: anchorTitle,
         line2: formatZoomDecomposedInboxLine2({
-          done: zoomDecomposeProgress.done,
           total: zoomDecomposeProgress.total,
           t,
         }),

@@ -882,6 +882,9 @@ export function IdeaBankModal({
                                 ? { done: zoomAnchor.doneCount, total: zoomAnchor.childCount }
                                 : undefined
                             }
+                            zoomMilestoneTitle={
+                              showZoomAccordion && zoomAnchor ? zoomAnchor.milestoneTitle : undefined
+                            }
                             zoomAccordionExpanded={showZoomAccordion ? isExpanded : undefined}
                             onZoomAccordionPress={showZoomAccordion ? toggleRowExpand : undefined}
                           />

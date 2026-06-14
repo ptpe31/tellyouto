@@ -15,6 +15,8 @@ type Props = {
   sourcingChildCount?: number;
   omitTravelMilestoneInLine2?: boolean;
   zoomDecomposeProgress?: { done: number; total: number };
+  /** L1 jalon court pour ancre zoom (ex. « Administratif »). */
+  zoomMilestoneTitle?: string;
   /** Accordéon zoom : chevron droite (replié) / gauche (déplié) sur la ligne 2. */
   zoomAccordionExpanded?: boolean;
   onZoomAccordionPress?: () => void;
@@ -28,6 +30,7 @@ export function InboxLineTitle({
   sourcingChildCount,
   omitTravelMilestoneInLine2,
   zoomDecomposeProgress,
+  zoomMilestoneTitle,
   zoomAccordionExpanded,
   onZoomAccordionPress,
 }: Props) {
@@ -46,8 +49,9 @@ export function InboxLineTitle({
         sourcingChildCount,
         omitTravelMilestoneInLine2,
         zoomDecomposeProgress,
+        zoomMilestoneTitle,
       }),
-    [loc, omitTravelMilestoneInLine2, row, sourcingChildCount, t, zoomDecomposeProgress],
+    [loc, omitTravelMilestoneInLine2, row, sourcingChildCount, t, zoomDecomposeProgress, zoomMilestoneTitle],
   );
 
   const pastel = categoryPastelTabBackground(row.category_id);

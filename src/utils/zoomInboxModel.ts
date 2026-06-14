@@ -96,7 +96,25 @@ function zoomGroupKey(rootProjectId: string, jalonUid: string): ZoomGroupKey {
   return `${rootProjectId}:${jalonUid}`;
 }
 
+function shortMilestoneTitleFromAnchorDisplay(fullTitle: string, rootProjectTitle?: string): string {
+  const full = String(fullTitle ?? '').trim();
+  if (!full) return '';
+  const root = String(rootProjectTitle ?? '').trim();
+  if (root) {
+    const prefix = `${root} - `;
+    if (full.toLowerCase().startsWith(prefix.toLowerCase())) {
+      return full.slice(prefix.length).trim();
+    }
+  }
+  const dashIdx = full.lastIndexOf(' - ');
+  if (dashIdx > 0) return full.slice(dashIdx + 3).trim();
+  return full;
+}
+
 function resolveMilestoneTitle(rootProjectId: string, jalonUid: string, rows: TrankilV2TimelineItemRow[]): string {
+  const rootRow = rows.find((r) => r.id === rootProjectId) ?? null;
+  const rootTitle = String(rootRow?.display_title ?? '').trim();
+
   for (const row of rows) {
     if (row.id !== rootProjectId) continue;
     const payload = parseProjectMilestonesPayloadFromMetadataJson(row.metadata_json);
@@ -112,7 +130,7 @@ function resolveMilestoneTitle(rootProjectId: string, jalonUid: string, rows: Tr
     if (uid !== jalonUid) continue;
     if (row.type === 'PROJECT' || row.type === 'NOTE') {
       const title = String(row.display_title || '').trim();
-      if (title) return title;
+      if (title) return shortMilestoneTitleFromAnchorDisplay(title, rootTitle);
     }
   }
   return '';
@@ -176,45 +194,34 @@ export function buildZoomInboxView(rows: TrankilV2TimelineItemRow[]): ZoomInboxV
 
     const sortedChildren = [...childRows].sort((a, b) => Number(a.created_at) - Number(b.created_at));
     childrenByAnchorId.set(anchorRow.id, sortedChildren);
+    const rootRow = rows.find((r) => r.id === rootProjectId) ?? null;
+    const rootTitle = String(rootRow?.display_title ?? '').trim();
+    const resolvedMilestone =
+      milestoneTitle ||
+      shortMilestoneTitleFromAnchorDisplay(String(anchorRow.display_title || '').trim(), rootTitle);
+
     anchorsByRowId.set(anchorRow.id, {
       anchorRowId: anchorRow.id,
       rootProjectId,
       parentJalonUid: jalonUid,
       childCount: sortedChildren.length,
       doneCount,
-      milestoneTitle: milestoneTitle || String(anchorRow.display_title || '').trim(),
+      milestoneTitle: resolvedMilestone,
     });
   }
 
   return { anchorsByRowId, childrenByAnchorId };
 }
 
+/** L2 ancre zoom décomposée : uniquement « N étapes » (chevron séparé dans InboxLineTitle). */
 export function formatZoomDecomposedInboxLine2(params: {
-  done: number;
   total: number;
   t: (key: string, options?: Record<string, unknown>) => string;
 }): string {
-  const { done, total, t } = params;
-  const parts: string[] = [
-    t('timeline.inboxProjectLabel', { defaultValue: 'Projet' }),
-    t('timeline.zoomDecomposeLabel', { defaultValue: 'décomposé' }),
-  ];
-  if (total > 0) {
-    parts.push(
-      t('timeline.inboxProjectItemCount', {
-        count: total,
-        defaultValue: `${total} étapes`,
-      }),
-    );
-  }
-  if (done > 0 && total > 0) {
-    parts.push(
-      t('timeline.zoomDecomposeProgress', {
-        done,
-        total,
-        defaultValue: `${done}/${total} fait`,
-      }),
-    );
-  }
-  return parts.join(' · ');
+  const { total, t } = params;
+  if (total <= 0) return '';
+  return t('timeline.inboxProjectItemCount', {
+    count: total,
+    defaultValue: `${total} étapes`,
+  });
 }
