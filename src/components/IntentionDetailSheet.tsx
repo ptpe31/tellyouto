@@ -44,7 +44,8 @@ import {
 } from '../api/trankilV2Db';
 import { MAX_PINS_COUNT } from '../config/appConfig';
 import { INTENTIONS_CHANGED_EVENT_NAME } from '../constants/intentionEvents';
-import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
+import { formatYmdLocal } from '../services/TimeSorter';
+import { formatDueDayLabel } from '../utils/timeFormat';
 import { ElasticDepartureCapsule } from './ElasticDepartureCapsule';
 import { GooglePlacesAutocompleteField } from './traffic/GooglePlacesAutocompleteField';
 import {
@@ -257,11 +258,6 @@ function mixAccentToPeekTabBackground(accentHex: string): string {
   const G = Math.round(248 - (248 - g) * (1 - t));
   const B = Math.round(252 - (252 - b) * (1 - t));
   return `rgb(${R},${G},${B})`;
-}
-
-function capitalizeFirst(raw: string): string {
-  if (!raw) return raw;
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 function pad2(n: number): string {
@@ -1111,8 +1107,6 @@ export function IntentionDetailSheet({
     if (!row) return null;
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
     const now = new Date();
-    const todayKey = formatYmdLocal(now);
-    const tomorrowKey = addDaysYmd(now, 1);
 
     const rootDueIso = str(meta, 'dueDateTime');
     const rootYmd = str(meta, 'dueDateYmd');
@@ -1132,13 +1126,7 @@ export function IntentionDetailSheet({
       baseParsed?.date ??
       null;
     if (!dateRef) return null;
-    const dueKey = formatYmdLocal(dateRef);
-    const dayLabel =
-      dueKey === todayKey
-        ? t('horizons.today')
-        : dueKey === tomorrowKey
-          ? t('horizons.tomorrow')
-          : capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long' }).format(dateRef));
+    const dayLabel = formatDueDayLabel(dateRef, loc, t, now);
     const isoTimeLabel =
       parsedIso?.hasTime && parsedIso.date
         ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(parsedIso.date)

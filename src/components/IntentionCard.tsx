@@ -11,9 +11,8 @@ import { useDesignTokens } from '../hooks/useDesignTokens';
 import { useProbeScheduleClock } from '../hooks/useProbeScheduleClock';
 import { generateSmartTitle } from '../services/smartTitle';
 import { useIntentAlarm } from '../hooks/useIntentAlarm';
-import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
+import { formatCreationSubtitle, formatDueDayLabel } from '../utils/timeFormat';
 import { isHiddenTechnicalNoteFallbackRow } from '../services/timelineIntentionVisibility';
-import { formatCreationSubtitle } from '../utils/timeFormat';
 import {
   ElasticDepartureCapsule,
   ELASTIC_CAPSULE_COLORS,
@@ -66,11 +65,6 @@ function parseDueDate(raw: string | null | undefined): { date: Date; hasTime: bo
   if (!Number.isFinite(d.getTime())) return null;
   const hasTime = /T\d{2}:\d{2}/.test(value) || /\d{2}:\d{2}/.test(value);
   return { date: d, hasTime };
-}
-
-function capitalizeFirst(raw: string): string {
-  if (!raw) return raw;
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
@@ -257,8 +251,6 @@ export function IntentionCard({
   const subtitle = useMemo(() => {
     const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
     const now = new Date();
-    const todayKey = formatYmdLocal(now);
-    const tomorrowKey = addDaysYmd(now, 1);
 
     const rootDueIso = str(meta, 'dueDateTime');
     const rootYmd = str(meta, 'dueDateYmd');
@@ -292,13 +284,7 @@ export function IntentionCard({
       }
       return formatCreationSubtitle(Number(row.created_at), t, loc, now);
     }
-    const dueKey = formatYmdLocal(dueRef);
-    const dayLabel =
-      dueKey === todayKey
-        ? t('horizons.today')
-        : dueKey === tomorrowKey
-          ? t('horizons.tomorrow')
-          : capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long' }).format(dueRef));
+    const dayLabel = formatDueDayLabel(dueRef, loc, t, now);
     const isoTimeLabel =
       parsedIso?.hasTime && parsedIso.date
         ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false }).format(parsedIso.date)

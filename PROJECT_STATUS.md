@@ -146,7 +146,7 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - [`IntentionCard.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionCard.tsx) — cartes Timeline + feedback pressed corps carte.
 - [`SmartClustersCarousel.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) — tuiles carrousel pressed tokens.
 - [`LivingHubBlockShell.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubBlockShell.tsx) — blocs hub EMAIL_HUB pressed tokens.
-- [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) — surface de traitement unifiée (`hubContext`) : `InboxLineTitle` + `HubTaskCheckbox` ; accordéons sourcing/voyage sur tous hubs ; ⋮ Studio ; tap sans sheet ; **mode suppression Phase 1–2** (`HubSelectionRing`, [`hubDeleteModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubDeleteModel.ts), cascade sourcing/zoom).
+- [`IdeaBankModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) — surface de traitement unifiée (`hubContext`) : `InboxLineTitle` + `HubTaskCheckbox` ; accordéons sourcing/voyage sur tous hubs ; ⋮ Studio ; tap sans sheet ; **mode suppression Phase 1–2** ; L2 datée via [`formatDueDayLabel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/timeFormat.ts).
 - [`IntentionDetailSheet.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) — sheet + CTA principaux ; **`typography`** (juin 2026).
 - [`OneTapConfirmModal.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/OneTapConfirmModal.tsx) — modal confirmation OneTap ; **`typography`** (juin 2026).
 
@@ -690,7 +690,7 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 | **Multi-bloc** | `persistOneTapDraftVentilated` : NOTE coquille sourcing (`sourcing_shell`) + enfants (`parent_id`) si `intents.length > 1` ; titre parent selon `source_kind` |
 | **Projet voyage** | Pass 1 monolith · `project_brief_v1` · Pass 2 auto `PROJECT_TRAVEL` + packing · parser robuste + fallback · UI erreur/retry · peek voyage · Inbox L2 sans faux compteur placeholder |
 | **EVENT_SERIES** | type SQLite `TASK` ; `due_date` = 1er slot ; série dans `sourcing_v1.event_series_v1` |
-| **UI Inbox / hubs** | [`InboxLineTitle.tsx`](src/components/InboxLineTitle.tsx) + [`HubTaskCheckbox.tsx`](src/components/HubTaskCheckbox.tsx) + [`TravelMilestoneInboxRows.tsx`](src/components/TravelMilestoneInboxRows.tsx) — surface unifiée tous carrousel |
+| **UI Inbox / hubs** | [`InboxLineTitle.tsx`](src/components/InboxLineTitle.tsx) + [`inboxLineModel.ts`](src/utils/inboxLineModel.ts) + [`formatDueDayLabel`](src/utils/timeFormat.ts) (L2 : `mardi 16 juin` hors today/tomorrow) |
 | **Hiérarchie hubs** | [`hubProcessModel.ts`](src/utils/hubProcessModel.ts) + [`buildInboxRootsView`](src/utils/inboxRootsView.ts) + [`travelProjectInboxProgress.ts`](src/utils/travelProjectInboxProgress.ts) |
 
 **Fichiers clés** : `src/utils/sourcingV1.ts`, `src/utils/inboxRootsView.ts`, `src/utils/travelProjectModel.ts`, `src/utils/jsonSalvage.ts`, `src/utils/peekOutcomeResolve.ts`, `src/services/travelProjectEnrich.ts`, `oneTapUniversalCapture.ts`, `oneTapPersist.ts`, `geminiSemanticLab.ts`, `projectMilestonesModel.ts`, `IntentionDetailSheet.tsx`, `IntentionContext.tsx`, `offlineAudioQueue.ts`, `trankilV2Db.ts` (mapper), `IdeaBankModal.tsx`, `TimelineScreen.tsx`.

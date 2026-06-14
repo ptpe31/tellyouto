@@ -98,6 +98,7 @@ import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { generateSmartTitle } from '../services/smartTitle';
 import { VERBOSE_DEBUG } from '../config/verboseDebug';
 import { formatYmdLocal } from '../services/TimeSorter';
+import { formatDueDayLabel } from '../utils/timeFormat';
 import { buildDailyRoadmapPayload, runDailyRoadmapGeminiHtml } from '../services/dailyRoadmapPass3';
 import { ensureGeminiRemoteModelInitialized } from '../services/geminiRemoteModelSteering';
 import { AIUniversalProgressOverlay } from '../components/AIUniversalProgressOverlay';
@@ -1299,20 +1300,16 @@ export function TimelineScreen() {
 
   const dayTitle = useCallback(
     (ymd: string): string => {
-      const today = toYmd(anchorDate);
-      const tomorrow = toYmd(addDays(anchorDate, 1));
-      if (ymd === today) return t('horizons.today');
-      if (ymd === tomorrow) return t('horizons.tomorrow');
       try {
         const [y, m, d] = ymd.split('-').map((x) => Number(x));
         const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
-        const loc = Intl.DateTimeFormat().resolvedOptions().locale;
-        return capitalizeFirst(new Intl.DateTimeFormat(loc, { weekday: 'long', month: 'short', day: '2-digit' }).format(dt));
+        const loc = i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
+        return formatDueDayLabel(dt, loc, t, anchorDate);
       } catch {
         return ymd;
       }
     },
-    [anchorDate, t],
+    [anchorDate, i18n.language, t],
   );
 
   const listEntries = useMemo((): ListEntry[] => {

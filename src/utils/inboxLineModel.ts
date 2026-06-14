@@ -1,6 +1,6 @@
 import type { TrankilV2TimelineItemRow } from '../api/trankilV2Db';
-import { addDaysYmd, formatYmdLocal } from '../services/TimeSorter';
-import { formatCreationSubtitle } from '../utils/timeFormat';
+import { formatYmdLocal } from '../services/TimeSorter';
+import { formatCreationSubtitle, formatDueDayLabel } from '../utils/timeFormat';
 import { isSourcedCaptureParent } from './inboxRootsView';
 import {
   formatTravelProjectInboxLine2,
@@ -26,11 +26,6 @@ export type ResolveInboxLineInput = {
   /** Masque le badge NEW (sous-tâches zoom Inbox). */
   omitNewBadge?: boolean;
 };
-
-function capitalizeFirst(value: string): string {
-  if (!value) return value;
-  return value.charAt(0).toLocaleUpperCase() + value.slice(1);
-}
 
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
   const s = String(raw ?? '').trim();
@@ -148,9 +143,6 @@ function buildTemporalParts(
   locale: string,
 ): TemporalParts {
   const now = new Date();
-  const todayKey = formatYmdLocal(now);
-  const tomorrowKey = addDaysYmd(now, 1);
-
   const rootDueIso = str(meta, 'dueDateTime');
   const rootYmd = str(meta, 'dueDateYmd');
   const rootHm = parseHm(str(meta, 'dueTimeHm'));
@@ -173,13 +165,7 @@ function buildTemporalParts(
     return { dayLabel: null, timeLabel: null };
   }
 
-  const dueKey = formatYmdLocal(dueRef);
-  const dayLabel =
-    dueKey === todayKey
-      ? t('horizons.today')
-      : dueKey === tomorrowKey
-        ? t('horizons.tomorrow')
-        : capitalizeFirst(new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(dueRef));
+  const dayLabel = formatDueDayLabel(dueRef, locale, t, now);
   const isoTimeLabel =
     parsedIso?.hasTime && parsedIso.date
       ? new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(parsedIso.date)
