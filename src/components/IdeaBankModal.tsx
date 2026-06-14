@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
@@ -18,7 +18,7 @@ import { Icon, IconButton, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  deleteTrankilV2IntentionById,
+  bulkDeleteTrankilV2IntentionsByIds,
   logTrankilV2HabitOccurrence,
   markTrankilV2IntentionDone,
   patchMetadata,
@@ -68,9 +68,23 @@ import {
   readIntentionAlarmSetFlag,
 } from '../utils/intentAlarmTemporal';
 import { HubTaskCheckbox, HUB_TASK_CHECKBOX_SIZE } from './HubTaskCheckbox';
+import { HubSelectionRing } from './HubSelectionRing';
 import { InboxLineTitle } from './InboxLineTitle';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcedCaptureParent } from '../utils/inboxRootsView';
+import {
+  collectAllSelectableIds,
+  collectAutoExpandParentIds,
+  collectAutoExpandZoomJalonKeys,
+  resolveHubDeleteIntentionIds,
+  resolveParentSelectionVisual,
+  resolveSourcingChildIds,
+  resolveZoomTaskIdsForProject,
+  toggleHubChildSelection,
+  toggleHubParentSelection,
+  toggleHubRowSelection,
+  type HubSelectionVisual,
+} from '../utils/hubDeleteModel';
 import type { HubContext } from '../utils/hubProcessModel';
 import { resolveHubModalDefaultTitle } from '../utils/hubProcessModel';
 import type { ZoomInboxView } from '../utils/zoomInboxModel';
@@ -241,6 +255,47 @@ export function IdeaBankModal({
   const [expandedZoomJalonKeys, setExpandedZoomJalonKeys] = useState<Set<string>>(() => new Set());
   const [expandedZoomDoneJalonKeys, setExpandedZoomDoneJalonKeys] = useState<Set<string>>(() => new Set());
   const [expandedTravelDoneProjectIds, setExpandedTravelDoneProjectIds] = useState<Set<string>>(() => new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const hubPoolRows = useMemo(() => {
+    const rows = [...items];
+    const seen = new Set(items.map((r) => r.id));
+    if (hubChildrenByParentId) {
+      for (const children of hubChildrenByParentId.values()) {
+        for (const child of children) {
+          if (!seen.has(child.id)) {
+            rows.push(child);
+            seen.add(child.id);
+          }
+        }
+      }
+    }
+    if (hubZoomView) {
+      for (const children of hubZoomView.childrenByJalonKey.values()) {
+        for (const child of children) {
+          if (!seen.has(child.id)) {
+            rows.push(child);
+            seen.add(child.id);
+          }
+        }
+      }
+    }
+    return rows;
+  }, [hubChildrenByParentId, hubZoomView, items]);
+
+  const deleteResolveSummary = useMemo(
+    () =>
+      resolveHubDeleteIntentionIds({
+        selectedIds,
+        roots: items,
+        poolRows: hubPoolRows,
+        childrenByParentId: hubChildrenByParentId,
+        zoomView: hubZoomView,
+      }),
+    [hubChildrenByParentId, hubPoolRows, hubZoomView, items, selectedIds],
+  );
 
   const refresh = useCallback(async () => {
     onChanged();
@@ -256,6 +311,9 @@ export function IdeaBankModal({
     } else {
       setSearchTarget(null);
       setSearchQuery('');
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+      setDeleteBusy(false);
     }
   }, [visible, items]);
 
@@ -450,24 +508,197 @@ export function IdeaBankModal({
     };
   }, []);
 
-  const onClearAll = useCallback(() => {
+  const exitSelectionMode = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const enterSelectionMode = useCallback(() => {
     if (items.length === 0) return;
-    Alert.alert(t('timeline.ideaBank.clearAllTitle'), t('timeline.ideaBank.clearAllBody'), [
-      { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
-      {
-        text: t('timeline.ideaBank.clearAll'),
-        style: 'destructive',
-        onPress: async () => {
-          for (const row of items) {
-            await deleteTrankilV2IntentionById(row.id);
-          }
-          await syncNativeRailAlarmsAfterIntentionWrite('ideaBankClearAll');
-          await refresh();
-          onClose();
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectionMode(true);
+    setSelectedIds(new Set());
+    setExpandedParentIds(
+      collectAutoExpandParentIds({
+        roots: items,
+        childrenByParentId: hubChildrenByParentId,
+        hasTravelSteps: (root) => {
+          if (root.type !== 'PROJECT') return false;
+          return resolveTravelProjectMilestonesForInbox(root.metadata_json).length > 0;
         },
-      },
-    ]);
-  }, [items, onClose, refresh, t]);
+      }),
+    );
+    setExpandedZoomJalonKeys(collectAutoExpandZoomJalonKeys({ roots: items, zoomView: hubZoomView }));
+    setExpandedTravelDoneProjectIds(
+      new Set(
+        items
+          .filter((root) => root.type === 'PROJECT')
+          .filter((root) => resolveTravelProjectMilestonesForInbox(root.metadata_json).some((m) => m.checked))
+          .map((root) => root.id),
+      ),
+    );
+  }, [hubChildrenByParentId, hubZoomView, items]);
+
+  const resolveRootCascadeChildIds = useCallback(
+    (row: TrankilV2TimelineItemRow): string[] => {
+      if (isSourcedCaptureParent(row)) {
+        return resolveSourcingChildIds(row.id, hubChildrenByParentId);
+      }
+      if (row.type === 'PROJECT') {
+        return resolveZoomTaskIdsForProject(row.id, hubZoomView);
+      }
+      return [];
+    },
+    [hubChildrenByParentId, hubZoomView],
+  );
+
+  const toggleRowSelection = useCallback(
+    (row: TrankilV2TimelineItemRow) => {
+      setSelectedIds((prev) => {
+        const cascadeChildIds = resolveRootCascadeChildIds(row);
+        if (cascadeChildIds.length > 0) {
+          return toggleHubParentSelection(row.id, cascadeChildIds, prev);
+        }
+        return toggleHubRowSelection(row.id, prev);
+      });
+    },
+    [resolveRootCascadeChildIds],
+  );
+
+  const toggleSourcingChildSelection = useCallback(
+    (parentId: string, childId: string, allChildIds: string[]) => {
+      setSelectedIds((prev) => toggleHubChildSelection(parentId, childId, allChildIds, prev));
+    },
+    [],
+  );
+
+  const toggleZoomTaskSelection = useCallback(
+    (projectRow: TrankilV2TimelineItemRow, task: TrankilV2TimelineItemRow) => {
+      const allChildIds = resolveZoomTaskIdsForProject(projectRow.id, hubZoomView);
+      setSelectedIds((prev) => toggleHubChildSelection(projectRow.id, task.id, allChildIds, prev));
+    },
+    [hubZoomView],
+  );
+
+  const resolveRowSelectionVisual = useCallback(
+    (row: TrankilV2TimelineItemRow): HubSelectionVisual => {
+      const cascadeChildIds = resolveRootCascadeChildIds(row);
+      if (cascadeChildIds.length > 0) {
+        return resolveParentSelectionVisual(row.id, cascadeChildIds, selectedIds);
+      }
+      return selectedIds.has(row.id) ? 'all' : 'none';
+    },
+    [resolveRootCascadeChildIds, selectedIds],
+  );
+
+  const resolveChildSelectionVisual = useCallback(
+    (childId: string): HubSelectionVisual => (selectedIds.has(childId) ? 'all' : 'none'),
+    [selectedIds],
+  );
+
+  const selectAllRows = useCallback(() => {
+    setSelectedIds(
+      new Set(
+        collectAllSelectableIds({
+          roots: items,
+          childrenByParentId: hubChildrenByParentId,
+          zoomView: hubZoomView,
+        }),
+      ),
+    );
+  }, [hubChildrenByParentId, hubZoomView, items]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const confirmDeleteSelected = useCallback(() => {
+    const summary = resolveHubDeleteIntentionIds({
+      selectedIds,
+      roots: items,
+      poolRows: hubPoolRows,
+      childrenByParentId: hubChildrenByParentId,
+      zoomView: hubZoomView,
+    });
+    const ids = summary.intentionIds;
+    if (ids.length === 0) return;
+
+    const bodyParts = [
+      t('timeline.hubDeleteConfirmBody', {
+        count: ids.length,
+        defaultValue: `Supprimer définitivement ${ids.length} élément(s) de la base de données ?`,
+      }),
+    ];
+    if (summary.sourcingChildCount > 0) {
+      bodyParts.push(
+        t('timeline.hubDeleteConfirmSourcingChildren', {
+          count: summary.sourcingChildCount,
+          defaultValue: `${summary.sourcingChildCount} action(s) sourcing incluse(s).`,
+        }),
+      );
+    }
+    if (summary.zoomTaskCount > 0) {
+      bodyParts.push(
+        t('timeline.hubDeleteConfirmZoomTasks', {
+          count: summary.zoomTaskCount,
+          defaultValue: `${summary.zoomTaskCount} sous-tâche(s) zoom incluse(s).`,
+        }),
+      );
+    }
+    if (summary.habitCount > 0) {
+      bodyParts.push(
+        t('timeline.hubDeleteConfirmHabits', {
+          count: summary.habitCount,
+          defaultValue:
+            summary.habitCount === 1
+              ? '1 routine sera supprimée définitivement.'
+              : `${summary.habitCount} routines seront supprimées définitivement.`,
+        }),
+      );
+    }
+
+    Alert.alert(
+      t('timeline.hubDeleteConfirmTitle', { defaultValue: 'Supprimer définitivement ?' }),
+      bodyParts.join('\n\n'),
+      [
+        { text: t('timeline.ideaBank.cancel'), style: 'cancel' },
+        {
+          text: t('timeline.hubDeleteConfirmAction', {
+            count: ids.length,
+            defaultValue: `Supprimer (${ids.length})`,
+          }),
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setDeleteBusy(true);
+              try {
+                await bulkDeleteTrankilV2IntentionsByIds(ids);
+                await syncNativeRailAlarmsAfterIntentionWrite('ideaBankBulkDelete');
+                exitSelectionMode();
+                await refresh();
+                if (summary.rootCount >= items.length) onClose();
+              } catch {
+                showAppToast(t('timeline.hubDeleteFailed', { defaultValue: 'Suppression impossible' }));
+              } finally {
+                setDeleteBusy(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [
+    exitSelectionMode,
+    hubChildrenByParentId,
+    hubPoolRows,
+    hubZoomView,
+    items,
+    onClose,
+    refresh,
+    selectedIds,
+    t,
+  ]);
 
   const openStudio = useCallback(
     (row: TrankilV2TimelineItemRow) => {
@@ -732,8 +963,14 @@ export function IdeaBankModal({
     return () => clearTimeout(timer);
   }, [autoTripPillRowId, handleTripPillPress, items, onAutoTripPillConsumed, resolveRow, visible]);
 
-  const showHubCheckbox = status === 'TODO';
-  const sheetTitle = title ?? resolveHubModalDefaultTitle(hubContext, t);
+  const showHubCheckbox = status === 'TODO' && !selectionMode;
+  const selectedCount = deleteResolveSummary.intentionIds.length;
+  const sheetTitle = selectionMode
+    ? t('timeline.hubDeleteSelectedCount', {
+        count: selectedCount,
+        defaultValue: `${selectedCount} sélectionné(s)`,
+      })
+    : title ?? resolveHubModalDefaultTitle(hubContext, t);
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -756,12 +993,64 @@ export function IdeaBankModal({
           ]}
         >
           <View style={styles.sheetHeader}>
-            <Text style={[styles.sheetTitle, { color: designTokens.textPrimary }]}>
-              {sheetTitle}
-            </Text>
-            <PressableScale onPress={onClose} hitSlop={12} hapticType="light">
-              <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>{t('timeline.ideaBank.close')}</Text>
-            </PressableScale>
+            {selectionMode ? (
+              <>
+                <PressableScale
+                  onPress={exitSelectionMode}
+                  hitSlop={12}
+                  hapticType="light"
+                  disabled={deleteBusy}
+                >
+                  <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>
+                    {t('timeline.hubDeleteModeCancel', { defaultValue: 'Annuler' })}
+                  </Text>
+                </PressableScale>
+                <Text
+                  style={[styles.sheetTitle, styles.sheetTitleCenter, { color: designTokens.textPrimary }]}
+                  numberOfLines={1}
+                >
+                  {sheetTitle}
+                </Text>
+                <PressableScale
+                  onPress={confirmDeleteSelected}
+                  hitSlop={12}
+                  hapticType="light"
+                  disabled={deleteBusy || selectedCount === 0}
+                >
+                  <Text
+                    style={{
+                      color: selectedCount > 0 ? theme.colors.error : designTokens.textSecondary,
+                      fontWeight: '700',
+                      opacity: deleteBusy ? 0.5 : 1,
+                    }}
+                  >
+                    {t('timeline.hubDeleteConfirmAction', {
+                      count: selectedCount,
+                      defaultValue: `Supprimer (${selectedCount})`,
+                    })}
+                  </Text>
+                </PressableScale>
+              </>
+            ) : (
+              <>
+                <PressableScale onPress={enterSelectionMode} hitSlop={12} hapticType="light" disabled={items.length === 0}>
+                  <Text style={{ color: theme.colors.error, fontWeight: '700', opacity: items.length === 0 ? 0.45 : 1 }}>
+                    {t('timeline.hubDeleteModeEnter', { defaultValue: 'Supprimer' })}
+                  </Text>
+                </PressableScale>
+                <Text
+                  style={[styles.sheetTitle, styles.sheetTitleCenter, { color: designTokens.textPrimary }]}
+                  numberOfLines={1}
+                >
+                  {sheetTitle}
+                </Text>
+                <PressableScale onPress={onClose} hitSlop={12} hapticType="light">
+                  <Text style={{ color: designTokens.accentColor, fontWeight: '700' }}>
+                    {t('timeline.ideaBank.close')}
+                  </Text>
+                </PressableScale>
+              </>
+            )}
           </View>
 
           {items.length === 0 ? (
@@ -889,6 +1178,13 @@ export function IdeaBankModal({
                       })
                     : `+${partyLeadCount}`;
                 const toggleRowExpand = () => toggleSourcedParentExpand(row.id);
+                const rowSelectionVisual = resolveRowSelectionVisual(row);
+                const isRowSelected = rowSelectionVisual === 'all';
+                const isRowPartial = rowSelectionVisual === 'partial';
+                const sourcingChildIds = childRows.map((child) => child.id);
+                const rowSelectA11y = isRowSelected
+                  ? t('timeline.hubDeleteDeselectRow', { defaultValue: 'Désélectionner' })
+                  : t('timeline.hubDeleteSelectRow', { defaultValue: 'Sélectionner pour supprimer' });
 
                 if (__DEV__ && !isTripCard) {
                   console.log('[IntentAlarm] IdeaBank card', {
@@ -908,13 +1204,26 @@ export function IdeaBankModal({
                       styles.rowCard,
                       {
                         borderRadius: designTokens.borderRadius,
-                        borderColor: theme.colors.outlineVariant,
+                        borderColor:
+                          selectionMode && (isRowSelected || isRowPartial)
+                            ? theme.colors.error
+                            : theme.colors.outlineVariant,
+                        borderWidth: selectionMode && (isRowSelected || isRowPartial) ? 2 : 1,
                         opacity: isPending ? 0.5 : 1,
                       },
                     ]}
                   >
                     <View style={styles.cardMainRow}>
-                      {showLeftAccordionBadge ? (
+                      {selectionMode ? (
+                        <HubSelectionRing
+                          selected={isRowSelected}
+                          indeterminate={isRowPartial}
+                          onPress={() => toggleRowSelection(row)}
+                          outlineColor={theme.colors.outline}
+                          selectedColor={theme.colors.error}
+                          a11yLabel={rowSelectA11y}
+                        />
+                      ) : showLeftAccordionBadge ? (
                         <PressableScale
                           style={styles.sourcingLeadSlot}
                           hapticType="light"
@@ -954,15 +1263,23 @@ export function IdeaBankModal({
                       <PressableScale
                         style={styles.detailPressable}
                         hapticType="light"
-                        onPress={showLeftAccordionBadge ? toggleRowExpand : undefined}
-                        disabled={!showLeftAccordionBadge}
+                        onPress={
+                          selectionMode
+                            ? () => toggleRowSelection(row)
+                            : showLeftAccordionBadge
+                              ? toggleRowExpand
+                              : undefined
+                        }
+                        disabled={!selectionMode && !showLeftAccordionBadge}
                         accessibilityRole="button"
                         accessibilityLabel={
-                          showLeftAccordionBadge
-                            ? isExpanded
-                              ? accordionCollapseLabel
-                              : accordionExpandLabel
-                            : lineTitle
+                          selectionMode
+                            ? rowSelectA11y
+                            : showLeftAccordionBadge
+                              ? isExpanded
+                                ? accordionCollapseLabel
+                                : accordionExpandLabel
+                              : lineTitle
                         }
                       >
                         {SOURCING_V1_ENABLED ? (
@@ -1000,7 +1317,7 @@ export function IdeaBankModal({
                           </>
                         )}
 
-                        {trackStreak && streakData ? (
+                        {trackStreak && streakData && !selectionMode ? (
                           <HabitStreakCompact
                             data={streakData}
                             accentColor={designTokens.accentColor}
@@ -1009,7 +1326,7 @@ export function IdeaBankModal({
                         ) : null}
                       </PressableScale>
 
-                      {showRightAccordionChevron ? (
+                      {!selectionMode && showRightAccordionChevron ? (
                         <PressableScale
                           style={[
                             styles.sourcingChevronBtn,
@@ -1028,7 +1345,7 @@ export function IdeaBankModal({
                             color={designTokens.textPrimary}
                           />
                         </PressableScale>
-                      ) : (
+                      ) : !selectionMode ? (
                         <PressableScale
                           style={[
                             styles.studioBtn,
@@ -1041,10 +1358,10 @@ export function IdeaBankModal({
                         >
                           <Icon source="dots-vertical" size={20} color={designTokens.textSecondary} />
                         </PressableScale>
-                      )}
+                      ) : null}
                     </View>
 
-                    {isTripCard && trip ? (
+                    {selectionMode ? null : isTripCard && trip ? (
                       <IdeaBankTripItineraryBlock
                         row={row}
                         trip={trip}
@@ -1056,7 +1373,7 @@ export function IdeaBankModal({
                       />
                     ) : null}
 
-                    {showTripPill && tripPillLabel ? (
+                    {selectionMode ? null : showTripPill && tripPillLabel ? (
                       <PressableScale
                         style={[
                           styles.pass2Pill,
@@ -1083,7 +1400,7 @@ export function IdeaBankModal({
                       </PressableScale>
                     ) : null}
 
-                    {showAlarmPill ? (
+                    {selectionMode ? null : showAlarmPill ? (
                       <PressableScale
                         style={[
                           styles.pass2Pill,
@@ -1108,7 +1425,7 @@ export function IdeaBankModal({
                       </PressableScale>
                     ) : null}
 
-                    {showPass2Pill && pass2Label ? (
+                    {selectionMode ? null : showPass2Pill && pass2Label ? (
                       <PressableScale
                         style={[
                           styles.pass2Pill,
@@ -1128,7 +1445,45 @@ export function IdeaBankModal({
                       </PressableScale>
                     ) : null}
                   </View>
-                  {isSourcedParent && isExpanded && childRows.length > 0
+                  {selectionMode && isSourcedParent && isExpanded && childRows.length > 0
+                    ? childRows.map((childSource) => {
+                        const child = resolveRow(childSource);
+                        const childVisual = resolveChildSelectionVisual(child.id);
+                        const childSelected = childVisual === 'all';
+                        const childSelectA11y = childSelected
+                          ? t('timeline.hubDeleteDeselectRow', { defaultValue: 'Désélectionner' })
+                          : t('timeline.hubDeleteSelectRow', { defaultValue: 'Sélectionner pour supprimer' });
+                        return (
+                          <View
+                            key={child.id}
+                            style={[styles.childRow, { paddingLeft: 24 + HUB_LEAD_SLOT }]}
+                          >
+                            <HubSelectionRing
+                              selected={childSelected}
+                              onPress={() => toggleSourcingChildSelection(row.id, child.id, sourcingChildIds)}
+                              outlineColor={theme.colors.outline}
+                              selectedColor={theme.colors.error}
+                              a11yLabel={childSelectA11y}
+                            />
+                            <PressableScale
+                              style={styles.childRowBody}
+                              hapticType="light"
+                              onPress={() => toggleSourcingChildSelection(row.id, child.id, sourcingChildIds)}
+                              accessibilityRole="button"
+                              accessibilityLabel={childSelectA11y}
+                            >
+                              <InboxLineTitle
+                                row={child}
+                                textPrimary={designTokens.textPrimary}
+                                textSecondary={designTokens.textSecondary}
+                                locale={i18n.language}
+                                titleDone={false}
+                              />
+                            </PressableScale>
+                          </View>
+                        );
+                      })
+                    : !selectionMode && isSourcedParent && isExpanded && childRows.length > 0
                     ? childRows.map((childSource) => {
                         const child = resolveRow(childSource);
                         const childPending = pendingLocalDone.has(child.id);
@@ -1156,7 +1511,34 @@ export function IdeaBankModal({
                         );
                       })
                     : null}
-                  {showTravelAccordion && isExpanded && travelMilestones.length > 0 ? (
+                  {selectionMode && showTravelAccordion && isExpanded && travelMilestones.length > 0
+                    ? (
+                    <TravelMilestoneInboxRows
+                      projectRow={resolvedProjectRow}
+                      milestones={travelMilestones}
+                      inboxZoomView={hubZoomView}
+                      resolveRow={resolveRow}
+                      expandedZoomJalonKeys={expandedZoomJalonKeys}
+                      expandedZoomDoneJalonKeys={expandedZoomDoneJalonKeys}
+                      travelDoneExpanded={expandedTravelDoneProjectIds.has(row.id)}
+                      onToggleZoomJalon={toggleZoomJalonExpand}
+                      onToggleZoomDoneSection={toggleZoomDoneSectionExpand}
+                      onToggleTravelDoneSection={() => toggleTravelDoneSectionExpand(row.id)}
+                      onToggleMilestoneDone={(uid) => void handleToggleTravelMilestoneDone(resolvedProjectRow, uid)}
+                      onToggleZoomTaskDone={(task) => void handleToggleZoomTaskDone(task)}
+                      textPrimary={designTokens.textPrimary}
+                      textSecondary={designTokens.textSecondary}
+                      accentColor={designTokens.accentColor}
+                      locale={i18n.language}
+                      theme={theme}
+                      t={t}
+                      selectionMode
+                      selectedIds={selectedIds}
+                      onToggleZoomTaskSelection={(task) => toggleZoomTaskSelection(resolvedProjectRow, task)}
+                      resolveZoomTaskSelectionVisual={(taskId) => resolveChildSelectionVisual(taskId)}
+                    />
+                  )
+                    : !selectionMode && showTravelAccordion && isExpanded && travelMilestones.length > 0 ? (
                     <TravelMilestoneInboxRows
                       projectRow={resolvedProjectRow}
                       milestones={travelMilestones}
@@ -1184,15 +1566,34 @@ export function IdeaBankModal({
             </ScrollView>
           )}
 
-          {items.length > 0 && hubContext.kind !== 'inbox' ? (
-            <Pressable
-              style={[styles.clearAllBtn, { borderColor: theme.colors.error, borderRadius: designTokens.borderRadius * 0.5 }]}
-              onPress={onClearAll}
-            >
-              <Text style={{ color: theme.colors.error, fontWeight: '700', textAlign: 'center' }}>
-                {t('timeline.ideaBank.clearAll')}
-              </Text>
-            </Pressable>
+          {selectionMode && items.length > 0 ? (
+            <View style={styles.selectionFooter}>
+              <PressableScale
+                style={[styles.selectionFooterBtn, { borderColor: theme.colors.outlineVariant }]}
+                hapticType="light"
+                onPress={selectAllRows}
+                disabled={deleteBusy}
+              >
+                <Text style={[styles.selectionFooterBtnText, { color: designTokens.textPrimary }]}>
+                  {t('timeline.hubDeleteSelectAll', { defaultValue: 'Tout sélectionner' })}
+                </Text>
+              </PressableScale>
+              <PressableScale
+                style={[styles.selectionFooterBtn, { borderColor: theme.colors.outlineVariant }]}
+                hapticType="light"
+                onPress={clearSelection}
+                disabled={deleteBusy || selectedIds.size === 0}
+              >
+                <Text
+                  style={[
+                    styles.selectionFooterBtnText,
+                    { color: selectedIds.size === 0 ? designTokens.textSecondary : designTokens.textPrimary },
+                  ]}
+                >
+                  {t('timeline.hubDeleteClearSelection', { defaultValue: 'Effacer la sélection' })}
+                </Text>
+              </PressableScale>
+            </View>
           ) : null}
 
           {searchTarget ? (
@@ -1271,8 +1672,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+    gap: 8,
   },
-  sheetTitle: { fontSize: 18, fontWeight: '800' },
+  sheetTitle: { fontSize: 18, fontWeight: '800', flex: 1 },
+  sheetTitleCenter: { textAlign: 'center' },
   list: { maxHeight: 420 },
   rowCard: {
     borderWidth: 1,
@@ -1374,11 +1777,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
-  clearAllBtn: {
+  selectionFooter: {
+    flexDirection: 'row',
+    gap: 10,
     marginTop: 12,
+  },
+  selectionFooterBtn: {
+    flex: 1,
     borderWidth: 1,
     borderRadius: 12,
-    paddingVertical: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionFooterBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   searchCurtain: {
     position: 'absolute',

@@ -13,7 +13,9 @@ import {
 import { buildZoomJalonKey, type ZoomInboxView } from '../utils/zoomInboxModel';
 import { InboxLineTitle } from './InboxLineTitle';
 import { HubTaskCheckbox, HUB_TASK_CHECKBOX_SIZE } from './HubTaskCheckbox';
+import { HubSelectionRing } from './HubSelectionRing';
 import { PressableScale } from './common/PressableScale';
+import type { HubSelectionVisual } from '../utils/hubDeleteModel';
 
 const TRAVEL_MILESTONE_INSET = 24 + 34 + 8;
 const ZOOM_PANEL_EXTRA_INSET = 8;
@@ -42,6 +44,11 @@ type Props = {
   locale: string;
   theme: MD3Theme;
   t: (key: string, options?: Record<string, unknown>) => string;
+  /** Mode suppression hub — sous-tâches zoom sélectionnables (Phase 2). */
+  selectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleZoomTaskSelection?: (task: TrankilV2TimelineItemRow) => void;
+  resolveZoomTaskSelectionVisual?: (taskId: string, siblingIds: string[]) => HubSelectionVisual;
 };
 
 function renderZoomTaskRow(params: {
@@ -53,21 +60,52 @@ function renderZoomTaskRow(params: {
   textSecondary: string;
   locale: string;
   outlineColor: string;
+  selectedColor: string;
   t: Props['t'];
+  selectionMode?: boolean;
+  selectionVisual?: HubSelectionVisual;
+  onToggleSelection?: () => void;
+  selectA11y?: string;
 }) {
-  const { child, childDone, isLastChild, onToggle, textPrimary, textSecondary, locale, outlineColor, t } = params;
+  const {
+    child,
+    childDone,
+    isLastChild,
+    onToggle,
+    textPrimary,
+    textSecondary,
+    locale,
+    outlineColor,
+    selectedColor,
+    t,
+    selectionMode,
+    selectionVisual,
+    onToggleSelection,
+    selectA11y,
+  } = params;
   return (
     <View key={child.id} style={[styles.zoomPanelChildRow, isLastChild ? styles.zoomPanelChildRowLast : null]}>
-      <HubTaskCheckbox
-        checked={childDone}
-        onPress={onToggle}
-        outlineColor={outlineColor}
-        a11yLabel={
-          childDone
-            ? t('timeline.a11yTaskUncomplete', { defaultValue: 'Marquer non fait' })
-            : t('timeline.a11yTaskComplete')
-        }
-      />
+      {selectionMode ? (
+        <HubSelectionRing
+          selected={selectionVisual === 'all'}
+          indeterminate={selectionVisual === 'partial'}
+          onPress={() => onToggleSelection?.()}
+          outlineColor={outlineColor}
+          selectedColor={selectedColor}
+          a11yLabel={selectA11y ?? t('timeline.hubDeleteSelectRow', { defaultValue: 'Sélectionner pour supprimer' })}
+        />
+      ) : (
+        <HubTaskCheckbox
+          checked={childDone}
+          onPress={onToggle}
+          outlineColor={outlineColor}
+          a11yLabel={
+            childDone
+              ? t('timeline.a11yTaskUncomplete', { defaultValue: 'Marquer non fait' })
+              : t('timeline.a11yTaskComplete')
+          }
+        />
+      )}
       <View style={styles.zoomConnectorCol}>
         <View
           style={[
@@ -79,17 +117,38 @@ function renderZoomTaskRow(params: {
         <View style={[styles.zoomConnectorH, { backgroundColor: outlineColor }]} />
       </View>
       <View style={styles.zoomTaskDetailPressable}>
-        <InboxLineTitle
-          row={child}
-          textPrimary={textPrimary}
-          textSecondary={textSecondary}
-          locale={locale}
-          hidePastille
-          titleDone={childDone}
-          titleLines={2}
-          hideLine2
-          omitNewBadge
-        />
+        {selectionMode ? (
+          <PressableScale
+            hapticType="light"
+            onPress={() => onToggleSelection?.()}
+            accessibilityRole="button"
+            accessibilityLabel={selectA11y}
+          >
+            <InboxLineTitle
+              row={child}
+              textPrimary={textPrimary}
+              textSecondary={textSecondary}
+              locale={locale}
+              hidePastille
+              titleDone={childDone}
+              titleLines={2}
+              hideLine2
+              omitNewBadge
+            />
+          </PressableScale>
+        ) : (
+          <InboxLineTitle
+            row={child}
+            textPrimary={textPrimary}
+            textSecondary={textSecondary}
+            locale={locale}
+            hidePastille
+            titleDone={childDone}
+            titleLines={2}
+            hideLine2
+            omitNewBadge
+          />
+        )}
       </View>
     </View>
   );
@@ -114,6 +173,10 @@ function MilestoneBlock(props: {
   theme: MD3Theme;
   t: Props['t'];
   doneSection?: boolean;
+  selectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleZoomTaskSelection?: (task: TrankilV2TimelineItemRow) => void;
+  resolveZoomTaskSelectionVisual?: (taskId: string, siblingIds: string[]) => HubSelectionVisual;
 }) {
   const {
     milestone,
@@ -134,6 +197,10 @@ function MilestoneBlock(props: {
     theme,
     t,
     doneSection,
+    selectionMode,
+    selectedIds,
+    onToggleZoomTaskSelection,
+    resolveZoomTaskSelectionVisual,
   } = props;
 
   const jalonKey = milestone.uid ? buildZoomJalonKey(projectRow.id, milestone.uid) : null;
@@ -143,9 +210,11 @@ function MilestoneBlock(props: {
   const todoTasks = resolvedZoomTasks.filter((task) => task.status !== 'DONE');
   const doneTasks = resolvedZoomTasks.filter((task) => task.status === 'DONE');
   const hasZoomDecompose = msState.hasDecompose;
-  const zoomJalonExpanded = jalonKey ? expandedZoomJalonKeys.has(jalonKey) : false;
+  const zoomJalonExpanded =
+    selectionMode || (jalonKey ? expandedZoomJalonKeys.has(jalonKey) : false);
   const zoomDoneSectionExpanded =
-    jalonKey && (expandedZoomDoneJalonKeys.has(jalonKey) || doneTasks.length < 2);
+    (selectionMode && doneTasks.length > 0) ||
+    Boolean(jalonKey && (expandedZoomDoneJalonKeys.has(jalonKey) || doneTasks.length < 2));
   const milestoneChecked = msState.milestoneChecked;
   const sublineParts: string[] = [formatMilestoneDurationLabel(milestone)];
   const persona = String(milestone.expert_persona ?? '').trim();
@@ -154,12 +223,41 @@ function MilestoneBlock(props: {
   const categoryPastel = categoryPastelTabBackground(projectRow.category_id);
   const zoomProgressRatio =
     msState.zoomTotal > 0 ? Math.min(1, msState.zoomDone / msState.zoomTotal) : 0;
-  const showMilestoneCheckbox = msState.showMilestoneCheckbox && !doneSection;
+  const showMilestoneCheckbox = msState.showMilestoneCheckbox && !doneSection && !selectionMode;
 
   const onMilestoneBodyPress = () => {
-    if (hasZoomDecompose && jalonKey && !doneSection) {
+    if (hasZoomDecompose && jalonKey && !doneSection && !selectionMode) {
       onToggleZoomJalon(jalonKey);
     }
+  };
+
+  const zoomSiblingIds = resolvedZoomTasks.map((task) => task.id);
+
+  const renderZoomRow = (childSource: TrankilV2TimelineItemRow, childDone: boolean, isLastChild: boolean) => {
+    const child = resolveRow(childSource);
+    const selectionVisual = selectionMode
+      ? resolveZoomTaskSelectionVisual?.(child.id, zoomSiblingIds) ?? 'none'
+      : undefined;
+    const isSelected = selectionVisual === 'all';
+    const selectA11y = isSelected
+      ? t('timeline.hubDeleteDeselectRow', { defaultValue: 'Désélectionner' })
+      : t('timeline.hubDeleteSelectRow', { defaultValue: 'Sélectionner pour supprimer' });
+    return renderZoomTaskRow({
+      child,
+      childDone,
+      isLastChild,
+      onToggle: () => onToggleZoomTaskDone(child),
+      textPrimary,
+      textSecondary,
+      locale,
+      outlineColor: theme.colors.outline,
+      selectedColor: theme.colors.error,
+      t,
+      selectionMode,
+      selectionVisual,
+      onToggleSelection: () => onToggleZoomTaskSelection?.(child),
+      selectA11y,
+    });
   };
 
   return (
@@ -244,20 +342,9 @@ function MilestoneBlock(props: {
                 ]}
               />
             </View>
-            {todoTasks.map((childSource, childIndex) => {
-              const child = resolveRow(childSource);
-              return renderZoomTaskRow({
-                child,
-                childDone: false,
-                isLastChild: childIndex === todoTasks.length - 1 && doneTasks.length === 0,
-                onToggle: () => onToggleZoomTaskDone(child),
-                textPrimary,
-                textSecondary,
-                locale,
-                outlineColor: theme.colors.outline,
-                t,
-              });
-            })}
+            {todoTasks.map((childSource, childIndex) =>
+              renderZoomRow(childSource, false, childIndex === todoTasks.length - 1 && doneTasks.length === 0),
+            )}
             {doneTasks.length > 0 ? (
               <>
                 <Pressable
@@ -278,20 +365,9 @@ function MilestoneBlock(props: {
                   />
                 </Pressable>
                 {zoomDoneSectionExpanded
-                  ? doneTasks.map((childSource, childIndex) => {
-                      const child = resolveRow(childSource);
-                      return renderZoomTaskRow({
-                        child,
-                        childDone: true,
-                        isLastChild: childIndex === doneTasks.length - 1,
-                        onToggle: () => onToggleZoomTaskDone(child),
-                        textPrimary,
-                        textSecondary,
-                        locale,
-                        outlineColor: theme.colors.outline,
-                        t,
-                      });
-                    })
+                  ? doneTasks.map((childSource, childIndex) =>
+                      renderZoomRow(childSource, true, childIndex === doneTasks.length - 1),
+                    )
                   : null}
               </>
             ) : null}
@@ -322,6 +398,10 @@ export function TravelMilestoneInboxRows(props: Props) {
     locale,
     theme,
     t,
+    selectionMode,
+    selectedIds,
+    onToggleZoomTaskSelection,
+    resolveZoomTaskSelectionVisual,
   } = props;
 
   const progress = buildTravelProjectInboxProgress({
@@ -359,6 +439,10 @@ export function TravelMilestoneInboxRows(props: Props) {
             locale={locale}
             theme={theme}
             t={t}
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            onToggleZoomTaskSelection={onToggleZoomTaskSelection}
+            resolveZoomTaskSelectionVisual={resolveZoomTaskSelectionVisual}
           />
         );
       })}
@@ -410,6 +494,10 @@ export function TravelMilestoneInboxRows(props: Props) {
                     theme={theme}
                     t={t}
                     doneSection
+                    selectionMode={selectionMode}
+                    selectedIds={selectedIds}
+                    onToggleZoomTaskSelection={onToggleZoomTaskSelection}
+                    resolveZoomTaskSelectionVisual={resolveZoomTaskSelectionVisual}
                   />
                 );
               })
