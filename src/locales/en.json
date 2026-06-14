@@ -269,6 +269,8 @@
     "sourcingCollapse": "Collapse {{count}} actions",
     "sourcingBatchBadge": "{{count}} extracted actions",
     "inboxListItemCount": "{{count}} items",
+    "inboxListExpand": "Expand {{count}} items",
+    "inboxListCollapse": "Collapse {{count}} items",
     "inboxProjectItemCount": "{{count}} steps",
     "inboxProjectLabel": "Project",
     "travelProjectPartyCount": "{{count}} travelers",
@@ -343,7 +345,7 @@
       "inboxSubtitle": "{{count}} today",
       "routinesTitle": "🔁 Routines",
       "routinesSubtitle": "({{count}} active)",
-      "projectsTitle": "📁 Projects",
+      "projectsTitle": "📁 Projects & lists",
       "projectsSubtitle": "({{count}} active)",
       "tripsTitle": "Trips"
     }

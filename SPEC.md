@@ -244,9 +244,9 @@ La “Douane” OneTap est distribuée sur deux étages réels :
 2) Douane de persistance (côté DB) — [persistOneTapDraftVentilated](file:///Users/lala/Dev/trankil-v3/Dev/trankil-v34/src/services/oneTapPersist.ts#L893-L1281)
 - Entrée : `draft.data.intents` (si présent) ou les champs “mono‑intention” (`data.list`, signaux temporels, logistique…).
 - Traitement : boucle `intents[]` → drafts avec `categoryTag` / `contextTag` → SQLite `category_id` (non-null) + `context_tag` ([materializeOneTapIntentionRow](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/oneTapPersist.ts), [insertTrankilV2Intention](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts)) ; migration `ALTER TABLE intentions ADD COLUMN context_tag` ; log `[DATABASE] ✅ Intention sauvée avec succès | Category: … | Context: …`.
-- Enrichissement Pass 2 (LIST / PROJECT) — **strictement à la demande**, **sauf exception projet voyage** :
-  - **Exception voyage** : si `auto_detail_requested` / « détail complet » → Pass 2 auto (`travelProjectEnrich.ts`) après persistance PROJECT ; `pass2_unlocked: 1` **seulement** si jalons persistés (Gemini ou fallback local).
-  - **Règle générale** : **aucun** autre lancement automatique de Pass 2 après Pass 1. Le Pass 2 ne s’exécute **que** lorsque l’utilisateur **PRO** déclenche l’action (CTA « Enrichir ») — **`pass2_unlocked: 1` écrit après succès**, pas avant.
+- Enrichissement Pass 2 (LIST / PROJECT) — **strictement à la demande**, **sauf exception auto brief** :
+  - **Exception auto** : si `project_brief` (`project_brief_v2` ou v1 voyage) avec `auto_detail_requested` / « détail complet » → Pass 2 auto ([`projectEnrich.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectEnrich.ts)) après persistance PROJECT ; `pass2_unlocked: 1` **seulement** si jalons persistés (Gemini ou fallback local).
+  - **Règle générale** : **aucun** autre lancement automatique de Pass 2 après Pass 1. Le Pass 2 manuel ne s’exécute **que** lorsque l’utilisateur **PRO** déclenche l’action (pilule hub ou CTA fiche) — **`pass2_unlocked: 1` écrit après succès**, pas avant.
   - **Déclenchement** : avant action utilisateur (hors auto voyage), intention `LIST` / `PROJECT` reste en base avec les seules données Pass 1.
   - Pendant l’appel Pass 2 : écrire `metadata_json.is_generating = true` et `metadata_json.list_enrich_status = 'pending'`.
   - Après succès : `list_enrich_status = 'done'` ou `'partial'` (fallback/salvage) + payload jalons/liste.
@@ -884,6 +884,7 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 - **Fermeture au blur (capture uniquement)** : si l’utilisateur quitte l’onglet pendant un peek capture actif (`peekCapturePhase` ∈ `path_a` | `path_b` ou row `peek_pending`), fermer la sheet sur cet onglet (`ui_peek_capture_dismissed_unfocused_tab`) pour éviter une `Modal` résiduelle au-dessus de l’onglet désormais focalisé (ex. replay offline terminé sur Timeline : seule la Timeline « maître » affiche le peek).
 - Les événements **`ui_peek_snapshot`** / **`ui_peek_first_save`** (déjà en place) ne doivent être émis que par l’écran **focalisé** qui applique réellement l’ouverture ou la transition.
 - **Peek Path B différé pendant overlay** : si `INTENTION_PEEK_FIRST_SAVE` arrive alors que l’overlay pipeline global est visible, le payload est stocké côté [`useCapturePipelineOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useCapturePipelineOverlay.ts) puis flush via **`CAPTURE_DEFERRED_PEEK_FIRST_SAVE_FLUSH`** à la fermeture de l’overlay ; les écrans focalisés appliquent alors le peek Path B.
+- **Routage PROJECT (juin 2026)** : sur **Timeline**, si `predictedType === 'PROJECT'` dans `INTENTION_PEEK_FIRST_SAVE`, **pas** de peek Path B — ouverture directe du hub [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) (`openProjectHubAccordion`, accordéon déplié). Les autres types (TASK, LIST, TRIP, …) conservent la cinématique peek.
 
 #### Calque global micro + overlay pipeline (mai 2026)
 
@@ -942,7 +943,7 @@ Après **Pass 1 persisté** (`INTENTION_PEEK_FIRST_SAVE`) :
 
 **Consentement explicite (PRO uniquement — voir §6)** : au clic CTA, `patchMetadata` pose **`pass2_unlocked: 1`** (consentement + consommation du bouton). Vue détaillée : **fondu** CTA (`pass2CtaOpacity`, ~220 ms) puis corps (`pass2RevealAnim`, ~320 ms) — ou révélation immédiate si `pass2_unlocked === 1` déjà en base à l’ouverture. **FREE** : ne jamais persister `pass2_unlocked: 1` ni lancer Gemini.
 
-**Overlay progression Pass 2 (LIST / PROJECT)** : [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) réutilise [`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) pendant `geminiEnrichGenericList` : `beginInertia()` au clic, `startFinalSprintTo100()` à la résolution Gemini, fermeture overlay au sprint 100 % + hold **150 ms**, puis `revealPass2DetailedBlocks()`. Libellés i18n dédiés : `pass2.steps_loading` (PROJECT), `pass2.list_loading` (LIST), `pass2.finalizing` (sprint final). Barre : pastel catégorie (bleu / vert / violet).
+**Overlay progression Pass 2 (LIST / PROJECT)** : [`IntentionDetailSheet`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IntentionDetailSheet.tsx) et **[`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx)** (hub in-place, juin 2026) réutilisent [`useAIProgressInertia`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/hooks/useAIProgressInertia.ts) + [`AIUniversalProgressOverlay`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/AIUniversalProgressOverlay.tsx) pendant `geminiEnrichGenericList` / [`runProjectPass2ForHub`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectPass2Hub.ts) / [`runListPass2ForHub`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/listPass2Hub.ts) : `beginInertia()` au clic pilule, `startFinalSprintTo100()` à la résolution Gemini, fermeture overlay au sprint 100 % + hold **150 ms**, puis dépliage accordéon (jalons ou items liste). Libellés i18n : `pass2.steps_loading` (PROJECT), `pass2.list_loading` (LIST), `pass2.finalizing`.
 
 **Hydratation instantanée** : après chaque `patchMetadata` Pass 2, `applyPass2MetadataLocally` met à jour `listPayload` / `projectPayload`, l’état **`metadataJsonLive`** (source locale pour parser `meta` et piloter `showPass2FooterCta`) et **`onPatchRow`** — items / jalons visibles **sans** fermer la fiche. **Obligatoire** : [`TalkDebugScreen`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TalkDebugScreen.tsx) et [`TimelineScreen`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx) passent `onPatchRow` pour que `row.metadata_json` reflète `pass2_unlocked: 1` (sinon le CTA peut réapparaître à tort après génération).
 
@@ -1322,19 +1323,21 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
   - **SOURCE_KIND** (`image` | `audio` | `text` | `share`) injecté dans le corps utilisateur Pass 1 (`buildOneTapPass1UserContent`) — mêmes règles multi-extraction pour import image, dictée micro et texte collé.
 - **Persistance** : `metadata_json.sourcing_v1` (via `patchMetadata`) + `context_tag` colonne native ; `CaptureBatchContext` pré-alloué dans `submitCapturePayload` avant NetInfo/offline (`source_kind` : `audio` si `audioUri`, `image` si `preassignedIntentionId`, sinon `text`).
 - **Multi-bloc** : ventilation → NOTE coquille sourcing (`sourcing_shell`, `auto_parent_id`) + enfants TASK/TRIP liés (`parent_id`) si `intents.length > 1` ; mono-intention inchangée.
-- **Projet voyage monolithique** (juin 2026) : dictée « préparer voyage + valises + N voyageurs + c'est un projet » → **un seul** `PROJECT` (pas d'éclatement TRIP/TASK). Brief `project_brief_v1` (destination, party, vols, contraintes, `departure_ymd`, `auto_detail_requested`). Pass 2 auto si « détail complet » : jalons voyage (`PROJECT_TRAVEL`) + valises par voyageur (`project_packing_v1`). **Robustesse Pass 2** (juin 2026) : prompt jalons courts (≤ 6 mots, max 5) · `responseMimeType: application/json` · `maxOutputTokens: 4096` · parser `parseGeminiProjectMilestonesJsonWithMeta` + salvage JSON tronqué (`jsonSalvage.ts`) · fallback local depuis `project_brief_v1` si échec Gemini · `list_enrich_status`: `done` | `partial` | `error` · `pass2_unlocked` **uniquement après** enrichissement réussi · UI retry + brief voyage en gate Zen · peek sur `project_persisted` voyage.
+- **Projet multi-domaine** (juin 2026) : brief unifié `project_brief_v2` ([`projectBriefModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/projectBriefModel.ts)) — domaines `travel` | `renovation` | `event` | `move` | `generic` ; rétrocompat `project_brief_v1` voyage. Pass 1 : règle **GENERIC PROJECT BRIEF** + few-shot rénovation. Pass 2 : routeur [`projectEnrichRouter.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectEnrichRouter.ts). Auto Pass 2 si `auto_detail_requested`. UI : accordéon jalons sur **tout** hub + hub **Projets & listes**.
+- **Projet voyage monolithique** (juin 2026) : dictée « préparer voyage + valises + N voyageurs + c'est un projet » → **un seul** `PROJECT` (pas d'éclatement TRIP/TASK). Brief `project_brief_v1` / v2 `domain: travel`. Pass 2 auto si « détail complet » : jalons voyage (`PROJECT_TRAVEL`) + valises par voyageur (`project_packing_v1`). **Robustesse Pass 2** : prompt jalons courts · `responseMimeType: application/json` · `maxOutputTokens: 4096` · parser + salvage · fallback local · `list_enrich_status` · `pass2_unlocked` après succès · UI retry.
 - **Offline** : stub `sourcing_v1` propagé dans **tous** les chemins d’enqueue (`submitCapturePayload` offline, `tryAutoQueueNetworkFailure`, `proposeOfflineFallback`) pour rehydratation batch au replay.
 - **EVENT_SERIES** : type SQLite `TASK` ; `due_date` index Timeline = 1er créneau ; série complète dans `sourcing_v1.event_series_v1`.
 - **Inbox UI** : [`resolveInboxLinePresentation`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxLineModel.ts) via [`InboxLineTitle.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) — **L1 = Quoi** (`display_title` / événement TRIP), **L2 = Contexte** structuré par type : TRIP `{destination} · {jour} · {heure}` ; TASK `{source_hint} · {moment}` ou NEW ; shell sourcing `{N} actions extraites` ; `numberOfLines={1}` strict ; pastille catégorie. **Jour daté** (hors aujourd’hui/demain) : [`formatDueDayLabel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/timeFormat.ts) → locale `mardi 16 juin` (L2 inchangée par ailleurs : heure, hint, destination, NEW, création). **Projet voyage L2** : [`formatTravelProjectInboxLine2`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/travelProjectModel.ts) inchangé (`départ 16 juin`).
 - **Hiérarchie Inbox** : filtrage racines via [`buildInboxRootsView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxRootsView.ts) (JS pur, requête SQL `listTrankilV2InboxToday` inchangée) ; accordéon NOTE sourcing dépliable dans `IdeaBankModal` (identique pour captures image, audio et écrit).
-- **Accordéon voyage Inbox** (juin 2026) : carte `PROJECT` avec `project_brief_v1` — badge `+N` = jalons réels (`resolveTravelProjectMilestonesForInbox`), chevron déplie titres + durée + persona ; L2 sans double compteur si badge visible.
+- **Accordéon projet Inbox** (juin 2026) : carte `PROJECT` avec jalons — badge `+N`, chevron déplie titres + durée + persona ; L2 sans double compteur si badge visible.
+- **Accordéon liste** (juin 2026) : carte `LIST` enrichie — badge `+N` items (`list_scalable_v1`), chevron déplie lignes cochables dans le hub.
 - **Accordéon zoom Inbox — Option B** (juin 2026) : après décomposition IA d’un jalon (`triggerJalonZoom`), les TASK enfants (`parent_id` = projet racine + `zoom_parent_jalon_uid`) sont groupées **sous le jalon parent** dans l’accordéon voyage via [`buildZoomInboxView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/zoomInboxModel.ts) + [`buildTravelProjectInboxProgress`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/travelProjectInboxProgress.ts) ; ancres masquées des racines ; **parent** badge `x/N` (unités = sous-tâches zoom ou jalon simple) ; **jalon** : case si simple ou si décomposé à `N/N` (`project_milestones_v1.checked`) ; panneau checklist (À faire / **Terminé** replié) ; section **Terminé** bas de liste pour jalons validés ; persist jalon `patchMetadata` · sous-tâche `toggleIntentionDone`.
 
 #### 2.b) Box — inventaire froid (remplace le nudge cluster orphelin)
 
 - **Objectif** : **stock à froid** — uniquement les vieilles idées **non planifiées** laissées de côté : `created_at` **avant** le jour local, `due_date` vide, hors catégorie **SHOP** et hors **HABIT** (→ vue Routines). Plus de pollution par les captures récentes du jour.
 - **SQL** : [`BOX_STOCK_WHERE`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `listTrankilV2BoxStockIntentions`, `countBoxStockIntentions`, `bulkDeleteTrankilV2IntentionsByIds` ; compteur carrousel `boxCount` dans `getTrankilV2SmartClusterCounts`.
-- **Carrousel** : tuile **Box** (libellé hardcodé, sans i18n) dans [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) — ordre **Inbox · À acheter · Box · Routines · Projets** (nudge cluster orphelin et tuile Listes retirés).
+- **Carrousel** : tuile **Box** (libellé hardcodé, sans i18n) dans [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) — ordre **Inbox · À acheter · Box · Routines · Projets & listes** (nudge cluster orphelin et tuile Listes séparée retirés).
 - **Vue catégories** : tap **Box** → [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) — même rendu bloc/catégorie que le corps hub (`buildLivingHubBlocks` sur `boxStockRows`).
 - **Focus modal** : tap bloc → ferme la vue Box puis [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) pré-filtrée (`ideaBankHubItems` = items du bloc) ; purge par bloc via mode **Supprimer** + **Tout sélectionner** (§ 2.d).
 - **Purge globale vue catégories** : bouton **Tout supprimer** en bas de [`LivingHubCategoryModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/LivingHubCategoryModal.tsx) → alerte native destructive (`timeline.box.*`) → `bulkDeleteTrankilV2IntentionsByIds` + `reload()`.
@@ -1352,11 +1355,22 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - **i18n** : `timeline.smartClusters.routinesTitle|routinesSubtitle`, `timeline.routines.title|empty|streakFire|streakPause`.
 - **À venir** : bouton pause habitude dans la bottom sheet ; mini-calendrier série dans le détail.
 
+#### 2.b ter) Projets & listes — hub unifié (juin 2026)
+
+- **Objectif** : regrouper **`LIST` + `PROJECT`** dans la même surface enrichie que l’Inbox ([`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx)), **sans** fusionner avec l’**Inbox** (sas temporel des captures du jour).
+- **SQL** : [`getProjectsAndLists`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) — `type IN ('LIST','PROJECT')`, `is_archived = 0`, `ORDER BY created_at DESC`.
+- **Carrousel** : tuile i18n `timeline.smartClusters.projectsTitle` (📁 **Projets & listes**) ; compteur = nombre d’intentions actives du pool ; icône 📋 barre nav Timeline → même ouverture.
+- **Contexte hub** : `hubContext: { kind: 'projects' }` dans [`hubProcessModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) ; pool `projectsListsRows` dans [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx).
+- **UX enrichie** (identique Inbox) : `InboxLineTitle` · `HubTaskCheckbox` · accordéons chevron · pilules Pass 2 · mode Supprimer · Fait ✓ 3 s.
+- **Pass 2 in-hub** : pilule LIST/PROJECT **ne ferme pas** la modale — [`runListPass2ForHub`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/listPass2Hub.ts) / [`runProjectPass2ForHub`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/services/projectPass2Hub.ts) + overlay ballet ; accordéon auto-déplié à la fin.
+- **Capture PROJECT** : routage direct hub (§ Cinématique Peek) — une intention fraîche apparaît aussi dans **Inbox** (chevauchement journal 24h autorisé) et dans **Projets & listes** dès persistance.
+- **Legacy** : [`ProjectListScreen`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/ProjectListScreen.tsx) reste dans `RootNavigator` mais **n’est plus** le point d’entrée carrousel (voir § Écran Projets & Listes — legacy).
+
 #### 2.c) Chronologie narrative — Matin / Après-midi / Soir / Rappel (juin 2026)
 
 - **Objectif** : sous **Aujourd’hui**, remplacer la liste plate de cartes par une **chronologie temporelle** (segments Matin · Après-midi · Soir) + un bloc **Rappel** en bas de page — seul foyer des priorités long-terme et des échéances « Avant le ».
 - **Activation** : `timelineLayoutMode === 'EMAIL_HUB'` (libellé Debug **Chronologie narrative**) **et** mêmes filtres que Smart Clusters — vue **Aujourd’hui**, contexte **ALL**, statut **TODO** (`hubEligible` dans [`TimelineScreen.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/screens/TimelineScreen.tsx)).
-- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (**Inbox · À acheter · Box · Routines · Projets**) ; [`SentinelFocusBadge`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) sous l’en-tête « Aujourd’hui ».
+- **Inchangé au-dessus** : barre nav + [`SmartClustersCarousel`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SmartClustersCarousel.tsx) (**Inbox · À acheter · Box · Routines · Projets & listes**) ; [`SentinelFocusBadge`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/SentinelFocusBadge.tsx) sous l’en-tête « Aujourd’hui ».
 - **Agrégation** : [`buildNarrativeTimelineBlocks`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/buildNarrativeTimelineBlocks.ts) — routage via [`timeSegmentRegistry.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/timeSegmentRegistry.ts) (`MORNING` / `AFTERNOON` / `EVENING` / `REMINDER`) et règles partagées [`narrativePinRules.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/features/livingHub/narrativePinRules.ts).
 - **Segments horaires** : heure depuis `metadata_json` (`dueTimeHm`, `trip.dueTimeHm`, `recurrence_rule.time_target`, ISO `due_date`) — Matin 06h–12h, Après-midi 12h–18h, Soir 18h–23h ; sans heure → bucket **Soir** (intentions non épinglées du jour).
 - **Bloc Rappel (`REMINDER`)** — fusion avec le concept **épinglé** (`is_pinned`) :
@@ -1410,9 +1424,9 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 
 #### 2.d) Tirelire — surface de traitement unifiée (tous hubs, juin 2026)
 
-- **Objectif** : même UX de traitement dans [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) pour **Inbox · À planifier (Box) · À acheter · Routines · blocs catégorie** — pas seulement le journal 24h.
-- **Contexte** : prop `hubContext` (`inbox` | `box` | `shop` | `routine` | `block`) via [`hubProcessModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) ; pool + racines via [`buildInboxRootsView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxRootsView.ts) sur tout le pool courant.
-- **Grammaire visuelle** : [`InboxLineTitle`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) + [`HubTaskCheckbox`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/HubTaskCheckbox.tsx) (case carrée) ; accordéons sourcing / voyage / zoom actifs sur **tous** les hubs ; bouton **⋮ Studio** (`timeline.hubStudioEdit`) → `IntentionDetailSheet` explicite.
+- **Objectif** : même UX de traitement dans [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) pour **Inbox · À planifier (Box) · À acheter · Routines · Projets & listes · blocs catégorie** — pas seulement le journal 24h.
+- **Contexte** : prop `hubContext` (`inbox` | `box` | `shop` | `routine` | **`projects`** | `block`) via [`hubProcessModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) ; pool + racines via [`buildInboxRootsView`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxRootsView.ts) sur tout le pool courant.
+- **Grammaire visuelle** : [`InboxLineTitle`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) + [`HubTaskCheckbox`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/HubTaskCheckbox.tsx) (case carrée) ; accordéons sourcing / projet / liste / zoom actifs sur **tous** les hubs ; bouton **⋮ Studio** (`timeline.hubStudioEdit`) → `IntentionDetailSheet` explicite.
 - **Tap corps** : déplier accordéon uniquement — **plus** de navigation implicite vers la sheet.
 - **Box — filtre planifié** : [`resolveRowIsScheduled`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) exclut les intentions datées en metadata (`dueDateYmd`, TRIP…) même si `due_date` SQL vide ; [`filterUnscheduledBoxStockRows`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubProcessModel.ts) appliqué au chargement.
 - **Mode suppression (Phase 1–2, juin 2026)** : header gauche **Supprimer** → mode sélection (`selectionMode`) ; header sélection **Annuler** | compteur | **Supprimer (N)** ; lead [`HubSelectionRing`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/HubSelectionRing.tsx) remplace case Fait / badge accordéon ; tap corps = toggle sélection ; bordure rouge si sélectionné ; pills TRIP/Pass2/alarme, itinéraire **masqués** ; footer **Tout sélectionner** / **Effacer la sélection** ; confirm Alert → [`bulkDeleteTrankilV2IntentionsByIds`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/api/trankilV2Db.ts) + `syncNativeRailAlarmsAfterIntentionWrite` ; résolution des ids via [`hubDeleteModel.ts`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/hubDeleteModel.ts). **Phase 1** : racines SQLite. **Phase 2** : enfants sourcing + sous-tâches zoom sélectionnables ; cascade parent → enfants ; auto-expand accordéons à l’entrée en mode ; ancres zoom orphelines incluses si toutes les sous-tâches d’un jalon partent. **Phases 3–4** : jalons metadata + items LIST. Box : **Tout sélectionner** remplace la purge directe en bas de tirelire. i18n `timeline.hubDelete*`.
@@ -1485,7 +1499,7 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
 - Adresse ou heure manquante → rideau (adresse) ou sheet trajet (`onOpenTripSetup`, heure) ;
 - Prêt PRO → armement Sentinel **inline** (`toggleTripSurveillanceForRow`) + `pass2_unlocked: 1` via patch optimiste ;
 - Surveillance active → pilule « Surveillance active 🛡️ », tap désarme ;
-- LIST / PROJECT : pilule Pass 2 inchangée (ouvre sheet).
+- LIST / PROJECT : pilule Pass 2 → **Pass 2 in-hub** (overlay ballet, pas de fermeture modale) ; accordéon déplié à la fin.
 
 **Cartes non-TRIP** : layout Tirelire inchangé (orbe + titre + pilule Pass 2 LIST/PROJECT).
 
@@ -2212,9 +2226,11 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
 
 - Une fois le Pass 2 terminé et persisté, déclencher un refresh UI (invalidate / event) pour que la Timeline ré-affiche la liste complète sans action utilisateur.
 
-## Écran Projets & Listes (ProjectListScreen)
+## Écran Projets & Listes (ProjectListScreen) — **legacy**
 
-### Objectif
+> **Juin 2026** : le point d’entrée produit est le hub **`IdeaBankModal`** (`hubContext: projects`, § 2.b ter). Cet écran reste dans la stack pour compatibilité / deep link éventuel, mais le carrousel Timeline et l’icône header routent vers la Tirelire unifiée.
+
+### Objectif (historique)
 
 - Ajouter un écran dédié à la gestion approfondie des intentions `LIST` et `PROJECT`.
 - Offrir une édition native via BottomSheet (édition inline, accordéon, autosave).
@@ -2341,7 +2357,13 @@ Objectif : **réduire la latence** (TTFB, temps jusqu’aux cartes peek / Pass 1
   - Remote Config : quotas (ex. `max_coaching_per_day`).
   - Cloud Functions : sécuriser les appels Gemini (pas de clé côté client).
 
-### 2) Écran — Projets & Listes (ProjectListScreen.tsx)
+### 2) Écran — Projets & listes (hub IdeaBank — juin 2026)
+
+- Gestion **`LIST` + `PROJECT`** via [`IdeaBankModal`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/IdeaBankModal.tsx) `hubContext: projects`.
+- Pool : `getProjectsAndLists()` ; accordéons jalons / items ; Pass 2 in-hub ; Fait ✓ · Supprimer · Studio.
+- Voir **§ 2.b ter** pour le contrat complet.
+
+### 2 bis) Écran — Projets & Listes legacy (ProjectListScreen.tsx)
 
 - Gestion approfondie des intentions `LIST` et `PROJECT`.
 - Structure :

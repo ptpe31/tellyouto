@@ -32,10 +32,9 @@ import {
   listTrankilV2InboxToday,
   listTrankilV2InboxZoomChildTasksForDay,
   getHabitCompletionDayKeysByIntentionIds,
+  getProjectsAndLists,
   listTrankilV2BoxStockIntentions,
-  listTrankilV2ListClusterIntentions,
   listTrankilV2ShopClusterIntentions,
-  listActiveProjectsToday,
   listTrankilV2AllTimelineItems,
   listTrankilV2TimelineItemsByDate,
   listTrankilV2UndatedRootTasks,
@@ -484,8 +483,7 @@ export function TimelineScreen() {
   const [inboxTodayRows, setInboxTodayRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [activeHabitRows, setActiveHabitRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [shopClusterRows, setShopClusterRows] = useState<TrankilV2TimelineItemRow[]>([]);
-  const [projectsTodayDebug, setProjectsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
-  const [listsTodayDebug, setListsTodayDebug] = useState<SmartClusterDebugEntry[]>([]);
+  const [projectsListsRows, setProjectsListsRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [pass3SasOpen, setPass3SasOpen] = useState(false);
   const [pass3CleanupRows, setPass3CleanupRows] = useState<Pass3CleanupRow[]>([]);
@@ -882,15 +880,14 @@ export function TimelineScreen() {
     try {
       const { anchor } = resolveAnchor(timeNav, customPickedDate);
       const ymd = toYmd(anchor);
-      const [b, counts, inboxRaw, inboxZoomChildRaw, shopRaw, boxRaw, projectsRaw, listsRaw, habitsRaw] = await Promise.all([
+      const [b, counts, inboxRaw, inboxZoomChildRaw, shopRaw, boxRaw, projectsListsRaw, habitsRaw] = await Promise.all([
         fetchTimelineSlice(timeNav, customPickedDate, contextBubble, statusFilter, 0),
         getTrankilV2SmartClusterCounts(ymd),
         listTrankilV2InboxToday(ymd),
         listTrankilV2InboxZoomChildTasksForDay(ymd),
         listTrankilV2ShopClusterIntentions(),
         listTrankilV2BoxStockIntentions(ymd),
-        listActiveProjectsToday(ymd),
-        listTrankilV2ListClusterIntentions(),
+        getProjectsAndLists(),
         listActiveHabitsForHub({ context: sqlContextFromBubble(contextBubble) }),
       ]);
       setUnorganizedTodo(b.unorganizedTodo);
@@ -906,6 +903,7 @@ export function TimelineScreen() {
       const mergedInbox = [...inboxById.values()].sort((a, b) => Number(b.created_at) - Number(a.created_at));
       setInboxTodayRows(mergedInbox.map(mapTrankilIntentionToTimelineItemRow));
       setShopClusterRows(shopRaw.map(mapTrankilIntentionToTimelineItemRow));
+      setProjectsListsRows(projectsListsRaw.map(mapTrankilIntentionToTimelineItemRow));
       setBoxStockRows(
         filterUnscheduledBoxStockRows(filterTimelineVisibleRows(boxRaw.map(mapTrankilIntentionToTimelineItemRow))),
       );
@@ -915,8 +913,6 @@ export function TimelineScreen() {
       const completionRecord: Record<string, string[]> = {};
       for (const [id, days] of completionDays) completionRecord[id] = days;
       setHabitCompletionDaysById(completionRecord);
-      setProjectsTodayDebug(projectsRaw);
-      setListsTodayDebug(listsRaw.map((r) => ({ id: r.id, title: r.title })));
     } finally {
       setLoading(false);
     }
@@ -1014,7 +1010,7 @@ export function TimelineScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
+              openIdeaBankProjectsLists();
             }}
             style={({ pressed }) => [
               neumorphicRaised(theme),
@@ -1287,8 +1283,9 @@ export function TimelineScreen() {
         inboxTodayItems,
         boxStockRows,
         shopClusterRows,
+        projectsListsRows,
       }),
-    [ideaBankHubContext, ideaBankHubItems, inboxTodayItems, boxStockRows, shopClusterRows],
+    [ideaBankHubContext, ideaBankHubItems, inboxTodayItems, boxStockRows, shopClusterRows, projectsListsRows],
   );
 
   const hubRootsView = useMemo(() => buildInboxRootsView(hubProcessPool), [hubProcessPool]);
@@ -1319,9 +1316,9 @@ export function TimelineScreen() {
       shopCount: smartClusterCounts.shopCount,
       boxCount: smartClusterCounts.boxCount,
       routinesCount: smartClusterCounts.routinesCount,
-      projectsCount: smartClusterCounts.projectsToday,
+      projectsCount: projectsListsRows.length,
     }),
-    [smartClusterCounts, inboxRootsView.rootCount],
+    [projectsListsRows.length, smartClusterCounts, inboxRootsView.rootCount],
   );
 
   const clusterDebugContents = useMemo((): SmartClusterDebugContents => {
@@ -1329,18 +1326,14 @@ export function TimelineScreen() {
       id: row.id,
       title: String(row.display_title ?? '').trim() || row.id,
     });
-    const toEntryFromIdTitle = (row: { id: string; title: string }): SmartClusterDebugEntry => ({
-      id: row.id,
-      title: String(row.title ?? '').trim() || row.id,
-    });
     return {
       inbox: inboxTodayItems.map(toEntry),
       shop: shopClusterRows.map(toEntry),
       box: boxStockRows.map(toEntry),
       routines: activeHabitRows.map(toEntry),
-      projects: projectsTodayDebug.map(toEntryFromIdTitle),
+      projects: projectsListsRows.map(toEntry),
     };
-  }, [activeHabitRows, boxStockRows, inboxTodayItems, projectsTodayDebug, shopClusterRows]);
+  }, [activeHabitRows, boxStockRows, inboxTodayItems, projectsListsRows, shopClusterRows]);
 
   const dayTitle = useCallback(
     (ymd: string): string => {
@@ -1841,6 +1834,14 @@ export function TimelineScreen() {
     setIdeaBankOpen(true);
   }, []);
 
+  const openIdeaBankProjectsLists = useCallback(() => {
+    setIdeaBankHubItems(null);
+    setIdeaBankHubTitle(undefined);
+    setIdeaBankHubContext({ kind: 'projects' });
+    setIdeaBankAutoTripPillRowId(null);
+    setIdeaBankOpen(true);
+  }, []);
+
   const openIdeaBankShop = useCallback(() => {
     setIdeaBankHubItems(null);
     setIdeaBankHubTitle(undefined);
@@ -1859,15 +1860,14 @@ export function TimelineScreen() {
         onPressShop={openIdeaBankShop}
         onPressBox={openBoxView}
         onPressRoutines={openRoutinesView}
-        onPressProjects={() => {
-          if (rootNavigationRef.isReady()) rootNavigationRef.navigate('ProjectList');
-        }}
+        onPressProjects={openIdeaBankProjectsLists}
       />
     );
   }, [
     clusterDebugContents,
     openBoxView,
     openIdeaBankInbox,
+    openIdeaBankProjectsLists,
     openIdeaBankShop,
     openRoutinesView,
     smartClusterProps,

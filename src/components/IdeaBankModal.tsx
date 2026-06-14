@@ -41,6 +41,13 @@ import {
   type GooglePlaceSelection,
 } from './traffic/GooglePlacesAutocompleteField';
 import { runProjectPass2ForHub } from '../services/projectPass2Hub';
+import { runListPass2ForHub } from '../services/listPass2Hub';
+import {
+  buildListMetadataPatch,
+  parseListScalablePayloadFromMetadataJson,
+  resolveListItemsForHubAccordion,
+  toggleListItemInPayload,
+} from '../services/listIntentionModel';
 import { generateSmartTitle } from '../services/smartTitle';
 import { AIUniversalProgressOverlay } from './AIUniversalProgressOverlay';
 import {
@@ -260,6 +267,7 @@ export function IdeaBankModal({
   const pendingProjectPass2FiredRef = useRef(false);
   const hubPass2AwaitingSprintRef = useRef(false);
   const hubPass2RevealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hubPass2Action, setHubPass2Action] = useState<'project' | 'list'>('project');
   const [projectPass2BusyIds, setProjectPass2BusyIds] = useState<Set<string>>(() => new Set());
   const [hubPass2OverlayVisible, setHubPass2OverlayVisible] = useState(false);
   const [hubPass2OverlayFinalizing, setHubPass2OverlayFinalizing] = useState(false);
@@ -765,8 +773,8 @@ export function IdeaBankModal({
     });
   }, []);
 
-  const runHubProjectPass2 = useCallback(
-    async (intentionId: string) => {
+  const runHubPass2 = useCallback(
+    async (intentionId: string, action: 'project' | 'list') => {
       const targetId = String(intentionId ?? '').trim();
       if (!targetId || projectPass2BusyIds.has(targetId)) return;
       if (!isProUser) {
@@ -776,6 +784,7 @@ export function IdeaBankModal({
         return;
       }
 
+      setHubPass2Action(action);
       setProjectPass2BusyIds((prev) => new Set(prev).add(targetId));
       setHubPass2OverlayFinalizing(false);
       setHubPass2OverlayVisible(true);
@@ -783,10 +792,10 @@ export function IdeaBankModal({
       beginHubPass2Inertia();
 
       try {
-        const result = await runProjectPass2ForHub({
-          intentionId: targetId,
-          uiLocale: i18n.language || 'fr-FR',
-        });
+        const result =
+          action === 'list'
+            ? await runListPass2ForHub({ intentionId: targetId, uiLocale: i18n.language || 'fr-FR' })
+            : await runProjectPass2ForHub({ intentionId: targetId, uiLocale: i18n.language || 'fr-FR' });
         if (result.ok) {
           applyLocalPatch(targetId, { metadata_json: result.metadataJson });
           onPatchItem?.(targetId, { metadata_json: result.metadataJson });
@@ -800,7 +809,9 @@ export function IdeaBankModal({
           setHubPass2OverlayVisible(false);
           resetHubPass2Progress();
           showAppToast(
-            t('pass2.enrichErrorGate', { defaultValue: 'Les étapes n’ont pas pu être générées.' }),
+            action === 'list'
+              ? t('pass2.enrichErrorGateList', { defaultValue: 'La liste n’a pas pu être structurée.' })
+              : t('pass2.enrichErrorGate', { defaultValue: 'Les étapes n’ont pas pu être générées.' }),
             2800,
           );
         }
@@ -808,7 +819,9 @@ export function IdeaBankModal({
         setHubPass2OverlayVisible(false);
         resetHubPass2Progress();
         showAppToast(
-          t('pass2.enrichErrorGate', { defaultValue: 'Les étapes n’ont pas pu être générées.' }),
+          action === 'list'
+            ? t('pass2.enrichErrorGateList', { defaultValue: 'La liste n’a pas pu être structurée.' })
+            : t('pass2.enrichErrorGate', { defaultValue: 'Les étapes n’ont pas pu être générées.' }),
           2800,
         );
       } finally {
@@ -836,8 +849,13 @@ export function IdeaBankModal({
 
   const triggerPass2 = useCallback(
     (row: TrankilV2TimelineItemRow) => {
-      if (String(row.type ?? '').trim().toUpperCase() === 'PROJECT') {
-        void runHubProjectPass2(row.id);
+      const type = String(row.type ?? '').trim().toUpperCase();
+      if (type === 'PROJECT') {
+        void runHubPass2(row.id, 'project');
+        return;
+      }
+      if (type === 'LIST') {
+        void runHubPass2(row.id, 'list');
         return;
       }
       if (!onPass2Item) {
@@ -847,7 +865,7 @@ export function IdeaBankModal({
       pendingPass2RowRef.current = row;
       onClose();
     },
-    [onClose, onPass2Item, openStudio, runHubProjectPass2],
+    [onClose, onPass2Item, openStudio, runHubPass2],
   );
 
   const toggleSourcedParentExpand = useCallback((parentId: string) => {
@@ -916,6 +934,36 @@ export function IdeaBankModal({
       }
     },
     [applyLocalPatch, refresh, resolveRow],
+  );
+
+  const handleToggleListItemDone = useCallback(
+    async (listRow: TrankilV2TimelineItemRow, itemUid: string) => {
+      const resolved = resolveRow(listRow);
+      const payload = parseListScalablePayloadFromMetadataJson(resolved.metadata_json);
+      if (!payload) return;
+      await safeSuccessHaptic();
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      const nextPayload = toggleListItemInPayload(payload, itemUid);
+      try {
+        applyLocalPatch(listRow.id, {
+          metadata_json: JSON.stringify({
+            ...(JSON.parse(resolved.metadata_json || '{}') as Record<string, unknown>),
+            ...buildListMetadataPatch(nextPayload),
+          }),
+        });
+        onPatchItem?.(listRow.id, {
+          metadata_json: JSON.stringify({
+            ...(JSON.parse(resolved.metadata_json || '{}') as Record<string, unknown>),
+            ...buildListMetadataPatch(nextPayload),
+          }),
+        });
+        await patchMetadata(listRow.id, buildListMetadataPatch(nextPayload), { silent: true });
+        await refresh();
+      } catch {
+        /* ignore */
+      }
+    },
+    [applyLocalPatch, onPatchItem, refresh, resolveRow],
   );
 
   const openAddressSearch = useCallback(
@@ -1125,19 +1173,19 @@ export function IdeaBankModal({
     if (!targetId || pendingProjectPass2FiredRef.current) return;
     pendingProjectPass2FiredRef.current = true;
     onPendingProjectPass2Consumed?.();
-    void runHubProjectPass2(targetId);
+    void runHubPass2(targetId, 'project');
   }, [
     clearHubPass2RevealTimeout,
     onPendingProjectPass2Consumed,
     pendingProjectPass2RowId,
-    runHubProjectPass2,
+    runHubPass2,
     visible,
   ]);
 
   const hubPass2OverlayLabel = useMemo(() => {
     if (hubPass2OverlayFinalizing) return t('pass2.finalizing');
-    return t('pass2.steps_loading');
-  }, [hubPass2OverlayFinalizing, t]);
+    return hubPass2Action === 'list' ? t('pass2.list_loading') : t('pass2.steps_loading');
+  }, [hubPass2Action, hubPass2OverlayFinalizing, t]);
 
   const showHubCheckbox = status === 'TODO' && !selectionMode;
   const selectedCount = deleteResolveSummary.intentionIds.length;
@@ -1290,16 +1338,23 @@ export function IdeaBankModal({
                 const resolvedProjectRow = resolveRow(row);
                 const projectMilestones = resolveProjectMilestonesForInbox(resolvedProjectRow.metadata_json);
                 const projectStepCount = projectMilestones.length;
+                const listItems =
+                  row.type === 'LIST' ? resolveListItemsForHubAccordion(resolvedProjectRow.metadata_json) : [];
+                const listItemCount = listItems.length;
                 const showProjectAccordion =
                   row.type === 'PROJECT' &&
                   shouldShowProjectInboxAccordion(resolvedProjectRow.metadata_json) &&
                   projectStepCount > 0 &&
                   !showSourcingAccordion;
-                const showLeftAccordionBadge = showSourcingAccordion || showProjectAccordion;
+                const showListAccordion =
+                  row.type === 'LIST' && listItemCount > 0 && !showSourcingAccordion;
+                const showLeftAccordionBadge = showSourcingAccordion || showProjectAccordion || showListAccordion;
                 const showRightAccordionChevron = showLeftAccordionBadge;
                 const partyLeadCount = showSourcingAccordion
                   ? sourcingChildCount
-                  : projectStepCount;
+                  : showProjectAccordion
+                    ? projectStepCount
+                    : listItemCount;
                 const projectA11yExpand = t('timeline.travelProjectExpandSteps', {
                   count: projectStepCount,
                   defaultValue: `Déplier ${projectStepCount} étapes`,
@@ -1308,17 +1363,38 @@ export function IdeaBankModal({
                   count: projectStepCount,
                   defaultValue: `Replier ${projectStepCount} étapes`,
                 });
-                const accordionExpandLabel = showSourcingAccordion ? sourcingA11yExpand : projectA11yExpand;
-                const accordionCollapseLabel = showSourcingAccordion ? sourcingA11yCollapse : projectA11yCollapse;
+                const listA11yExpand = t('timeline.inboxListExpand', {
+                  count: listItemCount,
+                  defaultValue: `Déplier ${listItemCount} éléments`,
+                });
+                const listA11yCollapse = t('timeline.inboxListCollapse', {
+                  count: listItemCount,
+                  defaultValue: `Replier ${listItemCount} éléments`,
+                });
+                const accordionExpandLabel = showSourcingAccordion
+                  ? sourcingA11yExpand
+                  : showProjectAccordion
+                    ? projectA11yExpand
+                    : listA11yExpand;
+                const accordionCollapseLabel = showSourcingAccordion
+                  ? sourcingA11yCollapse
+                  : showProjectAccordion
+                    ? projectA11yCollapse
+                    : listA11yCollapse;
                 const accordionBadgeLabel = showSourcingAccordion
                   ? t('timeline.sourcingBatchBadge', {
                       count: partyLeadCount,
                       defaultValue: `${partyLeadCount} actions extraites`,
                     })
-                  : t('timeline.travelProjectStepsBadge', {
-                      count: partyLeadCount,
-                      defaultValue: `${partyLeadCount} étapes`,
-                    });
+                  : showProjectAccordion
+                    ? t('timeline.travelProjectStepsBadge', {
+                        count: partyLeadCount,
+                        defaultValue: `${partyLeadCount} étapes`,
+                      })
+                    : t('timeline.inboxListItemCount', {
+                        count: partyLeadCount,
+                        defaultValue: `${partyLeadCount} éléments`,
+                      });
                 const leadBadgeText = showSourcingAccordion
                   ? `+${sourcingChildCount}`
                   : showProjectAccordion
@@ -1329,7 +1405,9 @@ export function IdeaBankModal({
                         resolveRow,
                         fallbackCount: projectStepCount,
                       })
-                    : `+${partyLeadCount}`;
+                    : showListAccordion
+                      ? `+${listItemCount}`
+                      : `+${partyLeadCount}`;
                 const toggleRowExpand = () => toggleSourcedParentExpand(row.id);
                 const rowSelectionVisual = resolveRowSelectionVisual(row);
                 const isRowSelected = rowSelectionVisual === 'all';
@@ -1388,6 +1466,7 @@ export function IdeaBankModal({
                             style={[
                               styles.sourcingCountBadge,
                               showProjectAccordion && !showSourcingAccordion ? styles.sourcingCountBadgeWide : null,
+                              showListAccordion && !showSourcingAccordion ? styles.sourcingCountBadgeWide : null,
                               { backgroundColor: categoryPastelTabBackground(row.category_id) },
                             ]}
                           >
@@ -1395,6 +1474,7 @@ export function IdeaBankModal({
                               style={[
                                 styles.sourcingCountText,
                                 showProjectAccordion && !showSourcingAccordion ? styles.sourcingCountTextCompact : null,
+                                showListAccordion && !showSourcingAccordion ? styles.sourcingCountTextCompact : null,
                                 { color: designTokens.textPrimary },
                               ]}
                             >
@@ -1714,6 +1794,34 @@ export function IdeaBankModal({
                       theme={theme}
                       t={t}
                     />
+                  ) : !selectionMode && showListAccordion && isExpanded && listItems.length > 0 ? (
+                    listItems.map((item) => (
+                      <View
+                        key={`${row.id}:${item.uid}`}
+                        style={[styles.childRow, { paddingLeft: 24 + HUB_LEAD_SLOT }]}
+                      >
+                        <HubTaskCheckbox
+                          checked={item.checked}
+                          onPress={() => void handleToggleListItemDone(resolvedProjectRow, item.uid)}
+                          outlineColor={theme.colors.outline}
+                          a11yLabel={t('timeline.a11yTaskComplete')}
+                        />
+                        <View style={styles.childRowBody}>
+                          <Text
+                            style={[
+                              styles.listHubItemText,
+                              {
+                                color: item.checked ? designTokens.textSecondary : designTokens.textPrimary,
+                                textDecorationLine: item.checked ? 'line-through' : 'none',
+                              },
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {item.name}
+                          </Text>
+                        </View>
+                      </View>
+                    ))
                   ) : null}
                   </View>
                 );
@@ -1940,6 +2048,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  listHubItemText: { fontSize: 14, fontWeight: '600' },
   rowTitle: { fontSize: 15, fontWeight: '600' },
   rowTitleDone: { textDecorationLine: 'line-through' },
   habitCadence: { fontSize: 13, fontWeight: '600' },

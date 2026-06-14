@@ -8,6 +8,7 @@ export type HubContext =
   | { kind: 'box' }
   | { kind: 'shop' }
   | { kind: 'routine' }
+  | { kind: 'projects' }
   | { kind: 'block' };
 
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
@@ -69,6 +70,7 @@ export function resolveHubProcessPool(params: {
   inboxTodayItems: TrankilV2TimelineItemRow[];
   boxStockRows: TrankilV2TimelineItemRow[];
   shopClusterRows: TrankilV2TimelineItemRow[];
+  projectsListsRows: TrankilV2TimelineItemRow[];
 }): TrankilV2TimelineItemRow[] {
   if (params.hubBlockItems) return params.hubBlockItems;
   switch (params.hubContext.kind) {
@@ -78,6 +80,8 @@ export function resolveHubProcessPool(params: {
       return params.shopClusterRows;
     case 'box':
       return params.boxStockRows;
+    case 'projects':
+      return params.projectsListsRows;
     default:
       return params.boxStockRows;
   }
@@ -96,6 +100,8 @@ export function resolveHubModalDefaultTitle(
       return t('timeline.ideaBank.shopTitle');
     case 'routine':
       return t('timeline.routines.title');
+    case 'projects':
+      return t('timeline.smartClusters.projectsTitle');
     default:
       return t('timeline.ideaBank.title');
   }

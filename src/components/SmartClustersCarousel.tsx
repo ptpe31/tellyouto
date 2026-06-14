@@ -164,7 +164,7 @@ export function SmartClustersCarousel({
             ? t('timeline.smartClusters.projectsSubtitle', { count: projectsCount })
             : undefined
         }
-        onPress={pressWithClusterDebug('Projets', debug.projects, onPressProjects)}
+        onPress={pressWithClusterDebug(t('timeline.smartClusters.projectsTitle'), debug.projects, onPressProjects)}
       />
     </ScrollView>
   );

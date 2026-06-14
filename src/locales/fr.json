@@ -269,6 +269,8 @@
     "sourcingCollapse": "Replier {{count}} actions",
     "sourcingBatchBadge": "{{count}} actions extraites",
     "inboxListItemCount": "{{count}} éléments",
+    "inboxListExpand": "Déplier {{count}} éléments",
+    "inboxListCollapse": "Replier {{count}} éléments",
     "inboxProjectItemCount": "{{count}} étapes",
     "inboxProjectLabel": "Projet",
     "travelProjectPartyCount": "{{count}} voyageurs",
@@ -343,7 +345,7 @@
       "inboxSubtitle": "{{count}} aujourd'hui",
       "routinesTitle": "🔁 Routines",
       "routinesSubtitle": "({{count}} actives)",
-      "projectsTitle": "📁 Projets",
+      "projectsTitle": "📁 Projets & listes",
       "projectsSubtitle": "({{count}} actifs)",
       "tripsTitle": "Trajets"
     }

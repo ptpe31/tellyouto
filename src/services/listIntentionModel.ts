@@ -295,3 +295,43 @@ export function geminiJsonToStoredPayload(g: GeminiListInventoryJson): ListScala
 export function buildListMetadataPatch(payload: ListScalablePayload): Record<string, unknown> {
   return { [LIST_METADATA_KEY]: payload };
 }
+
+export type ListHubAccordionItem = {
+  uid: string;
+  name: string;
+  checked: boolean;
+};
+
+/** Lignes à afficher sous l'accordéon liste du hub IdeaBank. */
+export function resolveListItemsForHubAccordion(
+  metadataJson: string | null | undefined,
+): ListHubAccordionItem[] {
+  const payload = parseListScalablePayloadFromMetadataJson(metadataJson);
+  if (!payload?.categories?.length) return [];
+  const out: ListHubAccordionItem[] = [];
+  for (const cat of payload.categories) {
+    for (const it of cat.items) {
+      const name = String(it.name ?? '').trim();
+      if (!name) continue;
+      out.push({
+        uid: String(it.uid ?? '').trim() || `L${out.length}`,
+        name,
+        checked: Boolean(it.checked),
+      });
+    }
+  }
+  return out;
+}
+
+export function toggleListItemInPayload(payload: ListScalablePayload, uid: string): ListScalablePayload {
+  const target = String(uid ?? '').trim();
+  return {
+    ...payload,
+    categories: payload.categories.map((cat) => ({
+      ...cat,
+      items: cat.items.map((it) =>
+        it.uid === target ? { ...it, checked: !it.checked } : it,
+      ),
+    })),
+  };
+}
