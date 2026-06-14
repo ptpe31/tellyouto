@@ -749,12 +749,11 @@ export function IdeaBankModal({
                   travelStepCount > 0 &&
                   !showSourcingAccordion &&
                   !showZoomAccordion;
-                const showPartyLeadBadge = showSourcingAccordion || showZoomAccordion || showTravelAccordion;
+                const showLeftAccordionBadge = showSourcingAccordion || showTravelAccordion;
+                const showRightAccordionChevron = showLeftAccordionBadge;
                 const partyLeadCount = showSourcingAccordion
                   ? sourcingChildCount
-                  : showZoomAccordion
-                    ? zoomChildCount
-                    : travelStepCount;
+                  : travelStepCount;
                 const travelA11yExpand = t('timeline.travelProjectExpandSteps', {
                   count: travelStepCount,
                   defaultValue: `Déplier ${travelStepCount} étapes`,
@@ -821,7 +820,7 @@ export function IdeaBankModal({
                     ]}
                   >
                     <View style={styles.cardMainRow}>
-                      {showPartyLeadBadge ? (
+                      {showLeftAccordionBadge ? (
                         <PressableScale
                           style={styles.sourcingLeadSlot}
                           hapticType="light"
@@ -859,13 +858,11 @@ export function IdeaBankModal({
                         style={styles.detailPressable}
                         hapticType="light"
                         onPress={
-                          showPartyLeadBadge
-                            ? toggleRowExpand
-                            : () => openDetail(row)
+                          showLeftAccordionBadge ? toggleRowExpand : () => openDetail(row)
                         }
                         accessibilityRole="button"
                         accessibilityLabel={
-                          showPartyLeadBadge
+                          showLeftAccordionBadge
                             ? isExpanded
                               ? accordionCollapseLabel
                               : accordionExpandLabel
@@ -885,7 +882,8 @@ export function IdeaBankModal({
                                 ? { done: zoomAnchor.doneCount, total: zoomAnchor.childCount }
                                 : undefined
                             }
-                            omitZoomProgressInLine2={showZoomAccordion}
+                            zoomAccordionExpanded={showZoomAccordion ? isExpanded : undefined}
+                            onZoomAccordionPress={showZoomAccordion ? toggleRowExpand : undefined}
                           />
                         ) : (
                           <>
@@ -921,7 +919,7 @@ export function IdeaBankModal({
                         ) : null}
                       </PressableScale>
 
-                      {showPartyLeadBadge ? (
+                      {showRightAccordionChevron ? (
                         <PressableScale
                           style={[
                             styles.sourcingChevronBtn,

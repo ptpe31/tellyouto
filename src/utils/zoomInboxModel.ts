@@ -192,16 +192,22 @@ export function buildZoomInboxView(rows: TrankilV2TimelineItemRow[]): ZoomInboxV
 export function formatZoomDecomposedInboxLine2(params: {
   done: number;
   total: number;
-  locale: string;
   t: (key: string, options?: Record<string, unknown>) => string;
-  omitProgressInLine2?: boolean;
 }): string {
-  const { done, total, t, omitProgressInLine2 } = params;
+  const { done, total, t } = params;
   const parts: string[] = [
     t('timeline.inboxProjectLabel', { defaultValue: 'Projet' }),
     t('timeline.zoomDecomposeLabel', { defaultValue: 'décomposé' }),
   ];
-  if (!omitProgressInLine2 && total > 0) {
+  if (total > 0) {
+    parts.push(
+      t('timeline.inboxProjectItemCount', {
+        count: total,
+        defaultValue: `${total} étapes`,
+      }),
+    );
+  }
+  if (done > 0 && total > 0) {
     parts.push(
       t('timeline.zoomDecomposeProgress', {
         done,

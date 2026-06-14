@@ -26,8 +26,6 @@ export type ResolveInboxLineInput = {
   omitTravelMilestoneInLine2?: boolean;
   /** Progression sous-tâches zoom (ancre décomposée). */
   zoomDecomposeProgress?: { done: number; total: number };
-  /** Badge +N sous-tâches visible — masquer la progression en L2. */
-  omitZoomProgressInLine2?: boolean;
 };
 
 function capitalizeFirst(value: string): string {
@@ -243,7 +241,7 @@ function buildTaskMomentLine2(
 }
 
 export function resolveInboxLinePresentation(input: ResolveInboxLineInput): InboxLinePresentation {
-  const { row, locale, t, sourcingChildCount, omitTravelMilestoneInLine2, zoomDecomposeProgress, omitZoomProgressInLine2 } = input;
+  const { row, locale, t, sourcingChildCount, omitTravelMilestoneInLine2, zoomDecomposeProgress } = input;
   const meta = safeParseJsonObject(row.metadata_json);
   const trip = getTripMetaFromRoot(meta);
   const untitled = t('timeline.untitled');
@@ -306,9 +304,7 @@ export function resolveInboxLinePresentation(input: ResolveInboxLineInput): Inbo
         line2: formatZoomDecomposedInboxLine2({
           done: zoomDecomposeProgress.done,
           total: zoomDecomposeProgress.total,
-          locale,
           t,
-          omitProgressInLine2: omitZoomProgressInLine2,
         }),
       };
     }
