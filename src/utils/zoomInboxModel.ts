@@ -1,9 +1,8 @@
 /**
- * Inbox — regroupement des sous-tâches zoom (jalon décomposé) sous une ancre Option A.
- * Clé stable : (rootProjectId, parentJalonUid) — pas le parent_id du sous-projet.
+ * Inbox — sous-tâches zoom groupées par jalon sous le projet parent (accordéon voyage).
+ * Clé stable : (rootProjectId, parentJalonUid).
  */
 import type { TrankilV2TimelineItemRow } from '../api/trankilV2Db';
-import { parseProjectMilestonesPayloadFromMetadataJson } from '../services/projectMilestonesModel';
 import { SOURCING_V1_ENABLED } from '../config/features';
 
 export const ZOOM_ANCHOR_METADATA_KEY = 'zoom_anchor_v1';
@@ -15,21 +14,19 @@ export type ZoomAnchorV1 = {
   milestone_title: string;
 };
 
-export type ZoomInboxAnchor = {
-  anchorRowId: string;
-  rootProjectId: string;
-  parentJalonUid: string;
+export type ZoomJalonStats = {
   childCount: number;
   doneCount: number;
-  milestoneTitle: string;
-};
-
-export type ZoomInboxView = {
-  anchorsByRowId: Map<string, ZoomInboxAnchor>;
-  childrenByAnchorId: Map<string, TrankilV2TimelineItemRow[]>;
 };
 
 export type ZoomGroupKey = `${string}:${string}`;
+
+export type ZoomInboxView = {
+  childrenByJalonKey: Map<ZoomGroupKey, TrankilV2TimelineItemRow[]>;
+  statsByJalonKey: Map<ZoomGroupKey, ZoomJalonStats>;
+  /** Ancres NOTE/PROJECT zoom — masquées des racines Inbox (affichées sous le parent). */
+  hiddenRootRowIds: Set<string>;
+};
 
 function safeParseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
   const s = String(raw ?? '').trim();
@@ -41,6 +38,10 @@ function safeParseJsonObject(raw: string | null | undefined): Record<string, unk
   } catch {
     return null;
   }
+}
+
+export function buildZoomJalonKey(rootProjectId: string, parentJalonUid: string): ZoomGroupKey {
+  return `${String(rootProjectId || '').trim()}:${String(parentJalonUid || '').trim()}`;
 }
 
 export function parseZoomAnchorFromMetadataJson(raw: string | null | undefined): ZoomAnchorV1 | null {
@@ -80,71 +81,23 @@ export function isZoomChildTaskRow(row: TrankilV2TimelineItemRow): boolean {
   return row.type === 'TASK' && parentId.length > 0 && Boolean(jalonUid);
 }
 
-export function isZoomInboxAnchorRow(
-  row: TrankilV2TimelineItemRow,
-  anchorsByRowId?: Map<string, ZoomInboxAnchor>,
-): boolean {
-  if (anchorsByRowId?.has(row.id)) return true;
-  const anchorMeta = parseZoomAnchorFromMetadataJson(row.metadata_json);
-  if (anchorMeta) return true;
+export function isZoomInboxAnchorRow(row: TrankilV2TimelineItemRow): boolean {
+  if (parseZoomAnchorFromMetadataJson(row.metadata_json)) return true;
   const jalonUid = resolveRowZoomParentJalonUid(row);
   if (!jalonUid) return false;
   return row.type === 'PROJECT' || row.type === 'NOTE';
 }
 
-function zoomGroupKey(rootProjectId: string, jalonUid: string): ZoomGroupKey {
-  return `${rootProjectId}:${jalonUid}`;
-}
-
-function shortMilestoneTitleFromAnchorDisplay(fullTitle: string, rootProjectTitle?: string): string {
-  const full = String(fullTitle ?? '').trim();
-  if (!full) return '';
-  const root = String(rootProjectTitle ?? '').trim();
-  if (root) {
-    const prefix = `${root} - `;
-    if (full.toLowerCase().startsWith(prefix.toLowerCase())) {
-      return full.slice(prefix.length).trim();
-    }
-  }
-  const dashIdx = full.lastIndexOf(' - ');
-  if (dashIdx > 0) return full.slice(dashIdx + 3).trim();
-  return full;
-}
-
-function resolveMilestoneTitle(rootProjectId: string, jalonUid: string, rows: TrankilV2TimelineItemRow[]): string {
-  const rootRow = rows.find((r) => r.id === rootProjectId) ?? null;
-  const rootTitle = String(rootRow?.display_title ?? '').trim();
-
-  for (const row of rows) {
-    if (row.id !== rootProjectId) continue;
-    const payload = parseProjectMilestonesPayloadFromMetadataJson(row.metadata_json);
-    const hit = payload?.milestones.find((m) => m.uid === jalonUid);
-    if (hit?.title) return String(hit.title).trim();
-  }
-  for (const row of rows) {
-    const anchorMeta = parseZoomAnchorFromMetadataJson(row.metadata_json);
-    if (anchorMeta?.jalon_uid === jalonUid && anchorMeta.root_project_id === rootProjectId && anchorMeta.milestone_title) {
-      return anchorMeta.milestone_title;
-    }
-    const uid = resolveRowZoomParentJalonUid(row);
-    if (uid !== jalonUid) continue;
-    if (row.type === 'PROJECT' || row.type === 'NOTE') {
-      const title = String(row.display_title || '').trim();
-      if (title) return shortMilestoneTitleFromAnchorDisplay(title, rootTitle);
-    }
-  }
-  return '';
-}
-
 /**
- * Construit la vue accordéon zoom depuis les lignes Inbox du jour (sync, sans SQL).
+ * Construit la vue zoom Inbox : TASKs par jalon + ids de cartes ancre à masquer.
  */
 export function buildZoomInboxView(rows: TrankilV2TimelineItemRow[]): ZoomInboxView {
-  const anchorsByRowId = new Map<string, ZoomInboxAnchor>();
-  const childrenByAnchorId = new Map<string, TrankilV2TimelineItemRow[]>();
+  const childrenByJalonKey = new Map<ZoomGroupKey, TrankilV2TimelineItemRow[]>();
+  const statsByJalonKey = new Map<ZoomGroupKey, ZoomJalonStats>();
+  const hiddenRootRowIds = new Set<string>();
 
   if (!SOURCING_V1_ENABLED) {
-    return { anchorsByRowId, childrenByAnchorId };
+    return { childrenByJalonKey, statsByJalonKey, hiddenRootRowIds };
   }
 
   const groups = new Map<ZoomGroupKey, TrankilV2TimelineItemRow[]>();
@@ -152,69 +105,43 @@ export function buildZoomInboxView(rows: TrankilV2TimelineItemRow[]): ZoomInboxV
     if (!isZoomChildTaskRow(row)) continue;
     const rootProjectId = String(row.parent_id ?? '').trim();
     const jalonUid = resolveRowZoomParentJalonUid(row)!;
-    const key = zoomGroupKey(rootProjectId, jalonUid);
+    const key = buildZoomJalonKey(rootProjectId, jalonUid);
     const bucket = groups.get(key) ?? [];
     bucket.push(row);
     groups.set(key, bucket);
   }
 
-  if (groups.size === 0) {
-    return { anchorsByRowId, childrenByAnchorId };
-  }
-
   for (const [key, childRows] of groups) {
     const [rootProjectId, jalonUid] = key.split(':') as [string, string];
     const doneCount = childRows.filter((r) => r.status === 'DONE').length;
-    const milestoneTitle = resolveMilestoneTitle(rootProjectId, jalonUid, rows);
-
-    let anchorRow: TrankilV2TimelineItemRow | null = null;
+    const sortedChildren = [...childRows].sort((a, b) => Number(a.created_at) - Number(b.created_at));
+    childrenByJalonKey.set(key, sortedChildren);
+    statsByJalonKey.set(key, { childCount: sortedChildren.length, doneCount });
 
     for (const row of rows) {
       const anchorMeta = parseZoomAnchorFromMetadataJson(row.metadata_json);
       if (anchorMeta?.root_project_id === rootProjectId && anchorMeta.jalon_uid === jalonUid) {
-        anchorRow = row;
+        hiddenRootRowIds.add(row.id);
         break;
       }
     }
-
-    if (!anchorRow) {
-      for (const row of rows) {
-        if (row.type !== 'PROJECT' && row.type !== 'NOTE') continue;
-        const uid = resolveRowZoomParentJalonUid(row);
-        if (uid !== jalonUid) continue;
-        const pid = String(row.parent_id ?? '').trim();
-        if (pid === rootProjectId || pid === '') {
-          anchorRow = row;
-          break;
-        }
+    for (const row of rows) {
+      if (hiddenRootRowIds.has(row.id)) continue;
+      if (row.type !== 'PROJECT' && row.type !== 'NOTE') continue;
+      const uid = resolveRowZoomParentJalonUid(row);
+      if (uid !== jalonUid) continue;
+      const pid = String(row.parent_id ?? '').trim();
+      if (pid === rootProjectId || !pid) {
+        hiddenRootRowIds.add(row.id);
+        break;
       }
     }
-
-    if (!anchorRow) continue;
-
-    const sortedChildren = [...childRows].sort((a, b) => Number(a.created_at) - Number(b.created_at));
-    childrenByAnchorId.set(anchorRow.id, sortedChildren);
-    const rootRow = rows.find((r) => r.id === rootProjectId) ?? null;
-    const rootTitle = String(rootRow?.display_title ?? '').trim();
-    const resolvedMilestone =
-      milestoneTitle ||
-      shortMilestoneTitleFromAnchorDisplay(String(anchorRow.display_title || '').trim(), rootTitle);
-
-    anchorsByRowId.set(anchorRow.id, {
-      anchorRowId: anchorRow.id,
-      rootProjectId,
-      parentJalonUid: jalonUid,
-      childCount: sortedChildren.length,
-      doneCount,
-      milestoneTitle: resolvedMilestone,
-    });
   }
 
-  return { anchorsByRowId, childrenByAnchorId };
+  return { childrenByJalonKey, statsByJalonKey, hiddenRootRowIds };
 }
 
-/** L2 ancre zoom décomposée : uniquement « N étapes » (chevron séparé dans InboxLineTitle). */
-export function formatZoomDecomposedInboxLine2(params: {
+export function formatZoomStepCountSuffix(params: {
   total: number;
   t: (key: string, options?: Record<string, unknown>) => string;
 }): string {

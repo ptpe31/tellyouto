@@ -69,8 +69,8 @@ import { TaskCompletionOrb } from './TaskCompletionOrb';
 import { InboxLineTitle } from './InboxLineTitle';
 import { SOURCING_V1_ENABLED } from '../config/features';
 import { isSourcedCaptureParent } from '../utils/inboxRootsView';
-import type { ZoomInboxAnchor } from '../utils/zoomInboxModel';
-import { isZoomInboxAnchorRow } from '../utils/zoomInboxModel';
+import type { ZoomInboxView } from '../utils/zoomInboxModel';
+import { buildZoomJalonKey, formatZoomStepCountSuffix } from '../utils/zoomInboxModel';
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
 import {
   parseProjectBriefFromMetadataJson,
@@ -106,10 +106,8 @@ type Props = {
   onAutoTripPillConsumed?: () => void;
   /** Enfants TASK groupés par parent_id (Inbox accordéon sourcing, filtrage JS). */
   inboxChildrenByParentId?: Map<string, TrankilV2TimelineItemRow[]>;
-  /** Ancres zoom décomposées (Option A) — clé row.id de l'ancre. */
-  inboxZoomAnchors?: Map<string, ZoomInboxAnchor>;
-  /** Sous-tâches TASK groupées par anchorRowId. */
-  inboxZoomChildrenByAnchorId?: Map<string, TrankilV2TimelineItemRow[]>;
+  /** Sous-tâches zoom groupées par jalon sous le projet parent. */
+  inboxZoomView?: ZoomInboxView;
 };
 
 /** Diamètre intérieur orbe validation (hors padding néomorphique). */
@@ -202,8 +200,7 @@ export function IdeaBankModal({
   autoTripPillRowId,
   onAutoTripPillConsumed,
   inboxChildrenByParentId,
-  inboxZoomAnchors,
-  inboxZoomChildrenByAnchorId,
+  inboxZoomView,
 }: Props) {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
@@ -227,6 +224,7 @@ export function IdeaBankModal({
   const pendingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingRowsRef = useRef<Map<string, TrankilV2TimelineItemRow>>(new Map());
   const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(() => new Set());
+  const [expandedZoomJalonKeys, setExpandedZoomJalonKeys] = useState<Set<string>>(() => new Set());
 
   const refresh = useCallback(async () => {
     onChanged();
@@ -236,6 +234,7 @@ export function IdeaBankModal({
     if (visible) {
       setLocalItemPatches(new Map());
       setExpandedParentIds(new Set());
+      setExpandedZoomJalonKeys(new Set());
     } else {
       setSearchTarget(null);
       setSearchQuery('');
@@ -437,6 +436,16 @@ export function IdeaBankModal({
       const next = new Set(prev);
       if (next.has(parentId)) next.delete(parentId);
       else next.add(parentId);
+      return next;
+    });
+  }, []);
+
+  const toggleZoomJalonExpand = useCallback((jalonKey: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedZoomJalonKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(jalonKey)) next.delete(jalonKey);
+      else next.add(jalonKey);
       return next;
     });
   }, []);
@@ -713,20 +722,9 @@ export function IdeaBankModal({
                   isSourcedParent && inboxChildrenByParentId
                     ? inboxChildrenByParentId.get(row.id) ?? []
                     : [];
-                const zoomAnchor = mode === 'inbox' ? inboxZoomAnchors?.get(row.id) : undefined;
-                const zoomChildRows =
-                  zoomAnchor && inboxZoomChildrenByAnchorId
-                    ? inboxZoomChildrenByAnchorId.get(row.id) ?? []
-                    : [];
                 const isExpanded = expandedParentIds.has(row.id);
                 const showSourcingAccordion = isSourcedParent && childRows.length > 0;
                 const sourcingChildCount = childRows.length;
-                const showZoomAccordion =
-                  mode === 'inbox' &&
-                  !showSourcingAccordion &&
-                  Boolean(zoomAnchor) &&
-                  zoomChildRows.length > 0;
-                const zoomChildCount = zoomChildRows.length;
                 const sourcingA11yExpand = t('timeline.sourcingExpand', {
                   count: sourcingChildCount,
                   defaultValue: `Déplier ${sourcingChildCount} actions`,
@@ -736,7 +734,7 @@ export function IdeaBankModal({
                   defaultValue: `Replier ${sourcingChildCount} actions`,
                 });
                 const travelBrief =
-                  mode === 'inbox' && row.type === 'PROJECT' && !isZoomInboxAnchorRow(row, inboxZoomAnchors)
+                  mode === 'inbox' && row.type === 'PROJECT'
                     ? parseProjectBriefFromMetadataJson(row.metadata_json)
                     : null;
                 const travelMilestones =
@@ -747,8 +745,7 @@ export function IdeaBankModal({
                   row.type === 'PROJECT' &&
                   travelBrief != null &&
                   travelStepCount > 0 &&
-                  !showSourcingAccordion &&
-                  !showZoomAccordion;
+                  !showSourcingAccordion;
                 const showLeftAccordionBadge = showSourcingAccordion || showTravelAccordion;
                 const showRightAccordionChevron = showLeftAccordionBadge;
                 const partyLeadCount = showSourcingAccordion
@@ -762,38 +759,17 @@ export function IdeaBankModal({
                   count: travelStepCount,
                   defaultValue: `Replier ${travelStepCount} étapes`,
                 });
-                const zoomA11yExpand = t('timeline.zoomDecomposeExpand', {
-                  count: zoomChildCount,
-                  defaultValue: `Déplier ${zoomChildCount} sous-tâches`,
-                });
-                const zoomA11yCollapse = t('timeline.zoomDecomposeCollapse', {
-                  count: zoomChildCount,
-                  defaultValue: `Replier ${zoomChildCount} sous-tâches`,
-                });
-                const accordionExpandLabel = showSourcingAccordion
-                  ? sourcingA11yExpand
-                  : showZoomAccordion
-                    ? zoomA11yExpand
-                    : travelA11yExpand;
-                const accordionCollapseLabel = showSourcingAccordion
-                  ? sourcingA11yCollapse
-                  : showZoomAccordion
-                    ? zoomA11yCollapse
-                    : travelA11yCollapse;
+                const accordionExpandLabel = showSourcingAccordion ? sourcingA11yExpand : travelA11yExpand;
+                const accordionCollapseLabel = showSourcingAccordion ? sourcingA11yCollapse : travelA11yCollapse;
                 const accordionBadgeLabel = showSourcingAccordion
                   ? t('timeline.sourcingBatchBadge', {
                       count: partyLeadCount,
                       defaultValue: `${partyLeadCount} actions extraites`,
                     })
-                  : showZoomAccordion
-                    ? t('timeline.zoomDecomposeBadge', {
-                        count: partyLeadCount,
-                        defaultValue: `${partyLeadCount} sous-tâches`,
-                      })
-                    : t('timeline.travelProjectStepsBadge', {
-                        count: partyLeadCount,
-                        defaultValue: `${partyLeadCount} étapes`,
-                      });
+                  : t('timeline.travelProjectStepsBadge', {
+                      count: partyLeadCount,
+                      defaultValue: `${partyLeadCount} étapes`,
+                    });
                 const toggleRowExpand = () => toggleSourcedParentExpand(row.id);
 
                 if (__DEV__ && !isTripCard) {
@@ -877,16 +853,6 @@ export function IdeaBankModal({
                             locale={i18n.language}
                             sourcingChildCount={showSourcingAccordion ? sourcingChildCount : undefined}
                             omitTravelMilestoneInLine2={showTravelAccordion}
-                            zoomDecomposeProgress={
-                              showZoomAccordion && zoomAnchor
-                                ? { done: zoomAnchor.doneCount, total: zoomAnchor.childCount }
-                                : undefined
-                            }
-                            zoomMilestoneTitle={
-                              showZoomAccordion && zoomAnchor ? zoomAnchor.milestoneTitle : undefined
-                            }
-                            zoomAccordionExpanded={showZoomAccordion ? isExpanded : undefined}
-                            onZoomAccordionPress={showZoomAccordion ? toggleRowExpand : undefined}
                           />
                         ) : (
                           <>
@@ -1048,45 +1014,91 @@ export function IdeaBankModal({
                         );
                       })
                     : null}
-                  {showZoomAccordion && isExpanded && zoomChildRows.length > 0
-                    ? zoomChildRows.map((childSource) => {
-                        const child = resolveRow(childSource);
-                        return (
-                          <PressableScale
-                            key={child.id}
-                            style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
-                            hapticType="light"
-                            onPress={() => openDetail(child)}
-                          >
-                            <InboxLineTitle
-                              row={child}
-                              textPrimary={designTokens.textPrimary}
-                              textSecondary={designTokens.textSecondary}
-                              locale={i18n.language}
-                            />
-                          </PressableScale>
-                        );
-                      })
-                    : null}
                   {showTravelAccordion && isExpanded && travelMilestones.length > 0
                     ? travelMilestones.map((milestone) => {
+                        const jalonKey = milestone.uid
+                          ? buildZoomJalonKey(row.id, milestone.uid)
+                          : null;
+                        const zoomTasks =
+                          jalonKey && inboxZoomView
+                            ? inboxZoomView.childrenByJalonKey.get(jalonKey) ?? []
+                            : [];
+                        const hasZoomDecompose = zoomTasks.length > 0;
+                        const zoomJalonExpanded = jalonKey ? expandedZoomJalonKeys.has(jalonKey) : false;
                         const sublineParts: string[] = [formatMilestoneDurationLabel(milestone)];
                         const persona = String(milestone.expert_persona ?? '').trim();
                         if (persona) sublineParts.push(persona);
+                        if (hasZoomDecompose) {
+                          sublineParts.push(formatZoomStepCountSuffix({ total: zoomTasks.length, t }));
+                        }
+                        const subline = sublineParts.join(' · ');
+                        const zoomMilestoneA11y = hasZoomDecompose
+                          ? zoomJalonExpanded
+                            ? t('timeline.zoomDecomposeCollapse', {
+                                count: zoomTasks.length,
+                                defaultValue: `Replier ${zoomTasks.length} sous-tâches`,
+                              })
+                            : t('timeline.zoomDecomposeExpand', {
+                                count: zoomTasks.length,
+                                defaultValue: `Déplier ${zoomTasks.length} sous-tâches`,
+                              })
+                          : undefined;
                         return (
-                          <PressableScale
-                            key={milestone.uid || `${row.id}-${milestone.title}`}
-                            style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
-                            hapticType="light"
-                            onPress={() => openDetail(row)}
-                          >
-                            <Text style={[styles.rowTitle, { color: designTokens.textPrimary }]} numberOfLines={1}>
-                              {milestone.title}
-                            </Text>
-                            <Text style={[styles.createdHint, { color: designTokens.textSecondary }]} numberOfLines={1}>
-                              {sublineParts.join(' · ')}
-                            </Text>
-                          </PressableScale>
+                          <React.Fragment key={milestone.uid || `${row.id}-${milestone.title}`}>
+                            <PressableScale
+                              style={[styles.childRow, { paddingLeft: 24 + VALIDATION_ORB_OUTER }]}
+                              hapticType="light"
+                              onPress={
+                                hasZoomDecompose && jalonKey
+                                  ? () => toggleZoomJalonExpand(jalonKey)
+                                  : () => openDetail(row)
+                              }
+                              accessibilityRole="button"
+                              accessibilityLabel={zoomMilestoneA11y ?? milestone.title}
+                            >
+                              <Text style={[styles.rowTitle, { color: designTokens.textPrimary }]} numberOfLines={1}>
+                                {milestone.title}
+                              </Text>
+                              <View style={styles.milestoneSublineRow}>
+                                <Text
+                                  style={[styles.createdHint, styles.milestoneSublineText, { color: designTokens.textSecondary }]}
+                                  numberOfLines={1}
+                                >
+                                  {subline}
+                                </Text>
+                                {hasZoomDecompose ? (
+                                  <Icon
+                                    source={zoomJalonExpanded ? 'chevron-left' : 'chevron-right'}
+                                    size={20}
+                                    color={designTokens.textSecondary}
+                                  />
+                                ) : null}
+                              </View>
+                            </PressableScale>
+                            {hasZoomDecompose && zoomJalonExpanded
+                              ? zoomTasks.map((childSource) => {
+                                  const child = resolveRow(childSource);
+                                  return (
+                                    <PressableScale
+                                      key={child.id}
+                                      style={[
+                                        styles.childRow,
+                                        { paddingLeft: 24 + VALIDATION_ORB_OUTER + 16 },
+                                      ]}
+                                      hapticType="light"
+                                      onPress={() => openDetail(child)}
+                                    >
+                                      <InboxLineTitle
+                                        row={child}
+                                        textPrimary={designTokens.textPrimary}
+                                        textSecondary={designTokens.textSecondary}
+                                        locale={i18n.language}
+                                      />
+                                    </PressableScale>
+                                  );
+                                })
+                              : null}
+                          </React.Fragment>
                         );
                       })
                     : null}
@@ -1232,6 +1244,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingRight: 12,
     marginBottom: 4,
+  },
+  milestoneSublineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
+  },
+  milestoneSublineText: {
+    flex: 1,
   },
   rowTitle: { fontSize: 15, fontWeight: '600' },
   rowTitleDone: { textDecorationLine: 'line-through' },

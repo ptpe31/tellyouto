@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Icon } from 'react-native-paper';
+import { StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import type { TrankilV2TimelineItemRow } from '../api/trankilV2Db';
@@ -14,12 +13,6 @@ type Props = {
   locale?: string;
   sourcingChildCount?: number;
   omitTravelMilestoneInLine2?: boolean;
-  zoomDecomposeProgress?: { done: number; total: number };
-  /** L1 jalon court pour ancre zoom (ex. « Administratif »). */
-  zoomMilestoneTitle?: string;
-  /** Accordéon zoom : chevron droite (replié) / gauche (déplié) sur la ligne 2. */
-  zoomAccordionExpanded?: boolean;
-  onZoomAccordionPress?: () => void;
 };
 
 export function InboxLineTitle({
@@ -29,16 +22,9 @@ export function InboxLineTitle({
   locale,
   sourcingChildCount,
   omitTravelMilestoneInLine2,
-  zoomDecomposeProgress,
-  zoomMilestoneTitle,
-  zoomAccordionExpanded,
-  onZoomAccordionPress,
 }: Props) {
   const { t, i18n } = useTranslation();
   const loc = locale || i18n.language || Intl.DateTimeFormat().resolvedOptions().locale;
-
-  const showZoomLine2Accordion =
-    Boolean(zoomDecomposeProgress && zoomDecomposeProgress.total > 0) && Boolean(onZoomAccordionPress);
 
   const { line1, line2 } = useMemo(
     () =>
@@ -48,26 +34,11 @@ export function InboxLineTitle({
         t,
         sourcingChildCount,
         omitTravelMilestoneInLine2,
-        zoomDecomposeProgress,
-        zoomMilestoneTitle,
       }),
-    [loc, omitTravelMilestoneInLine2, row, sourcingChildCount, t, zoomDecomposeProgress, zoomMilestoneTitle],
+    [loc, omitTravelMilestoneInLine2, row, sourcingChildCount, t],
   );
 
   const pastel = categoryPastelTabBackground(row.category_id);
-
-  const zoomA11yLabel =
-    showZoomLine2Accordion && zoomDecomposeProgress
-      ? zoomAccordionExpanded
-        ? t('timeline.zoomDecomposeCollapse', {
-            count: zoomDecomposeProgress.total,
-            defaultValue: `Replier ${zoomDecomposeProgress.total} sous-tâches`,
-          })
-        : t('timeline.zoomDecomposeExpand', {
-            count: zoomDecomposeProgress.total,
-            defaultValue: `Déplier ${zoomDecomposeProgress.total} sous-tâches`,
-          })
-      : undefined;
 
   return (
     <View style={styles.root}>
@@ -76,28 +47,9 @@ export function InboxLineTitle({
         <Text style={[styles.line1, { color: textPrimary }]} numberOfLines={1} ellipsizeMode="tail">
           {line1}
         </Text>
-        {showZoomLine2Accordion ? (
-          <Pressable
-            style={styles.line2AccordionRow}
-            onPress={onZoomAccordionPress}
-            accessibilityRole="button"
-            accessibilityLabel={zoomA11yLabel}
-            hitSlop={6}
-          >
-            <Text style={[styles.line2, styles.line2Flex, { color: textSecondary }]} numberOfLines={1} ellipsizeMode="tail">
-              {line2}
-            </Text>
-            <Icon
-              source={zoomAccordionExpanded ? 'chevron-left' : 'chevron-right'}
-              size={20}
-              color={textSecondary}
-            />
-          </Pressable>
-        ) : (
-          <Text style={[styles.line2, { color: textSecondary }]} numberOfLines={1} ellipsizeMode="tail">
-            {line2}
-          </Text>
-        )}
+        <Text style={[styles.line2, { color: textSecondary }]} numberOfLines={1} ellipsizeMode="tail">
+          {line2}
+        </Text>
       </View>
     </View>
   );
@@ -120,26 +72,15 @@ const styles = StyleSheet.create({
   },
   textCol: {
     flex: 1,
+    minWidth: 0,
     justifyContent: 'center',
-    gap: 2,
   },
   line1: {
     fontSize: 15,
     fontWeight: '600',
-    lineHeight: 18,
   },
   line2: {
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  line2Flex: {
-    flex: 1,
-    minWidth: 0,
-  },
-  line2AccordionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    minHeight: 16,
+    fontSize: 11,
+    marginTop: 2,
   },
 });

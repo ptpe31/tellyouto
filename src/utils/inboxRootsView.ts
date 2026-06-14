@@ -42,7 +42,11 @@ export function buildInboxRootsView(rows: TrankilV2TimelineItemRow[]): InboxRoot
     childrenByParentId.set(pid, bucket);
   }
 
-  const roots = rows.filter((row) => !isChildTaskRow(row));
+  const roots = rows.filter((row) => {
+    if (isChildTaskRow(row)) return false;
+    if (zoomView.hiddenRootRowIds.has(row.id)) return false;
+    return true;
+  });
   return {
     roots,
     childrenByParentId,
