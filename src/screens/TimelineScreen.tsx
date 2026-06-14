@@ -467,6 +467,8 @@ export function TimelineScreen() {
   const [ideaBankHubItems, setIdeaBankHubItems] = useState<TrankilV2TimelineItemRow[] | null>(null);
   const [ideaBankHubTitle, setIdeaBankHubTitle] = useState<string | undefined>(undefined);
   const [ideaBankAutoTripPillRowId, setIdeaBankAutoTripPillRowId] = useState<string | null>(null);
+  const [ideaBankAutoExpandProjectRowId, setIdeaBankAutoExpandProjectRowId] = useState<string | null>(null);
+  const [ideaBankPendingProjectPass2RowId, setIdeaBankPendingProjectPass2RowId] = useState<string | null>(null);
   const [boxViewOpen, setBoxViewOpen] = useState(false);
   const [boxStockRows, setBoxStockRows] = useState<TrankilV2TimelineItemRow[]>([]);
   const [routinesViewOpen, setRoutinesViewOpen] = useState(false);
@@ -542,6 +544,54 @@ export function TimelineScreen() {
     return t('timeline.roadmap.progressWrite');
   }, [pass3Progress, t]);
 
+  /** Met à jour une ligne dans les listes locales + détail si ouvert. */
+  const patchRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
+    const apply = (rows: TrankilV2TimelineItemRow[]) =>
+      rows.map((r) => (r.id === id ? { ...r, ...patch } : r));
+    setPrimaryRows((prev) => apply(prev));
+    setArchivedRows((prev) => apply(prev));
+    setUnorganizedTodo((prev) => apply(prev));
+    setBoxStockRows((prev) => apply(prev));
+    setInboxTodayRows((prev) => apply(prev));
+    setDetailRow((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  }, []);
+
+  const openProjectHubAccordion = useCallback(
+    async (params: { intentionId: string; runPass2?: boolean; title?: string }) => {
+      const intentionId = String(params.intentionId ?? '').trim();
+      if (!intentionId) return;
+      setDetailOpen(false);
+      setDetailRow(null);
+      setDetailPosition('full');
+      setAutoTriggerPass2(false);
+      setAutoFocusTripArrivalEdit(false);
+      setDetailPeekHeightPx(capturePeekPathAHeightPx());
+      setPeekCapturePhase('idle');
+      const full = await getTrankilV2IntentionById(intentionId);
+      const row = full ? mapTrankilIntentionToTimelineItemRow(full) : null;
+      setIdeaBankHubContext({ kind: 'block' });
+      setIdeaBankHubItems(row ? [row] : null);
+      setIdeaBankHubTitle(params.title ?? (String(row?.display_title ?? '').trim() || undefined));
+      setIdeaBankAutoTripPillRowId(null);
+      setIdeaBankAutoExpandProjectRowId(intentionId);
+      setIdeaBankPendingProjectPass2RowId(params.runPass2 ? intentionId : null);
+      setIdeaBankOpen(true);
+      if (row) patchRow(intentionId, row);
+    },
+    [patchRow],
+  );
+
+  const handleOpenProjectHubFromPeek = useCallback(
+    (params: { row: TrankilV2TimelineItemRow; runPass2: boolean }) => {
+      void openProjectHubAccordion({
+        intentionId: params.row.id,
+        runPass2: params.runPass2,
+        title: String(params.row.display_title ?? '').trim() || undefined,
+      });
+    },
+    [openProjectHubAccordion],
+  );
+
   /** Ouvre `IntentionDetailSheet` en plein écran sur une ligne existante (hub TRIP unifié). */
   const openDetail = useCallback((r: TrankilV2TimelineItemRow) => {
     setAutoTriggerPass2(false);
@@ -552,15 +602,26 @@ export function TimelineScreen() {
     setDetailOpen(true);
   }, []);
 
-  /** Ouvre le détail puis déclenche Pass 2 (pilule IdeaBank). */
-  const openDetailWithPass2 = useCallback((r: TrankilV2TimelineItemRow) => {
-    setPeekCapturePhase('idle');
-    setDetailRow(r);
-    setDetailPosition('full');
-    setAutoFocusTripArrivalEdit(false);
-    setAutoTriggerPass2(true);
-    setDetailOpen(true);
-  }, []);
+  /** Ouvre le détail puis déclenche Pass 2 (pilule IdeaBank). Projet → hub accordéon. */
+  const openDetailWithPass2 = useCallback(
+    (r: TrankilV2TimelineItemRow) => {
+      if (String(r.type ?? '').trim().toUpperCase() === 'PROJECT') {
+        void openProjectHubAccordion({
+          intentionId: r.id,
+          runPass2: true,
+          title: String(r.display_title ?? '').trim() || undefined,
+        });
+        return;
+      }
+      setPeekCapturePhase('idle');
+      setDetailRow(r);
+      setDetailPosition('full');
+      setAutoFocusTripArrivalEdit(false);
+      setAutoTriggerPass2(true);
+      setDetailOpen(true);
+    },
+    [openProjectHubAccordion],
+  );
 
   /** Ouvre la sheet trajet avec édition arrivée (adresse / heure manquante depuis la tirelire). */
   const openDetailWithTripSetup = useCallback((r: TrankilV2TimelineItemRow) => {
@@ -586,18 +647,6 @@ export function TimelineScreen() {
     },
     [openDetail],
   );
-
-  /** Met à jour une ligne dans les listes locales + détail si ouvert. */
-  const patchRow = useCallback((id: string, patch: Partial<TrankilV2TimelineItemRow>) => {
-    const apply = (rows: TrankilV2TimelineItemRow[]) =>
-      rows.map((r) => (r.id === id ? { ...r, ...patch } : r));
-    setPrimaryRows((prev) => apply(prev));
-    setArchivedRows((prev) => apply(prev));
-    setUnorganizedTodo((prev) => apply(prev));
-    setBoxStockRows((prev) => apply(prev));
-    setInboxTodayRows((prev) => apply(prev));
-    setDetailRow((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
-  }, []);
 
   /** Ferme la feuille détail. */
   const closeDetail = useCallback(() => {
@@ -629,6 +678,15 @@ export function TimelineScreen() {
       const transcript = String((payload as { transcript?: unknown })?.transcript ?? '').trim();
       const categoryId = normalizeCategoryId((payload as { categoryTag?: unknown })?.categoryTag);
       const type = String((payload as { predictedType?: unknown })?.predictedType ?? 'NOTE').trim().toUpperCase();
+      const projectEnriched = Boolean(
+        (payload as { projectEnriched?: boolean }).projectEnriched ||
+          (payload as { travelProjectEnriched?: boolean }).travelProjectEnriched,
+      );
+      if (type === 'PROJECT' && projectEnriched) {
+        logCaptureFlow(undefined, 'ui_project_hub_after_capture', { screen: 'Timeline', intentionId });
+        void openProjectHubAccordion({ intentionId, runPass2: false, title });
+        return;
+      }
       const previewRow = {
         id: intentionId,
         type,
@@ -706,7 +764,7 @@ export function TimelineScreen() {
       subFirstSave.remove();
       subDeferred.remove();
     };
-  }, [isPipelineOverlayVisible, pipelineOverlayVisibleRef]);
+  }, [isPipelineOverlayVisible, openProjectHubAccordion, pipelineOverlayVisibleRef]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1939,6 +1997,7 @@ export function TimelineScreen() {
         captureSheetMaxHeightRatio={peekCapturePhase !== 'idle' ? CAPTURE_SHEET_FULL_MAX_RATIO : undefined}
         autoTriggerPass2={autoTriggerPass2}
         autoFocusTripArrivalEdit={autoFocusTripArrivalEdit}
+        onOpenProjectHub={handleOpenProjectHubFromPeek}
       />
 
       <TimelineFilterModal
@@ -2003,10 +2062,16 @@ export function TimelineScreen() {
           setIdeaBankHubItems(null);
           setIdeaBankHubTitle(undefined);
           setIdeaBankAutoTripPillRowId(null);
+          setIdeaBankAutoExpandProjectRowId(null);
+          setIdeaBankPendingProjectPass2RowId(null);
           setIdeaBankOpen(false);
         }}
         autoTripPillRowId={ideaBankAutoTripPillRowId}
         onAutoTripPillConsumed={() => setIdeaBankAutoTripPillRowId(null)}
+        autoExpandProjectRowId={ideaBankAutoExpandProjectRowId}
+        onAutoExpandProjectConsumed={() => setIdeaBankAutoExpandProjectRowId(null)}
+        pendingProjectPass2RowId={ideaBankPendingProjectPass2RowId}
+        onPendingProjectPass2Consumed={() => setIdeaBankPendingProjectPass2RowId(null)}
         items={ideaBankModalItems}
         status={statusFilter}
         anchorDate={anchorDate}

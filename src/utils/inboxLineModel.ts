@@ -3,9 +3,9 @@ import { formatYmdLocal } from '../services/TimeSorter';
 import { formatCreationSubtitle, formatDueDayLabel } from '../utils/timeFormat';
 import { isSourcedCaptureParent } from './inboxRootsView';
 import {
-  formatTravelProjectInboxLine2,
+  formatProjectInboxLine2,
   parseProjectBriefFromMetadataJson,
-  resolveTravelProjectMilestoneCount,
+  resolveProjectMilestoneCount,
 } from './travelProjectModel';
 import { isSourcingShellMetadata } from './sourcingTitle';
 import { getTripMetaFromRoot } from './tripTimelineCard';
@@ -285,14 +285,14 @@ export function resolveInboxLinePresentation(input: ResolveInboxLineInput): Inbo
 
   if (row.type === 'PROJECT') {
     const brief = parseProjectBriefFromMetadataJson(row.metadata_json);
-    const milestoneCount = resolveTravelProjectMilestoneCount(row.metadata_json);
+    const milestoneCount = resolveProjectMilestoneCount(row.metadata_json);
     const dueYmd =
       String(row.due_date ?? '').trim().slice(0, 10) ||
-      brief?.departure_ymd ||
+      brief?.target_ymd ||
       null;
-    const travelLine2 =
+    const projectLine2 =
       brief || milestoneCount != null || dueYmd
-        ? formatTravelProjectInboxLine2({
+        ? formatProjectInboxLine2({
             brief,
             milestoneCount,
             dueYmd: dueYmd && /^\d{4}-\d{2}-\d{2}/.test(dueYmd) ? dueYmd.slice(0, 10) : null,
@@ -301,10 +301,10 @@ export function resolveInboxLinePresentation(input: ResolveInboxLineInput): Inbo
             omitMilestoneInLine2: omitTravelMilestoneInLine2,
           })
         : null;
-    if (travelLine2) {
+    if (projectLine2) {
       return {
         line1: String(row.display_title || '').trim() || untitled,
-        line2: travelLine2,
+        line2: projectLine2,
       };
     }
     const itemCount = countListItems(meta);

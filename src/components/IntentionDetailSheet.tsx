@@ -87,8 +87,8 @@ import {
   type ProjectMilestonesPayload,
 } from '../services/projectMilestonesModel';
 import { geminiEnrichGenericList } from '../services/geminiSemanticLab';
-import { enrichTravelProjectAfterPersist } from '../services/travelProjectEnrich';
-import { parseProjectBriefFromMetadataJson, type ProjectBriefV1 } from '../utils/travelProjectModel';
+import { enrichProjectAfterPersist } from '../services/projectEnrich';
+import { parseProjectBriefFromMetadataJson, type UnifiedProjectBrief } from '../utils/travelProjectModel';
 import { useOptionalIntentionContext } from '../context/IntentionContext';
 import { useUserSpectrum } from '../context/UserSpectrumContext';
 import { useDesignTokens, type ZenTypography } from '../hooks/useDesignTokens';
@@ -128,6 +128,8 @@ type Props = {
   autoTriggerPass2?: boolean;
   /** Ouvre l’édition arrivée TRIP à l’ouverture (ex. tirelire → setup trajet). */
   autoFocusTripArrivalEdit?: boolean;
+  /** Projet : hub IdeaBank avec accordéon (chevrons) au lieu de la bottom sheet détail. */
+  onOpenProjectHub?: (params: { row: TrankilV2TimelineItemRow; runPass2: boolean }) => void;
 };
 
 type ChecklistItem = { uid: string; text: string; checked: boolean };
@@ -557,6 +559,7 @@ export function IntentionDetailSheet({
   morphSheetContentOnIntentionChange,
   autoTriggerPass2 = false,
   autoFocusTripArrivalEdit = false,
+  onOpenProjectHub,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
@@ -774,7 +777,10 @@ export function IntentionDetailSheet({
     () => parseProjectBriefFromMetadataJson(metadataJsonLive ?? row?.metadata_json),
     [metadataJsonLive, row?.metadata_json],
   );
-  const isTravelProject = Boolean(projectBrief);
+  const isTravelProject = projectBrief?.domain === 'travel';
+  const isRenovationProject = projectBrief?.domain === 'renovation';
+  const isEventProject = projectBrief?.domain === 'event';
+  const hasProjectBrief = Boolean(projectBrief);
   const hasOnlyPlaceholderMilestones = useMemo(() => {
     if (!projectPayload?.milestones?.length) return true;
     const real = projectPayload.milestones.filter((m) => String(m.title ?? '').trim() && m.title !== '—');
@@ -905,10 +911,15 @@ export function IntentionDetailSheet({
 
   const peekValidationPrimaryLabel = useMemo(() => {
     if (peekValidationActionKind === 'trip') return formatTripPass2Label();
-    if (peekValidationActionKind === 'project') return formatPass2CtaLabel('pass2.generateSteps');
+    if (peekValidationActionKind === 'project') {
+      if (pass2Unlocked) {
+        return t('pass2.viewSteps', { defaultValue: 'Voir les étapes' });
+      }
+      return formatPass2CtaLabel('pass2.generateSteps');
+    }
     if (peekValidationActionKind === 'list') return formatPass2CtaLabel('pass2.generateList');
     return t('talkDebug.actionAddNote');
-  }, [formatPass2CtaLabel, formatTripPass2Label, peekValidationActionKind, t]);
+  }, [formatPass2CtaLabel, formatTripPass2Label, pass2Unlocked, peekValidationActionKind, t]);
 
   const actionAdvisorRevealKeyRef = useRef('');
 
@@ -2003,12 +2014,12 @@ export function IntentionDetailSheet({
       };
       await patchMetadata(row.id, pendingPatch, { silent: true });
       applyPass2MetadataLocally(pendingPatch);
-      const brief: ProjectBriefV1 | null = parseProjectBriefFromMetadataJson(
+      const brief: UnifiedProjectBrief | null = parseProjectBriefFromMetadataJson(
         metadataJsonLiveRef.current ?? row.metadata_json,
       );
       const titleFallback = validationTitle || String(row.display_title ?? '').trim() || 'Projet';
       if (brief) {
-        const result = await enrichTravelProjectAfterPersist({
+        const result = await enrichProjectAfterPersist({
           intentionId: row.id,
           transcript: raw,
           brief,
@@ -2361,18 +2372,27 @@ export function IntentionDetailSheet({
         redirectToProSubscription();
         return;
       }
+      if (peekValidationActionKind === 'project' && onOpenProjectHub && row) {
+        clearPeekAutoCloseTimer();
+        onClose();
+        onOpenProjectHub({ row, runPass2: !pass2Unlocked });
+        return;
+      }
       await onPressPass2();
     }
   }, [
     clearPeekAutoCloseTimer,
     isProUser,
+    onClose,
+    onOpenProjectHub,
+    onPressPass2,
     openFullSheet,
     pass2Running,
+    pass2Unlocked,
     peekValidationActionKind,
     persistPass2Unlocked,
     redirectToProSubscription,
     row,
-    onPressPass2,
   ]);
 
   useEffect(() => {
@@ -3117,30 +3137,56 @@ export function IntentionDetailSheet({
                       </Text>
                     </>
                   ) : null}
-                  {isProject && isTravelProject && projectBrief ? (
+                  {isProject && hasProjectBrief && projectBrief ? (
                     <>
                       <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
                       <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
-                        {t('intentionDetail.travelBriefSection', { defaultValue: 'Voyage' })}
+                        {isTravelProject
+                          ? t('intentionDetail.travelBriefSection', { defaultValue: 'Voyage' })
+                          : isRenovationProject
+                            ? t('intentionDetail.renovationBriefSection', { defaultValue: 'Rénovation' })
+                            : isEventProject
+                              ? t('intentionDetail.eventBriefSection', { defaultValue: 'Événement' })
+                              : t('intentionDetail.projectBriefSection', { defaultValue: 'Contexte projet' })}
                       </Text>
-                      {projectBrief.destination ? (
+                      {isTravelProject && projectBrief.destination ? (
                         <Text style={[styles.subtitleInline, { color: theme.colors.onSurface }]} numberOfLines={1}>
                           {projectBrief.destination}
                         </Text>
                       ) : null}
-                      {projectBrief.party.length > 0 ? (
-                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
-                          {projectBrief.party.join(' · ')}
+                      {isRenovationProject && projectBrief.room ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                          {projectBrief.room}
                         </Text>
                       ) : null}
-                      {projectBrief.flights ? (
+                      {projectBrief.stakeholders.length > 0 ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
+                          {projectBrief.stakeholders.join(' · ')}
+                        </Text>
+                      ) : null}
+                      {isTravelProject && projectBrief.flights ? (
                         <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
                           {projectBrief.flights}
+                        </Text>
+                      ) : null}
+                      {isRenovationProject && projectBrief.budget_hint ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
+                          {projectBrief.budget_hint}
+                        </Text>
+                      ) : null}
+                      {isRenovationProject && (projectBrief.trades_needed?.length ?? 0) > 0 ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
+                          {(projectBrief.trades_needed ?? []).join(' · ')}
                         </Text>
                       ) : null}
                       {projectBrief.constraints.length > 0 ? (
                         <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={3}>
                           {projectBrief.constraints.join(' · ')}
+                        </Text>
+                      ) : null}
+                      {projectBrief.context_notes ? (
+                        <Text style={[styles.subtitleInline, { color: theme.colors.onSurfaceVariant }]} numberOfLines={3}>
+                          {projectBrief.context_notes}
                         </Text>
                       ) : null}
                     </>

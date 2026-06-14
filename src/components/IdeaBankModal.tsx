@@ -40,6 +40,7 @@ import {
   GooglePlacesAutocompleteField,
   type GooglePlaceSelection,
 } from './traffic/GooglePlacesAutocompleteField';
+import { runProjectPass2ForHub } from '../services/projectPass2Hub';
 import { generateSmartTitle } from '../services/smartTitle';
 import { useDesignTokens } from '../hooks/useDesignTokens';
 import { formatCreationSubtitle } from '../utils/timeFormat';
@@ -92,7 +93,8 @@ import { buildZoomJalonKey, resolveRowZoomParentJalonUid } from '../utils/zoomIn
 import { categoryPastelTabBackground } from '../utils/categoryPastel';
 import {
   parseProjectBriefFromMetadataJson,
-  resolveTravelProjectMilestonesForInbox,
+  resolveProjectMilestonesForInbox,
+  shouldShowProjectInboxAccordion,
 } from '../utils/travelProjectModel';
 import {
   buildProjectMilestonesMetadataPatch,
@@ -125,6 +127,12 @@ type Props = {
   /** À l’ouverture : déclenche la pilule TRIP « Me prévenir… » (Sentinel Focus, etc.). */
   autoTripPillRowId?: string | null;
   onAutoTripPillConsumed?: () => void;
+  /** Déplie l’accordéon jalons du projet à l’ouverture du hub. */
+  autoExpandProjectRowId?: string | null;
+  onAutoExpandProjectConsumed?: () => void;
+  /** Lance Pass 2 projet dans le hub (sans bottom sheet détail). */
+  pendingProjectPass2RowId?: string | null;
+  onPendingProjectPass2Consumed?: () => void;
   /** Enfants TASK groupés par parent_id (accordéon sourcing). */
   hubChildrenByParentId?: Map<string, TrankilV2TimelineItemRow[]>;
   /** Sous-tâches zoom groupées par jalon sous le projet parent. */
@@ -227,6 +235,10 @@ export function IdeaBankModal({
   onOpenTripSetup,
   autoTripPillRowId,
   onAutoTripPillConsumed,
+  autoExpandProjectRowId,
+  onAutoExpandProjectConsumed,
+  pendingProjectPass2RowId,
+  onPendingProjectPass2Consumed,
   hubChildrenByParentId,
   hubZoomView,
 }: Props) {
@@ -240,6 +252,9 @@ export function IdeaBankModal({
   const pendingPass2RowRef = useRef<TrankilV2TimelineItemRow | null>(null);
   const pendingTripSetupRowRef = useRef<TrankilV2TimelineItemRow | null>(null);
   const autoTripPillFiredRef = useRef(false);
+  const autoExpandProjectFiredRef = useRef(false);
+  const pendingProjectPass2FiredRef = useRef(false);
+  const [projectPass2BusyIds, setProjectPass2BusyIds] = useState<Set<string>>(() => new Set());
   const [localItemPatches, setLocalItemPatches] = useState<Map<string, Partial<TrankilV2TimelineItemRow>>>(
     () => new Map(),
   );
@@ -525,7 +540,7 @@ export function IdeaBankModal({
         childrenByParentId: hubChildrenByParentId,
         hasTravelSteps: (root) => {
           if (root.type !== 'PROJECT') return false;
-          return resolveTravelProjectMilestonesForInbox(root.metadata_json).length > 0;
+          return resolveProjectMilestonesForInbox(root.metadata_json).length > 0;
         },
       }),
     );
@@ -534,7 +549,7 @@ export function IdeaBankModal({
       new Set(
         items
           .filter((root) => root.type === 'PROJECT')
-          .filter((root) => resolveTravelProjectMilestonesForInbox(root.metadata_json).some((m) => m.checked))
+          .filter((root) => resolveProjectMilestonesForInbox(root.metadata_json).some((m) => m.checked))
           .map((root) => root.id),
       ),
     );
@@ -956,6 +971,82 @@ export function IdeaBankModal({
     return () => clearTimeout(timer);
   }, [autoTripPillRowId, handleTripPillPress, items, onAutoTripPillConsumed, resolveRow, visible]);
 
+  useEffect(() => {
+    if (!visible) {
+      autoExpandProjectFiredRef.current = false;
+      return;
+    }
+    const targetId = String(autoExpandProjectRowId ?? '').trim();
+    if (!targetId || autoExpandProjectFiredRef.current) return;
+    const row = items.find((source) => resolveRow(source).id === targetId);
+    if (!row) {
+      onAutoExpandProjectConsumed?.();
+      return;
+    }
+    autoExpandProjectFiredRef.current = true;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedParentIds((prev) => {
+      const next = new Set(prev);
+      next.add(targetId);
+      return next;
+    });
+    onAutoExpandProjectConsumed?.();
+  }, [autoExpandProjectRowId, items, onAutoExpandProjectConsumed, resolveRow, visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      pendingProjectPass2FiredRef.current = false;
+      return;
+    }
+    const targetId = String(pendingProjectPass2RowId ?? '').trim();
+    if (!targetId || pendingProjectPass2FiredRef.current) return;
+    const row = items.find((source) => resolveRow(source).id === targetId);
+    if (!row) {
+      onPendingProjectPass2Consumed?.();
+      return;
+    }
+    pendingProjectPass2FiredRef.current = true;
+    setProjectPass2BusyIds((prev) => new Set(prev).add(targetId));
+    void (async () => {
+      try {
+        const result = await runProjectPass2ForHub({
+          intentionId: targetId,
+          uiLocale: i18n.language || 'fr-FR',
+        });
+        if (result.ok) {
+          applyLocalPatch(targetId, { metadata_json: result.metadataJson });
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setExpandedParentIds((prev) => {
+            const next = new Set(prev);
+            next.add(targetId);
+            return next;
+          });
+          await refresh();
+          await safeSuccessHaptic();
+        } else {
+          showAppToast(t('pass2.enrichErrorGate', { defaultValue: 'Les étapes n’ont pas pu être générées.' }), 2800);
+        }
+      } finally {
+        setProjectPass2BusyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(targetId);
+          return next;
+        });
+        onPendingProjectPass2Consumed?.();
+      }
+    })();
+  }, [
+    applyLocalPatch,
+    i18n.language,
+    items,
+    onPendingProjectPass2Consumed,
+    pendingProjectPass2RowId,
+    refresh,
+    resolveRow,
+    t,
+    visible,
+  ]);
+
   const showHubCheckbox = status === 'TODO' && !selectionMode;
   const selectedCount = deleteResolveSummary.intentionIds.length;
   const sheetTitle = selectionMode
@@ -1105,33 +1196,32 @@ export function IdeaBankModal({
                   defaultValue: `Replier ${sourcingChildCount} actions`,
                 });
                 const resolvedProjectRow = resolveRow(row);
-                const travelBrief =
+                const projectBrief =
                   row.type === 'PROJECT'
                     ? parseProjectBriefFromMetadataJson(resolvedProjectRow.metadata_json)
                     : null;
-                const travelMilestones =
-                  travelBrief ? resolveTravelProjectMilestonesForInbox(resolvedProjectRow.metadata_json) : [];
-                const travelStepCount = travelMilestones.length;
-                const showTravelAccordion =
+                const projectMilestones = resolveProjectMilestonesForInbox(resolvedProjectRow.metadata_json);
+                const projectStepCount = projectMilestones.length;
+                const showProjectAccordion =
                   row.type === 'PROJECT' &&
-                  travelBrief != null &&
-                  travelStepCount > 0 &&
+                  shouldShowProjectInboxAccordion(resolvedProjectRow.metadata_json, projectBrief) &&
+                  projectStepCount > 0 &&
                   !showSourcingAccordion;
-                const showLeftAccordionBadge = showSourcingAccordion || showTravelAccordion;
+                const showLeftAccordionBadge = showSourcingAccordion || showProjectAccordion;
                 const showRightAccordionChevron = showLeftAccordionBadge;
                 const partyLeadCount = showSourcingAccordion
                   ? sourcingChildCount
-                  : travelStepCount;
-                const travelA11yExpand = t('timeline.travelProjectExpandSteps', {
-                  count: travelStepCount,
-                  defaultValue: `Déplier ${travelStepCount} étapes`,
+                  : projectStepCount;
+                const projectA11yExpand = t('timeline.travelProjectExpandSteps', {
+                  count: projectStepCount,
+                  defaultValue: `Déplier ${projectStepCount} étapes`,
                 });
-                const travelA11yCollapse = t('timeline.travelProjectCollapseSteps', {
-                  count: travelStepCount,
-                  defaultValue: `Replier ${travelStepCount} étapes`,
+                const projectA11yCollapse = t('timeline.travelProjectCollapseSteps', {
+                  count: projectStepCount,
+                  defaultValue: `Replier ${projectStepCount} étapes`,
                 });
-                const accordionExpandLabel = showSourcingAccordion ? sourcingA11yExpand : travelA11yExpand;
-                const accordionCollapseLabel = showSourcingAccordion ? sourcingA11yCollapse : travelA11yCollapse;
+                const accordionExpandLabel = showSourcingAccordion ? sourcingA11yExpand : projectA11yExpand;
+                const accordionCollapseLabel = showSourcingAccordion ? sourcingA11yCollapse : projectA11yCollapse;
                 const accordionBadgeLabel = showSourcingAccordion
                   ? t('timeline.sourcingBatchBadge', {
                       count: partyLeadCount,
@@ -1143,13 +1233,13 @@ export function IdeaBankModal({
                     });
                 const leadBadgeText = showSourcingAccordion
                   ? `+${sourcingChildCount}`
-                  : showTravelAccordion
+                  : showProjectAccordion
                     ? resolveTravelProjectBadgeLabel({
-                        milestones: travelMilestones,
+                        milestones: projectMilestones,
                         projectId: row.id,
                         inboxZoomView: hubZoomView,
                         resolveRow,
-                        fallbackCount: travelStepCount,
+                        fallbackCount: projectStepCount,
                       })
                     : `+${partyLeadCount}`;
                 const toggleRowExpand = () => toggleSourcedParentExpand(row.id);
@@ -1209,14 +1299,14 @@ export function IdeaBankModal({
                           <View
                             style={[
                               styles.sourcingCountBadge,
-                              showTravelAccordion && !showSourcingAccordion ? styles.sourcingCountBadgeWide : null,
+                              showProjectAccordion && !showSourcingAccordion ? styles.sourcingCountBadgeWide : null,
                               { backgroundColor: categoryPastelTabBackground(row.category_id) },
                             ]}
                           >
                             <Text
                               style={[
                                 styles.sourcingCountText,
-                                showTravelAccordion && !showSourcingAccordion ? styles.sourcingCountTextCompact : null,
+                                showProjectAccordion && !showSourcingAccordion ? styles.sourcingCountTextCompact : null,
                                 { color: designTokens.textPrimary },
                               ]}
                             >
@@ -1264,7 +1354,7 @@ export function IdeaBankModal({
                             textSecondary={designTokens.textSecondary}
                             locale={i18n.language}
                             sourcingChildCount={showSourcingAccordion ? sourcingChildCount : undefined}
-                            omitTravelMilestoneInLine2={showTravelAccordion}
+                            omitTravelMilestoneInLine2={showProjectAccordion}
                             titleDone={isPending}
                           />
                         ) : (
@@ -1486,11 +1576,11 @@ export function IdeaBankModal({
                         );
                       })
                     : null}
-                  {selectionMode && showTravelAccordion && isExpanded && travelMilestones.length > 0
+                  {selectionMode && showProjectAccordion && isExpanded && projectMilestones.length > 0
                     ? (
                     <TravelMilestoneInboxRows
                       projectRow={resolvedProjectRow}
-                      milestones={travelMilestones}
+                      milestones={projectMilestones}
                       inboxZoomView={hubZoomView}
                       resolveRow={resolveRow}
                       expandedZoomJalonKeys={expandedZoomJalonKeys}
@@ -1513,10 +1603,10 @@ export function IdeaBankModal({
                       resolveZoomTaskSelectionVisual={(taskId) => resolveChildSelectionVisual(taskId)}
                     />
                   )
-                    : !selectionMode && showTravelAccordion && isExpanded && travelMilestones.length > 0 ? (
+                    : !selectionMode && showProjectAccordion && isExpanded && projectMilestones.length > 0 ? (
                     <TravelMilestoneInboxRows
                       projectRow={resolvedProjectRow}
-                      milestones={travelMilestones}
+                      milestones={projectMilestones}
                       inboxZoomView={hubZoomView}
                       resolveRow={resolveRow}
                       expandedZoomJalonKeys={expandedZoomJalonKeys}

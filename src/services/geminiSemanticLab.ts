@@ -850,23 +850,32 @@ export async function warmGeminiProxySession(): Promise<void> {
   });
 }
 
+type Pass2ProjectBriefContext = {
+  destination?: string | null;
+  party?: string[];
+  stakeholders?: string[];
+  flights?: string | null;
+  constraints?: string[];
+  departure_ymd?: string | null;
+  target_ymd?: string | null;
+  room?: string | null;
+  budget_hint?: string | null;
+  trades_needed?: string[];
+  context_notes?: string | null;
+};
+
 const PASS2_PROJECT_TRAVEL_PROMPT = (
   transcript: string,
-  brief?: {
-    destination?: string | null;
-    party?: string[];
-    flights?: string | null;
-    constraints?: string[];
-    departure_ymd?: string | null;
-  } | null,
+  brief?: Pass2ProjectBriefContext | null,
 ) => {
-  const partyLine =
-    brief?.party?.length ? `Voyageurs : ${brief.party.join(', ')}.` : '';
+  const travelers = brief?.party?.length ? brief.party : brief?.stakeholders ?? [];
+  const partyLine = travelers.length ? `Voyageurs : ${travelers.join(', ')}.` : '';
   const destLine = brief?.destination ? `Destination : ${brief.destination}.` : '';
   const flightsLine = brief?.flights ? `Vol(s) : ${brief.flights}.` : '';
   const constraintsLine =
     brief?.constraints?.length ? `Contraintes : ${brief.constraints.join(' ; ')}.` : '';
-  const departLine = brief?.departure_ymd ? `Date de départ : ${brief.departure_ymd}.` : '';
+  const departYmd = brief?.departure_ymd ?? brief?.target_ymd;
+  const departLine = departYmd ? `Date de départ : ${departYmd}.` : '';
   return `Tu es un expert en préparation de voyage en famille. Décompose la préparation en jalons concrets.
 
 Consignes :
@@ -876,6 +885,60 @@ Consignes :
 - Personas courtes (ex: Agent aérien, Logisticien famille).
 - Jalons types si pertinents : Administratif, Billets & escale, Kit escale, Valises par voyageur, Logistique départ.
 ${destLine} ${partyLine} ${flightsLine} ${constraintsLine} ${departLine}
+
+Transcription:
+"""${transcript.replace(/"/g, '\\"')}"""
+
+JSON pur uniquement :
+{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}`;
+};
+
+const PASS2_PROJECT_RENOVATION_PROMPT = (
+  transcript: string,
+  brief?: Pass2ProjectBriefContext | null,
+) => {
+  const roomLine = brief?.room ? `Pièce : ${brief.room}.` : '';
+  const budgetLine = brief?.budget_hint ? `Budget : ${brief.budget_hint}.` : '';
+  const tradesLine =
+    brief?.trades_needed?.length ? `Métiers : ${brief.trades_needed.join(', ')}.` : '';
+  const constraintsLine =
+    brief?.constraints?.length ? `Contraintes : ${brief.constraints.join(' ; ')}.` : '';
+  const targetLine = brief?.target_ymd ? `Échéance : ${brief.target_ymd}.` : '';
+  return `Tu es un expert en rénovation intérieure. Décompose le projet en jalons concrets.
+
+Consignes :
+- Langue = langue de la dictée.
+- Pas de dates calendaires — durées estimées uniquement (hours|days|weeks).
+- Maximum 6 jalons. Titres ≤ 8 mots.
+- Personas courtes (ex: Plombier, Carreleur, Électricien).
+- Jalons types si pertinents : Devis, Démolition, Plomberie, Électricité, Finitions.
+${roomLine} ${budgetLine} ${tradesLine} ${constraintsLine} ${targetLine}
+
+Transcription:
+"""${transcript.replace(/"/g, '\\"')}"""
+
+JSON pur uniquement :
+{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}`;
+};
+
+const PASS2_PROJECT_EVENT_PROMPT = (
+  transcript: string,
+  brief?: Pass2ProjectBriefContext | null,
+) => {
+  const guestsLine =
+    brief?.stakeholders?.length ? `Personnes clés : ${brief.stakeholders.join(', ')}.` : '';
+  const notesLine = brief?.context_notes ? `Contexte : ${brief.context_notes}.` : '';
+  const constraintsLine =
+    brief?.constraints?.length ? `Contraintes : ${brief.constraints.join(' ; ')}.` : '';
+  const targetLine = brief?.target_ymd ? `Date événement : ${brief.target_ymd}.` : '';
+  return `Tu es un expert en organisation d'événements. Décompose la préparation en jalons concrets.
+
+Consignes :
+- Langue = langue de la dictée.
+- Pas de dates calendaires — durées estimées uniquement (hours|days|weeks).
+- Maximum 6 jalons. Titres ≤ 8 mots.
+- Personas courtes (ex: Wedding Planner, Traiteur, Décorateur).
+${guestsLine} ${notesLine} ${constraintsLine} ${targetLine}
 
 Transcription:
 """${transcript.replace(/"/g, '\\"')}"""
@@ -959,15 +1022,9 @@ export async function geminiEnrichGenericList(
   transcript: string,
   options: {
     uiLocale: string;
-    mode?: 'LIST' | 'PROJECT' | 'PROJECT_TRAVEL';
+    mode?: 'LIST' | 'PROJECT' | 'PROJECT_TRAVEL' | 'PROJECT_RENOVATION' | 'PROJECT_EVENT';
     referenceTimeIso?: string;
-    projectBrief?: {
-      destination?: string | null;
-      party?: string[];
-      flights?: string | null;
-      constraints?: string[];
-      departure_ymd?: string | null;
-    } | null;
+    projectBrief?: Pass2ProjectBriefContext | null;
   },
 ): Promise<
   | { mode: 'LIST'; parsed: GeminiListInventoryJson; rawResponseText: string }
@@ -980,20 +1037,29 @@ export async function geminiEnrichGenericList(
 > {
   const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
   const mode = options.mode ?? 'LIST';
+  const briefCtx = options.projectBrief ?? null;
   const prompt =
     mode === 'PROJECT_TRAVEL'
-      ? PASS2_PROJECT_TRAVEL_PROMPT(safe, options.projectBrief ?? null)
-      : mode === 'PROJECT'
-        ? PASS2_PROJECT_INLINE_PROMPT(safe)
-        : PASS2_LIST_INLINE_PROMPT(safe);
-  const modeLabel = mode === 'PROJECT_TRAVEL' ? 'PROJECT_TRAVEL' : mode;
+      ? PASS2_PROJECT_TRAVEL_PROMPT(safe, briefCtx)
+      : mode === 'PROJECT_RENOVATION'
+        ? PASS2_PROJECT_RENOVATION_PROMPT(safe, briefCtx)
+        : mode === 'PROJECT_EVENT'
+          ? PASS2_PROJECT_EVENT_PROMPT(safe, briefCtx)
+          : mode === 'PROJECT'
+            ? PASS2_PROJECT_INLINE_PROMPT(safe)
+            : PASS2_LIST_INLINE_PROMPT(safe);
+  const modeLabel = mode;
   await awaitGeminiSteeringBeforeNetworkCall();
   await ensureFreshPassModelsFromRemoteConfig();
   await logPass2ModelSteeringDiagnostics(`lab.list_enrich_generic/${modeLabel}`);
   const modelId = getActivePass2ModelId();
   const temperature = 0.18;
   const historyLength = 1;
-  const isProjectMode = mode === 'PROJECT' || mode === 'PROJECT_TRAVEL';
+  const isProjectMode =
+    mode === 'PROJECT' ||
+    mode === 'PROJECT_TRAVEL' ||
+    mode === 'PROJECT_RENOVATION' ||
+    mode === 'PROJECT_EVENT';
   const isJsonMode = isProjectMode;
   const maxOutputTokens = isProjectMode ? 4096 : 2048;
   const t0 = perfNowMs();

@@ -47,13 +47,15 @@ import {
   type CaptureBatchContext,
   type SourcingTitleMode,
 } from '../utils/sourcingV1';
+import { PROJECT_MULTI_DOMAIN_ENABLED } from '../config/projectMultiDomain';
 import {
   buildProjectBriefMetadataPatch,
+  isTravelBrief,
   parseProjectBriefFromIntentRaw,
-  shouldAutoEnrichTravelProject,
-  type ProjectBriefV1,
+  shouldAutoEnrichProject,
+  type UnifiedProjectBrief,
 } from '../utils/travelProjectModel';
-import { enrichTravelProjectAfterPersist } from './travelProjectEnrich';
+import { enrichProjectAfterPersist } from './projectEnrich';
 
 
 export type PersistOneTapSuccess =
@@ -85,7 +87,12 @@ export type PersistOneTapSuccess =
       successFeedbackI18nKey: string;
       consumedClassicFreeSlot: boolean;
       title?: string;
+      /** Projet avec brief structuré (voyage ou multi-domaine). */
+      isEnrichedProject?: boolean;
+      /** @deprecated Utiliser isEnrichedProject */
       isTravelProject?: boolean;
+      projectEnriched?: boolean;
+      /** @deprecated Utiliser projectEnriched */
       travelProjectEnriched?: boolean;
     };
 
@@ -560,7 +567,7 @@ async function materializeOneTapIntentionRow(params: {
         .map((m) => ({ uid: '', title: m.slice(0, 200), estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }));
       const mergedTitle = title.trim() || 'Projet';
       const brief = resolveProjectBriefFromDraft(draft, null, raw);
-      const dueYmd = resolveProjectDueYmd(draft) ?? brief?.departure_ymd ?? null;
+      const dueYmd = resolveProjectDueYmd(draft) ?? brief?.target_ymd ?? null;
       const payload = ensureProjectMilestoneUids({
         title: mergedTitle,
         milestones: milestones.length
@@ -1049,7 +1056,7 @@ export async function persistOneTapDraft(params: {
       case 'PROJECT': {
         const mergedTitle = title;
         const brief = resolveProjectBriefFromDraft(draft, null, raw);
-        const dueYmd = resolveProjectDueYmd(draft) ?? brief?.departure_ymd ?? null;
+        const dueYmd = resolveProjectDueYmd(draft) ?? brief?.target_ymd ?? null;
         const placeholderPayload = ensureProjectMilestoneUids({
           title: mergedTitle,
           milestones: [{ uid: '', title: '—', estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: dueYmd, note: null }],
@@ -1230,17 +1237,18 @@ async function persistAndDualWrite(params: {
     console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
     if (res.outcome.kind === 'project_persisted' && id) {
       const brief = resolveProjectBriefFromDraft(params.draft, intentRaw ?? null, params.transcript);
-      const isTravelProject = Boolean(brief && shouldAutoEnrichTravelProject(params.transcript, brief));
+      const shouldEnrich = Boolean(brief && shouldAutoEnrichProject(params.transcript, brief));
       let outcome = res.outcome;
-      if (isTravelProject) {
+      if (shouldEnrich) {
         outcome = {
           ...outcome,
           title: String(params.draft.title ?? '').trim() || undefined,
-          isTravelProject: true,
+          isEnrichedProject: true,
+          isTravelProject: isTravelBrief(brief),
         };
       }
-      const travelEnriched = isTravelProject
-        ? await maybeAutoEnrichTravelProject({
+      const projectEnriched = shouldEnrich
+        ? await maybeAutoEnrichProject({
             intentionId: id,
             transcript: params.transcript,
             draft: params.draft,
@@ -1249,13 +1257,17 @@ async function persistAndDualWrite(params: {
             trace,
           })
         : false;
-      if (travelEnriched) {
+      if (projectEnriched) {
         return {
           ok: true,
-          outcome: { ...outcome, travelProjectEnriched: true },
+          outcome: {
+            ...outcome,
+            projectEnriched: true,
+            travelProjectEnriched: isTravelBrief(brief),
+          },
         };
       }
-      if (isTravelProject) {
+      if (shouldEnrich) {
         return { ok: true, outcome };
       }
     }
@@ -1285,7 +1297,7 @@ function resolveProjectBriefFromDraft(
   draft: OneTapUniversalResult,
   intentRaw?: Record<string, unknown> | null,
   transcript?: string,
-): ProjectBriefV1 | null {
+): UnifiedProjectBrief | null {
   const data = (draft.data ?? {}) as Record<string, unknown>;
   if (intentRaw) {
     const fromIntent = parseProjectBriefFromIntentRaw(intentRaw, transcript ?? '');
@@ -1310,7 +1322,7 @@ function resolveProjectDueYmd(draft: OneTapUniversalResult): string | null {
   return null;
 }
 
-async function maybeAutoEnrichTravelProject(params: {
+async function maybeAutoEnrichProject(params: {
   intentionId: string;
   transcript: string;
   draft: OneTapUniversalResult;
@@ -1319,9 +1331,13 @@ async function maybeAutoEnrichTravelProject(params: {
   trace?: string;
 }): Promise<boolean> {
   const brief = resolveProjectBriefFromDraft(params.draft, params.intentRaw ?? null, params.transcript);
-  if (!brief || !shouldAutoEnrichTravelProject(params.transcript, brief)) return false;
-  const titleFallback = String(params.draft.title ?? '').trim() || 'Projet voyage';
-  const result = await enrichTravelProjectAfterPersist({
+  if (!brief || !shouldAutoEnrichProject(params.transcript, brief)) return false;
+  const titleFallback = String(params.draft.title ?? '').trim() || 'Projet';
+  logCaptureFlow(params.trace, 'project_auto_enrich_start', {
+    intentionId: params.intentionId,
+    domain: brief.domain,
+  });
+  const result = await enrichProjectAfterPersist({
     intentionId: params.intentionId,
     transcript: params.transcript,
     brief,
@@ -1329,8 +1345,18 @@ async function maybeAutoEnrichTravelProject(params: {
     uiLocale: params.uiLocale ?? 'fr-FR',
     trace: params.trace,
   });
+  if (result.ok) {
+    logCaptureFlow(params.trace, 'project_auto_enrich_done', {
+      intentionId: params.intentionId,
+      domain: brief.domain,
+      milestoneCount: result.payload.milestones.length,
+    });
+  }
   return result.ok;
 }
+
+/** @deprecated */
+const maybeAutoEnrichTravelProject = maybeAutoEnrichProject;
 
 function fallbackCaptureParentTitle(sourceKind?: CaptureBatchContext['source_kind'] | null): string {
   switch (sourceKind) {

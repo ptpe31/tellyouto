@@ -2,6 +2,7 @@
  * Résolution de l'intention à ouvrir en peek après ventilation multi-bloc.
  * @module peekOutcomeResolve
  */
+import { PROJECT_MULTI_DOMAIN_ENABLED } from '../config/projectMultiDomain';
 import type { PersistOneTapSuccess } from '../services/oneTapPersist';
 
 function outcomeIntentionId(o: PersistOneTapSuccess): string {
@@ -17,9 +18,22 @@ export type PeekPrimaryOutcome = {
   predictedType: string;
 };
 
+function isPeekableProject(o: PersistOneTapSuccess): boolean {
+  if (o.kind !== 'project_persisted') return false;
+  if (PROJECT_MULTI_DOMAIN_ENABLED) {
+    return Boolean(
+      o.projectEnriched ||
+        o.travelProjectEnriched ||
+        o.isEnrichedProject ||
+        o.isTravelProject,
+    );
+  }
+  return Boolean(o.isTravelProject || o.travelProjectEnriched);
+}
+
 /**
  * Premier enfant actionable — ignore la coquille sourcing (`autoParentId`).
- * Les PROJECT voyage (brief / auto Pass 2) sont peekables.
+ * Les PROJECT enrichis (brief / auto Pass 2) sont peekables.
  */
 export function resolvePeekPrimaryOutcome(
   outcomes: PersistOneTapSuccess[],
@@ -34,7 +48,7 @@ export function resolvePeekPrimaryOutcome(
     if (o.kind === 'simple_note_or_audio') continue;
 
     if (o.kind === 'project_persisted') {
-      if (o.isTravelProject || o.travelProjectEnriched) {
+      if (isPeekableProject(o)) {
         return {
           intentionId: id,
           title: String(o.title ?? '').trim() || 'Projet',

@@ -1,139 +1,80 @@
 /**
- * Projet voyage monolithique — brief Pass 1, signaux transcript, affichage Inbox.
+ * Projet — brief, signaux transcript, affichage Inbox (voyage + multi-domaine).
  * @module travelProjectModel
  */
+import { PROJECT_MULTI_DOMAIN_ENABLED } from '../config/projectMultiDomain';
 import {
   ensureProjectMilestoneUids,
   parseProjectMilestonesPayloadFromMetadataJson,
   type ProjectMilestone,
   type ProjectMilestonesPayload,
 } from '../services/projectMilestonesModel';
+import {
+  buildBriefMetadataPatchCompat,
+  buildUnifiedBriefMetadataPatch,
+  detectTravelProjectTranscriptSignals,
+  inferProjectDomainFromTranscript,
+  isTravelBrief,
+  parseBriefV1Block,
+  parseUnifiedBriefFromIntentRaw,
+  parseUnifiedBriefFromMetadataJson,
+  PROJECT_BRIEF_V1_KEY,
+  shouldAutoEnrichProject,
+  type ProjectBriefV1,
+  type ProjectBriefV2,
+  type ProjectDomain,
+  type TravelProjectTranscriptSignals,
+  type UnifiedProjectBrief,
+} from './projectBriefModel';
 
-export const PROJECT_BRIEF_METADATA_KEY = 'project_brief_v1';
+export const PROJECT_BRIEF_METADATA_KEY = PROJECT_BRIEF_V1_KEY;
 export const PROJECT_PACKING_METADATA_KEY = 'project_packing_v1';
 
-export type ProjectBriefV1 = {
-  version: 1;
-  destination: string | null;
-  party: string[];
-  flights: string | null;
-  constraints: string[];
-  departure_ymd: string | null;
-  auto_detail_requested: boolean;
+export type { ProjectBriefV1, ProjectBriefV2, ProjectDomain, TravelProjectTranscriptSignals, UnifiedProjectBrief };
+
+export {
+  detectTravelProjectTranscriptSignals,
+  inferProjectDomainFromTranscript,
+  isTravelBrief,
+  shouldAutoEnrichProject,
 };
 
-export type TravelProjectTranscriptSignals = {
-  travelPrepLikely: boolean;
-  explicitProject: boolean;
-  fullDetailRequested: boolean;
-  valiseLikely: boolean;
-  shouldPreferProject: boolean;
-};
-
-const TRAVEL_PREP_RE =
-  /\b(voyage|trip|d[ée]part|logistique|valise|packing|transit|escale|avion|partir en|pr[ée]parer.*voyage|organiser.*voyage)\b/i;
-const EXPLICIT_PROJECT_RE =
-  /\b(c'est un projet|cest un projet|structure.*projet|organiser un voyage|projet complet|je veux le d[ée]tail)\b/i;
-const FULL_DETAIL_RE =
-  /\b(d[ée]tail complet|structure bien|je veux le d[ée]tail|d[ée]tail de ce qu'il faut|liste compl[èe]te)\b/i;
-const VALISE_RE = /\b(valise|packing|affaires|mettre dans la valise)\b/i;
-
-export function detectTravelProjectTranscriptSignals(transcript: string): TravelProjectTranscriptSignals {
-  const text = String(transcript ?? '');
-  const travelPrepLikely = TRAVEL_PREP_RE.test(text);
-  const explicitProject = EXPLICIT_PROJECT_RE.test(text);
-  const fullDetailRequested = FULL_DETAIL_RE.test(text);
-  const valiseLikely = VALISE_RE.test(text);
-  const shouldPreferProject =
-    travelPrepLikely && (explicitProject || fullDetailRequested || (valiseLikely && /\b(enfant|enfants|famille|mari|voyageur)\b/i.test(text)));
-  return {
-    travelPrepLikely,
-    explicitProject,
-    fullDetailRequested,
-    valiseLikely,
-    shouldPreferProject,
-  };
-}
-
+/** @deprecated Utiliser shouldAutoEnrichProject */
 export function shouldAutoEnrichTravelProject(
   transcript: string,
-  brief: ProjectBriefV1 | null | undefined,
+  brief: UnifiedProjectBrief | ProjectBriefV1 | null | undefined,
 ): boolean {
   if (!brief) return false;
-  if (brief.auto_detail_requested) return true;
-  return detectTravelProjectTranscriptSignals(transcript).fullDetailRequested;
-}
-
-function normalizeParty(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((x) => String(x ?? '').trim())
-    .filter(Boolean)
-    .slice(0, 12);
-}
-
-function normalizeConstraints(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((x) => String(x ?? '').trim())
-    .filter(Boolean)
-    .slice(0, 16);
-}
-
-export function parseProjectBriefFromIntentRaw(raw: Record<string, unknown>, transcript: string): ProjectBriefV1 | null {
-  const block = raw.project_brief;
-  const signals = detectTravelProjectTranscriptSignals(transcript);
-  if (!block || typeof block !== 'object' || Array.isArray(block)) {
-    if (!signals.shouldPreferProject) return null;
-    return {
-      version: 1,
-      destination: null,
-      party: [],
-      flights: null,
-      constraints: [],
-      departure_ymd: null,
-      auto_detail_requested: signals.fullDetailRequested,
-    };
+  if ('domain' in brief && brief.version === 2) {
+    return shouldAutoEnrichProject(transcript, brief);
   }
-  const o = block as Record<string, unknown>;
-  return {
-    version: 1,
-    destination: String(o.destination ?? '').trim() || null,
-    party: normalizeParty(o.party),
-    flights: String(o.flights ?? '').trim() || null,
-    constraints: normalizeConstraints(o.constraints),
-    departure_ymd: String(o.departure_ymd ?? o.departureYmd ?? '').trim() || null,
-    auto_detail_requested:
-      o.auto_detail_requested === true ||
-      signals.fullDetailRequested ||
-      /\b(d[ée]tail complet|structure bien)\b/i.test(transcript),
-  };
+  const v1 = brief as ProjectBriefV1;
+  return shouldAutoEnrichProject(transcript, {
+    version: 2,
+    domain: 'travel',
+    auto_detail_requested: v1.auto_detail_requested,
+    target_ymd: v1.departure_ymd,
+    stakeholders: v1.party,
+    constraints: v1.constraints,
+    context_notes: null,
+    destination: v1.destination,
+    flights: v1.flights,
+  });
 }
 
-export function parseProjectBriefFromMetadataJson(raw: string | null | undefined): ProjectBriefV1 | null {
-  if (!raw || !String(raw).trim()) return null;
-  try {
-    const root = JSON.parse(raw) as Record<string, unknown>;
-    const block = root[PROJECT_BRIEF_METADATA_KEY];
-    if (!block || typeof block !== 'object' || Array.isArray(block)) return null;
-    const o = block as Record<string, unknown>;
-    if (Number(o.version) !== 1) return null;
-    return {
-      version: 1,
-      destination: String(o.destination ?? '').trim() || null,
-      party: normalizeParty(o.party),
-      flights: String(o.flights ?? '').trim() || null,
-      constraints: normalizeConstraints(o.constraints),
-      departure_ymd: String(o.departure_ymd ?? '').trim() || null,
-      auto_detail_requested: o.auto_detail_requested === true,
-    };
-  } catch {
-    return null;
-  }
+export function parseProjectBriefFromIntentRaw(
+  raw: Record<string, unknown>,
+  transcript: string,
+): UnifiedProjectBrief | null {
+  return parseUnifiedBriefFromIntentRaw(raw, transcript);
 }
 
-export function buildProjectBriefMetadataPatch(brief: ProjectBriefV1): Record<string, unknown> {
-  return { [PROJECT_BRIEF_METADATA_KEY]: brief };
+export function parseProjectBriefFromMetadataJson(raw: string | null | undefined): UnifiedProjectBrief | null {
+  return parseUnifiedBriefFromMetadataJson(raw);
+}
+
+export function buildProjectBriefMetadataPatch(brief: UnifiedProjectBrief): Record<string, unknown> {
+  return buildBriefMetadataPatchCompat(brief);
 }
 
 export type TravelProjectPackingCategory = {
@@ -141,7 +82,6 @@ export type TravelProjectPackingCategory = {
   itemCount: number;
 };
 
-/** Valises par voyageur (`project_packing_v1`) — catégories = prénoms. */
 export function parseTravelProjectPackingFromMetadataJson(
   raw: string | null | undefined,
 ): TravelProjectPackingCategory[] {
@@ -168,43 +108,58 @@ export function parseTravelProjectPackingFromMetadataJson(
   }
 }
 
-export function formatTravelProjectInboxLine2(params: {
-  brief: ProjectBriefV1 | null;
+export function formatProjectInboxLine2(params: {
+  brief: UnifiedProjectBrief | null;
   milestoneCount: number | null;
   dueYmd: string | null;
   locale: string;
   t: (key: string, options?: Record<string, unknown>) => string;
-  /** true si le badge +N étapes est affiché à gauche (évite la redondance en L2). */
   omitMilestoneInLine2?: boolean;
 }): string | null {
   const { brief, milestoneCount, dueYmd, locale, t, omitMilestoneInLine2 } = params;
   if (!brief && milestoneCount == null && !dueYmd) return null;
 
   const parts: string[] = [t('timeline.inboxProjectLabel', { defaultValue: 'Projet' })];
-  const partyLen = brief?.party?.length ?? 0;
-  if (partyLen > 0) {
-    parts.push(
-      t('timeline.travelProjectPartyCount', {
-        count: partyLen,
-        defaultValue: `${partyLen} voyageur${partyLen > 1 ? 's' : ''}`,
-      }),
-    );
-  }
-  if (dueYmd && /^\d{4}-\d{2}-\d{2}$/.test(dueYmd)) {
-    try {
-      const [y, m, d] = dueYmd.split('-').map((n) => Number(n));
-      const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
-      const day = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(dt);
+  const domain = brief?.domain ?? 'generic';
+
+  if (domain === 'travel') {
+    const partyLen = brief?.stakeholders?.length ?? 0;
+    if (partyLen > 0) {
       parts.push(
-        t('timeline.travelProjectDeparture', {
-          date: day,
-          defaultValue: `départ ${day}`,
+        t('timeline.travelProjectPartyCount', {
+          count: partyLen,
+          defaultValue: `${partyLen} voyageur${partyLen > 1 ? 's' : ''}`,
         }),
       );
+    }
+    if (brief?.destination) {
+      parts.push(brief.destination);
+    }
+  } else if (domain === 'renovation' && brief?.room) {
+    parts.push(brief.room);
+  } else if (domain === 'event' && brief?.context_notes) {
+    parts.push(brief.context_notes.slice(0, 40));
+  } else if (brief?.context_notes) {
+    parts.push(brief.context_notes.slice(0, 40));
+  }
+
+  const targetYmd = dueYmd ?? brief?.target_ymd ?? null;
+  if (targetYmd && /^\d{4}-\d{2}-\d{2}$/.test(targetYmd)) {
+    try {
+      const [y, m, d] = targetYmd.split('-').map((n) => Number(n));
+      const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+      const day = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(dt);
+      const dateKey =
+        domain === 'travel'
+          ? 'timeline.travelProjectDeparture'
+          : 'timeline.projectTargetDate';
+      const dateDefault = domain === 'travel' ? `départ ${day}` : `échéance ${day}`;
+      parts.push(t(dateKey, { date: day, defaultValue: dateDefault }));
     } catch {
-      parts.push(dueYmd);
+      parts.push(targetYmd);
     }
   }
+
   if (milestoneCount != null && milestoneCount > 0 && !omitMilestoneInLine2) {
     parts.push(
       t('timeline.inboxProjectItemCount', {
@@ -216,21 +171,51 @@ export function formatTravelProjectInboxLine2(params: {
   return parts.join(' · ');
 }
 
-export function resolveTravelProjectMilestoneCount(metadataJson: string | null | undefined): number | null {
-  const milestones = resolveTravelProjectMilestonesForInbox(metadataJson);
+/** @deprecated Utiliser formatProjectInboxLine2 */
+export function formatTravelProjectInboxLine2(
+  params: Parameters<typeof formatProjectInboxLine2>[0],
+): string | null {
+  return formatProjectInboxLine2(params);
+}
+
+export function resolveProjectMilestoneCount(metadataJson: string | null | undefined): number | null {
+  const milestones = resolveProjectMilestonesForInbox(metadataJson);
   return milestones.length > 0 ? milestones.length : null;
 }
 
-/** Jalons réels (hors placeholder « — ») pour accordéon Inbox projet voyage. */
-export function resolveTravelProjectMilestonesForInbox(metadataJson: string | null | undefined): ProjectMilestone[] {
+/** @deprecated */
+export const resolveTravelProjectMilestoneCount = resolveProjectMilestoneCount;
+
+/** Jalons réels (hors placeholder « — ») pour accordéon Inbox projet. */
+export function resolveProjectMilestonesForInbox(metadataJson: string | null | undefined): ProjectMilestone[] {
   const payload = parseProjectMilestonesPayloadFromMetadataJson(metadataJson);
   if (!payload?.milestones?.length) return [];
   return payload.milestones.filter((m) => String(m.title ?? '').trim() && m.title !== '—');
 }
 
-/** Jalons déterministes si Pass 2 Gemini échoue (projet voyage). */
-export function buildFallbackTravelProjectMilestones(brief: ProjectBriefV1, title: string): ProjectMilestonesPayload {
-  const pivot = brief.departure_ymd;
+/** @deprecated */
+export const resolveTravelProjectMilestonesForInbox = resolveProjectMilestonesForInbox;
+
+export function shouldShowProjectInboxAccordion(
+  metadataJson: string | null | undefined,
+  brief: UnifiedProjectBrief | null,
+): boolean {
+  const milestones = resolveProjectMilestonesForInbox(metadataJson);
+  if (milestones.length === 0) return false;
+  if (!PROJECT_MULTI_DOMAIN_ENABLED) {
+    return brief != null && isTravelBrief(brief);
+  }
+  return true;
+}
+
+export function buildFallbackTravelProjectMilestones(
+  brief: UnifiedProjectBrief | ProjectBriefV1,
+  title: string,
+): ProjectMilestonesPayload {
+  const pivot =
+    'domain' in brief && brief.version === 2
+      ? brief.target_ymd
+      : (brief as ProjectBriefV1).departure_ymd;
   const templates: Array<{ title: string; duration: number; unit: 'hours' | 'days' | 'weeks'; persona: string }> = [
     { title: 'Administratif', duration: 2, unit: 'weeks', persona: 'Expert administratif' },
     { title: 'Billets & escale', duration: 3, unit: 'hours', persona: 'Agent aérien' },
@@ -252,3 +237,104 @@ export function buildFallbackTravelProjectMilestones(brief: ProjectBriefV1, titl
     })),
   });
 }
+
+export function buildFallbackRenovationProjectMilestones(
+  brief: UnifiedProjectBrief,
+  title: string,
+): ProjectMilestonesPayload {
+  const room = brief.room ? ` ${brief.room}` : '';
+  const pivot = brief.target_ymd;
+  const templates: Array<{ title: string; duration: number; unit: 'hours' | 'days' | 'weeks'; persona: string }> = [
+    { title: 'Devis & budget', duration: 1, unit: 'weeks', persona: 'Chef de chantier' },
+    { title: `Démolition${room}`, duration: 2, unit: 'days', persona: 'Démolisseur' },
+    { title: 'Plomberie & électricité', duration: 1, unit: 'weeks', persona: 'Artisan' },
+    { title: 'Finitions & peinture', duration: 1, unit: 'weeks', persona: 'Peintre' },
+    { title: 'Nettoyage & réception', duration: 1, unit: 'days', persona: 'Assistant personnel' },
+  ];
+  return ensureProjectMilestoneUids({
+    title: title.slice(0, 200),
+    milestones: templates.map((t) => ({
+      uid: '',
+      title: t.title.trim(),
+      estimated_duration: t.duration,
+      unit: t.unit,
+      expert_persona: t.persona,
+      checked: false,
+      pivot_date: pivot,
+      note: null,
+    })),
+  });
+}
+
+export function buildFallbackEventProjectMilestones(
+  brief: UnifiedProjectBrief,
+  title: string,
+): ProjectMilestonesPayload {
+  const pivot = brief.target_ymd;
+  const templates: Array<{ title: string; duration: number; unit: 'hours' | 'days' | 'weeks'; persona: string }> = [
+    { title: 'Budget & invités', duration: 2, unit: 'weeks', persona: 'Wedding planner' },
+    { title: 'Lieu & traiteur', duration: 3, unit: 'weeks', persona: 'Organisateur' },
+    { title: 'Invitations', duration: 1, unit: 'weeks', persona: 'Assistant personnel' },
+    { title: 'Décoration & logistique', duration: 1, unit: 'weeks', persona: 'Décorateur' },
+    { title: 'Jour J', duration: 1, unit: 'days', persona: 'Coordinateur' },
+  ];
+  return ensureProjectMilestoneUids({
+    title: title.slice(0, 200),
+    milestones: templates.map((t) => ({
+      uid: '',
+      title: t.title,
+      estimated_duration: t.duration,
+      unit: t.unit,
+      expert_persona: t.persona,
+      checked: false,
+      pivot_date: pivot,
+      note: null,
+    })),
+  });
+}
+
+export function buildFallbackGenericProjectMilestones(
+  brief: UnifiedProjectBrief,
+  title: string,
+): ProjectMilestonesPayload {
+  const pivot = brief.target_ymd;
+  const templates: Array<{ title: string; duration: number; unit: 'hours' | 'days' | 'weeks'; persona: string }> = [
+    { title: 'Cadrage & objectifs', duration: 3, unit: 'days', persona: 'Assistant personnel' },
+    { title: 'Plan d\'action', duration: 1, unit: 'weeks', persona: 'Chef de projet' },
+    { title: 'Exécution principale', duration: 2, unit: 'weeks', persona: 'Expert métier' },
+    { title: 'Suivi & ajustements', duration: 3, unit: 'days', persona: 'Assistant personnel' },
+    { title: 'Finalisation', duration: 2, unit: 'days', persona: 'Assistant personnel' },
+  ];
+  return ensureProjectMilestoneUids({
+    title: title.slice(0, 200),
+    milestones: templates.map((t) => ({
+      uid: '',
+      title: t.title,
+      estimated_duration: t.duration,
+      unit: t.unit,
+      expert_persona: t.persona,
+      checked: false,
+      pivot_date: pivot,
+      note: null,
+    })),
+  });
+}
+
+export function buildFallbackProjectMilestones(
+  brief: UnifiedProjectBrief,
+  title: string,
+): ProjectMilestonesPayload {
+  switch (brief.domain) {
+    case 'travel':
+      return buildFallbackTravelProjectMilestones(brief, title);
+    case 'renovation':
+      return buildFallbackRenovationProjectMilestones(brief, title);
+    case 'event':
+      return buildFallbackEventProjectMilestones(brief, title);
+    default:
+      return buildFallbackGenericProjectMilestones(brief, title);
+  }
+}
+
+// Re-export for metadata patch without v1 compat when only v2 needed
+export { buildUnifiedBriefMetadataPatch };

@@ -801,8 +801,10 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           });
           if (!firstId) return;
           const dealerBulkItems = buildDealerBulkPeekItems(outcomes, skeleton, autoParentId);
-          const travelProjectEnriched = outcomes.some(
-            (o) => o.kind === 'project_persisted' && o.travelProjectEnriched === true,
+          const projectEnriched = outcomes.some(
+            (o) =>
+              o.kind === 'project_persisted' &&
+              (o.projectEnriched === true || o.travelProjectEnriched === true),
           );
           DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
             intentionId: firstId,
@@ -811,7 +813,8 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             title: String(peekPrimary?.title ?? skeleton.title ?? cleaned.slice(0, 200)),
             transcript: cleaned,
             dealerBulkItems: dealerBulkItems.length > 0 ? dealerBulkItems : undefined,
-            travelProjectEnriched,
+            travelProjectEnriched: projectEnriched,
+            projectEnriched,
           });
           logCaptureFlow(trace || undefined, 'peek_first_save_emit', {
             intentionId: firstId,

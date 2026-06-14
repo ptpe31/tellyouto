@@ -3,7 +3,7 @@
  * @module pass1DiagnosticsLog
  */
 import { logCaptureFlow } from './captureFlowLog';
-import { detectTravelProjectTranscriptSignals } from './travelProjectModel';
+import { detectGenericProjectTranscriptSignals, detectTravelProjectTranscriptSignals } from './projectBriefModel';
 
 const ADMIN_EMAIL_RE =
   /\b(mail|e-mail|email|courriel|retour de mail|confirmer|autorisation|droit à l'image|droit a l'image|merci de|par retour|nous confirmer)\b/i;
@@ -67,14 +67,15 @@ function intentLabel(r: Record<string, unknown>): string {
 export function detectPass1TranscriptSignals(transcript: string): Pass1TranscriptSignals {
   const text = String(transcript ?? '');
   const travel = detectTravelProjectTranscriptSignals(text);
+  const generic = detectGenericProjectTranscriptSignals(text);
   return {
     adminEmailLikely: ADMIN_EMAIL_RE.test(text),
     appointmentLikely: APPOINTMENT_RE.test(text),
     longText: text.trim().length >= 180,
     transcriptLen: text.trim().length,
     travelPrepLikely: travel.travelPrepLikely,
-    explicitTravelProject: travel.explicitProject,
-    fullDetailRequested: travel.fullDetailRequested,
+    explicitTravelProject: travel.explicitProject || generic.explicitProject,
+    fullDetailRequested: travel.fullDetailRequested || generic.fullDetailRequested,
     shouldPreferTravelProject: travel.shouldPreferProject,
   };
 }

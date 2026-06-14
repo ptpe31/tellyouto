@@ -53,7 +53,7 @@ export function resolveRowIsScheduled(row: TrankilV2TimelineItemRow): boolean {
   }
 
   const brief = parseProjectBriefFromMetadataJson(row.metadata_json);
-  if (brief?.departure_ymd && isYmd(String(brief.departure_ymd).slice(0, 10))) return true;
+  if (brief?.target_ymd && isYmd(String(brief.target_ymd).slice(0, 10))) return true;
 
   return false;
 }

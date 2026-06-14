@@ -304,21 +304,16 @@ export function useCapturePipelineOverlay({
         case 'gemini_one_tap_call_success': {
           const gIdx = Number(d?.idx ?? 1);
           const gTot = Number(d?.total ?? 1);
-          bump(100);
-          if (gIdx === gTot && !pipelineResilienceOrangeRef.current) {
-            if (finalSprintActiveRef.current) break;
-            if (!balletProfilerGatesRef.current.t5BoostStart) {
-              balletProfilerGatesRef.current.t5BoostStart = true;
-              logBalletProfilerDelta(
-                'T5_BOOST_START',
-                `gemini_one_tap_call_success → linear sprint to 100% (${AI_PROGRESS_FINAL_SPRINT_MS}ms)`,
-              );
-            }
-            setPipelineDashTitleComplete(true);
-            startAiFinalSprint();
-          }
+          // Pass 1 terminé — la persistance (+ Pass 2 auto projet) suit ; sprint final différé.
+          bump(gIdx === gTot ? 68 : 62);
           break;
         }
+        case 'project_auto_enrich_start':
+          bump(78);
+          break;
+        case 'project_auto_enrich_done':
+          bump(90);
+          break;
         case 'chunk_ventilated_await':
           bump(73);
           break;
