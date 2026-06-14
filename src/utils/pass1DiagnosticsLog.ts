@@ -3,6 +3,7 @@
  * @module pass1DiagnosticsLog
  */
 import { logCaptureFlow } from './captureFlowLog';
+import { detectTravelProjectTranscriptSignals } from './travelProjectModel';
 
 const ADMIN_EMAIL_RE =
   /\b(mail|e-mail|email|courriel|retour de mail|confirmer|autorisation|droit à l'image|droit a l'image|merci de|par retour|nous confirmer)\b/i;
@@ -22,6 +23,10 @@ export type Pass1TranscriptSignals = {
   appointmentLikely: boolean;
   longText: boolean;
   transcriptLen: number;
+  travelPrepLikely: boolean;
+  explicitTravelProject: boolean;
+  fullDetailRequested: boolean;
+  shouldPreferTravelProject: boolean;
 };
 
 export type Pass1Diagnostics = {
@@ -61,11 +66,16 @@ function intentLabel(r: Record<string, unknown>): string {
 
 export function detectPass1TranscriptSignals(transcript: string): Pass1TranscriptSignals {
   const text = String(transcript ?? '');
+  const travel = detectTravelProjectTranscriptSignals(text);
   return {
     adminEmailLikely: ADMIN_EMAIL_RE.test(text),
     appointmentLikely: APPOINTMENT_RE.test(text),
     longText: text.trim().length >= 180,
     transcriptLen: text.trim().length,
+    travelPrepLikely: travel.travelPrepLikely,
+    explicitTravelProject: travel.explicitProject,
+    fullDetailRequested: travel.fullDetailRequested,
+    shouldPreferTravelProject: travel.shouldPreferProject,
   };
 }
 
@@ -137,6 +147,18 @@ export function detectPass1Anomalies(params: {
 
   if (intentCount >= 2 && (typeCounts.PROJECT ?? 0) >= 1 && !types.every((t) => t === 'PROJECT')) {
     anomalies.push('mixed_project_with_actionable');
+  }
+
+  if (signals.shouldPreferTravelProject && intentCount > 1) {
+    anomalies.push('travel_split_instead_of_single_project');
+  }
+
+  if (signals.shouldPreferTravelProject && intentCount === 1 && types[0] === 'LIST') {
+    anomalies.push('list_instead_of_travel_project');
+  }
+
+  if (signals.shouldPreferTravelProject && intentCount >= 2 && (typeCounts.TRIP ?? 0) >= 1) {
+    anomalies.push('travel_trip_split_on_project_request');
   }
 
   for (const raw of params.intents) {

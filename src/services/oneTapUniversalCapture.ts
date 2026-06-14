@@ -387,6 +387,15 @@ export type OneTapIntentJson = {
   source_hint?: string;
   title_mode?: SourcingTitleMode;
   event_series?: Array<{ due: string; label?: string }>;
+  /** Brief voyage (Pass 1 monolithique). */
+  project_brief?: {
+    destination?: string;
+    party?: string[];
+    flights?: string;
+    constraints?: string[];
+    departure_ymd?: string;
+    auto_detail_requested?: boolean;
+  };
 };
 
 function shouldSuggestDueFromTranscript(transcript: string): boolean {
@@ -717,6 +726,8 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean, trace?: st
       const baseCountRaw = Number(r.baseCount ?? 1);
       const baseCount = Number.isFinite(baseCountRaw) && baseCountRaw > 0 ? baseCountRaw : 1;
       const unitLabel = typeof r.unitLabel === 'string' ? r.unitLabel.trim().slice(0, 40) : 'etape';
+      const due = typeof r.due === 'string' ? r.due.trim() : '';
+      const projectBriefRaw = r.project_brief;
       out.push({
         type: 'PROJECT',
         title,
@@ -724,6 +735,8 @@ function parseJsonIntentsFromBuffer(buffer: string, partial: boolean, trace?: st
         unitLabel: unitLabel || 'etape',
         items: r.items,
         category,
+        ...(due ? { due } : {}),
+        ...(projectBriefRaw != null ? { project_brief: projectBriefRaw } : {}),
         ...contextField,
       });
       continue;
@@ -1149,6 +1162,15 @@ function mergeIntentArrayIntoOneTapSkeleton(
       };
       if (type === 'PROJECT') out.project_mode = true;
       if (listTitle) title = listTitle.slice(0, 200);
+      const briefRaw = (rawIntent as { project_brief?: unknown }).project_brief;
+      if (briefRaw && typeof briefRaw === 'object' && !Array.isArray(briefRaw)) {
+        out.project_brief = briefRaw;
+      }
+      const projectDue =
+        typeof rawIntent.due === 'string'
+          ? rawIntent.due.trim()
+          : '';
+      if (projectDue) applyPass1DueFields(out, projectDue);
     }
     if (type === 'TASK') {
       const content = typeof rawIntent.content === 'string' ? rawIntent.content.trim() : '';
@@ -1550,6 +1572,7 @@ RULES:
 - PROJECT: STRICTLY for broad personal objectives requiring brainstorming or planning (e.g. "Renover la salle de bain", "Organiser un voyage", "Plan de repetition"). DO NOT use PROJECT for emails, letters, club announcements, or admin messages with explicit instructions — extract each instruction as a separate TASK or TRIP.
 - TASK: default for one-off actions, including single-item purchases or simple enumerations (e.g., "acheter de la colle", "buy milk and eggs"), and admin requests (reply by email, confirm presence, sign a form). → type=TASK, field "content".
 - MULTI-EXTRACTION: If the text contains multiple distinct actions (e.g. admin request + appointment + optional info), you MUST return several objects in "intents". Never collapse them into one PROJECT or one TASK.
+- TRAVEL PREP PROJECT (monolith — overrides TRIP split and MULTI-EXTRACTION): When the user prepares a trip (packing, departure logistics, admin, layover kit, multiple travelers) OR explicitly says "c'est un projet" / "structure the project" / "full detail" / "détail complet" → return ONE PROJECT only (never TRIP+TASK split). Set category TRAVEL, baseCount = traveler count, unitLabel "voyageur", due = departure date if mentioned. Include project_brief: { destination, party[], flights, constraints[], departure_ymd, auto_detail_requested: true if user asks for full detail }.
 - ADMIN CONSOLIDATION: Related mail actions in the same message (autorisation + confirmer presence + nombre de personnes) → ONE TASK, not three. Do NOT mirror intermediate JSON block names as separate intents.
 - source_hint: human keyword from the document ("Hip Hop", "Astrolab", "Spectacle"), NEVER snake_case field names like "demande_autorisation_droit_image".
 - due / arrivalDue: "YYYY-MM-DD HH:mm" local 24h. null if no time mentioned. Never use "due" on HABIT — put clock time in recurrence_rule.time_target.
@@ -1582,8 +1605,11 @@ Output: {"intents":[{"type":"HABIT","content":"Yoga","category":"HEALTH","contex
 Input: "Bonjour, nous n'avons pas la reponse pour l'autorisation du droit a l'image pour les photos de la representation du 27 juin. Merci de l'effectuer par retour de mail et confirmer la presence et le nombre de personnes. Rendez-vous des enfants devant l'Astrolab a 14h45."
 Output: {"intents":[{"type":"TASK","content":"Repondre au mail : droit a l'image, presence et nb de personnes","source_hint":"Hip Hop","category":"PERSO","context":"MAISON"},{"type":"TRIP","destination":"Astrolab","content":"Spectacle Hip Hop","arrivalDue":"${hipHopArrivalFmt}","source_hint":"Hip Hop","category":"PERSO","context":"EXTERIEUR"}]}
 
+Input: "Preparer la logistique de depart pour le voyage au Japon le 08 juillet. Moi, mes 2 enfants et mon mari. Valise, logistique et administratif. 2 avions avec 3h de transit. Jeux et grignotage pour l'attente. Couches pour Rachel. C'est un projet, je veux le detail complet des valises pour chaque personne."
+Output: {"intents":[{"type":"PROJECT","title":"Voyage Japon","content":"Preparer la logistique de depart","due":"YYYY-07-08 08:00","baseCount":4,"unitLabel":"voyageur","category":"TRAVEL","context":"MAISON","project_brief":{"destination":"Japon","party":["Moi","Mari","Enfant 1","Rachel"],"flights":"2 vols, escale 3h","constraints":["couches Rachel","jeux escale","grignotage escale"],"departure_ymd":"YYYY-07-08","auto_detail_requested":true}}]}
+
 Reply ONLY with a single raw JSON object. No markdown. No explanation. No text before or after.
-Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","recurrence_rule":{…}}]}`;
+Schema: {"intents":[{"type":"…","content":"…","due":"…","category":"…","context":"…","recurrence_rule":{…},"project_brief":{…}}]}`;
 }
 
 /** Pass 1 Sourced Intelligence — verbatim keywords, event_series, multi-block. */
@@ -1606,6 +1632,7 @@ SOURCED INTELLIGENCE (when input is a document, flyer, image OCR, pasted email, 
 - MULTI-BLOCK: one intent per distinct block — do NOT merge unrelated items.
 - ADMIN / EMAIL: requests to reply, confirm, sign, or send back → type=TASK (one TASK per distinct request). Appointment with place + time → type=TRIP (destination + arrivalDue). NEVER type=PROJECT for these.
 - ADMIN CONSOLIDATION: Same email with autorisation + presence + headcount → ONE TASK. Do NOT split along vision JSON blocks or snake_case names.
+- TRAVEL PREP PROJECT: Same monolith rule as base Pass 1 — one PROJECT for family trip prep (do NOT apply MULTI-BLOCK split).
 
 EXAMPLE (fencing club flyer — dates from NOW ${nowFmt} | ${weekdayEn} | ${tz}):
 Input: "Fête du club le 24, dernier cours le 19, retour tenues créneaux 12/01 14h, 15/01 10h, 18/01 16h"
@@ -1691,6 +1718,8 @@ export function inferOneTapSkeletonFromTranscript(
 
   if (looksLikeStructuredCaptureTranscript(transcript)) {
     predictedType = 'NOTE';
+  } else if (detectTravelProjectTranscriptSignals(cleaned).shouldPreferProject) {
+    predictedType = 'PROJECT';
   } else if (/\b(courses|liste de|liste d'|acheter|ingrédients|ingredients|valise|packing|matériel pour|caddie)\b/i.test(cleaned)) {
     predictedType = 'LIST';
   } else if (/\b(anniversaire|fête de|fete de|né le|nee le)\b/i.test(cleaned) || /\b(mamie|papy|grand-mère|grand-père)\b/i.test(lower)) {
@@ -1714,6 +1743,7 @@ export function inferOneTapSkeletonFromTranscript(
   else if (/\b(facture|banque|budget|impôt|impot|paiement|payer)\b/i.test(cleaned)) categoryTag = 'FINANCE';
   else if (/\b(travail|bureau|réunion|reunion|client|linkedin|projet|pro)\b/i.test(lower)) categoryTag = 'WORK';
   else if (/\b(maison|home|famille|bricolage)\b/i.test(lower)) categoryTag = 'HOME';
+  else if (predictedType === 'PROJECT' && /\b(voyage|japon|trip|avion|valise)\b/i.test(lower)) categoryTag = 'TRAVEL';
   else if (predictedType === 'LIST') categoryTag = 'SHOP';
 
   const title =

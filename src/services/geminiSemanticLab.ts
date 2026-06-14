@@ -850,20 +850,140 @@ export async function warmGeminiProxySession(): Promise<void> {
   });
 }
 
+const PASS2_PROJECT_TRAVEL_PROMPT = (
+  transcript: string,
+  brief?: {
+    destination?: string | null;
+    party?: string[];
+    flights?: string | null;
+    constraints?: string[];
+    departure_ymd?: string | null;
+  } | null,
+) => {
+  const partyLine =
+    brief?.party?.length ? `Voyageurs : ${brief.party.join(', ')}.` : '';
+  const destLine = brief?.destination ? `Destination : ${brief.destination}.` : '';
+  const flightsLine = brief?.flights ? `Vol(s) : ${brief.flights}.` : '';
+  const constraintsLine =
+    brief?.constraints?.length ? `Contraintes : ${brief.constraints.join(' ; ')}.` : '';
+  const departLine = brief?.departure_ymd ? `Date de départ : ${brief.departure_ymd}.` : '';
+  return `Tu es un expert en préparation de voyage en famille. Décompose la préparation en jalons concrets.
+
+Consignes :
+- Langue : identique à la dictée.
+- Pas de dates calendaires dans les jalons — durées estimées uniquement (hours|days|weeks).
+- Inclure si pertinent : Administratif, Billets & escale, Kit escale (jeux, snacks), Valises par voyageur, Logistique départ.
+- Persona expert par jalon (ex: Agent aérien, Logisticien famille, Assistant voyage).
+${destLine} ${partyLine} ${flightsLine} ${constraintsLine} ${departLine}
+
+Transcription:
+"""${transcript.replace(/"/g, '\\"')}"""
+
+JSON pur :
+{"title": string, "milestones": [{"title": string, "estimated_duration": number, "unit": "hours|days|weeks", "expert_persona": string}]}`;
+};
+
+const PASS2_TRAVEL_PACKING_PROMPT = (params: {
+  transcript: string;
+  party: string[];
+  constraints: string[];
+  destination: string | null;
+}) => {
+  const partyList = params.party.join(', ');
+  const constraints = params.constraints.length ? params.constraints.join(' ; ') : '—';
+  return `Tu es un expert valise voyage. Génère une liste JSON avec UNE catégorie par voyageur (nom = prénom/persona).
+
+Règles :
+- Langue = langue de la dictée.
+- Items courts (max 3 mots), concrets, cochables.
+- Respecte les contraintes explicites (ex: couches pour Rachel).
+- Max 10 items par personne, max ${params.party.length} catégories.
+- destination: ${params.destination || '—'} | contraintes: ${constraints}
+
+Voyageurs: ${partyList}
+
+Dictée:
+"""${params.transcript.replace(/"/g, '\\"')}"""
+
+JSON :
+{"title": string, "baseCount": ${params.party.length}, "unitLabel": "voyageur", "categories": [{"name": string, "items": [{"name": string, "baseQuantity": number, "unit": string, "scalable": boolean}]}]}`;
+};
+
+export async function geminiEnrichTravelProjectPacking(params: {
+  transcript: string;
+  uiLocale: string;
+  party: string[];
+  constraints: string[];
+  destination: string | null;
+}): Promise<{ parsed: GeminiListInventoryJson; rawResponseText: string }> {
+  const safe = params.transcript.length > 10_000 ? params.transcript.slice(0, 10_000) : params.transcript;
+  const prompt = PASS2_TRAVEL_PACKING_PROMPT({
+    transcript: safe,
+    party: params.party,
+    constraints: params.constraints,
+    destination: params.destination,
+  });
+  await awaitGeminiSteeringBeforeNetworkCall();
+  await ensureFreshPassModelsFromRemoteConfig();
+  const modelId = getActivePass2ModelId();
+  const { text, meta } = await callGeminiProxyStream({
+    modelOverride: modelId,
+    request: {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.18, maxOutputTokens: 2048 },
+    },
+    operation: 'lab.travel_project_packing',
+  });
+  const rawResponseText = extractTextFromGenerateResponse(text);
+  if (!rawResponseText) throw new Error('Gemini: empty travel packing response');
+  const parsed = parseGeminiListInventoryJson(rawResponseText);
+  logAiInteraction({
+    pass: 2,
+    label: 'REASONING',
+    modelId: meta.modelId,
+    userContent: prompt,
+    temperature: 0.18,
+    isJsonMode: false,
+    historyLength: 1,
+    latencyMs: 0,
+    rawResponse: rawResponseText,
+    parsedResult: parsed,
+    parsedSectionTitle: 'PARSED TRAVEL PACKING',
+    tokens: aiLogTokensFromHttpMeta(meta),
+  });
+  return { parsed, rawResponseText };
+}
+
 export async function geminiEnrichGenericList(
   transcript: string,
-  options: { uiLocale: string; mode?: 'LIST' | 'PROJECT'; referenceTimeIso?: string },
+  options: {
+    uiLocale: string;
+    mode?: 'LIST' | 'PROJECT' | 'PROJECT_TRAVEL';
+    referenceTimeIso?: string;
+    projectBrief?: {
+      destination?: string | null;
+      party?: string[];
+      flights?: string | null;
+      constraints?: string[];
+      departure_ymd?: string | null;
+    } | null;
+  },
 ): Promise<
   | { mode: 'LIST'; parsed: GeminiListInventoryJson; rawResponseText: string }
   | { mode: 'PROJECT'; parsed: import('./projectMilestonesModel').ProjectMilestonesPayload; rawResponseText: string }
 > {
   const safe = transcript.length > 10_000 ? transcript.slice(0, 10_000) : transcript;
-  const mode = options.mode === 'PROJECT' ? 'PROJECT' : 'LIST';
+  const mode = options.mode ?? 'LIST';
   const prompt =
-    mode === 'PROJECT' ? PASS2_PROJECT_INLINE_PROMPT(safe) : PASS2_LIST_INLINE_PROMPT(safe);
+    mode === 'PROJECT_TRAVEL'
+      ? PASS2_PROJECT_TRAVEL_PROMPT(safe, options.projectBrief ?? null)
+      : mode === 'PROJECT'
+        ? PASS2_PROJECT_INLINE_PROMPT(safe)
+        : PASS2_LIST_INLINE_PROMPT(safe);
+  const modeLabel = mode === 'PROJECT_TRAVEL' ? 'PROJECT_TRAVEL' : mode;
   await awaitGeminiSteeringBeforeNetworkCall();
   await ensureFreshPassModelsFromRemoteConfig();
-  await logPass2ModelSteeringDiagnostics(`lab.list_enrich_generic/${mode}`);
+  await logPass2ModelSteeringDiagnostics(`lab.list_enrich_generic/${modeLabel}`);
   const modelId = getActivePass2ModelId();
   const temperature = 0.18;
   const historyLength = 1;
@@ -893,7 +1013,7 @@ export async function geminiEnrichGenericList(
     rawResponseText = extractTextFromGenerateResponse(text);
     if (!rawResponseText) throw new Error('Gemini: empty list enrich response');
     const tokens = aiLogTokensFromHttpMeta(meta);
-    if (mode === 'PROJECT') {
+    if (mode === 'PROJECT' || mode === 'PROJECT_TRAVEL') {
       const { parseGeminiProjectMilestonesJson } = await import('./projectMilestonesModel');
       const parsed = parseGeminiProjectMilestonesJson(rawResponseText);
       logAiInteraction({
@@ -905,7 +1025,7 @@ export async function geminiEnrichGenericList(
         parsedSectionTitle: 'PARSED MILESTONES',
         tokens,
       });
-      return { mode, parsed, rawResponseText };
+      return { mode: 'PROJECT' as const, parsed, rawResponseText };
     }
     const parsed = parseGeminiListInventoryJson(rawResponseText);
     logAiInteraction({
@@ -917,7 +1037,7 @@ export async function geminiEnrichGenericList(
       parsedSectionTitle: 'PARSED LIST',
       tokens,
     });
-    return { mode, parsed, rawResponseText };
+    return { mode: 'LIST' as const, parsed, rawResponseText };
   } catch (error) {
     logAiInteraction({
       ...logBase,

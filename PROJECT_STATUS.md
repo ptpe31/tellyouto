@@ -687,12 +687,13 @@ Si l’objectif produit est “zéro friction offline”, il peut encore manquer
 | **Pass 1** | `buildOneTapPass1SystemInstructionSourced` + champs `source_hint`, `title_mode`, `event_series` ; `SOURCE_KIND` dans user content ; sélection via `resolvePass1SystemInstruction` — **mêmes règles multi-bloc pour image, audio et texte** |
 | **UUIDs T0** | `CaptureBatchContext` dans `submitCapturePayload` (`capture_batch_id`, `vault_parent_id`, `auto_parent_id`, `child_id_pool`, `source_kind`) |
 | **Offline immuable** | stub `sourcing_v1` dans NOTE shell `offline_audio_queue` ; rehydratation au replay ; `batchContext` propagé dans tous les chemins offline (NetInfo offline, auto-queue réseau, alerte fallback) |
-| **Multi-bloc** | `persistOneTapDraftVentilated` : NOTE coquille sourcing (`sourcing_shell`) + enfants (`parent_id`) si `intents.length > 1` ; titre parent selon `source_kind` (Capture document / audio / texte) |
+| **Multi-bloc** | `persistOneTapDraftVentilated` : NOTE coquille sourcing (`sourcing_shell`) + enfants (`parent_id`) si `intents.length > 1` ; titre parent selon `source_kind` |
+| **Projet voyage** | Pass 1 monolith (`TRAVEL PREP PROJECT`) · `project_brief_v1` · Pass 2 auto `PROJECT_TRAVEL` + packing par voyageur · Inbox L2 enrichie |
 | **EVENT_SERIES** | type SQLite `TASK` ; `due_date` = 1er slot ; série dans `sourcing_v1.event_series_v1` |
 | **UI Inbox** | [`InboxLineTitle.tsx`](src/components/InboxLineTitle.tsx) — 2 lignes strictes, pastille catégorie, **pas de miniature Vault** (perf FlatList) |
 | **Hiérarchie Inbox** | [`buildInboxRootsView`](src/utils/inboxRootsView.ts) — filtrage racines **côté JS** ; accordéon dans `IdeaBankModal` |
 
-**Fichiers clés** : `src/utils/sourcingV1.ts`, `src/utils/inboxRootsView.ts`, `oneTapUniversalCapture.ts`, `oneTapPersist.ts`, `IntentionContext.tsx`, `offlineAudioQueue.ts`, `trankilV2Db.ts` (mapper), `IdeaBankModal.tsx`, `TimelineScreen.tsx`.
+**Fichiers clés** : `src/utils/sourcingV1.ts`, `src/utils/inboxRootsView.ts`, `src/utils/travelProjectModel.ts`, `src/services/travelProjectEnrich.ts`, `oneTapUniversalCapture.ts`, `oneTapPersist.ts`, `geminiSemanticLab.ts`, `IntentionContext.tsx`, `offlineAudioQueue.ts`, `trankilV2Db.ts` (mapper), `IdeaBankModal.tsx`, `TimelineScreen.tsx`.
 
 **Non-régression** : capture mono-intention (`"Acheter du lait"`) → 1 TASK racine, pas de PROJECT parent, UI ligne 2 = moment/NEW.
 

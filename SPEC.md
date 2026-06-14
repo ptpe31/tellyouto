@@ -160,6 +160,7 @@ RULES:
 | `"Faire la vaisselle tous les jours a 15h"` | `HABIT` · `content:"Faire la vaisselle"` · `recurrence_rule:{frequency:"DAILY",interval:1,time_target:"15:00",raw_phrase:"tous les jours a 15h"}` · `PERSO` · `MAISON` |
 | `"Yoga every Monday at 8am"` | `HABIT` · `content:"Yoga"` · `recurrence_rule:{frequency:"WEEKLY",interval:1,byWeekday:1,time_target:"08:00"}` · `HEALTH` · `MAISON` |
 | Mail club Hip Hop (droit à l'image + RDV Astrolab 14h45) | `TASK` « Répondre au mail… » + `TRIP` `destination:"Astrolab"` · `arrivalDue:"<prochain 27 juin 14:45>"` · `source_hint:"Hip Hop"` · **pas** `PROJECT` |
+| Voyage Japon — valises 4 voyageurs, escale, « c'est un projet, détail complet » | **1× `PROJECT`** · `project_brief` · `baseCount:4` · Pass 2 auto · **pas** TRIP+LIST split |
 
 Clôture :
 
@@ -1320,6 +1321,7 @@ const styles = useMemo(() => createMyStyles(typography), [typography]);
   - **SOURCE_KIND** (`image` | `audio` | `text` | `share`) injecté dans le corps utilisateur Pass 1 (`buildOneTapPass1UserContent`) — mêmes règles multi-extraction pour import image, dictée micro et texte collé.
 - **Persistance** : `metadata_json.sourcing_v1` (via `patchMetadata`) + `context_tag` colonne native ; `CaptureBatchContext` pré-alloué dans `submitCapturePayload` avant NetInfo/offline (`source_kind` : `audio` si `audioUri`, `image` si `preassignedIntentionId`, sinon `text`).
 - **Multi-bloc** : ventilation → NOTE coquille sourcing (`sourcing_shell`, `auto_parent_id`) + enfants TASK/TRIP liés (`parent_id`) si `intents.length > 1` ; mono-intention inchangée.
+- **Projet voyage monolithique** (juin 2026) : dictée « préparer voyage + valises + N voyageurs + c'est un projet » → **un seul** `PROJECT` (pas d'éclatement TRIP/TASK). Brief `project_brief_v1` (destination, party, vols, contraintes, `departure_ymd`, `auto_detail_requested`). Pass 2 auto si « détail complet » : jalons voyage + valises par voyageur (`project_packing_v1`).
 - **Offline** : stub `sourcing_v1` propagé dans **tous** les chemins d’enqueue (`submitCapturePayload` offline, `tryAutoQueueNetworkFailure`, `proposeOfflineFallback`) pour rehydratation batch au replay.
 - **EVENT_SERIES** : type SQLite `TASK` ; `due_date` index Timeline = 1er créneau ; série complète dans `sourcing_v1.event_series_v1`.
 - **Inbox UI** : [`resolveInboxLinePresentation`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/utils/inboxLineModel.ts) via [`InboxLineTitle.tsx`](file:///Users/lala/Dev/trankil-v3/Dev-trankil-v34/src/components/InboxLineTitle.tsx) — **L1 = Quoi** (`display_title` / événement TRIP), **L2 = Contexte** structuré par type : TRIP `{destination} · {jour} · {heure}` ; TASK `{source_hint} · {moment}` ou NEW ; shell sourcing `{N} actions extraites` ; `numberOfLines={1}` strict ; pastille catégorie.

@@ -524,6 +524,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
               parentJalonUid: params.parentJalonUid,
               batchContext: batchContext ?? null,
               trace: trace || undefined,
+              uiLocale,
             });
             if (vr.ok) {
               savedAny = true;
@@ -773,6 +774,9 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
           });
           if (!firstId) return;
           const dealerBulkItems = buildDealerBulkPeekItems(outcomes, skeleton, autoParentId);
+          const travelProjectEnriched = outcomes.some(
+            (o) => o.kind === 'project_persisted' && o.travelProjectEnriched === true,
+          );
           DeviceEventEmitter.emit(INTENTION_PEEK_FIRST_SAVE_EVENT_NAME, {
             intentionId: firstId,
             categoryTag: skeleton.categoryTag,
@@ -780,6 +784,7 @@ export function IntentionProvider({ children }: { children: React.ReactNode }) {
             title: String(peekPrimary?.title ?? skeleton.title ?? cleaned.slice(0, 200)),
             transcript: cleaned,
             dealerBulkItems: dealerBulkItems.length > 0 ? dealerBulkItems : undefined,
+            travelProjectEnriched,
           });
           logCaptureFlow(trace || undefined, 'peek_first_save_emit', {
             intentionId: firstId,

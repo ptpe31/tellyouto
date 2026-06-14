@@ -47,6 +47,13 @@ import {
   type CaptureBatchContext,
   type SourcingTitleMode,
 } from '../utils/sourcingV1';
+import {
+  buildProjectBriefMetadataPatch,
+  parseProjectBriefFromIntentRaw,
+  shouldAutoEnrichTravelProject,
+  type ProjectBriefV1,
+} from '../utils/travelProjectModel';
+import { enrichTravelProjectAfterPersist } from './travelProjectEnrich';
 
 
 export type PersistOneTapSuccess =
@@ -77,6 +84,7 @@ export type PersistOneTapSuccess =
       intentionId: string;
       successFeedbackI18nKey: string;
       consumedClassicFreeSlot: boolean;
+      travelProjectEnriched?: boolean;
     };
 
 export type PersistOneTapResult =
@@ -549,18 +557,24 @@ async function materializeOneTapIntentionRow(params: {
         .slice(0, 12)
         .map((m) => ({ uid: '', title: m.slice(0, 200), estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }));
       const mergedTitle = title.trim() || 'Projet';
+      const brief = resolveProjectBriefFromDraft(draft, null, raw);
+      const dueYmd = resolveProjectDueYmd(draft) ?? brief?.departure_ymd ?? null;
       const payload = ensureProjectMilestoneUids({
         title: mergedTitle,
         milestones: milestones.length
           ? milestones
-          : [{ uid: '', title: mergedTitle, estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }],
+          : [{ uid: '', title: mergedTitle, estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: dueYmd, note: null }],
       });
-      const meta = JSON.stringify({ ...buildProjectMilestonesMetadataPatch(payload), project: { start_date: null } });
+      const meta = JSON.stringify({
+        ...buildProjectMilestonesMetadataPatch(payload),
+        ...(brief ? buildProjectBriefMetadataPatch(brief) : {}),
+        project: { start_date: dueYmd },
+      });
       return {
         id: intentionId,
         type: 'PROJECT',
         title: mergedTitle,
-        due_date: null,
+        due_date: dueYmd,
         content_raw: raw,
         metadata_json: meta,
         suggested_tags: JSON.stringify(['sans_pression']),
@@ -1032,9 +1046,11 @@ export async function persistOneTapDraft(params: {
       }
       case 'PROJECT': {
         const mergedTitle = title;
+        const brief = resolveProjectBriefFromDraft(draft, null, raw);
+        const dueYmd = resolveProjectDueYmd(draft) ?? brief?.departure_ymd ?? null;
         const placeholderPayload = ensureProjectMilestoneUids({
           title: mergedTitle,
-          milestones: [{ uid: '', title: '—', estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: null, note: null }],
+          milestones: [{ uid: '', title: '—', estimated_duration: 1, unit: 'days' as const, checked: false, pivot_date: dueYmd, note: null }],
         });
         const id = effectiveDeps.newId();
         const metaBase = JSON.stringify(buildProjectMilestonesMetadataPatch(placeholderPayload));
@@ -1042,7 +1058,8 @@ export async function persistOneTapDraft(params: {
           is_generating: false,
           list_enrich_status: 'idle',
           list_enrich_error: null,
-          project: { start_date: null },
+          project: { start_date: dueYmd },
+          ...(brief ? buildProjectBriefMetadataPatch(brief) : {}),
           ...(params.parentJalonUid ? { zoom_parent_jalon_uid: params.parentJalonUid } : {}),
         });
         const categoryId = normalizeDomainCategoryId(draft.categoryTag);
@@ -1055,6 +1072,7 @@ export async function persistOneTapDraft(params: {
           suggested_tags: JSON.stringify(['sans_pression']),
           category_id: categoryId,
           parent_id: params.parentId ?? null,
+          due_date: dueYmd,
           status: 'TODO',
           is_organized: 0,
           is_local_processed: 1,
@@ -1188,8 +1206,11 @@ async function persistAndDualWrite(params: {
   parentId?: string | null;
   parentJalonUid?: string | null;
   forcedIntentionId?: string;
+  uiLocale?: string;
+  trace?: string;
+  intentRaw?: Record<string, unknown> | null;
 }): Promise<PersistOneTapResult> {
-  const { entityLabel, ...persistParams } = params;
+  const { entityLabel, uiLocale, trace, intentRaw, ...persistParams } = params;
   const persistStart = Date.now();
   const res = await persistOneTapDraft({
     ...persistParams,
@@ -1205,6 +1226,22 @@ async function persistAndDualWrite(params: {
     }
     console.log(`[DATABASE] ⏱️ Persistance ${entityLabel} en ${Date.now() - persistStart}ms`);
     console.log(`[VENTILATION-WRITE] ✅ ${entityLabel} | ID: ${id}`.trim());
+    if (res.outcome.kind === 'project_persisted' && id) {
+      const travelEnriched = await maybeAutoEnrichTravelProject({
+        intentionId: id,
+        transcript: params.transcript,
+        draft: params.draft,
+        intentRaw: intentRaw ?? null,
+        uiLocale,
+        trace,
+      });
+      if (travelEnriched) {
+        return {
+          ok: true,
+          outcome: { ...res.outcome, travelProjectEnriched: true },
+        };
+      }
+    }
   }
   return res;
 }
@@ -1225,6 +1262,55 @@ async function patchSourcingV1Metadata(
   sourcing: ReturnType<typeof buildSourcingV1ForChild>,
 ): Promise<void> {
   await patchMetadata(intentionId, { sourcing_v1: sourcing }, { silent: true });
+}
+
+function resolveProjectBriefFromDraft(
+  draft: OneTapUniversalResult,
+  intentRaw?: Record<string, unknown> | null,
+  transcript?: string,
+): ProjectBriefV1 | null {
+  const data = (draft.data ?? {}) as Record<string, unknown>;
+  if (intentRaw) {
+    const fromIntent = parseProjectBriefFromIntentRaw(intentRaw, transcript ?? '');
+    if (fromIntent) return fromIntent;
+  }
+  const embedded = data.project_brief;
+  if (embedded && typeof embedded === 'object' && !Array.isArray(embedded)) {
+    return parseProjectBriefFromIntentRaw({ project_brief: embedded }, transcript ?? '');
+  }
+  return null;
+}
+
+function resolveProjectDueYmd(draft: OneTapUniversalResult): string | null {
+  const data = (draft.data ?? {}) as Record<string, unknown>;
+  const ymd = String(data.dueDateYmd ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+  const dueIso = String(data.dueDateTime ?? '').trim();
+  if (dueIso) {
+    const parsed = parsePass1DueDateTime(dueIso);
+    if (parsed?.dueDateYmd) return parsed.dueDateYmd;
+  }
+  return null;
+}
+
+async function maybeAutoEnrichTravelProject(params: {
+  intentionId: string;
+  transcript: string;
+  draft: OneTapUniversalResult;
+  intentRaw?: Record<string, unknown> | null;
+  uiLocale?: string;
+  trace?: string;
+}): Promise<boolean> {
+  const brief = resolveProjectBriefFromDraft(params.draft, params.intentRaw ?? null, params.transcript);
+  if (!brief || !shouldAutoEnrichTravelProject(params.transcript, brief)) return false;
+  const result = await enrichTravelProjectAfterPersist({
+    intentionId: params.intentionId,
+    transcript: params.transcript,
+    brief,
+    uiLocale: params.uiLocale ?? 'fr-FR',
+    trace: params.trace,
+  });
+  return result.ok;
 }
 
 function fallbackCaptureParentTitle(sourceKind?: CaptureBatchContext['source_kind'] | null): string {
@@ -1274,6 +1360,7 @@ export async function persistOneTapDraftVentilated(params: {
   parentJalonUid?: string | null;
   batchContext?: CaptureBatchContext | null;
   trace?: string;
+  uiLocale?: string;
 }): Promise<PersistOneTapVentilatedResult> {
   const { deps, draft, transcript, habitsDefaultTitle, birthdayLabel } = params;
   const captureTrace = params.trace?.trim() || undefined;
@@ -1464,13 +1551,24 @@ export async function persistOneTapDraftVentilated(params: {
             baseCount: Number(r.baseCount ?? 1),
             unitLabel: typeof r.unitLabel === 'string' ? r.unitLabel : undefined,
           });
+          const dueIso = typeof r.due === 'string' ? r.due.trim() : '';
+          const parsedDue = dueIso ? parsePass1DueDateTime(dueIso) : null;
+          const brief = parseProjectBriefFromIntentRaw(r, transcript);
+          const projectData: Record<string, unknown> = {
+            list: listBlock,
+            project_mode: true,
+            ...(brief ? { project_brief: brief } : {}),
+            ...(parsedDue?.dueDateTime ? { dueDateTime: parsedDue.dueDateTime } : dueIso ? { dueDateTime: dueIso } : {}),
+            ...(parsedDue?.dueDateYmd ? { dueDateYmd: parsedDue.dueDateYmd } : {}),
+            ...(parsedDue?.dueTimeHm ? { dueTimeHm: parsedDue.dueTimeHm } : {}),
+          };
           const projectDraft: OneTapUniversalResult = {
             ...draft,
             categoryTag,
             contextTag,
             title: title.trim().slice(0, 200) || draft.title,
             predictedType: 'PROJECT',
-            data: { list: listBlock, project_mode: true },
+            data: projectData,
           };
           const pr = await persistAndDualWrite({
             deps,
@@ -1481,6 +1579,9 @@ export async function persistOneTapDraftVentilated(params: {
             entityLabel: 'PROJECT',
             parentId: effectiveParentId,
             parentJalonUid: params.parentJalonUid,
+            uiLocale: params.uiLocale,
+            trace: captureTrace,
+            intentRaw: r,
           });
           if (DEBUG_MODE_DOUANE) console.log(pr.ok ? '[DOUANE] ✅ Passage accordé' : '[DOUANE] ❌ Refoulé');
           if (DEBUG_MODE_DOUANE && !pr.ok) console.log(`[DOUANE] ❌ ERROR: ${pr.error instanceof Error ? pr.error.message : String(pr.error)}`);

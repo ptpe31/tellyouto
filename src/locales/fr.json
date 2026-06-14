@@ -271,6 +271,8 @@
     "inboxListItemCount": "{{count}} éléments",
     "inboxProjectItemCount": "{{count}} étapes",
     "inboxProjectLabel": "Projet",
+    "travelProjectPartyCount": "{{count}} voyageurs",
+    "travelProjectDeparture": "départ {{date}}",
     "createdOn": "Créé le {{date}} à {{time}}",
     "aiPendingChip": "Tri IA en attente",
     "aiFailedChip": "Traitement IA échoué",
